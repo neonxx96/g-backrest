@@ -20,9 +20,12 @@ import uvicorn
 from backend.app.config import BACKEND_HOST, BACKEND_PORT, LOG_LEVEL
 from backend.app.db.database import init_db
 from backend.app.api.routes import router as api_router
+from backend.app.api.data_routes import data_router
 from backend.app.services.binance_service import binance_service
 from backend.app.services.scanner import scanner
+from backend.app.services.recorder import recorder
 from backend.app.services.bot import start_bot_polling, broadcast_signal
+
 
 # Configure logging
 logging.basicConfig(
@@ -69,11 +72,15 @@ async def lifespan(app: FastAPI):
     bot_task = asyncio.create_task(start_bot_polling())
     background_tasks.append(bot_task)
 
+    # 4. Start OrderFlow Recorder (100GB storage manager)
+    await recorder.start()
+
     yield
 
     # Shutdown
     logger.info("Shutting down Signal Script Backend...")
     binance_service.is_ws_running = False
+    await recorder.stop()
     for task in background_tasks:
         task.cancel()
     await binance_service.close()
@@ -90,6 +97,8 @@ app.add_middleware(
 )
 
 app.include_router(api_router)
+app.include_router(data_router)
 
 if __name__ == "__main__":
+
     uvicorn.run("backend.main:app", host=BACKEND_HOST, port=BACKEND_PORT, reload=False)

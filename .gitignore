@@ -5,6 +5,8 @@ __pycache__/
 *.png
 data/cache/
 data/raw/
+data/recorded/
+data/exports/
 data/*.db
 data/*.db-shm
 data/*.db-wal

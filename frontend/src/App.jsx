@@ -3,12 +3,18 @@ import Chart from './components/Chart';
 import OrderBook from './components/OrderBook';
 import SignalsFeed from './components/SignalsFeed';
 import SettingsModal from './components/SettingsModal';
+import RecorderModal from './components/RecorderModal';
+import BacktestModal from './components/BacktestModal';
+import FootprintClusters from './components/FootprintClusters';
 import { 
   Sliders, 
   Layers, 
   Bell, 
   Search, 
-  TrendingUp
+  TrendingUp,
+  HardDrive,
+  BarChart3,
+  Activity
 } from 'lucide-react';
 
 const TIMEFRAMES = ["1m", "15m", "30m", "45m", "1h", "4h", "6h"];
@@ -25,9 +31,32 @@ export default function App() {
   const [userId, setUserId] = useState(initialUserId);
 
   const [showOrderBook, setShowOrderBook] = useState(true);
+  const [showFootprint, setShowFootprint] = useState(false);
   const [showSignals, setShowSignals] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [showRecorder, setShowRecorder] = useState(false);
+  const [showBacktest, setShowBacktest] = useState(false);
   const [searchInput, setSearchInput] = useState("");
+  const [storageQuickStats, setStorageQuickStats] = useState({ mb: 0, trades: 0, recording: true });
+
+  useEffect(() => {
+    const fetchStorage = () => {
+      fetch('/api/recorder/status')
+        .then(r => r.json())
+        .then(d => {
+          setStorageQuickStats({
+            mb: d.used_storage_mb || 0,
+            trades: d.total_trades_session || 0,
+            recording: d.is_recording
+          });
+        })
+        .catch(() => {});
+    };
+    fetchStorage();
+    const t = setInterval(fetchStorage, 5000);
+    return () => clearInterval(t);
+  }, []);
+
 
   const handleSelectSignal = (newSymbol, newTf) => {
     setSymbol(newSymbol.toUpperCase());
@@ -105,6 +134,38 @@ export default function App() {
 
         {/* Action Toggles */}
         <div className="flex items-center space-x-2">
+          {/* 100GB Storage & Recorder Pill */}
+          <button
+            onClick={() => setShowRecorder(true)}
+            className="px-2.5 py-1 rounded text-xs font-mono font-medium bg-[#121620] hover:bg-[#1a2130] border border-[#1b212f] text-gray-300 flex items-center space-x-1.5 transition"
+            title="Квота хранилища 100 GB и настройки рекордера"
+          >
+            <span className={`inline-block w-1.5 h-1.5 rounded-full ${storageQuickStats.recording ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
+            <HardDrive size={12} className="text-[#2563eb]" />
+            <span className="hidden md:inline font-bold text-white">{storageQuickStats.mb} MB</span>
+            <span className="text-[10px] text-gray-400">/ 100GB</span>
+          </button>
+
+          {/* Backtester Modal Trigger */}
+          <button
+            onClick={() => setShowBacktest(true)}
+            className="px-2.5 py-1 rounded text-xs font-semibold bg-[#121620] hover:bg-[#1a2130] text-gray-200 border border-[#1b212f] flex items-center space-x-1 transition"
+            title="Бэктестер Order Flow & Свечных Триггеров"
+          >
+            <BarChart3 size={13} className="text-purple-400" />
+            <span className="hidden sm:inline">Бэктест</span>
+          </button>
+
+          {/* Footprint Clusters Toggle */}
+          <button
+            onClick={() => setShowFootprint(!showFootprint)}
+            className={`px-2.5 py-1 rounded text-xs font-semibold flex items-center space-x-1 transition ${showFootprint ? 'bg-[#121620] text-white border border-[#2563eb]' : 'text-[#848e9c] hover:bg-[#121620]'}`}
+            title="Переключить Footprint / Кластера"
+          >
+            <Activity size={13} className="text-emerald-400" />
+            <span className="hidden sm:inline">Кластера</span>
+          </button>
+
           <button
             onClick={() => setShowOrderBook(!showOrderBook)}
             className={`px-2.5 py-1 rounded text-xs font-semibold flex items-center space-x-1 transition ${showOrderBook ? 'bg-[#121620] text-white border border-[#1b212f]' : 'text-[#848e9c] hover:bg-[#121620]'}`}
@@ -140,6 +201,13 @@ export default function App() {
           <Chart symbol={symbol} timeframe={timeframe} userId={userId} />
         </div>
 
+        {/* Footprint Clusters Column */}
+        {showFootprint && (
+          <div className="w-72 h-full flex flex-col shrink-0">
+            <FootprintClusters symbol={symbol} />
+          </div>
+        )}
+
         {/* Middle/Right: OrderBook */}
         {showOrderBook && (
           <div className="w-80 h-full flex flex-col shrink-0">
@@ -155,12 +223,26 @@ export default function App() {
         )}
       </div>
 
-      {/* Settings Modal */}
+      {/* Modals */}
       <SettingsModal
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
         userId={userId}
       />
+
+      <RecorderModal
+        isOpen={showRecorder}
+        onClose={() => setShowRecorder(false)}
+        activeSymbol={symbol}
+      />
+
+      <BacktestModal
+        isOpen={showBacktest}
+        onClose={() => setShowBacktest(false)}
+        currentSymbol={symbol}
+        currentTimeframe={timeframe}
+      />
     </div>
   );
 }
+

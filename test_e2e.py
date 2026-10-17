@@ -105,9 +105,45 @@ def main():
     conn.close()
     print(f"✅ OK! (В базе зафиксировано ликвидаций: {count}, на сумму: ${total_usd or 0:,.2f})")
 
+    # 10. Recorder & 100GB Quota check
+    print("🔟 Проверка квоты хранилища 100 GB и рекордера (GET /api/recorder/status)...", end=" ")
+    rec_status = request_json("http://127.0.0.1:8000/api/recorder/status")
+    assert rec_status['max_storage_gb'] == 100.0
+    assert rec_status['is_recording'] is True
+    print(f"✅ OK! (Запись активна, фокус монет: {len(rec_status['focus_symbols'])}, сделок: {rec_status['total_trades_session']})")
+
+    # 11. Footprint Clusters check
+    print("1️⃣1️⃣ Проверка генератора Footprint / Кластеров...", end=" ")
+    clusters = request_json("http://127.0.0.1:8000/api/recorder/clusters?symbol=BTCUSDT&limit=5")
+    assert isinstance(clusters, list)
+    print(f"✅ OK! (Кластера формируются в памяти, свечей: {len(clusters)})")
+
+    # 12. Order Flow Backtester simulation
+    print("1️⃣2️⃣ Проверка симулятора бэктеста Order Flow (POST /api/backtest/run)...", end=" ")
+    bt_res = request_json("http://127.0.0.1:8000/api/backtest/run", method="POST", payload={
+        "symbol": "BTCUSDT",
+        "timeframe": "15m",
+        "days": 7,
+        "strategy_type": "confluence_ema",
+        "initial_capital": 10000.0,
+        "leverage": 2.0
+    })
+    assert 'net_pnl' in bt_res
+    assert 'win_rate_pct' in bt_res
+    print(f"✅ OK! (Бэктест выполнен: PnL {bt_res['net_pnl']}$, WR {bt_res['win_rate_pct']}%, сделок {bt_res['total_trades']})")
+
+    # 13. Data Export ZIP
+    print("1️⃣3️⃣ Проверка экспорта данных (GET /api/recorder/export)...", end=" ")
+    req_exp = urllib.request.Request("http://127.0.0.1:8000/api/recorder/export?symbol=BTCUSDT")
+    with urllib.request.urlopen(req_exp, timeout=10) as resp:
+        zip_bytes = resp.read()
+        assert len(zip_bytes) > 0
+    print(f"✅ OK! (Архив Parquet сформирован, размер: {len(zip_bytes):,} байт)")
+
     print("=" * 70)
-    print("🎉 ВСЕ 9 E2E ТЕСТОВ ПРОЙДЕНЫ УСПЕШНО! СИСТЕМА ПОЛНОСТЬЮ ИСПРАВНА!")
+    print("🎉 ВСЕ 13 E2E ТЕСТОВ ПРОЙДЕНЫ УСПЕШНО! СИСТЕМА ПОЛНОСТЬЮ ИСПРАВНА!")
     print("=" * 70)
 
 if __name__ == "__main__":
     main()
+
