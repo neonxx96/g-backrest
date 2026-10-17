@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Chart from './components/Chart';
 import OrderBookDOM from './components/OrderBookDOM';
+import ScalperTradeDesk from './components/ScalperTradeDesk';
 import Tape from './components/Tape';
 import SignalsFeed from './components/SignalsFeed';
 import SettingsModal, {
@@ -53,13 +54,14 @@ const THEME_BADGE = {
 const DEFAULT_LAYOUT = {
   showHtfChart: true,
   showLtfChart: true,
+  showTradeDesk: true,
   showOrderBook: true,
   showTape: true,
   showSignals: true,
   sidebarWidth: 500,
   chartSplitPct: 50,
   domWidthPct: 64,
-  signalsHeightPct: 38
+  signalsHeightPct: 34
 };
 
 function loadTerminalLayout() {
@@ -257,9 +259,12 @@ export default function App() {
     return localStorage.getItem('secondary_tf') || '1m';
   });
 
+  const [showTradeDesk, setShowTradeDesk] = useState(initialLayout.current.showTradeDesk !== false);
   const [showOrderBook, setShowOrderBook] = useState(initialLayout.current.showOrderBook !== false);
   const [showTape, setShowTape] = useState(initialLayout.current.showTape !== false);
   const [showSignals, setShowSignals] = useState(initialLayout.current.showSignals !== false);
+  const [marketSummary, setMarketSummary] = useState(null);
+  const [userLimitOrders, setUserLimitOrders] = useState([]);
 
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     return Math.min(820, Math.max(290, Number(initialLayout.current.sidebarWidth) || 500));
@@ -271,7 +276,7 @@ export default function App() {
     return Math.min(80, Math.max(30, Number(initialLayout.current.domWidthPct) || 64));
   });
   const [signalsHeightPct, setSignalsHeightPct] = useState(() => {
-    return Math.min(70, Math.max(18, Number(initialLayout.current.signalsHeightPct) || 38));
+    return Math.min(70, Math.max(18, Number(initialLayout.current.signalsHeightPct) || 34));
   });
 
   const [showWidgetsMenu, setShowWidgetsMenu] = useState(false);
@@ -293,6 +298,7 @@ export default function App() {
     const layoutObj = {
       showHtfChart,
       showLtfChart,
+      showTradeDesk,
       showOrderBook,
       showTape,
       showSignals,
@@ -312,6 +318,7 @@ export default function App() {
   }, [
     showHtfChart,
     showLtfChart,
+    showTradeDesk,
     showOrderBook,
     showTape,
     showSignals,
@@ -328,6 +335,7 @@ export default function App() {
   const resetLayoutToDefaults = useCallback(() => {
     setShowHtfChart(DEFAULT_LAYOUT.showHtfChart);
     setShowLtfChart(DEFAULT_LAYOUT.showLtfChart);
+    setShowTradeDesk(DEFAULT_LAYOUT.showTradeDesk);
     setShowOrderBook(DEFAULT_LAYOUT.showOrderBook);
     setShowTape(DEFAULT_LAYOUT.showTape);
     setShowSignals(DEFAULT_LAYOUT.showSignals);
@@ -584,13 +592,15 @@ export default function App() {
     setUiConfig((prev) => ({ ...prev, theme: nextTheme }));
   };
 
-  const anyRightPanelOpen = showOrderBook || showTape || showSignals;
+  const anyRightPanelOpen = showTradeDesk || showOrderBook || showTape || showSignals;
   const toggleAllRightPanels = () => {
     if (anyRightPanelOpen) {
+      setShowTradeDesk(false);
       setShowOrderBook(false);
       setShowTape(false);
       setShowSignals(false);
     } else {
+      setShowTradeDesk(true);
       setShowOrderBook(true);
       setShowTape(true);
       setShowSignals(true);
@@ -750,6 +760,12 @@ export default function App() {
                     label: 'График LTF (Младший ТФ)',
                     active: showLtfChart,
                     toggle: () => setShowLtfChart((v) => !v)
+                  },
+                  {
+                    id: 'trade_desk',
+                    label: 'Scalper Trade Desk (Риск / Ввод)',
+                    active: showTradeDesk,
+                    toggle: () => setShowTradeDesk((v) => !v)
                   },
                   {
                     id: 'dom',
@@ -1081,7 +1097,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Right Pane: Responsive Resizable Sidebar (DOM OrderBook, Tape, Signals) */}
+        {/* Right Pane: Responsive Resizable Sidebar (Scalper Trade Desk, DOM OrderBook, Tape, Signals) */}
         {anyRightPanelOpen && (
           <aside
             ref={rightDockRef}
@@ -1091,13 +1107,20 @@ export default function App() {
             }}
             className="h-full flex flex-col p-1 pl-0 overflow-hidden shrink-0 min-w-[290px]"
           >
+            {/* ТАКТ 1: Scalper Trade Desk directly above DOM OrderBook */}
+            {showTradeDesk && (
+              <ScalperTradeDesk
+                symbol={symbol}
+                marketSummary={marketSummary}
+                onOrdersChange={setUserLimitOrders}
+                onClose={() => setShowTradeDesk(false)}
+              />
+            )}
+
             {(showOrderBook || showTape) && (
               <div
                 ref={domTapeRowRef}
-                style={{
-                  height: showSignals ? `${100 - signalsHeightPct}%` : '100%'
-                }}
-                className="w-full flex min-h-0 overflow-hidden shrink-0"
+                className="w-full flex-1 flex min-h-0 overflow-hidden"
               >
                 {showOrderBook && (
                   <div
@@ -1109,6 +1132,8 @@ export default function App() {
                       onProximityAlert={handleProximityAlert}
                       uiConfig={uiConfig}
                       strategyLevels={strategyLevels}
+                      userLimitOrders={userLimitOrders}
+                      onMarketSummary={setMarketSummary}
                       onClose={() => setShowOrderBook(false)}
                     />
                   </div>
@@ -1157,7 +1182,14 @@ export default function App() {
             )}
 
             {showSignals && (
-              <div className="flex-1 w-full min-h-[90px] overflow-hidden">
+              <div
+                style={{
+                  height: showOrderBook || showTape ? `${signalsHeightPct}%` : undefined
+                }}
+                className={`w-full min-h-[90px] overflow-hidden ${
+                  showOrderBook || showTape ? 'shrink-0' : 'flex-1'
+                }`}
+              >
                 <SignalsFeed
                   onSelectSignal={handleSelectSignal}
                   onClose={() => setShowSignals(false)}

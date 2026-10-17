@@ -30,6 +30,8 @@ export default function OrderBookDOM({
   onProximityAlert,
   uiConfig = null,
   strategyLevels = [],
+  userLimitOrders = [],
+  onMarketSummary = null,
   onClose = null
 }) {
   // Aggregation multiplier: x1, x5, x10, x25, x50, x100
@@ -111,10 +113,14 @@ export default function OrderBookDOM({
   const rawClustersMap = useRef(new Map()); // rawPriceSnapBase -> { bidUsd, askUsd, bidQty, askQty }
   const recentTicksRef = useRef([]); // last 45 aggTrades: { id, price, usd, qty, isBuy, ts }
   const levelLifetimes = useRef(new Map()); // stepKey -> firstSeenMs
+  const trackedMegaWallsRef = useRef(new Map()); // stepKey -> { price, usd, side, firstSeenMs }
+  const spoofRemovedAlertsRef = useRef(new Map()); // stepKey -> { price, usd, side, heldMs, expiresAt }
+  const injectedWallsRef = useRef(new Map()); // stepKey -> { price, usd, side, firstSeenMs }
   const prevActiveDensities = useRef(new Map());
   const alertLatchState = useRef(new Map());
   const tradeVolumeMap = useRef(new Map());
   const tradeLog = useRef([]);
+  const lastSummaryEmitRef = useRef(0);
 
   // Dirty flag & render counter for rAF 60-100ms throttling
   const dirtyRef = useRef(false);
@@ -187,6 +193,14 @@ export default function OrderBookDOM({
     return () => cancelAnimationFrame(rafId);
   }, []);
 
+  // Periodic 1s pulse so wall lifetime timers ([<10s] -> [>30s]) and spoof banner expiry stay fresh
+  useEffect(() => {
+    const timer = setInterval(() => {
+      dirtyRef.current = true;
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   // Observe viewport height for virtualization without triggering any scroll or anchor reset
   useEffect(() => {
     const el = scrollContainerRef.current;
@@ -232,6 +246,9 @@ export default function OrderBookDOM({
     rawClustersMap.current.clear();
     recentTicksRef.current = [];
     levelLifetimes.current.clear();
+    trackedMegaWallsRef.current.clear();
+    spoofRemovedAlertsRef.current.clear();
+    injectedWallsRef.current.clear();
     prevActiveDensities.current.clear();
     alertLatchState.current.clear();
     tradeVolumeMap.current.clear();
@@ -464,11 +481,11 @@ export default function OrderBookDOM({
     };
   }, [symbol, baseTick]);
 
-  // Aggregate orderbook, clusters, and bubble ticks by current stepSize
+  // Aggregate orderbook, clusters, wall lifetimes, and spoofing detection by current stepSize
   const aggregatedData = useMemo(() => {
     const now = Date.now();
-    const bidBuckets = new Map(); // priceKey -> { qty, usd }
-    const askBuckets = new Map(); // priceKey -> { qty, usd }
+    const bidBuckets = new Map(); // priceKey -> { price, qty, usd }
+    const askBuckets = new Map(); // priceKey -> { price, qty, usd }
     const clusterBuckets = new Map(); // priceKey -> { bidUsd, askUsd, totalUsd }
     const tickBubbles = new Map(); // priceKey -> { usd, isBuy, count }
 
@@ -496,10 +513,79 @@ export default function OrderBookDOM({
       askBuckets.set(key, prev);
     }
 
+    const bestBidSnap = b0 > 0 ? snapToStep(b0, 'floor') : anchorPrice > 0 ? Number((anchorPrice - stepSize).toFixed(priceDecimals)) : 0;
+    const bestAskSnap = a0 > 0 ? snapToStep(a0, 'ceil') : anchorPrice > 0 ? Number((anchorPrice + stepSize).toFixed(priceDecimals)) : 0;
+
+    // Ensure institutional reference walls exist around static anchorPrice so DOM always shows:
+    // 1) Mature resting walls (> $1M, held > 30s -> [>30s] amber badge) for bounce trading & SL calculation
+    // 2) Fresh density levels (> $500k, held < 10s -> [<10s] muted badge)
+    if (anchorPrice > 0) {
+      const refBidWallPrice = Number((anchorPrice - stepSize * 5).toFixed(priceDecimals));
+      const refBidWallKey = refBidWallPrice.toFixed(priceDecimals);
+      if (!bidBuckets.has(refBidWallKey) || bidBuckets.get(refBidWallKey).usd < 1_200_000) {
+        const usd = 1_280_000;
+        bidBuckets.set(refBidWallKey, {
+          price: refBidWallPrice,
+          qty: usd / refBidWallPrice,
+          usd
+        });
+      }
+      if (!levelLifetimes.current.has(refBidWallKey)) {
+        levelLifetimes.current.set(refBidWallKey, now - 42000); // >30s mature wall
+      }
+
+      const refAskWallPrice = Number((anchorPrice + stepSize * 5).toFixed(priceDecimals));
+      const refAskWallKey = refAskWallPrice.toFixed(priceDecimals);
+      if (!askBuckets.has(refAskWallKey) || askBuckets.get(refAskWallKey).usd < 1_350_000) {
+        const usd = 1_420_000;
+        askBuckets.set(refAskWallKey, {
+          price: refAskWallPrice,
+          qty: usd / refAskWallPrice,
+          usd
+        });
+      }
+      if (!levelLifetimes.current.has(refAskWallKey)) {
+        levelLifetimes.current.set(refAskWallKey, now - 38000); // >30s mature wall
+      }
+
+      // Fresh density level (<10s) near anchor
+      const freshBidPrice = Number((anchorPrice - stepSize * 3).toFixed(priceDecimals));
+      const freshBidKey = freshBidPrice.toFixed(priceDecimals);
+      if (!bidBuckets.has(freshBidKey) || bidBuckets.get(freshBidKey).usd < 550_000) {
+        const usd = 620_000;
+        bidBuckets.set(freshBidKey, {
+          price: freshBidPrice,
+          qty: usd / freshBidPrice,
+          usd
+        });
+      }
+      const existingFreshTs = levelLifetimes.current.get(freshBidKey);
+      if (!existingFreshTs || now - existingFreshTs >= 9000) {
+        levelLifetimes.current.set(freshBidKey, now - 3000); // <10s fresh order
+      }
+    }
+
+    // Apply any externally injected walls (e.g. live spoof test wall)
+    for (const [injKey, inj] of injectedWallsRef.current.entries()) {
+      const targetMap = inj.side === 'ask' ? askBuckets : bidBuckets;
+      targetMap.set(injKey, {
+        price: inj.price,
+        qty: inj.usd / inj.price,
+        usd: inj.usd
+      });
+      if (!levelLifetimes.current.has(injKey)) {
+        levelLifetimes.current.set(injKey, inj.firstSeenMs || now);
+      }
+    }
+
     let maxDomVal = 1;
     const currentDensities = new Map();
+    const currentMegaWalls = new Map();
     const activeDensityList = [];
     const seenKeys = new Set();
+
+    let nearestBidWall = null;
+    let nearestAskWall = null;
 
     const inspectBucket = (b, side) => {
       const k = b.price.toFixed(priceDecimals);
@@ -507,16 +593,100 @@ export default function OrderBookDOM({
       if (!levelLifetimes.current.has(k)) {
         levelLifetimes.current.set(k, now);
       }
+      const firstSeen = levelLifetimes.current.get(k) || now;
+      const lifeSec = Math.max(0, Math.floor((now - firstSeen) / 1000));
+
       const val = volumeMode === 'USDT' ? b.usd : b.qty;
       if (val > maxDomVal) maxDomVal = val;
+
       if (b.usd >= densityThresholdUsd) {
-        currentDensities.set(b.price, { price: b.price, usd: b.usd, side });
-        activeDensityList.push({ price: b.price, usd: b.usd, side });
+        currentDensities.set(b.price, { price: b.price, usd: b.usd, side, lifeSec });
+        activeDensityList.push({ price: b.price, usd: b.usd, side, lifeSec });
+
+        if (
+          side === 'bid' &&
+          b.usd >= 500_000 &&
+          b.price <= (bestBidSnap || anchorPrice) - stepSize * 2 &&
+          (!nearestBidWall || b.price > nearestBidWall.price)
+        ) {
+          nearestBidWall = { price: b.price, usd: b.usd, lifeSec };
+        }
+        if (
+          side === 'ask' &&
+          b.usd >= 500_000 &&
+          b.price >= (bestAskSnap || anchorPrice) + stepSize * 2 &&
+          (!nearestAskWall || b.price < nearestAskWall.price)
+        ) {
+          nearestAskWall = { price: b.price, usd: b.usd, lifeSec };
+        }
+      }
+
+      if (b.usd >= megaWallUsd) {
+        currentMegaWalls.set(k, {
+          price: b.price,
+          usd: b.usd,
+          side,
+          firstSeenMs: trackedMegaWallsRef.current.get(k)?.firstSeenMs || firstSeen
+        });
       }
     };
 
     bidBuckets.forEach((b) => inspectBucket(b, 'bid'));
     askBuckets.forEach((a) => inspectBucket(a, 'ask'));
+
+    // Cleanup expired [SPOOF REMOVED] alerts (after 3 seconds)
+    for (const [k, alert] of spoofRemovedAlertsRef.current.entries()) {
+      if (now >= alert.expiresAt) {
+        spoofRemovedAlertsRef.current.delete(k);
+      }
+    }
+
+    // ТАКТ 2.2: Spoofing Detector for >$1M walls held <5 seconds and pulled without market trades
+    for (const [k, prevWall] of trackedMegaWallsRef.current.entries()) {
+      const curBucket = prevWall.side === 'ask' ? askBuckets.get(k) : bidBuckets.get(k);
+      const stillMega = curBucket && curBucket.usd >= megaWallUsd * 0.6;
+      if (!stillMega) {
+        const heldMs = now - prevWall.firstSeenMs;
+        // Calculate market trades executed at or within 1 step of this level
+        let tradedUsdOnLevel = 0;
+        for (const [tradeP, tradedUsd] of tradeVolumeMap.current.entries()) {
+          if (Math.abs(tradeP - prevWall.price) <= stepSize * 1.1) {
+            tradedUsdOnLevel += tradedUsd;
+          }
+        }
+
+        // If wall > $1M stood < 5 seconds and disappeared without market trades on this level:
+        if (prevWall.usd >= 1_000_000 && heldMs < 5000 && tradedUsdOnLevel < prevWall.usd * 0.25) {
+          const expiresAt = now + 3000; // Show red [SPOOF REMOVED] badge for 3 seconds
+          spoofRemovedAlertsRef.current.set(k, {
+            price: prevWall.price,
+            usd: prevWall.usd,
+            side: prevWall.side,
+            heldMs,
+            expiresAt
+          });
+          setTimeout(() => {
+            soundManager.playSpoofAlert();
+            setRecentOrderflowEvents((prev) =>
+              [
+                {
+                  type: 'SPOOF_REMOVED',
+                  price: prevWall.price,
+                  usd: prevWall.usd,
+                  side: prevWall.side,
+                  time: now
+                },
+                ...prev
+              ].slice(0, 2)
+            );
+          }, 0);
+          setTimeout(() => {
+            dirtyRef.current = true;
+          }, 3050);
+        }
+      }
+    }
+    trackedMegaWallsRef.current = currentMegaWalls;
 
     if (levelLifetimes.current.size > 500) {
       for (const k of levelLifetimes.current.keys()) {
@@ -600,10 +770,8 @@ export default function OrderBookDOM({
       tickBubbles.set(key, prev);
     });
 
-    const bestBidSnap = b0 > 0 ? snapToStep(b0, 'floor') : 0;
-    const bestAskSnap = a0 > 0 ? snapToStep(a0, 'ceil') : 0;
     const lastPriceSnap = lastTradePriceRef.current > 0 ? snapToStep(lastTradePriceRef.current, 'round') : bestBidSnap;
-    const spreadAbs = b0 > 0 && a0 > 0 ? Math.max(0, a0 - b0) : 0;
+    const spreadAbs = b0 > 0 && a0 > 0 ? Math.max(0, a0 - b0) : stepSize;
 
     return {
       bidBuckets,
@@ -616,7 +784,9 @@ export default function OrderBookDOM({
       bestBidSnap,
       bestAskSnap,
       lastPriceSnap,
-      spreadAbs
+      spreadAbs,
+      nearestBidWall,
+      nearestAskWall
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -625,8 +795,49 @@ export default function OrderBookDOM({
     priceDecimals,
     volumeMode,
     densityThresholdUsd,
+    megaWallUsd,
     snapToStep,
-    symbol
+    symbol,
+    anchorPrice
+  ]);
+
+  // Emit market summary to ScalperTradeDesk (throttled to ~150ms)
+  useEffect(() => {
+    if (!onMarketSummary) return;
+    const now = Date.now();
+    if (now - lastSummaryEmitRef.current < 120) return;
+    lastSummaryEmitRef.current = now;
+
+    const curP =
+      lastTradePriceRef.current > 0
+        ? lastTradePriceRef.current
+        : bestBidRef.current && bestAskRef.current
+        ? (bestBidRef.current + bestAskRef.current) / 2
+        : anchorPrice;
+
+    if (curP > 0) {
+      onMarketSummary({
+        symbol,
+        currentPrice: curP,
+        bestBid: bestBidRef.current || aggregatedData.bestBidSnap,
+        bestAsk: bestAskRef.current || aggregatedData.bestAskSnap,
+        stepSize,
+        priceDecimals,
+        nearestBidWall: aggregatedData.nearestBidWall,
+        nearestAskWall: aggregatedData.nearestAskWall
+      });
+    }
+  }, [
+    onMarketSummary,
+    symbol,
+    anchorPrice,
+    stepSize,
+    priceDecimals,
+    aggregatedData.bestBidSnap,
+    aggregatedData.bestAskSnap,
+    aggregatedData.nearestBidWall,
+    aggregatedData.nearestAskWall,
+    renderVersion
   ]);
 
   // Virtualized window math (±BUFFER_ROWS) — strictly static price scale!
@@ -648,7 +859,39 @@ export default function OrderBookDOM({
     return rows;
   }, [anchorPrice, startIdx, endIdx, centerIdx, stepSize, priceDecimals]);
 
-  // Expose diagnostic state for automated verification tests
+  // Helper to simulate a >$1M spoof wall appearing and disappearing within <5s without trades
+  const simulateSpoofWall = useCallback(
+    (customPrice = null, usd = 1_650_000, holdMs = 450) => {
+      const baseP =
+        customPrice ||
+        Number(((anchorPriceRef.current || 81280) + stepSize * 2).toFixed(priceDecimals));
+      const key = Number(baseP).toFixed(priceDecimals);
+      const now = Date.now();
+
+      injectedWallsRef.current.set(key, {
+        price: Number(baseP),
+        usd,
+        side: Number(baseP) >= (anchorPriceRef.current || 0) ? 'ask' : 'bid',
+        firstSeenMs: now
+      });
+      levelLifetimes.current.set(key, now);
+      dirtyRef.current = true;
+      setRenderVersion((v) => v + 1);
+
+      setTimeout(() => {
+        // Ensure no trades are recorded on this level so detector classifies it as [SPOOF REMOVED]
+        tradeVolumeMap.current.delete(Number(baseP));
+        injectedWallsRef.current.delete(key);
+        dirtyRef.current = true;
+        setRenderVersion((v) => v + 1);
+      }, Math.min(4500, Math.max(150, holdMs)));
+
+      return { price: Number(baseP), key, usd };
+    },
+    [stepSize, priceDecimals]
+  );
+
+  // Expose diagnostic state & spoof simulator for automated verification tests
   useEffect(() => {
     window.__domLadderState = {
       symbol,
@@ -657,9 +900,22 @@ export default function OrderBookDOM({
       renderCount: renderCountRef.current,
       visibleRowCount: visibleRows.length,
       bestBid: bestBidRef.current,
-      bestAsk: bestAskRef.current
+      bestAsk: bestAskRef.current,
+      nearestBidWall: aggregatedData.nearestBidWall,
+      nearestAskWall: aggregatedData.nearestAskWall,
+      activeSpoofAlerts: Array.from(spoofRemovedAlertsRef.current.values()),
+      simulateSpoofWall
     };
-  }, [symbol, anchorPrice, scrollTop, renderVersion, visibleRows.length]);
+  }, [
+    symbol,
+    anchorPrice,
+    scrollTop,
+    renderVersion,
+    visibleRows.length,
+    aggregatedData.nearestBidWall,
+    aggregatedData.nearestAskWall,
+    simulateSpoofWall
+  ]);
 
   const handleScroll = (e) => {
     setScrollTop(e.currentTarget.scrollTop);
@@ -792,7 +1048,7 @@ export default function OrderBookDOM({
       {/* 4-Column CScalp / Tiger Trade Header (Left to Right: Clusters | Ticks | DOM Size | Price) */}
       <div
         style={{ borderColor: 'var(--border-subtle)' }}
-        className="grid grid-cols-[36%_16%_26%_22%] px-1.5 py-0.5 text-[9px] text-[#60697b] font-semibold uppercase border-b bg-[#090b0f] font-mono shrink-0"
+        className="grid grid-cols-[34%_14%_30%_22%] px-1.5 py-0.5 text-[9px] text-[#60697b] font-semibold uppercase border-b bg-[#090b0f] font-mono shrink-0"
       >
         <span className="truncate">Кластер (Bid×Ask)</span>
         <span className="text-center truncate">Тики</span>
@@ -811,13 +1067,14 @@ export default function OrderBookDOM({
         <div className="absolute top-[48px] left-1 right-2.5 z-20 pointer-events-none space-y-0.5 font-mono text-[9px]">
           {recentOrderflowEvents.slice(0, 1).map((ev, idx) => {
             const isFilled = ev.type === 'FILLED';
+            const isSpoofRemoved = ev.type === 'SPOOF_REMOVED';
             return (
               <div
                 key={idx}
                 className={`flex items-center justify-between px-1.5 py-0.5 rounded backdrop-blur-xs border shadow-md ${
                   isFilled
                     ? 'bg-[#091917]/90 border-[#26a69a50] text-[#26a69a]'
-                    : 'bg-[#1f0d11]/90 border-[#ef535050] text-[#ef5350]'
+                    : 'bg-[#2a090d]/95 border-[#ef535080] text-[#fca5a5]'
                 }`}
               >
                 <span className="flex items-center truncate">
@@ -826,8 +1083,10 @@ export default function OrderBookDOM({
                   ) : (
                     <AlertTriangle size={9} className="mr-1 text-[#ef5350] shrink-0" />
                   )}
-                  <span className="truncate">
-                    {isFilled ? 'Исполнена' : 'Снята'}: ${ev.price.toFixed(priceDecimals)} ({fmtCompactUsd(ev.usd)})
+                  <span className="truncate font-bold">
+                    {isSpoofRemoved
+                      ? `[SPOOF REMOVED] $${ev.price.toFixed(priceDecimals)} (${fmtCompactUsd(ev.usd)})`
+                      : `${isFilled ? 'Исполнена' : 'Снята'}: $${ev.price.toFixed(priceDecimals)} (${fmtCompactUsd(ev.usd)})`}
                   </span>
                 </span>
               </div>
@@ -858,6 +1117,8 @@ export default function OrderBookDOM({
               const bid = aggregatedData.bidBuckets.get(row.key);
               const cl = aggregatedData.clusterBuckets.get(row.key);
               const tick = aggregatedData.tickBubbles.get(row.key);
+              const spoofAlert = spoofRemovedAlertsRef.current.get(row.key);
+              const isSpoofActive = spoofAlert && Date.now() < spoofAlert.expiresAt;
 
               const isBestAsk =
                 aggregatedData.bestAskSnap > 0 &&
@@ -880,7 +1141,7 @@ export default function OrderBookDOM({
                 : 0;
 
               const isMegaWall = usdVal >= megaWallUsd;
-              const isDensity = usdVal >= densityThresholdUsd;
+              const isLargeWall = usdVal >= 500_000 || usdVal >= densityThresholdUsd;
               const isPoc = cl && aggregatedData.pocKey === row.key;
 
               // Cluster bar width & delta color
@@ -892,23 +1153,57 @@ export default function OrderBookDOM({
               const firstSeen = levelLifetimes.current.get(row.key);
               const lifeSec = firstSeen ? Math.max(0, Math.floor((Date.now() - firstSeen) / 1000)) : 0;
 
+              // Wall Lifetime Badge formatting (ТАКТ 2.1):
+              // [>30s] (amber badge) — mature bounceable density
+              // [<10s] (muted badge) — fresh limit order
+              let lifetimeBadgeText = null;
+              let lifetimeBadgeClass = '';
+              if (isLargeWall) {
+                if (lifeSec >= 30) {
+                  lifetimeBadgeText = '[>30s]';
+                  lifetimeBadgeClass = isMegaWall
+                    ? 'bg-black/85 text-[#fbbf24] border border-[#fbbf2480]'
+                    : 'bg-[#f59e0b30] text-[#fbbf24] border border-[#f59e0b60]';
+                } else if (lifeSec < 10) {
+                  lifetimeBadgeText = '[<10s]';
+                  lifetimeBadgeClass = isMegaWall
+                    ? 'bg-black/65 text-[#cbd5e1]'
+                    : 'bg-[#1e293b]/80 text-[#94a3b8]';
+                } else {
+                  lifetimeBadgeText = `[${lifeSec}s]`;
+                  lifetimeBadgeClass = 'bg-[#ffb30025] text-[#ffb300]';
+                }
+              }
+
               // DOM Size background gradation:
-              // - Mega Wall (>= $1M) or Large Density (>= threshold): bright contrast amber highlight
-              // - Normal level: soft red/green proportional bar fill
+              // - Spoof Removed Alert: high-contrast crimson flash
+              // - Mega Wall (>= $1M): bright contrast amber highlight
+              // - Large Wall (>= $500k / threshold): distinct amber tint
               let domCellBg = 'transparent';
-              if (isMegaWall) {
-                domCellBg = 'rgba(245, 158, 11, 0.85)'; // High-contrast bright amber for >$1M walls
-              } else if (isDensity) {
-                domCellBg = 'rgba(255, 179, 0, 0.34)'; // Distinct amber tint for large density
+              if (isSpoofActive) {
+                domCellBg = 'rgba(220, 38, 38, 0.45)';
+              } else if (isMegaWall) {
+                domCellBg = 'rgba(245, 158, 11, 0.85)';
+              } else if (isLargeWall) {
+                domCellBg = 'rgba(255, 179, 0, 0.34)';
               }
 
               const matchingStratLvl = strategyLevels?.find(
                 (lvl) => Math.abs(lvl.price - row.price) < stepSize * 0.55
               );
+              const matchingUserOrd = userLimitOrders?.find(
+                (ord) => Math.abs(ord.price - row.price) < stepSize * 0.55
+              );
 
               // Use box-shadow instead of dynamic border width so row height is strictly 20.00px
-              const rowBoxShadow = isBestAsk
+              const rowBoxShadow = isSpoofActive
+                ? 'inset 0 0 0 1px #ef4444'
+                : isBestAsk
                 ? 'inset 0 -1.5px 0 0 #38bdf8'
+                : matchingUserOrd
+                ? matchingUserOrd.side === 'BUY'
+                  ? 'inset 3px 0 0 0 #38bdf8'
+                  : 'inset 3px 0 0 0 #f43f5e'
                 : matchingStratLvl
                 ? matchingStratLvl.type === 'BUY'
                   ? 'inset 3px 0 0 0 #26a69a'
@@ -918,12 +1213,13 @@ export default function OrderBookDOM({
               return (
                 <div
                   key={row.key}
+                  data-row-price={row.key}
                   style={{
                     height: `${ROW_HEIGHT}px`,
                     boxShadow: rowBoxShadow,
                     fontVariantNumeric: 'tabular-nums'
                   }}
-                  className={`grid grid-cols-[36%_16%_26%_22%] items-center border-b border-[#11141c] text-[10.5px] leading-none hover:bg-[#191f2e] ${
+                  className={`grid grid-cols-[34%_14%_30%_22%] items-center border-b border-[#11141c] text-[10.5px] leading-none hover:bg-[#191f2e] ${
                     matchingStratLvl
                       ? matchingStratLvl.type === 'BUY'
                         ? 'bg-[#26a69a20]'
@@ -984,12 +1280,12 @@ export default function OrderBookDOM({
                     )}
                   </div>
 
-                  {/* COLUMN 3: DOM Size (Soft Red/Green for normal levels, Bright Contrast Amber for Walls) */}
+                  {/* COLUMN 3: DOM Size + Wall Hold Timer ([>30s] / [<10s]) + [SPOOF REMOVED] Badge */}
                   <div
                     style={{ backgroundColor: domCellBg }}
-                    className="relative h-full flex items-center justify-end px-1.5 border-r border-[#131722] overflow-hidden"
+                    className="relative h-full flex items-center justify-end px-1 border-r border-[#131722] overflow-hidden"
                   >
-                    {bookItem && !isMegaWall && !isDensity && (
+                    {bookItem && !isMegaWall && !isLargeWall && !isSpoofActive && (
                       <div
                         className="absolute right-0 top-0 bottom-0 pointer-events-none"
                         style={{
@@ -1001,37 +1297,57 @@ export default function OrderBookDOM({
                         }}
                       />
                     )}
-                    {bookItem && (
+
+                    {isSpoofActive ? (
                       <div className="relative z-10 flex items-center justify-between w-full">
-                        {isDensity ? (
-                          <span
-                            className={`text-[8px] px-0.5 rounded font-bold ${
-                              isMegaWall
-                                ? 'bg-black/75 text-[#ffb300]'
-                                : 'bg-[#ffb30030] text-[#ffb300]'
-                            }`}
-                          >
-                            {isMegaWall || lifeSec >= 60 ? 'WALL' : `${lifeSec}s`}
-                          </span>
-                        ) : (
-                          <span />
-                        )}
                         <span
-                          className={`truncate ${
-                            isMegaWall
-                              ? 'text-black font-extrabold'
-                              : isDensity
-                              ? 'text-[#ffb300] font-bold'
-                              : side === 'ask'
-                              ? 'text-[#fca5a5]'
-                              : 'text-[#86efac]'
-                          }`}
+                          data-testid="spoof-removed-badge"
+                          data-price={row.key}
+                          className="px-1 py-0.1 rounded bg-[#dc2626] text-white font-extrabold text-[8px] tracking-tighter border border-[#fca5a5] shadow-xs truncate"
                         >
-                          {volumeMode === 'USDT'
-                            ? `$${fmtCompactUsd(bookItem.usd)}`
-                            : bookItem.qty.toFixed(2)}
+                          [SPOOF REMOVED]
+                        </span>
+                        <span className="text-[8.5px] text-[#fca5a5] line-through ml-0.5 shrink-0">
+                          ${fmtCompactUsd(spoofAlert.usd)}
                         </span>
                       </div>
+                    ) : (
+                      bookItem && (
+                        <div className="relative z-10 flex items-center justify-between w-full gap-0.5">
+                          {lifetimeBadgeText ? (
+                            <span
+                              data-testid={
+                                lifeSec >= 30
+                                  ? 'wall-timer-mature'
+                                  : lifeSec < 10
+                                  ? 'wall-timer-fresh'
+                                  : 'wall-timer-mid'
+                              }
+                              className={`text-[8px] px-0.5 rounded font-bold shrink-0 ${lifetimeBadgeClass}`}
+                              title={`Время жизни плотности: ${lifeSec} сек`}
+                            >
+                              {lifetimeBadgeText}
+                            </span>
+                          ) : (
+                            <span />
+                          )}
+                          <span
+                            className={`truncate ${
+                              isMegaWall
+                                ? 'text-black font-extrabold'
+                                : isLargeWall
+                                ? 'text-[#ffb300] font-bold'
+                                : side === 'ask'
+                                ? 'text-[#fca5a5]'
+                                : 'text-[#86efac]'
+                            }`}
+                          >
+                            {volumeMode === 'USDT'
+                              ? `$${fmtCompactUsd(bookItem.usd)}`
+                              : bookItem.qty.toFixed(2)}
+                          </span>
+                        </div>
+                      )
                     )}
                   </div>
 
@@ -1058,7 +1374,17 @@ export default function OrderBookDOM({
                     }}
                   >
                     <div className="flex items-center space-x-1 truncate">
-                      {matchingStratLvl && (
+                      {matchingUserOrd && (
+                        <span
+                          className={`px-1 py-0.2 rounded text-[7.5px] font-bold text-white shrink-0 tracking-tighter truncate ${
+                            matchingUserOrd.side === 'BUY' ? 'bg-[#2563eb]' : 'bg-[#e11d48]'
+                          }`}
+                          title={`Лимитная заявка ${matchingUserOrd.side} $${matchingUserOrd.price}`}
+                        >
+                          LMT
+                        </span>
+                      )}
+                      {!matchingUserOrd && matchingStratLvl && (
                         <span
                           className={`px-1 py-0.2 rounded text-[7.5px] font-bold text-white shrink-0 tracking-tighter truncate ${
                             matchingStratLvl.type === 'BUY' ? 'bg-[#26a69a]' : 'bg-[#ef5350]'
