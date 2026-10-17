@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Bell, Radio, ExternalLink, RefreshCw } from 'lucide-react';
+import { Bell, Radio, ExternalLink, RefreshCw, X } from 'lucide-react';
 
 const API_BASE = "/api";
 
-export default function SignalsFeed({ onSelectSignal }) {
+export default function SignalsFeed({ onSelectSignal, onClose = null }) {
   const [signals, setSignals] = useState([]);
   const [isScanning, setIsScanning] = useState(false);
   const [lastUpdated, setLastUpdated] = useState("");
@@ -47,18 +47,27 @@ export default function SignalsFeed({ onSelectSignal }) {
           <span>Сигналы ({signals.length})</span>
         </div>
 
-        <div className="flex items-center space-x-2 font-mono">
+        <div className="flex items-center space-x-1.5 font-mono">
           {lastUpdated && (
             <span className="text-[10px] text-[#60697b] font-mono-numbers">{lastUpdated}</span>
           )}
           <button
             onClick={handleManualScan}
             disabled={isScanning}
-            className={`p-1 rounded text-[#38bdf8] hover:bg-[#161922] transition ${isScanning ? 'animate-spin' : ''}`}
+            className={`p-1 rounded text-[#38bdf8] hover:bg-[#161922] transition cursor-pointer ${isScanning ? 'animate-spin' : ''}`}
             title="Запустить ручное сканирование"
           >
             <RefreshCw size={12} />
           </button>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-0.5 rounded text-[#60697b] hover:text-[#ef5350] hover:bg-[#ef535018] transition cursor-pointer"
+              title="Скрыть виджет сигналов"
+            >
+              <X size={12} />
+            </button>
+          )}
         </div>
       </div>
 

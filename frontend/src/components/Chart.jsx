@@ -714,7 +714,8 @@ export default function Chart({
   strategyLevels = [],
   uiConfig = null,
   chartIndicators = null,
-  onOpenIndicators = null
+  onOpenIndicators = null,
+  onCloseWidget = null
 }) {
   const chartContainerRef = useRef(null);
   const chartRef = useRef(null);
@@ -1051,7 +1052,11 @@ export default function Chart({
       if (rafId) cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
         if (chartRef.current) {
-          try { chartRef.current.resize(); } catch (_) {}
+          try {
+            chartRef.current.resize();
+            window.__chartResizeCounts = window.__chartResizeCounts || {};
+            window.__chartResizeCounts[chartId] = (window.__chartResizeCounts[chartId] || 0) + 1;
+          } catch (_) {}
         }
       });
     };
@@ -2344,6 +2349,16 @@ export default function Chart({
           >
             MACD
           </button>
+
+          {onCloseWidget && (
+            <button
+              onClick={onCloseWidget}
+              className="p-0.5 ml-0.5 rounded text-[#60697b] hover:text-[#ef5350] hover:bg-[#ef535018] transition cursor-pointer"
+              title={`Скрыть виджет графика ${titlePrefix || chartId}`}
+            >
+              <X size={12} />
+            </button>
+          )}
         </div>
       </div>
 

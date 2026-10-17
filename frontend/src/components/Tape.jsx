@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Activity, Filter, ArrowUpRight, ArrowDownRight, Zap } from 'lucide-react';
+import { Activity, Filter, ArrowUpRight, ArrowDownRight, Zap, X } from 'lucide-react';
 
 const FILTER_PRESETS = [
   { label: 'Все', value: 0 },
@@ -10,7 +10,7 @@ const FILTER_PRESETS = [
   { label: '>$100k', value: 100000 },
 ];
 
-export default function Tape({ symbol = "BTCUSDT", uiConfig = null }) {
+export default function Tape({ symbol = "BTCUSDT", uiConfig = null, onClose = null }) {
   const [trades, setTrades] = useState([]);
   const [minUsd, setMinUsd] = useState(uiConfig?.tapeMinUsd ?? 5000); // Default filter: $5,000
   const [showFilterMenu, setShowFilterMenu] = useState(false);
@@ -145,7 +145,12 @@ export default function Tape({ symbol = "BTCUSDT", uiConfig = null }) {
 
   return (
     <div
-      style={{ backgroundColor: 'var(--bg-panel)', borderColor: 'var(--border-subtle)', color: 'var(--text-main)' }}
+      style={{
+        backgroundColor: 'var(--bg-panel)',
+        borderColor: 'var(--border-subtle)',
+        color: 'var(--text-main)',
+        fontVariantNumeric: 'tabular-nums'
+      }}
       className="flex flex-col h-full border overflow-hidden text-xs select-none relative font-sans"
     >
       {/* Header Bar (Tealstreet / Bloomberg compact style) */}
@@ -158,16 +163,26 @@ export default function Tape({ symbol = "BTCUSDT", uiConfig = null }) {
           <span>Лента</span>
         </div>
 
-        {/* Filter Threshold Pill & Menu */}
-        <div className="relative">
+        {/* Filter Threshold Pill & Menu + Close [×] */}
+        <div className="flex items-center space-x-1 relative">
           <button
             onClick={() => setShowFilterMenu(!showFilterMenu)}
-            className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-[#08090c] hover:bg-[#161820] text-[#ff9800] border border-[#1f2430] font-mono text-[9px] transition"
+            className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-[#08090c] hover:bg-[#161820] text-[#ff9800] border border-[#1f2430] font-mono text-[9px] transition cursor-pointer"
             title="Фильтр размера сделок"
           >
             <Filter size={9} />
             <span>{minUsd >= 1000 ? `≥$${minUsd / 1000}k` : 'Все'}</span>
           </button>
+
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-0.5 rounded text-[#60697b] hover:text-[#ef5350] hover:bg-[#ef535018] transition cursor-pointer"
+              title="Скрыть виджет ленты сделок"
+            >
+              <X size={12} />
+            </button>
+          )}
 
           {showFilterMenu && (
             <div 

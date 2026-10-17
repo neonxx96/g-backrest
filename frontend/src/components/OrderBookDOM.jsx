@@ -5,14 +5,15 @@ import {
   Settings2,
   AlertTriangle,
   CheckCircle,
-  Clock
+  Clock,
+  X
 } from 'lucide-react';
 import { soundManager } from '../utils/sound';
 import { detectSpoofOrFill, evaluateProximityAlert } from '../utils/orderbookLogic';
 
 const API_BASE = '/api';
 const ROW_HEIGHT = 20;      // Strictly fixed 20px row height
-const TOTAL_ROWS = 400;     // 400 virtualized price steps around anchor price
+const TOTAL_ROWS = 400;     // 400 virtualized price steps around static anchor price
 const BUFFER_ROWS = 20;     // ±20 buffer rows above and below viewport
 const SCALE_OPTIONS = [1, 5, 10, 25, 50, 100];
 
@@ -28,7 +29,8 @@ export default function OrderBookDOM({
   symbol = 'BTCUSDT',
   onProximityAlert,
   uiConfig = null,
-  strategyLevels = []
+  strategyLevels = [],
+  onClose = null
 }) {
   // Aggregation multiplier: x1, x5, x10, x25, x50, x100
   const [tickMult, setTickMult] = useState(() => {
@@ -39,7 +41,7 @@ export default function OrderBookDOM({
   const [densityThresholdUsd, setDensityThresholdUsd] = useState(
     uiConfig?.densityThresholdUsd || 250000
   );
-  const [megaWallUsd, setMegaWallUsd] = useState(500000); // $500k+ bright wall highlight
+  const [megaWallUsd, setMegaWallUsd] = useState(1000000); // $1M+ bright amber wall highlight
   const [showSettings, setShowSettings] = useState(false);
   const [clusterMode, setClusterMode] = useState('bid_ask'); // 'bid_ask' | 'delta'
   const [fps, setFps] = useState(60);
@@ -89,14 +91,15 @@ export default function OrderBookDOM({
     [stepSize, priceDecimals]
   );
 
-  // Virtual scroll state
+  // Virtual scroll state — NEVER auto-scrolled on incoming ticks
   const scrollContainerRef = useRef(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(500);
-  const userScrolledRef = useRef(false);
 
-  // Anchor price of the virtual 400-row ladder
+  // Static anchor price of the virtual 400-row ladder
+  // Changes ONLY on initial load, symbol/tickMult change, or explicit Space / Center click
   const [anchorPrice, setAnchorPrice] = useState(0);
+  const anchorPriceRef = useRef(0);
   const bestBidRef = useRef(0);
   const bestAskRef = useRef(0);
   const lastTradePriceRef = useRef(0);
@@ -113,34 +116,85 @@ export default function OrderBookDOM({
   const tradeVolumeMap = useRef(new Map());
   const tradeLog = useRef([]);
 
+  // Dirty flag & render counter for rAF 60-100ms throttling
+  const dirtyRef = useRef(false);
+  const renderCountRef = useRef(0);
   const [renderVersion, setRenderVersion] = useState(0);
   const [recentOrderflowEvents, setRecentOrderflowEvents] = useState([]);
 
-  // Measure FPS and throttle DOM re-renders to smooth 60fps / 100ms
+  // Keep refs to current step helpers so WS handlers never need to reconnect on prop/state change
+  const snapToStepRef = useRef(snapToStep);
+  useEffect(() => {
+    snapToStepRef.current = snapToStep;
+  }, [snapToStep]);
+
+  // Explicit recenter function: called ONLY by user (Space key, Center button) or initial load / step change
+  const recenterLadder = useCallback(() => {
+    const mid =
+      bestBidRef.current && bestAskRef.current
+        ? (bestBidRef.current + bestAskRef.current) / 2
+        : bestBidRef.current || bestAskRef.current || lastTradePriceRef.current;
+    if (mid > 0) {
+      const snappedMid = snapToStepRef.current(mid, 'round');
+      anchorPriceRef.current = snappedMid;
+      setAnchorPrice(snappedMid);
+    }
+    if (scrollContainerRef.current) {
+      const totalH = TOTAL_ROWS * ROW_HEIGHT;
+      const viewH = scrollContainerRef.current.clientHeight || 500;
+      const targetTop = Math.max(0, Math.round(totalH / 2 - viewH / 2));
+      scrollContainerRef.current.scrollTop = targetTop;
+      setScrollTop(targetTop);
+    }
+  }, []);
+
+  // Measure FPS and throttle DOM volume updates to 80ms (~12.5 updates/sec) via requestAnimationFrame
   useEffect(() => {
     let frames = 0;
-    let lastTime = performance.now();
+    let lastFpsTime = performance.now();
+    let lastDomRenderTime = performance.now();
     let rafId;
+
     const loop = (now) => {
       frames += 1;
-      if (now - lastTime >= 1000) {
-        setFps(Math.min(60, Math.max(55, Math.round((frames * 1000) / (now - lastTime)))));
+      if (now - lastFpsTime >= 1000) {
+        setFps(Math.min(60, Math.max(55, Math.round((frames * 1000) / (now - lastFpsTime)))));
         frames = 0;
-        lastTime = now;
+        lastFpsTime = now;
       }
+
+      // Throttled volume update via rAF (every 80ms within 60-100ms window)
+      if (dirtyRef.current && now - lastDomRenderTime >= 80) {
+        dirtyRef.current = false;
+        lastDomRenderTime = now;
+        renderCountRef.current += 1;
+
+        const wallNow = Date.now();
+        while (tradeLog.current.length > 0 && wallNow - tradeLog.current[0].time > 15000) {
+          const old = tradeLog.current.shift();
+          const cv = tradeVolumeMap.current.get(old.price) || 0;
+          if (cv <= old.usd) tradeVolumeMap.current.delete(old.price);
+          else tradeVolumeMap.current.set(old.price, cv - old.usd);
+        }
+
+        setRenderVersion((v) => (v + 1) % 100000);
+      }
+
       rafId = requestAnimationFrame(loop);
     };
+
     rafId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(rafId);
   }, []);
 
-  // Observe viewport height for virtualization
+  // Observe viewport height for virtualization without triggering any scroll or anchor reset
   useEffect(() => {
     const el = scrollContainerRef.current;
     if (!el) return;
     const updateHeight = () => {
       if (scrollContainerRef.current) {
-        setViewportHeight(scrollContainerRef.current.clientHeight || 500);
+        const h = scrollContainerRef.current.clientHeight || 500;
+        setViewportHeight((prev) => (Math.abs(prev - h) >= 2 ? h : prev));
       }
     };
     updateHeight();
@@ -156,26 +210,6 @@ export default function OrderBookDOM({
     };
   }, []);
 
-  // Recenter ladder scroll on current spread (Space hotkey or button)
-  const recenterLadder = useCallback(() => {
-    const mid =
-      bestBidRef.current && bestAskRef.current
-        ? (bestBidRef.current + bestAskRef.current) / 2
-        : bestBidRef.current || bestAskRef.current || lastTradePriceRef.current;
-    if (mid > 0) {
-      const snappedMid = snapToStep(mid, 'round');
-      setAnchorPrice(snappedMid);
-    }
-    if (scrollContainerRef.current) {
-      const totalH = TOTAL_ROWS * ROW_HEIGHT;
-      const viewH = scrollContainerRef.current.clientHeight || viewportHeight;
-      const targetTop = Math.max(0, Math.round(totalH / 2 - viewH / 2));
-      scrollContainerRef.current.scrollTop = targetTop;
-      setScrollTop(targetTop);
-      userScrolledRef.current = false;
-    }
-  }, [snapToStep, viewportHeight]);
-
   // Listen to global Space hotkey recenter event
   useEffect(() => {
     const onRecenter = () => recenterLadder();
@@ -183,12 +217,15 @@ export default function OrderBookDOM({
     return () => window.removeEventListener('recenter-market-price', onRecenter);
   }, [recenterLadder]);
 
-  // Re-center when tickMult or symbol changes
+  // Re-snap anchorPrice when user manually changes tickMult (x1..x100)
   useEffect(() => {
-    setTimeout(() => recenterLadder(), 40);
-  }, [tickMult, symbol, recenterLadder]);
+    if (anchorPriceRef.current > 0) {
+      recenterLadder();
+    }
+  }, [tickMult, recenterLadder]);
 
   // Connect to Binance Futures Depth + AggTrade + REST deep snapshot
+  // Depends ONLY on [symbol, baseTick] so it NEVER resets on resize or UI state changes!
   useEffect(() => {
     rawBidsMap.current.clear();
     rawAsksMap.current.clear();
@@ -201,12 +238,30 @@ export default function OrderBookDOM({
     tradeLog.current = [];
     bestBidRef.current = 0;
     bestAskRef.current = 0;
+    anchorPriceRef.current = 0;
     setAnchorPrice(0);
     setRecentOrderflowEvents([]);
 
     let isUnmounted = false;
     const upperSym = symbol.toUpperCase();
     const cleanSym = symbol.toLowerCase();
+
+    const lockInitialAnchorIfNeeded = (b0, a0) => {
+      if (anchorPriceRef.current === 0 && b0 > 0 && a0 > 0) {
+        const snappedMid = snapToStepRef.current((b0 + a0) / 2, 'round');
+        anchorPriceRef.current = snappedMid;
+        setAnchorPrice(snappedMid);
+        setTimeout(() => {
+          if (!isUnmounted && scrollContainerRef.current) {
+            const totalH = TOTAL_ROWS * ROW_HEIGHT;
+            const viewH = scrollContainerRef.current.clientHeight || 500;
+            const targetTop = Math.max(0, Math.round(totalH / 2 - viewH / 2));
+            scrollContainerRef.current.scrollTop = targetTop;
+            setScrollTop(targetTop);
+          }
+        }, 20);
+      }
+    };
 
     const applyDepthSnapshot = (bids, asks) => {
       if (isUnmounted) return;
@@ -231,27 +286,21 @@ export default function OrderBookDOM({
         const a0 = parseFloat(asks[0][0]);
         bestBidRef.current = b0;
         bestAskRef.current = a0;
-        setAnchorPrice((prev) => {
-          if (!prev) {
-            setTimeout(() => recenterLadder(), 20);
-            return snapToStep((b0 + a0) / 2, 'round');
-          }
-          return prev;
-        });
+        lockInitialAnchorIfNeeded(b0, a0);
       }
-      setRenderVersion((v) => (v + 1) % 100000);
+      dirtyRef.current = true;
     };
 
-    // 1. Deep orderbook snapshot (fetch local backend proxy first to avoid 418 rate limits)
+    // 1. Deep orderbook snapshot
     const fetchDeepBook = () => {
       fetch(`${API_BASE}/depth?symbol=${upperSym}&limit=100`)
-        .then((r) => r.ok ? r.json() : Promise.reject(r.status))
+        .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
         .then((d) => {
           if (d?.bids && d?.asks) applyDepthSnapshot(d.bids, d.asks);
         })
         .catch(() => {
           fetch(`https://fapi.binance.com/fapi/v1/depth?symbol=${upperSym}&limit=100`)
-            .then((r) => r.ok ? r.json() : null)
+            .then((r) => (r.ok ? r.json() : null))
             .then((d) => {
               if (d?.bids && d?.asks) applyDepthSnapshot(d.bids, d.asks);
             })
@@ -259,18 +308,18 @@ export default function OrderBookDOM({
         });
     };
     fetchDeepBook();
-    const deepRefreshTimer = setInterval(fetchDeepBook, 6000);
+    const deepRefreshTimer = setInterval(fetchDeepBook, 8000);
 
     // 2. Seed initial trades for instant Footprint Cluster & Bubble Ticks population
     fetch(`https://fapi.binance.com/fapi/v1/aggTrades?symbol=${upperSym}&limit=100`)
-      .then((r) => r.ok ? r.json() : [])
+      .then((r) => (r.ok ? r.json() : []))
       .then((list) => {
         if (isUnmounted || !Array.isArray(list)) return;
         list.forEach((t) => {
           const price = parseFloat(t.p);
           const qty = parseFloat(t.q);
           const usd = price * qty;
-          const isBuy = !t.m; // m=true -> buyer is maker (market SELL); m=false -> market BUY
+          const isBuy = !t.m;
           const baseKey = Number((Math.round(price / baseTick) * baseTick).toFixed(6));
           const cur = rawClustersMap.current.get(baseKey) || { bidUsd: 0, askUsd: 0, bidQty: 0, askQty: 0 };
           if (isBuy) {
@@ -300,11 +349,11 @@ export default function OrderBookDOM({
           lastTradePriceRef.current = last.price;
           lastTradeSideRef.current = last.isBuy ? 'BUY' : 'SELL';
         }
-        setRenderVersion((v) => (v + 1) % 100000);
+        dirtyRef.current = true;
       })
       .catch(() => {});
 
-    // 3. Live Depth WebSocket (@depth20@100ms) merged into deep map
+    // 3. Live Depth WebSocket (@depth20@100ms) buffered into raw maps
     let depthWs = null;
     try {
       depthWs = new WebSocket(`wss://fstream.binance.com/ws/${cleanSym}@depth20@100ms`);
@@ -321,7 +370,8 @@ export default function OrderBookDOM({
           if (b0 > 0 && a0 > 0) {
             bestBidRef.current = b0;
             bestAskRef.current = a0;
-            // Remove crossed stale levels inside top-20 range before applying fresh top-20
+            lockInitialAnchorIfNeeded(b0, a0);
+
             for (const k of rawBidsMap.current.keys()) {
               if (k >= bMin || k >= a0) rawBidsMap.current.delete(k);
             }
@@ -339,7 +389,6 @@ export default function OrderBookDOM({
               if (qf > 0) rawAsksMap.current.set(pf, qf);
             });
 
-            // Cap map sizes to 600 entries to prevent any memory growth
             if (rawBidsMap.current.size > 600) {
               const firstKey = rawBidsMap.current.keys().next().value;
               rawBidsMap.current.delete(firstKey);
@@ -348,12 +397,13 @@ export default function OrderBookDOM({
               const firstKey = rawAsksMap.current.keys().next().value;
               rawAsksMap.current.delete(firstKey);
             }
+            dirtyRef.current = true;
           }
         } catch (_) {}
       };
     } catch (_) {}
 
-    // 4. Live AggTrade WebSocket (@aggTrade) for Footprint Clusters & Bubble Ticks
+    // 4. Live AggTrade WebSocket (@aggTrade) buffered into raw maps
     let tradeWs = null;
     try {
       tradeWs = new WebSocket(`wss://fstream.binance.com/ws/${cleanSym}@aggTrade`);
@@ -382,7 +432,6 @@ export default function OrderBookDOM({
           }
           rawClustersMap.current.set(baseKey, cur);
 
-          // Cap cluster map size to 600 price levels
           if (rawClustersMap.current.size > 600) {
             const oldestKey = rawClustersMap.current.keys().next().value;
             rawClustersMap.current.delete(oldestKey);
@@ -402,32 +451,18 @@ export default function OrderBookDOM({
 
           tradeLog.current.push({ price, usd, time: ts });
           tradeVolumeMap.current.set(price, (tradeVolumeMap.current.get(price) || 0) + usd);
+          dirtyRef.current = true;
         } catch (_) {}
       };
     } catch (_) {}
 
-    // 5. Throttled UI state tick (100ms = 10 updates/sec) + memory pruning
-    const renderTimer = setInterval(() => {
-      if (isUnmounted) return;
-      const now = Date.now();
-      while (tradeLog.current.length > 0 && now - tradeLog.current[0].time > 15000) {
-        const old = tradeLog.current.shift();
-        const cv = tradeVolumeMap.current.get(old.price) || 0;
-        if (cv <= old.usd) tradeVolumeMap.current.delete(old.price);
-        else tradeVolumeMap.current.set(old.price, cv - old.usd);
-      }
-      setRecentOrderflowEvents((prev) => (prev.length ? prev.filter((e) => now - e.time < 35000) : prev));
-      setRenderVersion((v) => (v + 1) % 100000);
-    }, 100);
-
     return () => {
       isUnmounted = true;
       clearInterval(deepRefreshTimer);
-      clearInterval(renderTimer);
       if (depthWs) depthWs.close();
       if (tradeWs) tradeWs.close();
     };
-  }, [symbol, baseTick, snapToStep, recenterLadder]);
+  }, [symbol, baseTick]);
 
   // Aggregate orderbook, clusters, and bubble ticks by current stepSize
   const aggregatedData = useMemo(() => {
@@ -502,7 +537,7 @@ export default function OrderBookDOM({
       });
       if (newEvents.length > 0) {
         setTimeout(() => {
-          setRecentOrderflowEvents((prev) => [...newEvents, ...prev].slice(0, 3));
+          setRecentOrderflowEvents((prev) => [...newEvents, ...prev].slice(0, 2));
           if (newEvents.some((e) => e.type === 'PULLED')) {
             soundManager.playSpoofAlert();
           }
@@ -567,6 +602,7 @@ export default function OrderBookDOM({
 
     const bestBidSnap = b0 > 0 ? snapToStep(b0, 'floor') : 0;
     const bestAskSnap = a0 > 0 ? snapToStep(a0, 'ceil') : 0;
+    const lastPriceSnap = lastTradePriceRef.current > 0 ? snapToStep(lastTradePriceRef.current, 'round') : bestBidSnap;
     const spreadAbs = b0 > 0 && a0 > 0 ? Math.max(0, a0 - b0) : 0;
 
     return {
@@ -579,6 +615,7 @@ export default function OrderBookDOM({
       pocKey,
       bestBidSnap,
       bestAskSnap,
+      lastPriceSnap,
       spreadAbs
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -592,7 +629,7 @@ export default function OrderBookDOM({
     symbol
   ]);
 
-  // Virtualized window math (±BUFFER_ROWS)
+  // Virtualized window math (±BUFFER_ROWS) — strictly static price scale!
   const centerIdx = Math.floor(TOTAL_ROWS / 2);
   const firstVisibleIdx = Math.floor(scrollTop / ROW_HEIGHT);
   const visibleCount = Math.ceil(viewportHeight / ROW_HEIGHT);
@@ -611,17 +648,34 @@ export default function OrderBookDOM({
     return rows;
   }, [anchorPrice, startIdx, endIdx, centerIdx, stepSize, priceDecimals]);
 
+  // Expose diagnostic state for automated verification tests
+  useEffect(() => {
+    window.__domLadderState = {
+      symbol,
+      anchorPrice,
+      scrollTop,
+      renderCount: renderCountRef.current,
+      visibleRowCount: visibleRows.length,
+      bestBid: bestBidRef.current,
+      bestAsk: bestAskRef.current
+    };
+  }, [symbol, anchorPrice, scrollTop, renderVersion, visibleRows.length]);
+
   const handleScroll = (e) => {
     setScrollTop(e.currentTarget.scrollTop);
-    userScrolledRef.current = true;
   };
 
   return (
     <div
-      style={{ backgroundColor: 'var(--bg-panel)', borderColor: 'var(--border-subtle)', color: 'var(--text-main)' }}
+      style={{
+        backgroundColor: 'var(--bg-panel)',
+        borderColor: 'var(--border-subtle)',
+        color: 'var(--text-main)',
+        fontVariantNumeric: 'tabular-nums'
+      }}
       className="flex flex-col h-full border overflow-hidden text-xs select-none relative font-sans"
     >
-      {/* Top Header Bar: Title, Price Aggregation (x1..x100), Recenter [Space], FPS, Settings */}
+      {/* Top Header Bar: Title, Price Aggregation (x1..x100), Recenter [Space], FPS, Settings, Close [×] */}
       <div
         style={{ backgroundColor: 'var(--bg-panel-header)', borderColor: 'var(--border-subtle)' }}
         className="flex items-center justify-between px-1.5 py-1 border-b gap-1 shrink-0"
@@ -640,7 +694,7 @@ export default function OrderBookDOM({
             <button
               key={mult}
               onClick={() => setTickMult(mult)}
-              className={`px-1 py-0.2 rounded transition ${
+              className={`px-1 py-0.2 rounded transition cursor-pointer ${
                 tickMult === mult
                   ? 'bg-[#2563eb] text-white font-bold'
                   : 'text-[#787f91] hover:text-white'
@@ -652,11 +706,11 @@ export default function OrderBookDOM({
           ))}
         </div>
 
-        {/* Right Controls: Recenter [Space], Settings */}
+        {/* Right Controls: Recenter [Space], Settings, Close [×] */}
         <div className="flex items-center space-x-0.5 font-mono shrink-0">
           <button
             onClick={recenterLadder}
-            className="flex items-center space-x-0.5 px-1 py-0.5 rounded bg-[#161922] hover:bg-[#2563eb] text-[8.5px] text-[#38bdf8] hover:text-white transition border border-[#1f2430]"
+            className="flex items-center space-x-0.5 px-1 py-0.5 rounded bg-[#161922] hover:bg-[#2563eb] text-[8.5px] text-[#38bdf8] hover:text-white transition border border-[#1f2430] cursor-pointer"
             title="Центрировать на спреде (Горячая клавиша Space)"
           >
             <Crosshair size={10} />
@@ -665,13 +719,23 @@ export default function OrderBookDOM({
 
           <button
             onClick={() => setShowSettings((v) => !v)}
-            className={`p-1 rounded transition ${
+            className={`p-1 rounded transition cursor-pointer ${
               showSettings ? 'bg-[#2563eb] text-white' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'
             }`}
             title="Настройки плотностей и кластеров DOM"
           >
             <Settings2 size={12} />
           </button>
+
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-1 rounded text-[#60697b] hover:text-[#ef5350] hover:bg-[#ef535018] transition cursor-pointer"
+              title="Скрыть виджет стакана DOM"
+            >
+              <X size={12} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -679,7 +743,7 @@ export default function OrderBookDOM({
       {showSettings && (
         <div
           style={{ backgroundColor: 'var(--bg-panel-header)', borderColor: 'var(--border-subtle)' }}
-          className="p-2 border-b space-y-1.5 text-[10.5px] font-mono shrink-0"
+          className="p-2 border-b space-y-1.5 text-[10.5px] font-mono shrink-0 z-20"
         >
           <div className="flex items-center justify-between">
             <span className="text-[#787f91]">Крупная плотность ($):</span>
@@ -725,37 +789,6 @@ export default function OrderBookDOM({
         </div>
       )}
 
-      {/* Spoof / Fill Orderflow Alert Strip */}
-      {recentOrderflowEvents.length > 0 && (
-        <div className="px-2 py-0.5 bg-[#090b0f] border-b border-[#161922] space-y-0.5 font-mono text-[9.5px] shrink-0">
-          {recentOrderflowEvents.slice(0, 2).map((ev, idx) => {
-            const isFilled = ev.type === 'FILLED';
-            return (
-              <div
-                key={idx}
-                className={`flex items-center justify-between px-1.5 py-0.2 rounded ${
-                  isFilled ? 'bg-[#26a69a14] text-[#26a69a]' : 'bg-[#ef535014] text-[#ef5350]'
-                }`}
-              >
-                <span className="flex items-center truncate">
-                  {isFilled ? (
-                    <CheckCircle size={9} className="mr-1 text-[#26a69a] shrink-0" />
-                  ) : (
-                    <AlertTriangle size={9} className="mr-1 text-[#ef5350] animate-pulse shrink-0" />
-                  )}
-                  <span className="truncate">
-                    {isFilled ? 'Исполнена' : 'Снята (спуф)'}: ${ev.price.toFixed(priceDecimals)} ({fmtCompactUsd(ev.usd)})
-                  </span>
-                </span>
-                <span className="text-[8.5px] opacity-70 ml-1 shrink-0">
-                  {Math.max(1, Math.floor((Date.now() - ev.time) / 1000))}s
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
       {/* 4-Column CScalp / Tiger Trade Header (Left to Right: Clusters | Ticks | DOM Size | Price) */}
       <div
         style={{ borderColor: 'var(--border-subtle)' }}
@@ -773,10 +806,41 @@ export default function OrderBookDOM({
         <span className="text-right truncate">Шаг x{tickMult}</span>
       </div>
 
-      {/* Virtualized Price Ladder Container (Free Mouse Wheel Scroll, 20px rows) */}
+      {/* Floating Spoof / Fill Orderflow Overlay (Does NOT shift scroll container height!) */}
+      {recentOrderflowEvents.length > 0 && (
+        <div className="absolute top-[48px] left-1 right-2.5 z-20 pointer-events-none space-y-0.5 font-mono text-[9px]">
+          {recentOrderflowEvents.slice(0, 1).map((ev, idx) => {
+            const isFilled = ev.type === 'FILLED';
+            return (
+              <div
+                key={idx}
+                className={`flex items-center justify-between px-1.5 py-0.5 rounded backdrop-blur-xs border shadow-md ${
+                  isFilled
+                    ? 'bg-[#091917]/90 border-[#26a69a50] text-[#26a69a]'
+                    : 'bg-[#1f0d11]/90 border-[#ef535050] text-[#ef5350]'
+                }`}
+              >
+                <span className="flex items-center truncate">
+                  {isFilled ? (
+                    <CheckCircle size={9} className="mr-1 text-[#26a69a] shrink-0" />
+                  ) : (
+                    <AlertTriangle size={9} className="mr-1 text-[#ef5350] shrink-0" />
+                  )}
+                  <span className="truncate">
+                    {isFilled ? 'Исполнена' : 'Снята'}: ${ev.price.toFixed(priceDecimals)} ({fmtCompactUsd(ev.usd)})
+                  </span>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Virtualized Price Ladder Container (Static Price Scale, Free Mouse Wheel Scroll, 20px rows) */}
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
+        style={{ fontVariantNumeric: 'tabular-nums' }}
         className="flex-1 overflow-y-auto relative font-mono font-mono-numbers"
       >
         <div style={{ height: `${TOTAL_ROWS * ROW_HEIGHT}px`, position: 'relative' }}>
@@ -801,6 +865,9 @@ export default function OrderBookDOM({
               const isBestBid =
                 aggregatedData.bestBidSnap > 0 &&
                 Math.abs(row.price - aggregatedData.bestBidSnap) < stepSize * 0.4;
+              const isCurrentPriceRow =
+                aggregatedData.lastPriceSnap > 0 &&
+                Math.abs(row.price - aggregatedData.lastPriceSnap) < stepSize * 0.4;
 
               const isAskZone = row.price >= (aggregatedData.bestAskSnap || anchorPrice);
               const bookItem = ask || bid;
@@ -826,39 +893,50 @@ export default function OrderBookDOM({
               const lifeSec = firstSeen ? Math.max(0, Math.floor((Date.now() - firstSeen) / 1000)) : 0;
 
               // DOM Size background gradation:
-              // - Mega Wall (>= $500k/$1M): bright contrast fill with white bold text
-              // - Density Wall (>= threshold): amber/gold highlight
-              // - Normal level: muted dark red (Ask) or dark green (Bid)
+              // - Mega Wall (>= $1M) or Large Density (>= threshold): bright contrast amber highlight
+              // - Normal level: soft red/green proportional bar fill
               let domCellBg = 'transparent';
               if (isMegaWall) {
-                domCellBg = side === 'ask' ? 'rgba(239, 83, 80, 0.82)' : 'rgba(38, 166, 154, 0.82)';
+                domCellBg = 'rgba(245, 158, 11, 0.85)'; // High-contrast bright amber for >$1M walls
               } else if (isDensity) {
-                domCellBg = 'rgba(255, 179, 0, 0.28)';
+                domCellBg = 'rgba(255, 179, 0, 0.34)'; // Distinct amber tint for large density
               }
 
               const matchingStratLvl = strategyLevels?.find(
                 (lvl) => Math.abs(lvl.price - row.price) < stepSize * 0.55
               );
 
+              // Use box-shadow instead of dynamic border width so row height is strictly 20.00px
+              const rowBoxShadow = isBestAsk
+                ? 'inset 0 -1.5px 0 0 #38bdf8'
+                : matchingStratLvl
+                ? matchingStratLvl.type === 'BUY'
+                  ? 'inset 3px 0 0 0 #26a69a'
+                  : 'inset 3px 0 0 0 #ef5350'
+                : undefined;
+
               return (
                 <div
                   key={row.key}
-                  style={{ height: `${ROW_HEIGHT}px` }}
+                  style={{
+                    height: `${ROW_HEIGHT}px`,
+                    boxShadow: rowBoxShadow,
+                    fontVariantNumeric: 'tabular-nums'
+                  }}
                   className={`grid grid-cols-[36%_16%_26%_22%] items-center border-b border-[#11141c] text-[10.5px] leading-none hover:bg-[#191f2e] ${
-                    isBestAsk ? 'border-b-2 border-b-[#38bdf8]' : ''
-                  } ${
                     matchingStratLvl
                       ? matchingStratLvl.type === 'BUY'
-                        ? 'bg-[#26a69a25] border-l-2 border-l-[#26a69a]'
-                        : 'bg-[#ef535025] border-l-2 border-l-[#ef5350]'
+                        ? 'bg-[#26a69a20]'
+                        : 'bg-[#ef535020]'
                       : ''
                   }`}
                 >
-                  {/* COLUMN 1: Footprint Cluster History (Bid x Ask + POC White Frame) */}
+                  {/* COLUMN 1: Footprint Cluster History (Bid x Ask + POC White Frame via inset shadow) */}
                   <div
-                    className={`relative h-full flex items-center px-1 overflow-hidden border-r border-[#131722] ${
-                      isPoc ? 'border border-white/90 z-10' : ''
-                    }`}
+                    style={{
+                      boxShadow: isPoc ? 'inset 0 0 0 1px rgba(255,255,255,0.85)' : undefined
+                    }}
+                    className="relative h-full flex items-center px-1 overflow-hidden border-r border-[#131722]"
                   >
                     {cl && (
                       <>
@@ -867,8 +945,8 @@ export default function OrderBookDOM({
                           style={{
                             width: `${clPct}%`,
                             backgroundColor: clDeltaPos
-                              ? 'rgba(38, 166, 154, 0.25)'
-                              : 'rgba(239, 83, 80, 0.25)'
+                              ? 'rgba(38, 166, 154, 0.24)'
+                              : 'rgba(239, 83, 80, 0.24)'
                           }}
                         />
                         {clusterMode === 'bid_ask' ? (
@@ -906,12 +984,12 @@ export default function OrderBookDOM({
                     )}
                   </div>
 
-                  {/* COLUMN 3: DOM Size (Limit Orders Volume + Proportional Fill Bar + Wall Highlight) */}
+                  {/* COLUMN 3: DOM Size (Soft Red/Green for normal levels, Bright Contrast Amber for Walls) */}
                   <div
                     style={{ backgroundColor: domCellBg }}
                     className="relative h-full flex items-center justify-end px-1.5 border-r border-[#131722] overflow-hidden"
                   >
-                    {bookItem && !isMegaWall && (
+                    {bookItem && !isMegaWall && !isDensity && (
                       <div
                         className="absolute right-0 top-0 bottom-0 pointer-events-none"
                         style={{
@@ -929,11 +1007,11 @@ export default function OrderBookDOM({
                           <span
                             className={`text-[8px] px-0.5 rounded font-bold ${
                               isMegaWall
-                                ? 'bg-black/40 text-white'
+                                ? 'bg-black/75 text-[#ffb300]'
                                 : 'bg-[#ffb30030] text-[#ffb300]'
                             }`}
                           >
-                            {lifeSec >= 60 ? 'WALL' : `${lifeSec}s`}
+                            {isMegaWall || lifeSec >= 60 ? 'WALL' : `${lifeSec}s`}
                           </span>
                         ) : (
                           <span />
@@ -941,10 +1019,12 @@ export default function OrderBookDOM({
                         <span
                           className={`truncate ${
                             isMegaWall
-                              ? 'text-white font-extrabold'
+                              ? 'text-black font-extrabold'
                               : isDensity
                               ? 'text-[#ffb300] font-bold'
-                              : 'text-[#d1d4dc]'
+                              : side === 'ask'
+                              ? 'text-[#fca5a5]'
+                              : 'text-[#86efac]'
                           }`}
                         >
                           {volumeMode === 'USDT'
@@ -955,20 +1035,32 @@ export default function OrderBookDOM({
                     )}
                   </div>
 
-                  {/* COLUMN 4: Price Ladder (Monospace, Spread Line Highlight + Strategy Level Badge) */}
+                  {/* COLUMN 4: Static Price Ladder + Smooth Current Price Runner Highlight */}
                   <div
-                    className={`h-full flex items-center justify-end px-1.5 font-semibold ${
-                      isBestAsk || isBestBid ? 'bg-[#161e2e]' : ''
+                    className={`h-full flex items-center justify-end px-1.5 font-semibold transition-colors duration-75 ${
+                      isCurrentPriceRow
+                        ? lastTradeSideRef.current === 'BUY'
+                          ? 'bg-[#26a69a38] text-white font-bold'
+                          : 'bg-[#ef535038] text-white font-bold'
+                        : isBestAsk || isBestBid
+                        ? 'bg-[#161e2e]'
+                        : ''
                     }`}
                     style={{
-                      color:
-                        side === 'ask' ? 'var(--color-bear)' : 'var(--color-bull)'
+                      color: isCurrentPriceRow
+                        ? '#ffffff'
+                        : side === 'ask'
+                        ? 'var(--color-bear)'
+                        : 'var(--color-bull)',
+                      boxShadow: isCurrentPriceRow
+                        ? `inset -3px 0 0 0 ${lastTradeSideRef.current === 'BUY' ? '#26a69a' : '#ef5350'}`
+                        : undefined
                     }}
                   >
                     <div className="flex items-center space-x-1 truncate">
                       {matchingStratLvl && (
                         <span
-                          className={`px-1 py-0.2 rounded text-[7.5px] font-bold text-white shrink-0 tracking-tighter truncate animate-pulse ${
+                          className={`px-1 py-0.2 rounded text-[7.5px] font-bold text-white shrink-0 tracking-tighter truncate ${
                             matchingStratLvl.type === 'BUY' ? 'bg-[#26a69a]' : 'bg-[#ef5350]'
                           }`}
                           title={matchingStratLvl.label}
@@ -996,7 +1088,7 @@ export default function OrderBookDOM({
         </span>
         <span className="text-[#60697b] flex items-center space-x-1">
           <Clock size={9} className="mr-0.5 text-[#ffb300]" />
-          <span>POC рамка • Колесо: скролл • Space: центр</span>
+          <span>Статичная шкала • Колесо: скролл • Space: центр</span>
         </span>
       </div>
     </div>

@@ -34,7 +34,11 @@ import {
   X,
   Bell,
   Sparkles,
-  Sliders
+  Sliders,
+  Plus,
+  Check,
+  RotateCcw,
+  LayoutGrid
 } from 'lucide-react';
 
 const TIMEFRAMES = ['1m', '5m', '15m', '30m', '45m', '1h', '4h', '6h'];
@@ -45,6 +49,28 @@ const THEME_BADGE = {
   tiger: '🐯 TIGER',
   bloomberg: '⚡ BBG'
 };
+
+const DEFAULT_LAYOUT = {
+  showHtfChart: true,
+  showLtfChart: true,
+  showOrderBook: true,
+  showTape: true,
+  showSignals: true,
+  sidebarWidth: 500,
+  chartSplitPct: 50,
+  domWidthPct: 64,
+  signalsHeightPct: 38
+};
+
+function loadTerminalLayout() {
+  try {
+    const raw = localStorage.getItem('terminal_layout_v1');
+    if (raw) {
+      return { ...DEFAULT_LAYOUT, ...JSON.parse(raw) };
+    }
+  } catch (_) {}
+  return { ...DEFAULT_LAYOUT };
+}
 
 export default function App() {
   const params = new URLSearchParams(window.location.search);
@@ -223,31 +249,93 @@ export default function App() {
     });
   }, [symbol, pushToast]);
 
-  // Dual-Pane Workspace state (HTF 15m + LTF 1m, 50/50 split)
-  const [isDualPane, setIsDualPane] = useState(() => {
-    const saved = localStorage.getItem('panel_dual_chart');
-    return saved !== null ? saved === 'true' : true;
-  });
+  // Persistent Docking Layout v1 (saved in localStorage: terminal_layout_v1)
+  const initialLayout = useRef(loadTerminalLayout());
+  const [showHtfChart, setShowHtfChart] = useState(initialLayout.current.showHtfChart !== false);
+  const [showLtfChart, setShowLtfChart] = useState(initialLayout.current.showLtfChart !== false);
   const [secondaryTimeframe, setSecondaryTimeframe] = useState(() => {
     return localStorage.getItem('secondary_tf') || '1m';
   });
 
-  // Panel layout state persisted in localStorage
-  const [showOrderBook, setShowOrderBook] = useState(() => {
-    const saved = localStorage.getItem('panel_orderbook');
-    return saved !== null ? saved === 'true' : true;
+  const [showOrderBook, setShowOrderBook] = useState(initialLayout.current.showOrderBook !== false);
+  const [showTape, setShowTape] = useState(initialLayout.current.showTape !== false);
+  const [showSignals, setShowSignals] = useState(initialLayout.current.showSignals !== false);
+
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    return Math.min(820, Math.max(290, Number(initialLayout.current.sidebarWidth) || 500));
   });
-  const [showTape, setShowTape] = useState(() => {
-    const saved = localStorage.getItem('panel_tape');
-    return saved !== null ? saved === 'true' : true;
+  const [chartSplitPct, setChartSplitPct] = useState(() => {
+    return Math.min(80, Math.max(20, Number(initialLayout.current.chartSplitPct) || 50));
   });
-  const [showSignals, setShowSignals] = useState(() => {
-    const saved = localStorage.getItem('panel_signals');
-    return saved !== null ? saved === 'true' : true;
+  const [domWidthPct, setDomWidthPct] = useState(() => {
+    return Math.min(80, Math.max(30, Number(initialLayout.current.domWidthPct) || 64));
   });
+  const [signalsHeightPct, setSignalsHeightPct] = useState(() => {
+    return Math.min(70, Math.max(18, Number(initialLayout.current.signalsHeightPct) || 38));
+  });
+
+  const [showWidgetsMenu, setShowWidgetsMenu] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showHotkeyHelp, setShowHotkeyHelp] = useState(false);
   const [isMuted, setIsMuted] = useState(() => soundManager.isMuted);
+
+  const isDualPane = showHtfChart && showLtfChart;
+  const setIsDualPane = useCallback((updater) => {
+    setShowLtfChart((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : Boolean(updater);
+      if (next) setShowHtfChart(true);
+      return next;
+    });
+  }, []);
+
+  // Persist layout to localStorage ('terminal_layout_v1' + backward-compatible keys)
+  useEffect(() => {
+    const layoutObj = {
+      showHtfChart,
+      showLtfChart,
+      showOrderBook,
+      showTape,
+      showSignals,
+      sidebarWidth,
+      chartSplitPct,
+      domWidthPct,
+      signalsHeightPct
+    };
+    try {
+      localStorage.setItem('terminal_layout_v1', JSON.stringify(layoutObj));
+      localStorage.setItem('panel_dual_chart', (showHtfChart && showLtfChart) ? 'true' : 'false');
+      localStorage.setItem('panel_orderbook', showOrderBook ? 'true' : 'false');
+      localStorage.setItem('panel_tape', showTape ? 'true' : 'false');
+      localStorage.setItem('panel_signals', showSignals ? 'true' : 'false');
+      localStorage.setItem('terminal_sidebar_width', String(sidebarWidth));
+    } catch (_) {}
+  }, [
+    showHtfChart,
+    showLtfChart,
+    showOrderBook,
+    showTape,
+    showSignals,
+    sidebarWidth,
+    chartSplitPct,
+    domWidthPct,
+    signalsHeightPct
+  ]);
+
+  useEffect(() => {
+    localStorage.setItem('secondary_tf', secondaryTimeframe);
+  }, [secondaryTimeframe]);
+
+  const resetLayoutToDefaults = useCallback(() => {
+    setShowHtfChart(DEFAULT_LAYOUT.showHtfChart);
+    setShowLtfChart(DEFAULT_LAYOUT.showLtfChart);
+    setShowOrderBook(DEFAULT_LAYOUT.showOrderBook);
+    setShowTape(DEFAULT_LAYOUT.showTape);
+    setShowSignals(DEFAULT_LAYOUT.showSignals);
+    setSidebarWidth(DEFAULT_LAYOUT.sidebarWidth);
+    setChartSplitPct(DEFAULT_LAYOUT.chartSplitPct);
+    setDomWidthPct(DEFAULT_LAYOUT.domWidthPct);
+    setSignalsHeightPct(DEFAULT_LAYOUT.signalsHeightPct);
+  }, []);
 
   // Zen / Focus Mode: 100% chart without clutter
   const [isFocusMode, setIsFocusMode] = useState(false);
@@ -257,77 +345,129 @@ export default function App() {
     setIsFocusMode((prev) => {
       if (!prev) {
         prevPanelsRef.current = {
+          htf: showHtfChart,
+          ltf: showLtfChart,
           orderbook: showOrderBook,
           tape: showTape,
-          signals: showSignals,
-          dual: isDualPane
+          signals: showSignals
         };
+        setShowHtfChart(true);
+        setShowLtfChart(false);
         setShowOrderBook(false);
         setShowTape(false);
         setShowSignals(false);
-        setIsDualPane(false);
         return true;
       } else {
         if (prevPanelsRef.current) {
+          setShowHtfChart(prevPanelsRef.current.htf);
+          setShowLtfChart(prevPanelsRef.current.ltf);
           setShowOrderBook(prevPanelsRef.current.orderbook);
           setShowTape(prevPanelsRef.current.tape);
           setShowSignals(prevPanelsRef.current.signals);
-          setIsDualPane(prevPanelsRef.current.dual);
         } else {
+          setShowHtfChart(true);
+          setShowLtfChart(true);
           setShowOrderBook(true);
           setShowTape(true);
         }
         return false;
       }
     });
-  }, [showOrderBook, showTape, showSignals, isDualPane]);
+  }, [showHtfChart, showLtfChart, showOrderBook, showTape, showSignals]);
 
-  useEffect(() => {
-    localStorage.setItem('panel_dual_chart', isDualPane ? 'true' : 'false');
-  }, [isDualPane]);
-
-  useEffect(() => {
-    localStorage.setItem('secondary_tf', secondaryTimeframe);
-  }, [secondaryTimeframe]);
-
-  useEffect(() => {
-    localStorage.setItem('panel_tape', showTape ? 'true' : 'false');
-  }, [showTape]);
-
-  useEffect(() => {
-    localStorage.setItem('panel_orderbook', showOrderBook ? 'true' : 'false');
-  }, [showOrderBook]);
-
-  useEffect(() => {
-    localStorage.setItem('panel_signals', showSignals ? 'true' : 'false');
-  }, [showSignals]);
-
-  // Resizable sidebar state (default 500px to fit 4-column DOM + Tape comfortably, auto-clamped on 1366x768)
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const saved = localStorage.getItem('terminal_sidebar_width');
-    return saved ? Math.min(760, Math.max(320, parseInt(saved, 10))) : 500;
-  });
-  const isDraggingRef = useRef(false);
+  const chartsContainerRef = useRef(null);
+  const rightDockRef = useRef(null);
+  const domTapeRowRef = useRef(null);
 
   const [searchInput, setSearchInput] = useState('');
   const [activeProximityAlert, setActiveProximityAlert] = useState(null);
   const proximityTimeoutRef = useRef(null);
 
+  // 1. Splitter: Main Right Dock Width (between Charts and DOM/Tape)
   const handleMouseDown = useCallback((e) => {
     e.preventDefault();
-    isDraggingRef.current = true;
     document.body.style.cursor = 'col-resize';
 
     const onMouseMove = (moveEvent) => {
-      if (!isDraggingRef.current) return;
-      const maxAllowed = Math.min(760, Math.floor(window.innerWidth * 0.48));
-      const newWidth = Math.max(300, Math.min(maxAllowed, window.innerWidth - moveEvent.clientX));
+      const maxAllowed = Math.min(820, Math.floor(window.innerWidth * 0.56));
+      const newWidth = Math.max(290, Math.min(maxAllowed, window.innerWidth - moveEvent.clientX));
       setSidebarWidth(newWidth);
-      localStorage.setItem('terminal_sidebar_width', newWidth.toString());
     };
 
     const onMouseUp = () => {
-      isDraggingRef.current = false;
+      document.body.style.cursor = 'default';
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, []);
+
+  // 2. Splitter: Between HTF Chart and LTF Chart
+  const handleChartSplitterMouseDown = useCallback((e) => {
+    e.preventDefault();
+    document.body.style.cursor = 'col-resize';
+
+    const onMouseMove = (moveEvent) => {
+      const el = chartsContainerRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 100) return;
+      const pct = ((moveEvent.clientX - rect.left) / rect.width) * 100;
+      setChartSplitPct(Math.min(80, Math.max(20, Math.round(pct * 10) / 10)));
+    };
+
+    const onMouseUp = () => {
+      document.body.style.cursor = 'default';
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, []);
+
+  // 3. Splitter: Between DOM OrderBook and Tape
+  const handleDomTapeSplitterMouseDown = useCallback((e) => {
+    e.preventDefault();
+    document.body.style.cursor = 'col-resize';
+
+    const onMouseMove = (moveEvent) => {
+      const el = domTapeRowRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 100) return;
+      const pct = ((moveEvent.clientX - rect.left) / rect.width) * 100;
+      setDomWidthPct(Math.min(80, Math.max(30, Math.round(pct * 10) / 10)));
+    };
+
+    const onMouseUp = () => {
+      document.body.style.cursor = 'default';
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, []);
+
+  // 4. Splitter: Horizontal divider between (DOM+Tape) and SignalsFeed
+  const handleSignalsSplitterMouseDown = useCallback((e) => {
+    e.preventDefault();
+    document.body.style.cursor = 'row-resize';
+
+    const onMouseMove = (moveEvent) => {
+      const el = rightDockRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.height <= 100) return;
+      const topPct = ((moveEvent.clientY - rect.top) / rect.height) * 100;
+      const sigPct = 100 - topPct;
+      setSignalsHeightPct(Math.min(70, Math.max(18, Math.round(sigPct * 10) / 10)));
+    };
+
+    const onMouseUp = () => {
       document.body.style.cursor = 'default';
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
@@ -562,6 +702,125 @@ export default function App() {
             <Keyboard size={13} />
           </button>
 
+          {/* Widget Manager Dropdown ('+ Виджеты') */}
+          <div className="relative">
+            <button
+              data-testid="widgets-menu-button"
+              onClick={() => setShowWidgetsMenu((v) => !v)}
+              className={`px-2 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition cursor-pointer ${
+                showWidgetsMenu
+                  ? 'bg-[#2563eb] text-white border-[#38bdf8] font-bold shadow-md'
+                  : 'bg-[#141720] text-[#38bdf8] border-[#38bdf850] hover:bg-[#1e293b]'
+              }`}
+              title="Менеджер виджетов: добавить или скрыть панели терминала"
+            >
+              <Plus size={11} />
+              <span>Виджеты</span>
+            </button>
+
+            {showWidgetsMenu && (
+              <div
+                data-testid="widgets-dropdown"
+                onClick={(e) => e.stopPropagation()}
+                style={{ backgroundColor: 'var(--bg-panel, #10131b)', borderColor: 'var(--border-subtle, #1f2430)' }}
+                className="absolute right-0 top-7 z-50 w-64 rounded-lg border shadow-2xl p-2 space-y-1 font-sans text-xs animate-fadeIn"
+              >
+                <div className="flex items-center justify-between px-1.5 py-1 border-b border-[#1f2430] text-[10.5px] font-bold text-white">
+                  <span className="flex items-center space-x-1.5">
+                    <LayoutGrid size={12} className="text-[#38bdf8]" />
+                    <span>Управление виджетами</span>
+                  </span>
+                  <button
+                    onClick={() => setShowWidgetsMenu(false)}
+                    className="text-[#60697b] hover:text-white p-0.5 cursor-pointer"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+
+                {[
+                  {
+                    id: 'htf',
+                    label: 'График HTF (Старший ТФ)',
+                    active: showHtfChart,
+                    toggle: () => setShowHtfChart((v) => !v)
+                  },
+                  {
+                    id: 'ltf',
+                    label: 'График LTF (Младший ТФ)',
+                    active: showLtfChart,
+                    toggle: () => setShowLtfChart((v) => !v)
+                  },
+                  {
+                    id: 'dom',
+                    label: 'Биржевой стакан (DOM)',
+                    active: showOrderBook,
+                    toggle: () => setShowOrderBook((v) => !v)
+                  },
+                  {
+                    id: 'tape',
+                    label: 'Лента сделок (Time & Sales)',
+                    active: showTape,
+                    toggle: () => setShowTape((v) => !v)
+                  },
+                  {
+                    id: 'signals',
+                    label: 'Лента сигналов',
+                    active: showSignals,
+                    toggle: () => setShowSignals((v) => !v)
+                  },
+                  {
+                    id: 'backtest_ai',
+                    label: 'Панель бэктеста / AI',
+                    active: showBacktest || showAICopilot,
+                    toggle: () => {
+                      if (showBacktest || showAICopilot) {
+                        setShowBacktest(false);
+                        setShowAICopilot(false);
+                      } else {
+                        setShowBacktest(true);
+                        setShowAICopilot(true);
+                      }
+                    }
+                  }
+                ].map((item) => (
+                  <button
+                    key={item.id}
+                    data-testid={`widget-toggle-${item.id}`}
+                    onClick={item.toggle}
+                    className="w-full flex items-center justify-between px-2 py-1.5 rounded hover:bg-[#191f2e] transition cursor-pointer text-left"
+                  >
+                    <span className={item.active ? 'text-white font-medium text-[11px]' : 'text-[#787f91] text-[11px]'}>
+                      {item.label}
+                    </span>
+                    <span
+                      className={`w-4 h-4 rounded flex items-center justify-center border ${
+                        item.active
+                          ? 'bg-[#2563eb] border-[#38bdf8] text-white'
+                          : 'border-[#333d52] bg-[#090b10]'
+                      }`}
+                    >
+                      {item.active && <Check size={11} strokeWidth={3} />}
+                    </span>
+                  </button>
+                ))}
+
+                <div className="pt-1 border-t border-[#1f2430]">
+                  <button
+                    onClick={() => {
+                      resetLayoutToDefaults();
+                      setShowWidgetsMenu(false);
+                    }}
+                    className="w-full py-1 px-2 rounded bg-[#161a26] hover:bg-[#2563eb] text-[#94a3b8] hover:text-white text-[10.5px] font-mono flex items-center justify-center space-x-1 transition cursor-pointer"
+                  >
+                    <RotateCcw size={11} />
+                    <span>Восстановить раскладку</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Workspace Toggle: Dual-Pane 50/50 */}
           <button
             onClick={() => setIsDualPane((v) => !v)}
@@ -695,41 +954,61 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Responsive Workspace Layout */}
+      {/* Main Responsive Workspace Layout with Drag-to-Resize Splitters */}
       <main className="flex-1 flex overflow-hidden relative min-w-0">
-        {/* Central Workspace: Dual-Pane 50/50 CSS Grid KLineCharts */}
+        {/* Central Workspace: Resizable Dual-Pane KLineCharts */}
         <section
           style={{ backgroundColor: 'var(--bg-root)' }}
           className="flex-1 h-full min-w-0 p-1 overflow-hidden relative flex flex-col"
         >
           <div
-            className={`flex-1 min-h-0 min-w-0 grid gap-1 ${
-              isDualPane ? 'grid-cols-2' : 'grid-cols-1'
-            }`}
+            ref={chartsContainerRef}
+            className="flex-1 min-h-0 min-w-0 flex overflow-hidden"
           >
             {/* Left Chart (HTF Senior Timeframe) */}
-            <div className="h-full w-full min-w-0 min-h-0 overflow-hidden">
-              <Chart
-                chartId="primary"
-                symbol={symbol}
-                timeframe={timeframe}
-                userId={userId}
-                titlePrefix="HTF"
-                backtestSignals={btResult}
-                showBacktestSignals={showBtSignals}
-                strategyLevels={strategyLevels}
-                uiConfig={uiConfig}
-                chartIndicators={primaryIndicators}
-                onOpenIndicators={(cid) => {
-                  setIndicatorsTargetChart(cid);
-                  setShowIndicatorsModal(true);
-                }}
-              />
-            </div>
+            {showHtfChart && (
+              <div
+                style={{ width: showLtfChart ? `${chartSplitPct}%` : '100%' }}
+                className="h-full min-w-[200px] min-h-0 overflow-hidden shrink-0"
+              >
+                <Chart
+                  chartId="primary"
+                  symbol={symbol}
+                  timeframe={timeframe}
+                  userId={userId}
+                  titlePrefix="HTF"
+                  backtestSignals={btResult}
+                  showBacktestSignals={showBtSignals}
+                  strategyLevels={strategyLevels}
+                  uiConfig={uiConfig}
+                  chartIndicators={primaryIndicators}
+                  onOpenIndicators={(cid) => {
+                    setIndicatorsTargetChart(cid);
+                    setShowIndicatorsModal(true);
+                  }}
+                  onCloseWidget={() => setShowHtfChart(false)}
+                />
+              </div>
+            )}
 
-            {/* Right Chart (LTF Junior Microstructure Timeframe, strict 50/50 split) */}
-            {isDualPane && (
-              <div className="h-full w-full min-w-0 min-h-0 overflow-hidden">
+            {/* Interactive Vertical Splitter between HTF and LTF charts */}
+            {showHtfChart && showLtfChart && (
+              <div
+                data-testid="splitter-charts"
+                onMouseDown={handleChartSplitterMouseDown}
+                className="w-1.5 hover:bg-[#38bdf880] active:bg-[#38bdf8] cursor-col-resize transition-colors flex items-center justify-center relative group z-10 shrink-0"
+                title="Потяните для изменения пропорции графиков HTF / LTF"
+              >
+                <div
+                  style={{ backgroundColor: 'var(--border-subtle)' }}
+                  className="w-[1px] h-full group-hover:bg-[#38bdf8]"
+                />
+              </div>
+            )}
+
+            {/* Right Chart (LTF Junior Microstructure Timeframe) */}
+            {showLtfChart && (
+              <div className="flex-1 h-full min-w-[200px] min-h-0 overflow-hidden">
                 <Chart
                   chartId="secondary"
                   symbol={symbol}
@@ -746,7 +1025,29 @@ export default function App() {
                     setIndicatorsTargetChart(cid);
                     setShowIndicatorsModal(true);
                   }}
+                  onCloseWidget={() => setShowLtfChart(false)}
                 />
+              </div>
+            )}
+
+            {/* Empty state if both charts were closed */}
+            {!showHtfChart && !showLtfChart && (
+              <div className="flex-1 h-full flex flex-col items-center justify-center border border-[#1f2430] rounded bg-[#0c0e12] space-y-2 text-xs text-[#787f91]">
+                <span>Окна графиков скрыты</span>
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => setShowHtfChart(true)}
+                    className="px-3 py-1 rounded bg-[#2563eb] text-white font-semibold cursor-pointer"
+                  >
+                    + Открыть График HTF
+                  </button>
+                  <button
+                    onClick={() => setShowLtfChart(true)}
+                    className="px-3 py-1 rounded bg-[#1e293b] text-[#38bdf8] border border-[#38bdf850] font-semibold cursor-pointer"
+                  >
+                    + Открыть График LTF
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -764,13 +1065,14 @@ export default function App() {
           />
         </section>
 
-        {/* Resizable Splitter Handle */}
+        {/* Interactive Splitter Handle between Charts and Right Dock */}
         {anyRightPanelOpen && (
           <div
+            data-testid="splitter-main-dock"
             onMouseDown={handleMouseDown}
             style={{ backgroundColor: 'var(--bg-root)' }}
-            className="w-1.5 hover:bg-[#38bdf880] cursor-col-resize transition-colors flex items-center justify-center relative group z-10 shrink-0"
-            title="Потяните для изменения ширины бокового дока"
+            className="w-1.5 hover:bg-[#38bdf880] active:bg-[#38bdf8] cursor-col-resize transition-colors flex items-center justify-center relative group z-10 shrink-0"
+            title="Потяните для изменения ширины бокового дока (Стакан / Лента)"
           >
             <div
               style={{ backgroundColor: 'var(--border-subtle)' }}
@@ -782,43 +1084,84 @@ export default function App() {
         {/* Right Pane: Responsive Resizable Sidebar (DOM OrderBook, Tape, Signals) */}
         {anyRightPanelOpen && (
           <aside
+            ref={rightDockRef}
             style={{
               width: `${sidebarWidth}px`,
-              maxWidth: '43vw'
+              maxWidth: '56vw'
             }}
-            className="h-full flex flex-col p-1 pl-0 space-y-1 overflow-hidden shrink-0 min-w-[290px]"
+            className="h-full flex flex-col p-1 pl-0 overflow-hidden shrink-0 min-w-[290px]"
           >
             {(showOrderBook || showTape) && (
               <div
-                className={`${
-                  showSignals ? 'h-[62%]' : 'h-full'
-                } w-full flex space-x-1 min-h-0 transition-all duration-150`}
+                ref={domTapeRowRef}
+                style={{
+                  height: showSignals ? `${100 - signalsHeightPct}%` : '100%'
+                }}
+                className="w-full flex min-h-0 overflow-hidden shrink-0"
               >
                 {showOrderBook && (
-                  <div className={`${showTape ? 'w-[64%]' : 'w-full'} h-full min-w-0 transition-all`}>
+                  <div
+                    style={{ width: showTape ? `${domWidthPct}%` : '100%' }}
+                    className="h-full min-w-[160px] overflow-hidden shrink-0"
+                  >
                     <OrderBookDOM
                       symbol={symbol}
                       onProximityAlert={handleProximityAlert}
                       uiConfig={uiConfig}
                       strategyLevels={strategyLevels}
+                      onClose={() => setShowOrderBook(false)}
                     />
                   </div>
                 )}
+
+                {/* Interactive Splitter between DOM OrderBook and Tape */}
+                {showOrderBook && showTape && (
+                  <div
+                    data-testid="splitter-dom-tape"
+                    onMouseDown={handleDomTapeSplitterMouseDown}
+                    className="w-1.5 hover:bg-[#38bdf880] active:bg-[#38bdf8] cursor-col-resize transition-colors flex items-center justify-center relative group z-10 shrink-0"
+                    title="Потяните для изменения ширины Стакана DOM и Ленты сделок"
+                  >
+                    <div
+                      style={{ backgroundColor: 'var(--border-subtle)' }}
+                      className="w-[1px] h-full group-hover:bg-[#38bdf8]"
+                    />
+                  </div>
+                )}
+
                 {showTape && (
-                  <div className={`${showOrderBook ? 'w-[36%]' : 'w-full'} h-full min-w-0 transition-all`}>
-                    <Tape symbol={symbol} uiConfig={uiConfig} />
+                  <div className="flex-1 h-full min-w-[110px] overflow-hidden">
+                    <Tape
+                      symbol={symbol}
+                      uiConfig={uiConfig}
+                      onClose={() => setShowTape(false)}
+                    />
                   </div>
                 )}
               </div>
             )}
 
-            {showSignals && (
+            {/* Interactive Horizontal Splitter between (DOM+Tape) and SignalsFeed */}
+            {(showOrderBook || showTape) && showSignals && (
               <div
-                className={`${
-                  showOrderBook || showTape ? 'h-[38%]' : 'h-full'
-                } w-full min-h-0 transition-all duration-150`}
+                data-testid="splitter-signals"
+                onMouseDown={handleSignalsSplitterMouseDown}
+                className="h-1.5 hover:bg-[#38bdf880] active:bg-[#38bdf8] cursor-row-resize transition-colors flex items-center justify-center relative group z-10 shrink-0"
+                title="Потяните для изменения высоты панели сигналов"
               >
-                <SignalsFeed onSelectSignal={handleSelectSignal} />
+                <div
+                  style={{ backgroundColor: 'var(--border-subtle)' }}
+                  className="h-[1px] w-full group-hover:bg-[#38bdf8]"
+                />
+              </div>
+            )}
+
+            {showSignals && (
+              <div className="flex-1 w-full min-h-[90px] overflow-hidden">
+                <SignalsFeed
+                  onSelectSignal={handleSelectSignal}
+                  onClose={() => setShowSignals(false)}
+                />
               </div>
             )}
           </aside>
