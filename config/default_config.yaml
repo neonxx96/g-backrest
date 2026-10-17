@@ -1,0 +1,37 @@
+# g-backrest Configuration File
+# Настройки стратегий, таймфреймов, риск-менеджмента и сканера
+
+general:
+  exchange: "bybit"         # bybit, binance, okx
+  market_type: "swap"       # swap (perpetuals) или spot
+  capital: 10000.0          # Стартовый капитал в USD
+  taker_fee_pct: 0.055      # Комиссия тейкера %
+  maker_fee_pct: 0.02       # Комиссия мейкера %
+  slippage_pct: 0.02        # Проскальзывание %
+
+timeframes:
+  base_ltf: "15m"           # Рабочий триггерный таймфрейм
+  trend_htf: "1h"           # Старший таймфрейм фильтрации тренда
+
+watchlist:
+  - "BTC/USDT"
+  - "ETH/USDT"
+  - "SOL/USDT"
+  - "DOGE/USDT"
+  - "XRP/USDT"
+
+risk_management:
+  tp_mode: "atr"            # 'atr' (мультипликатор ATR), 'pct' (фиксированный %), 'rr' (соотношение риск/прибыль)
+  tp_value: 2.0             # 2.0x ATR или 2.0%
+  sl_mode: "atr"            # 'atr', 'pct', 'swing'
+  sl_value: 1.2             # 1.2x ATR или 1.2%
+  use_trailing: true        # Трейлинг-стоп для защиты накопленной прибыли
+  trailing_trigger: 1.5     # Активация трейлинга при профите от 1.5x ATR
+  trailing_step: 0.6        # Шаг подтягивания стопа
+
+strategy_filters:
+  rsi_long_max: 36          # Макс. RSI для входа в лонг на откате (зона перепроданности/отката)
+  rsi_short_min: 64         # Мин. RSI для входа в шорт на откате
+  min_volume_ratio: 1.1     # Минимальный объем свечи относительно MA20
+  require_htf_trend: true   # Фильтр направления: торговать только по тренду старшего ТФ (EMA 50 / 200)
+  require_vwap_align: false # Требовать подтверждения по сессионному VWAP
