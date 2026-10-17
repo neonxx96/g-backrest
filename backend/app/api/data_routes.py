@@ -82,29 +82,4 @@ async def export_recorded_data(symbol: Optional[str] = None):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to export data: {str(e)}")
 
-@data_router.post("/backtest/run")
-async def run_backtest_simulation(payload: BacktestRequestSchema):
-    """Runs realistic order flow / technical confluence backtest."""
-    try:
-        # Limit limit to candles needed for days (e.g. 15m * 4 * 24 * days)
-        candles_count = min(payload.days * 96, 1500)
-        df = await binance_service.fetch_klines(
-            symbol=payload.symbol.upper(),
-            timeframe=payload.timeframe,
-            limit=candles_count
-        )
-        if df.empty:
-            raise HTTPException(status_code=400, detail=f"Could not load historical candles for {payload.symbol}")
-
-        results = orderflow_backtester.run_backtest(
-            df=df,
-            strategy_type=payload.strategy_type,
-            take_profit_pct=payload.take_profit_pct,
-            stop_loss_pct=payload.stop_loss_pct,
-            use_trailing=payload.use_trailing,
-            trailing_pct=payload.trailing_pct,
-            leverage=payload.leverage
-        )
-        return results
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+# NOTE: POST /api/backtest/run now lives in backend/app/routers/backtest.py

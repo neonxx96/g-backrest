@@ -125,6 +125,54 @@ try {
   });
 } catch (_) {}
 
+// 2b. Register custom 'btSignal' (Backtest BUY/SELL markers)
+try {
+  registerOverlay({
+    name: 'btSignal',
+    totalStep: 2,
+    lock: true,
+    needDefaultPointFigure: false,
+    needDefaultXAxisFigure: false,
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ coordinates, overlay }) => {
+      if (!coordinates || coordinates.length === 0) return [];
+      const { x, y } = coordinates[0];
+      const ext = overlay.extendData || {};
+      const isBuy = ext.type === 'BUY';
+      const color = isBuy ? '#26a69a' : '#ef5350';
+      const gap = 5;   // pixels between candle extreme and arrow
+      const h = 11;
+      const w = 7;
+      const tri = isBuy
+        // arrow pointing up, strictly below the candle low
+        ? [{ x, y: y + gap }, { x: x - w, y: y + gap + h }, { x: x + w, y: y + gap + h }]
+        // arrow pointing down, strictly above the candle high
+        : [{ x, y: y - gap }, { x: x - w, y: y - gap - h }, { x: x + w, y: y - gap - h }];
+      const textY = isBuy ? y + gap + h + 4 : y - gap - h - 4;
+      return [
+        {
+          type: 'polygon',
+          attrs: { coordinates: tri },
+          styles: { style: 'stroke_fill', color, borderColor: '#ffffff', borderSize: 0.5 },
+          ignoreEvent: false
+        },
+        {
+          type: 'text',
+          attrs: {
+            x,
+            y: textY,
+            text: Number(ext.price || 0).toFixed(ext.price >= 100 ? 1 : 4),
+            align: 'center',
+            baseline: isBuy ? 'top' : 'bottom'
+          },
+          styles: { color, size: 9, backgroundColor: 'transparent' },
+          ignoreEvent: true
+        }
+      ];
+    }
+  });
+} catch (_) {}
+
 // 3. Register custom 'liqMarker' (Liquidation Bubbles)
 try {
   registerOverlay({
@@ -287,7 +335,9 @@ export default function Chart({
   timeframe = "15m", 
   userId = "0", 
   titlePrefix = "", 
-  onTimeframeChange 
+  onTimeframeChange,
+  backtestSignals = null,
+  showBacktestSignals = true
 }) {
   const chartContainerRef = useRef(null);
   const chartRef = useRef(null);
@@ -295,6 +345,10 @@ export default function Chart({
   const selectedOverlayId = useRef(null);
   const trackedOverlays = useRef(new Map()); // id -> overlay data
   const drawingHistory = useRef([]); // history stack of overlay IDs for Ctrl+Z undo
+  const btOverlayIds = useRef([]); // backtest signal overlays (never saved as drawings)
+  const lastScrolledResult = useRef(null);
+  const [klinesVersion, setKlinesVersion] = useState(0);
+  const [btTooltip, setBtTooltip] = useState(null);
   
   const prevSymbolRef = useRef(symbol);
   const prevTimeframeRef = useRef(timeframe);
@@ -815,6 +869,7 @@ export default function Chart({
           updateVwapOverlay(formattedData);
           loadLiquidations();
           loadHeatmap();
+          setKlinesVersion(v => v + 1);
         } else {
           setStatusMsg("Свечи отсутствуют");
         }
@@ -874,6 +929,77 @@ export default function Chart({
       }
     };
   }, [symbol, timeframe, chartReady, loadDrawings]);
+
+  // Backtest signals: draw BUY/SELL markers, clear on symbol change / re-run / hide
+  const clearBacktestSignals = useCallback(() => {
+    if (chartRef.current) {
+      btOverlayIds.current.forEach(id => {
+        try { chartRef.current.removeOverlay({ id }); } catch (_) {}
+      });
+    }
+    btOverlayIds.current = [];
+    setBtTooltip(null);
+  }, []);
+
+  useEffect(() => {
+    clearBacktestSignals();
+    const chart = chartRef.current;
+    const klines = currentKlines.current;
+    if (!chart || !showBacktestSignals || !backtestSignals || !Array.isArray(backtestSignals.signals)) return;
+    if (backtestSignals.symbol && backtestSignals.symbol !== symbol.toUpperCase()) return;
+    if (!klines || klines.length === 0) return;
+
+    const firstTs = klines[0].timestamp;
+    const lastTs = klines[klines.length - 1].timestamp;
+    const barMs = klines.length > 1 ? klines[1].timestamp - klines[0].timestamp : 60000;
+
+    // Snap signal time to the candle that contains it (binary search for last bar <= time)
+    const findBar = (t) => {
+      if (t < firstTs || t > lastTs + barMs) return null;
+      let lo = 0, hi = klines.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (klines[mid].timestamp <= t) lo = mid; else hi = mid - 1;
+      }
+      return klines[lo];
+    };
+
+    const container = chartContainerRef.current;
+    const showTip = (sig) => (e) => {
+      const rect = container ? container.getBoundingClientRect() : { left: 0, top: 0 };
+      const px = (e && e.pageX != null) ? e.pageX - rect.left - window.scrollX : (e?.x || 0);
+      const py = (e && e.pageY != null) ? e.pageY - rect.top - window.scrollY : (e?.y || 0);
+      setBtTooltip({ x: px, y: py, sig });
+      return true;
+    };
+
+    let lastBarTs = null;
+    backtestSignals.signals.forEach(sig => {
+      const bar = findBar(sig.time);
+      if (!bar) return;
+      lastBarTs = bar.timestamp;
+      const isBuy = sig.type === 'BUY';
+      try {
+        const id = chart.createOverlay({
+          name: 'btSignal',
+          lock: true,
+          points: [{ timestamp: bar.timestamp, value: isBuy ? bar.low : bar.high }],
+          extendData: { type: sig.type, price: sig.price },
+          onMouseEnter: showTip(sig),
+          onClick: showTip(sig),
+          onMouseLeave: () => { setBtTooltip(null); return true; }
+        });
+        if (id) btOverlayIds.current.push(id);
+      } catch (_) {}
+    });
+
+    // Reveal the newest marker once per new result (not on every redraw)
+    if (lastBarTs && lastScrolledResult.current !== backtestSignals) {
+      lastScrolledResult.current = backtestSignals;
+      try { chart.scrollToTimestamp(Math.min(lastBarTs + 14 * barMs, lastTs), 200); } catch (_) {}
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backtestSignals, showBacktestSignals, symbol, timeframe, klinesVersion, chartReady]);
 
   // Drawing tool selection
   const handleSelectTool = (toolName) => {
@@ -1193,6 +1319,27 @@ export default function Chart({
         onContextMenu={handleContextMenu}
       >
         <div ref={chartContainerRef} className="w-full h-full" />
+
+        {/* Backtest marker tooltip: reason + PnL */}
+        {btTooltip && (
+          <div
+            className="absolute z-30 pointer-events-none px-2 py-1 rounded border text-[10px] font-mono bg-[#101217] shadow-xl"
+            style={{
+              left: Math.min(btTooltip.x + 12, (chartContainerRef.current?.clientWidth || 600) - 170),
+              top: Math.max(btTooltip.y - 54, 4),
+              borderColor: btTooltip.sig.type === 'BUY' ? '#26a69a' : '#ef5350'
+            }}
+          >
+            <div className={btTooltip.sig.type === 'BUY' ? 'text-[#26a69a] font-bold' : 'text-[#ef5350] font-bold'}>
+              {btTooltip.sig.label} @ {btTooltip.sig.price}
+            </div>
+            <div className="text-[#d1d4dc]">Причина: {btTooltip.sig.reason || '—'}</div>
+            <div className={(btTooltip.sig.pnl_pct ?? 0) >= 0 ? 'text-[#26a69a]' : 'text-[#ef5350]'}>
+              PnL: {(btTooltip.sig.pnl_pct ?? 0) >= 0 ? '+' : ''}{btTooltip.sig.pnl_pct}% (${btTooltip.sig.pnl_usd})
+            </div>
+          </div>
+        )}
+
 
         {/* Right-Click Context Menu (Task 6) */}
         {contextMenu.visible && (

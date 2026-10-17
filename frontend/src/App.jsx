@@ -4,6 +4,7 @@ import OrderBook from './components/OrderBook';
 import Tape from './components/Tape';
 import SignalsFeed from './components/SignalsFeed';
 import SettingsModal from './components/SettingsModal';
+import BacktestPanel from './components/BacktestPanel';
 import { soundManager } from './utils/sound';
 import { 
   Sliders, 
@@ -16,6 +17,7 @@ import {
   Keyboard,
   AlertTriangle,
   Columns,
+  BarChart3,
   Zap
 } from 'lucide-react';
 
@@ -31,6 +33,14 @@ export default function App() {
   const [symbol, setSymbol] = useState(initialSymbol);
   const [timeframe, setTimeframe] = useState(initialTf);
   const [userId] = useState(initialUserId);
+
+  // Backtest panel state: result (signals/trades/metrics) lives here so both charts can draw markers
+  const [showBacktest, setShowBacktest] = useState(false);
+  const [btResult, setBtResult] = useState(null);
+  const [showBtSignals, setShowBtSignals] = useState(true);
+  useEffect(() => {
+    setBtResult(null); // markers belong to one instrument: clear on symbol change
+  }, [symbol]);
 
   // Dual-Pane Workspace state (HTF 15m + LTF 1m)
   const [isDualPane, setIsDualPane] = useState(() => {
@@ -185,6 +195,8 @@ export default function App() {
         setShowSignals(v => !v);
       } else if (e.key.toLowerCase() === 'd') {
         setIsDualPane(v => !v);
+      } else if (e.key.toLowerCase() === 'b' || e.key.toLowerCase() === 'и') {
+        setShowBacktest(v => !v);
       } else if (e.key === '?') {
         setShowHotkeyHelp(v => !v);
       }
@@ -321,6 +333,16 @@ export default function App() {
             <span>{isDualPane ? '2 Графика [D]' : '1 График [D]'}</span>
           </button>
 
+          {/* Backtest drawer toggle */}
+          <button
+            onClick={() => setShowBacktest(v => !v)}
+            className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition ${showBacktest ? 'bg-[#141720] text-[#a78bfa] border-[#a78bfa40]' : 'text-[#60697b] border-transparent hover:bg-[#141720]'}`}
+            title="Бэктест стратегий (Клавиша 'B')"
+          >
+            <BarChart3 size={11} />
+            <span>📊 Бэктест [B]</span>
+          </button>
+
           {/* Panel Toggle: OrderBook */}
           <button
             onClick={() => setShowOrderBook(v => !v)}
@@ -374,7 +396,7 @@ export default function App() {
       {/* Main Workspace Layout */}
       <main className="flex-1 flex overflow-hidden relative">
         {/* Central Workspace: Dual-Pane KLineCharts */}
-        <section className="flex-1 h-full min-w-0 bg-[#08090c] p-1 overflow-hidden flex">
+        <section className="flex-1 h-full min-w-0 bg-[#08090c] p-1 overflow-hidden flex relative">
           {/* Left Chart (HTF Senior Timeframe, default 15m) */}
           <div className={`${isDualPane ? 'w-1/2' : 'w-full'} h-full min-w-0 pr-0.5 transition-all`}>
             <Chart 
@@ -383,6 +405,8 @@ export default function App() {
               timeframe={timeframe} 
               userId={userId} 
               titlePrefix="HTF"
+              backtestSignals={btResult}
+              showBacktestSignals={showBtSignals}
             />
           </div>
 
@@ -396,10 +420,23 @@ export default function App() {
                 onTimeframeChange={setSecondaryTimeframe}
                 userId={userId} 
                 titlePrefix="LTF"
+                backtestSignals={btResult}
+                showBacktestSignals={showBtSignals}
               />
             </div>
           )}
+
+          <BacktestPanel
+            isOpen={showBacktest}
+            onClose={() => setShowBacktest(false)}
+            symbol={symbol}
+            result={btResult}
+            onResult={setBtResult}
+            showSignals={showBtSignals}
+            onToggleSignals={() => setShowBtSignals(v => !v)}
+          />
         </section>
+
 
         {/* Resizable Splitter Handle (Task 6) */}
         {(showOrderBook || showTape || showSignals) && (

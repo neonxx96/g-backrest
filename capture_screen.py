@@ -65,7 +65,16 @@ async def capture_cdp():
             eval_req = {'id': 2, 'method': 'Runtime.evaluate', 'params': {'expression': eval_script}}
             await ws.send(json.dumps(eval_req))
             await ws.recv()
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(float(os.environ.get("CDP_WAIT", "1.0")))
+
+        mouse = os.environ.get("CDP_MOUSE")
+        if mouse:
+            mx, my = [float(v) for v in mouse.split(",")]
+            for step in range(3):  # a few moves so hover state registers
+                await ws.send(json.dumps({'id': 10 + step, 'method': 'Input.dispatchMouseEvent',
+                                          'params': {'type': 'mouseMoved', 'x': mx + step, 'y': my + step}}))
+                await ws.recv()
+                await asyncio.sleep(0.3)
 
         req = {'id': 1, 'method': 'Page.captureScreenshot', 'params': {'format': 'png'}}
         await ws.send(json.dumps(req))

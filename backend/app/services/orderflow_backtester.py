@@ -26,8 +26,9 @@ class OrderFlowBacktester:
         """Enriches dataframe with EMA, RSI, Volume MA, Delta and CVD."""
         data = df.copy()
         
-        # EMA 20
+        # EMA 20 / EMA 50
         data['ema20'] = data['close'].ewm(span=20, adjust=False).mean()
+        data['ema50'] = data['close'].ewm(span=50, adjust=False).mean()
 
         # Volume MA 20 & Volume Ratio
         data['vol_ma20'] = data['volume'].rolling(window=20).mean()
@@ -72,13 +73,19 @@ class OrderFlowBacktester:
         trailing_pct: float = 0.5,
         leverage: float = 1.0,
         density_threshold_usd: float = 100000.0,
+        volume_multiplier: float = 1.3,
+        min_density_usd: float = 0.0,
     ) -> Dict[str, Any]:
         """
         Executes backtest on dataframe for chosen order flow strategy.
         Returns full statistics, equity curve, and trade log.
+
+        NOTE: only OHLCV + taker-buy delta are available historically, so
+        `min_density_usd` is applied as a proxy: minimal USD turnover
+        (close * volume) of the rejection candle ("wall was real and traded").
         """
-        if df.empty or len(df) < 30:
-            return {"error": "Недостаточно свечей для бэктеста (минимум 30)"}
+        if df.empty or len(df) < 60:
+            return {"error": "Недостаточно свечей для бэктеста (минимум 60)"}
 
         data = self.calculate_indicators(df)
         
@@ -91,12 +98,14 @@ class OrderFlowBacktester:
         high_vals = data['high'].values
         low_vals = data['low'].values
         ema20_vals = data['ema20'].values
+        ema50_vals = data['ema50'].values
         vol_ratio_vals = data['vol_ratio'].values
+        volume_vals = data['volume'].values
         rsi_vals = data['rsi'].values
         delta_vals = data['delta'].values
         cvd_vals = data['cvd'].values
 
-        for i in range(25, len(data)):
+        for i in range(50, len(data)):
             c = close_vals[i]
             prev_c = close_vals[i-1]
             ema = ema20_vals[i]
@@ -107,34 +116,42 @@ class OrderFlowBacktester:
 
             if strategy_type == "confluence_ema":
                 # EMA(20) Bounce/Cross + Volume Spike + Delta Confirmation
-                # Long: Cross or bounce above EMA20, RSI between 40 and 65, Vol > 1.4x, positive delta
-                if prev_c <= prev_ema and c > ema and v_rat >= 1.3 and delta > 0 and 40 <= rsi <= 65:
+                if prev_c <= prev_ema and c > ema and v_rat >= volume_multiplier and delta > 0 and 40 <= rsi <= 65:
                     signals[i] = 1
-                # Short: Cross or reject below EMA20, RSI between 35 and 60, Vol > 1.3x, negative delta
-                elif prev_c >= prev_ema and c < ema and v_rat >= 1.3 and delta < 0 and 35 <= rsi <= 60:
+                elif prev_c >= prev_ema and c < ema and v_rat >= volume_multiplier and delta < 0 and 35 <= rsi <= 60:
+                    signals[i] = -1
+
+            elif strategy_type == "ema_trend":
+                # EMA20 crosses EMA50 in direction of delta with volume confirmation
+                cross_up = ema20_vals[i-1] <= ema50_vals[i-1] and ema20_vals[i] > ema50_vals[i]
+                cross_dn = ema20_vals[i-1] >= ema50_vals[i-1] and ema20_vals[i] < ema50_vals[i]
+                if cross_up and v_rat >= volume_multiplier and delta > 0:
+                    signals[i] = 1
+                elif cross_dn and v_rat >= volume_multiplier and delta < 0:
                     signals[i] = -1
 
             elif strategy_type == "delta_absorption":
                 # Delta Absorption: Local extreme with CVD divergence
-                # Bullish: Price lower low in last 10 bars, but CVD higher low + positive current delta
                 local_min_price = min(low_vals[i-10:i])
                 local_min_cvd = min(cvd_vals[i-10:i])
-                if low_vals[i] <= local_min_price and cvd_vals[i] > local_min_cvd and delta > 0 and rsi < 40:
+                if low_vals[i] <= local_min_price and cvd_vals[i] > local_min_cvd and delta > 0 and rsi < 40 and v_rat >= volume_multiplier:
                     signals[i] = 1
-                # Bearish: Price higher high in last 10 bars, but CVD lower high + negative current delta
                 local_max_price = max(high_vals[i-10:i])
                 local_max_cvd = max(cvd_vals[i-10:i])
-                if high_vals[i] >= local_max_price and cvd_vals[i] < local_max_cvd and delta < 0 and rsi > 60:
+                if high_vals[i] >= local_max_price and cvd_vals[i] < local_max_cvd and delta < 0 and rsi > 60 and v_rat >= volume_multiplier:
                     signals[i] = -1
 
             elif strategy_type == "density_bounce":
-                # Simulated liquidity bounce: Sharp exhaustion into support/resistance with immediate delta rejection
-                is_pinbar_bull = (c - low_vals[i]) > 2 * (high_vals[i] - c) and delta > 0
-                is_pinbar_bear = (high_vals[i] - c) > 2 * (c - low_vals[i]) and delta < 0
-                if is_pinbar_bull and v_rat >= 1.5 and rsi < 35:
-                    signals[i] = 1
-                elif is_pinbar_bear and v_rat >= 1.5 and rsi > 65:
-                    signals[i] = -1
+                # Liquidity bounce proxy: pin-bar rejection with delta confirmation on big turnover
+                turnover = c * volume_vals[i]
+                if turnover >= min_density_usd:
+                    is_pinbar_bull = (c - low_vals[i]) > 2 * (high_vals[i] - c) and delta > 0
+                    is_pinbar_bear = (high_vals[i] - c) > 2 * (c - low_vals[i]) and delta < 0
+                    if is_pinbar_bull and v_rat >= volume_multiplier and rsi < 40:
+                        signals[i] = 1
+                    elif is_pinbar_bear and v_rat >= volume_multiplier and rsi > 60:
+                        signals[i] = -1
+
 
         # Simulate Execution
         trades = []
@@ -282,7 +299,7 @@ class OrderFlowBacktester:
             "max_drawdown_pct": round(max_dd_pct, 2),
             "max_drawdown_usd": round(max_dd_usd, 2),
             "equity_curve": equity_curve,
-            "trades": trades[:100]  # Return last 100 trades for UI table
+            "trades": trades[-1000:]
         }
 
 orderflow_backtester = OrderFlowBacktester()
