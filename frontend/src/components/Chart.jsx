@@ -15,7 +15,8 @@ import {
   Eye,
   Check,
   BarChart3,
-  Loader2
+  Loader2,
+  MousePointer
 } from 'lucide-react';
 
 const API_BASE = "/api";
@@ -191,7 +192,7 @@ try {
           type: 'polygon',
           attrs: { coordinates: tri },
           styles: { style: 'stroke_fill', color, borderColor: '#ffffff', borderSize: 0.5 },
-          ignoreEvent: false
+          ignoreEvent: true
         },
         {
           type: 'text',
@@ -250,7 +251,8 @@ try {
             color: isShortLiq ? 'rgba(0, 230, 118, 0.22)' : 'rgba(255, 23, 68, 0.22)',
             borderColor: color,
             borderSize: 1.5
-          }
+          },
+          ignoreEvent: true
         },
         {
           type: 'circle',
@@ -258,7 +260,8 @@ try {
           styles: {
             style: 'fill',
             color
-          }
+          },
+          ignoreEvent: true
         }
       ];
 
@@ -280,7 +283,8 @@ try {
             size: 9.5,
             padding: 2.5,
             borderRadius: 2
-          }
+          },
+          ignoreEvent: true
         });
       }
 
@@ -330,7 +334,8 @@ try {
           styles: {
             style: 'fill',
             color
-          }
+          },
+          ignoreEvent: true
         }
       ];
     }
@@ -376,7 +381,8 @@ try {
           styles: {
             style: 'fill',
             color: fillColor
-          }
+          },
+          ignoreEvent: true
         },
         {
           type: 'line',
@@ -390,7 +396,8 @@ try {
             color,
             size: 1.5,
             style: 'dashed'
-          }
+          },
+          ignoreEvent: true
         },
         {
           type: 'text',
@@ -407,7 +414,8 @@ try {
             size: 9.5,
             padding: 3,
             borderRadius: 2
-          }
+          },
+          ignoreEvent: true
         }
       ];
     }
@@ -456,7 +464,8 @@ try {
             color,
             size: 1.5,
             style: 'solid'
-          }
+          },
+          ignoreEvent: true
         },
         {
           type: 'text',
@@ -473,7 +482,8 @@ try {
             size: 10,
             padding: 3,
             borderRadius: 2
-          }
+          },
+          ignoreEvent: true
         }
       ];
     }
@@ -650,6 +660,8 @@ export default function Chart({
 
   const [chartReady, setChartReady] = useState(0);
   const [activeTool, setActiveTool] = useState(null);
+  const activeDrawingOverlayId = useRef(null);
+  const [isMouseDown, setIsMouseDown] = useState(false);
   const [magnetEnabled, setMagnetEnabled] = useState(false);
   const [indicators, setIndicators] = useState({
     ema: uiConfig?.emaEnabled !== false,
@@ -727,7 +739,18 @@ export default function Chart({
 
     const chart = init(chartContainerRef.current);
     chartRef.current = chart;
-    window.__chart = chart;
+    window.__charts = window.__charts || {};
+    window.__charts[chartId] = chart;
+    if (chartId === 'primary' || !window.__chart) {
+      window.__chart = chart;
+    }
+
+    // Explicitly enable scroll & zoom navigation
+    chart.setScrollEnabled(true);
+    chart.setZoomEnabled(true);
+    try {
+      chart.setPaneOptions({ id: 'candle_pane', dragEnabled: true, axisOptions: { scrollZoomEnabled: true } });
+    } catch (_) {}
 
     // Apply initial theme styles
     chart.setStyles(buildChartStyles(uiConfig || {}));
@@ -1032,6 +1055,21 @@ export default function Chart({
     }
   }, [saveDrawings]);
 
+  // Cancel active drawing tool creation and restore cursor / drag navigation
+  const cancelActiveDrawing = useCallback(() => {
+    setActiveTool(null);
+    if (activeDrawingOverlayId.current && chartRef.current) {
+      try {
+        chartRef.current.removeOverlay({ id: activeDrawingOverlayId.current });
+      } catch (_) {}
+      trackedOverlays.current.delete(activeDrawingOverlayId.current);
+      drawingHistory.current = drawingHistory.current.filter(id => id !== activeDrawingOverlayId.current);
+      activeDrawingOverlayId.current = null;
+    }
+    setStatusMsg("Режим курсора (перетаскивание)");
+    setTimeout(() => setStatusMsg(""), 1000);
+  }, []);
+
   // Hotkey listener for Ctrl+Z (Undo), Delete/Backspace on active overlay & Escape
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -1054,14 +1092,21 @@ export default function Chart({
           } catch (_) {}
         }
       } else if (e.key === 'Escape') {
-        setActiveTool(null);
+        cancelActiveDrawing();
         setContextMenu({ visible: false, x: 0, y: 0 });
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [symbol, timeframe, userId, saveDrawings, handleUndo]);
+  }, [symbol, timeframe, userId, saveDrawings, handleUndo, cancelActiveDrawing]);
+
+  // Global mouseup to reset isMouseDown dragging state
+  useEffect(() => {
+    const handleGlobalMouseUp = () => setIsMouseDown(false);
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+  }, []);
 
   // Global event listener for Undo
   useEffect(() => {
@@ -1682,6 +1727,20 @@ export default function Chart({
   // Drawing tool selection
   const handleSelectTool = (toolName) => {
     if (!chartRef.current) return;
+    if (activeTool === toolName) {
+      cancelActiveDrawing();
+      return;
+    }
+    // Cancel any previous incomplete drawing overlay
+    if (activeDrawingOverlayId.current) {
+      try {
+        chartRef.current.removeOverlay({ id: activeDrawingOverlayId.current });
+      } catch (_) {}
+      trackedOverlays.current.delete(activeDrawingOverlayId.current);
+      drawingHistory.current = drawingHistory.current.filter(id => id !== activeDrawingOverlayId.current);
+      activeDrawingOverlayId.current = null;
+    }
+
     setActiveTool(toolName);
     const overlayId = chartRef.current.createOverlay({
       name: toolName,
@@ -1689,6 +1748,7 @@ export default function Chart({
       mode: magnetEnabled ? 'strong_magnet' : 'normal',
       onDrawEnd: (e) => {
         setActiveTool(null);
+        activeDrawingOverlayId.current = null;
         if (e && e.overlay) {
           trackedOverlays.current.set(e.overlay.id, {
             name: e.overlay.name,
@@ -1713,10 +1773,7 @@ export default function Chart({
         return true;
       }
     });
-    if (overlayId) {
-      trackedOverlays.current.set(overlayId, { name: toolName });
-      drawingHistory.current.push(overlayId);
-    }
+    activeDrawingOverlayId.current = overlayId;
   };
 
   const handleClearDrawings = () => {
@@ -1870,6 +1927,19 @@ export default function Chart({
               )}
             </div>
           )}
+
+          {/* Default Cursor / Pan Mode Button */}
+          <button 
+            type="button"
+            title="Курсор / Свободное перетаскивание графика (Esc)" 
+            onClick={() => cancelActiveDrawing()}
+            className={`px-1.5 py-0.5 rounded text-[10.5px] font-mono flex items-center transition ${
+              !activeTool ? 'bg-[#1e293b] text-[#38bdf8] font-bold border border-[#38bdf840]' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'
+            }`}
+          >
+            <MousePointer size={11} className="mr-0.5" />
+            <span className="hidden 2xl:inline">Курсор</span>
+          </button>
 
           <button 
             title="Трендовая линия (Отрезок)" 
@@ -2037,10 +2107,25 @@ export default function Chart({
 
       {/* Chart Canvas Area */}
       <div 
-        className="flex-1 w-full h-full relative"
+        className={`flex-1 w-full h-full relative select-none ${
+          activeTool ? 'cursor-crosshair' : isMouseDown ? 'cursor-grabbing' : 'cursor-grab'
+        }`}
         onContextMenu={handleContextMenu}
+        onMouseDown={(e) => {
+          if (e.button === 0 && !activeTool) {
+            setIsMouseDown(true);
+          }
+        }}
+        onMouseUp={() => setIsMouseDown(false)}
+        onMouseLeave={() => setIsMouseDown(false)}
       >
-        <div ref={chartContainerRef} className="w-full h-full" />
+        <div 
+          ref={chartContainerRef} 
+          className="w-full h-full" 
+          style={{
+            cursor: activeTool ? 'crosshair' : isMouseDown ? 'grabbing' : 'grab'
+          }}
+        />
 
         {/* Backtest marker tooltip: reason + PnL */}
         {btTooltip && (
