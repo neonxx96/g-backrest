@@ -10,7 +10,10 @@ import {
   Save,
   Ruler,
   TrendingUp,
-  X
+  X,
+  RotateCcw,
+  Eye,
+  Check
 } from 'lucide-react';
 
 const API_BASE = "/api";
@@ -193,6 +196,7 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
   const chartRef = useRef(null);
   const wsRef = useRef(null);
   const selectedOverlayId = useRef(null);
+  const trackedOverlays = useRef(new Map()); // id -> overlay data
   
   const [chartReady, setChartReady] = useState(0);
   const [activeTool, setActiveTool] = useState(null);
@@ -200,6 +204,9 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
   const [indicators, setIndicators] = useState({ ema: true, vol: true, rsi: true, macd: true });
   const [statusMsg, setStatusMsg] = useState("");
   const [errorDetails, setErrorDetails] = useState(null);
+
+  // Context Menu State (Task 6)
+  const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0 });
 
   // Initialize KLineChart instance
   useEffect(() => {
@@ -249,7 +256,103 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
     };
   }, []);
 
-  // Hotkey listener for Delete/Backspace on active overlay & Escape to cancel tool
+  // Save drawings to backend
+  const saveDrawings = useCallback(() => {
+    if (!chartRef.current) return;
+    
+    const saveList = [];
+    
+    // Method 1: Check internal _chartStore overlay instance map
+    try {
+      const store = chartRef.current._chartStore?.getOverlayStore();
+      if (store && store._instances) {
+        for (const instances of store._instances.values()) {
+          instances.forEach(inst => {
+            if (inst && inst.points && inst.points.length > 0) {
+              saveList.push({
+                name: inst.name,
+                points: inst.points,
+                styles: inst.styles
+              });
+            }
+          });
+        }
+      }
+    } catch (_) {}
+
+    // Method 2: Fallback to trackedOverlays ref if store not directly accessible
+    if (saveList.length === 0 && trackedOverlays.current.size > 0) {
+      for (const [id, data] of trackedOverlays.current.entries()) {
+        const inst = chartRef.current.getOverlayById(id);
+        if (inst && inst.points && inst.points.length > 0) {
+          saveList.push({
+            name: inst.name || data.name,
+            points: inst.points,
+            styles: inst.styles
+          });
+        } else if (data && data.points) {
+          saveList.push(data);
+        }
+      }
+    }
+
+    fetch(`${API_BASE}/drawings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        user_id: userId,
+        symbol: symbol.toUpperCase(),
+        timeframe,
+        elements_json: JSON.stringify(saveList)
+      })
+    })
+    .then(res => res.json())
+    .then(() => {
+      setStatusMsg("Сохранено!");
+      setTimeout(() => setStatusMsg(""), 1500);
+    })
+    .catch(() => {});
+  }, [symbol, timeframe, userId]);
+
+  // Load drawings from backend
+  const loadDrawings = useCallback(() => {
+    if (!chartRef.current) return;
+    
+    fetch(`${API_BASE}/drawings?symbol=${symbol}&timeframe=${timeframe}&user_id=${userId}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.elements_json && chartRef.current) {
+          try {
+            const list = JSON.parse(data.elements_json);
+            if (Array.isArray(list)) {
+              chartRef.current.removeOverlay();
+              trackedOverlays.current.clear();
+              list.forEach(overlay => {
+                const id = chartRef.current.createOverlay({
+                  ...overlay,
+                  onSelected: (e) => {
+                    selectedOverlayId.current = e.overlay.id;
+                    return true;
+                  },
+                  onDeselected: () => {
+                    selectedOverlayId.current = null;
+                    return true;
+                  }
+                });
+                if (id) {
+                  trackedOverlays.current.set(id, overlay);
+                }
+              });
+            }
+          } catch (e) {
+            console.error("Failed to parse drawings:", e);
+          }
+        }
+      })
+      .catch(e => console.error("Could not load drawings:", e));
+  }, [symbol, timeframe, userId]);
+
+  // Hotkey listener for Delete/Backspace on active overlay & Escape to cancel tool / context menu
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
@@ -258,18 +361,31 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
         if (selectedOverlayId.current && chartRef.current) {
           try {
             chartRef.current.removeOverlay({ id: selectedOverlayId.current });
+            trackedOverlays.current.delete(selectedOverlayId.current);
             selectedOverlayId.current = null;
             saveDrawings();
           } catch (_) {}
         }
       } else if (e.key === 'Escape') {
         setActiveTool(null);
+        setContextMenu({ visible: false, x: 0, y: 0 });
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [symbol, timeframe, userId]);
+  }, [symbol, timeframe, userId, saveDrawings]);
+
+  // Close context menu on outside click
+  useEffect(() => {
+    const handleWindowClick = () => {
+      if (contextMenu.visible) {
+        setContextMenu({ visible: false, x: 0, y: 0 });
+      }
+    };
+    window.addEventListener('click', handleWindowClick);
+    return () => window.removeEventListener('click', handleWindowClick);
+  }, [contextMenu.visible]);
 
   // Fetch history candles & subscribe live WebSocket
   useEffect(() => {
@@ -372,84 +488,25 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
         wsRef.current = null;
       }
     };
-  }, [symbol, timeframe, chartReady]);
-
-  // Load drawings from backend
-  const loadDrawings = useCallback(() => {
-    fetch(`${API_BASE}/drawings?symbol=${symbol}&timeframe=${timeframe}&user_id=${userId}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data && data.elements_json && chartRef.current) {
-          try {
-            const list = JSON.parse(data.elements_json);
-            if (Array.isArray(list)) {
-              chartRef.current.removeOverlay();
-              list.forEach(overlay => {
-                chartRef.current.createOverlay({
-                  ...overlay,
-                  onSelected: (e) => {
-                    selectedOverlayId.current = e.overlay.id;
-                    return true;
-                  },
-                  onDeselected: () => {
-                    selectedOverlayId.current = null;
-                    return true;
-                  }
-                });
-              });
-            }
-          } catch (e) {
-            console.error("Failed to parse drawings:", e);
-          }
-        }
-      })
-      .catch(e => console.error("Could not load drawings:", e));
-  }, [symbol, timeframe, userId]);
-
-  // Save drawings to backend
-  const saveDrawings = useCallback(() => {
-    if (!chartRef.current) return;
-    
-    // Attempt serialization
-    let saveList = [];
-    try {
-      if (typeof chartRef.current.getOverlays === 'function') {
-        saveList = chartRef.current.getOverlays().map(o => ({
-          name: o.name,
-          points: o.points,
-          styles: o.styles
-        }));
-      }
-    } catch (_) {}
-
-    fetch(`${API_BASE}/drawings`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        user_id: userId,
-        symbol: symbol.toUpperCase(),
-        timeframe,
-        elements_json: JSON.stringify(saveList)
-      })
-    })
-    .then(res => res.json())
-    .then(() => {
-      setStatusMsg("Сохранено!");
-      setTimeout(() => setStatusMsg(""), 1500);
-    })
-    .catch(() => {});
-  }, [symbol, timeframe, userId]);
+  }, [symbol, timeframe, chartReady, loadDrawings]);
 
   // Drawing tool selection
   const handleSelectTool = (toolName) => {
     if (!chartRef.current) return;
     setActiveTool(toolName);
-    chartRef.current.createOverlay({
+    const overlayId = chartRef.current.createOverlay({
       name: toolName,
       lock: false,
       mode: magnetEnabled ? 'strong_magnet' : 'normal',
-      onDrawEnd: () => {
+      onDrawEnd: (e) => {
         setActiveTool(null);
+        if (e && e.overlay) {
+          trackedOverlays.current.set(e.overlay.id, {
+            name: e.overlay.name,
+            points: e.overlay.points,
+            styles: e.overlay.styles
+          });
+        }
         saveDrawings();
         return true;
       },
@@ -462,11 +519,15 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
         return true;
       }
     });
+    if (overlayId) {
+      trackedOverlays.current.set(overlayId, { name: toolName });
+    }
   };
 
   const handleClearDrawings = () => {
     if (!chartRef.current) return;
     chartRef.current.removeOverlay();
+    trackedOverlays.current.clear();
     selectedOverlayId.current = null;
     setActiveTool(null);
     saveDrawings();
@@ -505,6 +566,28 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
         chart.createIndicator('VOL', false);
       }
       setIndicators(prev => ({ ...prev, vol: !prev.vol }));
+    }
+  };
+
+  // Right-Click Context Menu handler (Task 6)
+  const handleContextMenu = (e) => {
+    e.preventDefault();
+    const bounds = chartContainerRef.current?.getBoundingClientRect();
+    if (!bounds) return;
+
+    // Constrain context menu within canvas
+    const x = Math.min(e.clientX, bounds.right - 190);
+    const y = Math.min(e.clientY, bounds.bottom - 220);
+
+    setContextMenu({ visible: true, x, y });
+  };
+
+  const handleResetScale = () => {
+    if (chartRef.current) {
+      chartRef.current.scrollToRealTime();
+      setContextMenu({ visible: false, x: 0, y: 0 });
+      setStatusMsg("Масштаб сброшен");
+      setTimeout(() => setStatusMsg(""), 1200);
     }
   };
 
@@ -628,8 +711,86 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
       </div>
 
       {/* Chart Canvas Area */}
-      <div className="flex-1 w-full h-full relative">
+      <div 
+        className="flex-1 w-full h-full relative"
+        onContextMenu={handleContextMenu}
+      >
         <div ref={chartContainerRef} className="w-full h-full" />
+
+        {/* Right-Click Context Menu (Task 6) */}
+        {contextMenu.visible && (
+          <div 
+            style={{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }}
+            className="fixed z-50 bg-[#101217] border border-[#1f2430] rounded shadow-2xl py-1 w-48 text-[11px] font-mono text-[#d1d4dc] backdrop-blur-md select-none"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={handleResetScale}
+              className="w-full px-3 py-1.5 text-left hover:bg-[#191c26] hover:text-white flex items-center space-x-2 transition"
+            >
+              <RotateCcw size={12} className="text-[#38bdf8]" />
+              <span>Сбросить масштаб цены</span>
+            </button>
+
+            <button
+              onClick={() => {
+                handleClearDrawings();
+                setContextMenu({ visible: false, x: 0, y: 0 });
+              }}
+              className="w-full px-3 py-1.5 text-left hover:bg-[#ef535018] text-[#ef5350] flex items-center space-x-2 transition"
+            >
+              <Trash2 size={12} />
+              <span>Удалить все объекты</span>
+            </button>
+
+            <div className="h-px bg-[#161820] my-1" />
+
+            <button
+              onClick={() => {
+                setMagnetEnabled(!magnetEnabled);
+                setContextMenu({ visible: false, x: 0, y: 0 });
+              }}
+              className="w-full px-3 py-1.5 text-left hover:bg-[#191c26] text-[#787f91] hover:text-white flex items-center justify-between transition"
+            >
+              <span className="flex items-center space-x-2">
+                <Magnet size={12} className={magnetEnabled ? "text-[#26a69a]" : "text-[#787f91]"} />
+                <span>Магнит к свечам</span>
+              </span>
+              {magnetEnabled && <Check size={11} className="text-[#26a69a]" />}
+            </button>
+
+            <button
+              onClick={() => {
+                toggleIndicator('ema');
+                setContextMenu({ visible: false, x: 0, y: 0 });
+              }}
+              className="w-full px-3 py-1.5 text-left hover:bg-[#191c26] text-[#787f91] hover:text-white flex items-center justify-between transition"
+            >
+              <span>Показать EMA(20)</span>
+              {indicators.ema && <Check size={11} className="text-[#38bdf8]" />}
+            </button>
+
+            <button
+              onClick={() => {
+                toggleIndicator('vol');
+                setContextMenu({ visible: false, x: 0, y: 0 });
+              }}
+              className="w-full px-3 py-1.5 text-left hover:bg-[#191c26] text-[#787f91] hover:text-white flex items-center justify-between transition"
+            >
+              <span>Показать объём (VOL)</span>
+              {indicators.vol && <Check size={11} className="text-[#26a69a]" />}
+            </button>
+
+            <div className="h-px bg-[#161820] my-1" />
+
+            <button
+              onClick={() => setContextMenu({ visible: false, x: 0, y: 0 })}
+              className="w-full px-3 py-1 text-left text-[#60697b] hover:text-white text-[10px]"
+            >
+              ✕ Закрыть
+            </button>
+          </div>
+        )}
 
         {errorDetails && (
           <div className="absolute top-3 left-3 bg-[#181014] border border-[#ef535040] text-[#ef5350] px-3 py-2 rounded text-xs max-w-md shadow-xl backdrop-blur-md z-30">

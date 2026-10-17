@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
-import { Layers, Clock, Settings2, Bell, AlertTriangle, Gauge } from 'lucide-react';
+import { Layers, Clock, Settings2, Bell, AlertTriangle, CheckCircle, Gauge } from 'lucide-react';
 import { soundManager } from '../utils/sound';
+import { aggregateDepth, detectSpoofOrFill, evaluateProximityAlert } from '../utils/orderbookLogic';
 
 const API_BASE = "/api";
 
@@ -15,60 +16,79 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
   const [bids, setBids] = useState([]);
   const [asks, setAsks] = useState([]);
   const [volumeMode, setVolumeMode] = useState("USDT"); // "USDT" or "COIN"
-  const [densityThresholdUsd, setDensityThresholdUsd] = useState(50000); // $50k
+  const [densityThresholdUsd, setDensityThresholdUsd] = useState(50000); // $50k default
   const [densityColor, setDensityColor] = useState("gold");
-  const [proximityPct, setProximityPct] = useState(0.15); // Alert within 0.15% distance
+  const [tickMultiplier, setTickMultiplier] = useState(1); // 1, 10, 100 (Price Tick Aggregator)
+  
+  // Proximity Settings
+  const [minDistanceBps, setMinDistanceBps] = useState(5); // min 5 bps = 0.05%
+  const [maxProximityBps, setMaxProximityBps] = useState(25); // max 25 bps = 0.25%
+  const [cooldownSec, setCooldownSec] = useState(15); // 15s cooldown per wall
+  
   const [refreshRateMs, setRefreshRateMs] = useState(100); // 100ms, 500ms, 1000ms
   const [showSettings, setShowSettings] = useState(false);
-  const [spoofedList, setSpoofedList] = useState([]);
+  const [recentOrderflowEvents, setRecentOrderflowEvents] = useState([]);
 
-  // Refs for stateful tracking without React rerender lag
+  // Stateful tracking refs
   const levelLifetimes = useRef(new Map());
-  const prevActiveDensities = useRef(new Map()); // price -> { price, usd, side, seenAt }
-  const spoofedLevels = useRef(new Map()); // price -> { price, usd, side, time }
-  const lastSoundAlertTime = useRef(0);
-  const wsRef = useRef(null);
+  const prevActiveDensities = useRef(new Map()); // price -> { price, usd, side }
+  const alertLatchState = useRef(new Map()); // price -> { time, distBps }
+  const tradeVolumeMap = useRef(new Map()); // price -> cumulative usd in last 15s
+  const tradeLog = useRef([]); // [{ price, usd, time }]
+  
+  const depthWsRef = useRef(null);
+  const tradeWsRef = useRef(null);
   const throttleTimerRef = useRef(null);
   const latestRawDepth = useRef(null);
   const [, setTick] = useState(0);
 
-  // Periodic 1-second ticker for lifetime display and spoof expiration cleanup
+  // Derive base tick size for symbol
+  const baseTick = useMemo(() => {
+    if (symbol.includes("BTC")) return 0.1;
+    if (symbol.includes("ETH")) return 0.01;
+    if (symbol.includes("SOL") || symbol.includes("BNB")) return 0.01;
+    return 0.001;
+  }, [symbol]);
+
+  // Periodic 1-second ticker for lifetimes and event expiration
   useEffect(() => {
     const timer = setInterval(() => {
       setTick(t => (t + 1) % 10000);
 
-      // Prune spoofed levels older than 45 seconds
       const now = Date.now();
-      let changed = false;
-      for (const [p, s] of spoofedLevels.current.entries()) {
-        if (now - s.time > 45000) {
-          spoofedLevels.current.delete(p);
-          changed = true;
+      // Prune trades older than 15s
+      while (tradeLog.current.length > 0 && now - tradeLog.current[0].time > 15000) {
+        const oldTrade = tradeLog.current.shift();
+        const currentVol = tradeVolumeMap.current.get(oldTrade.price) || 0;
+        if (currentVol <= oldTrade.usd) {
+          tradeVolumeMap.current.delete(oldTrade.price);
+        } else {
+          tradeVolumeMap.current.set(oldTrade.price, currentVol - oldTrade.usd);
         }
       }
-      if (changed) {
-        setSpoofedList(Array.from(spoofedLevels.current.values()));
-      }
+
+      // Prune spoof/filled events older than 40s
+      setRecentOrderflowEvents(prev => prev.filter(e => now - e.time < 40000));
     }, 1000);
     return () => clearInterval(timer);
   }, []);
 
   const processDepth = useCallback((rawBids, rawAsks) => {
     const now = Date.now();
+
+    // 1. Price Tick Aggregation (Task 5: x1 / x10 / x100)
+    const aggregated = aggregateDepth(rawBids, rawAsks, tickMultiplier, baseTick);
+
     const currentPrices = new Set();
     const currentDensities = new Map();
+    const activeDensityList = [];
 
-    const topBidPrice = rawBids && rawBids[0] ? parseFloat(rawBids[0][0]) : null;
-    const topAskPrice = rawAsks && rawAsks[0] ? parseFloat(rawAsks[0][0]) : null;
+    const topBidPrice = aggregated.bids && aggregated.bids[0] ? aggregated.bids[0][0] : null;
+    const topAskPrice = aggregated.asks && aggregated.asks[0] ? aggregated.asks[0][0] : null;
     const midPrice = topBidPrice && topAskPrice ? (topBidPrice + topAskPrice) / 2 : (topBidPrice || topAskPrice || 0);
 
-    // 1. Process asks (lowest ask closest to spread)
-    let closestDensityDist = Infinity;
-    let closestDensityInfo = null;
-
-    const parsedAsks = (rawAsks || []).slice(0, 16).reverse().map(([p, q]) => {
-      const price = parseFloat(p);
-      const qty = parseFloat(q);
+    // 2. Process Asks (sorted descending so highest is at top, lowest ask right above spread)
+    const parsedAsks = aggregated.asks.reverse().map(([price, qty]) => {
       const usd = price * qty;
       const isDensity = usd >= densityThresholdUsd;
       currentPrices.add(price);
@@ -78,27 +98,21 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
       }
 
       if (isDensity) {
-        currentDensities.set(price, { price, usd, side: 'ask', seenAt: now });
-        if (midPrice > 0) {
-          const distPct = Math.abs(price - midPrice) / midPrice * 100;
-          if (distPct < closestDensityDist) {
-            closestDensityDist = distPct;
-            closestDensityInfo = { price, usd, side: 'ask', distPct };
-          }
-        }
+        currentDensities.set(price, { price, usd, side: 'ask' });
+        activeDensityList.push({ price, usd, side: 'ask' });
       }
 
       const firstSeen = levelLifetimes.current.get(price) || now;
       const lifetimeSec = Math.max(0, Math.floor((now - firstSeen) / 1000));
-      const isNear = midPrice > 0 && Math.abs(price - midPrice) / midPrice * 100 <= proximityPct;
 
-      return { price, qty, usd, isDensity, lifetimeSec, isNear };
+      const distBps = midPrice > 0 ? (Math.abs(price - midPrice) / midPrice * 10000) : 9999;
+      const isNear = distBps >= minDistanceBps && distBps <= maxProximityBps && isDensity;
+
+      return { price, qty, usd, isDensity, lifetimeSec, isNear, distBps };
     });
 
-    // 2. Process bids
-    const parsedBids = (rawBids || []).slice(0, 16).map(([p, q]) => {
-      const price = parseFloat(p);
-      const qty = parseFloat(q);
+    // 3. Process Bids (sorted descending, highest bid right below spread)
+    const parsedBids = aggregated.bids.map(([price, qty]) => {
       const usd = price * qty;
       const isDensity = usd >= densityThresholdUsd;
       currentPrices.add(price);
@@ -108,82 +122,93 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
       }
 
       if (isDensity) {
-        currentDensities.set(price, { price, usd, side: 'bid', seenAt: now });
-        if (midPrice > 0) {
-          const distPct = Math.abs(price - midPrice) / midPrice * 100;
-          if (distPct < closestDensityDist) {
-            closestDensityDist = distPct;
-            closestDensityInfo = { price, usd, side: 'bid', distPct };
-          }
-        }
+        currentDensities.set(price, { price, usd, side: 'bid' });
+        activeDensityList.push({ price, usd, side: 'bid' });
       }
 
       const firstSeen = levelLifetimes.current.get(price) || now;
       const lifetimeSec = Math.max(0, Math.floor((now - firstSeen) / 1000));
-      const isNear = midPrice > 0 && Math.abs(price - midPrice) / midPrice * 100 <= proximityPct;
 
-      return { price, qty, usd, isDensity, lifetimeSec, isNear };
+      const distBps = midPrice > 0 ? (Math.abs(price - midPrice) / midPrice * 10000) : 9999;
+      const isNear = distBps >= minDistanceBps && distBps <= maxProximityBps && isDensity;
+
+      return { price, qty, usd, isDensity, lifetimeSec, isNear, distBps };
     });
 
-    // 3. Spoofing Detector: Check if previous large density disappeared when price was approaching
-    if (midPrice > 0 && prevActiveDensities.current.size > 0) {
-      for (const [prevP, prevInfo] of prevActiveDensities.current.entries()) {
-        if (!currentDensities.has(prevP)) {
-          // Density disappeared! Was price within spoof reach (e.g. <= 0.35%)?
-          const distWhenPulled = Math.abs(prevP - midPrice) / midPrice * 100;
-          if (distWhenPulled <= 0.35) {
-            // High probability spoof: wall removed right before hit!
-            spoofedLevels.current.set(prevP, {
-              price: prevP,
-              usd: prevInfo.usd,
-              side: prevInfo.side,
-              distPct: distWhenPulled,
-              time: now
-            });
-            setSpoofedList(Array.from(spoofedLevels.current.values()));
-            soundManager.playSpoofAlert();
-          }
-        }
+    // 4. Spoof Detector: Distinguish «Снята (Спуф)» vs «Исполнена (Съели сделками)» (Task 4)
+    const newEvents = detectSpoofOrFill({
+      prevDensities: prevActiveDensities.current,
+      currentDensities,
+      midPrice,
+      tradeVolumeMap: tradeVolumeMap.current,
+      densityThresholdUsd,
+      spoofDistancePct: 0.35,
+      fillRatio: 0.5
+    });
+
+    if (newEvents.length > 0) {
+      setRecentOrderflowEvents(prev => [...newEvents, ...prev].slice(0, 5));
+      // Play sound only for actual PULLED spoof walls
+      if (newEvents.some(e => e.type === 'PULLED')) {
+        soundManager.playSpoofAlert();
       }
     }
     prevActiveDensities.current = currentDensities;
 
-    // 4. Proximity alert sound & visual callback
-    if (closestDensityInfo && closestDensityInfo.distPct <= proximityPct) {
-      if (now - lastSoundAlertTime.current > 8000) {
-        lastSoundAlertTime.current = now;
-        soundManager.playProximityAlert();
-      }
+    // 5. Proximity Alert with Min-Distance Filter & Latching (Task 3)
+    const alertResult = evaluateProximityAlert({
+      activeDensities: activeDensityList,
+      midPrice,
+      minDistanceBps,
+      maxProximityBps,
+      densityThresholdUsd,
+      alertLatchState: alertLatchState.current,
+      now,
+      cooldownMs: cooldownSec * 1000
+    });
+
+    if (alertResult) {
+      soundManager.playProximityAlert();
       if (onProximityAlert) {
         onProximityAlert({
           symbol,
-          price: closestDensityInfo.price,
-          usd: closestDensityInfo.usd,
-          side: closestDensityInfo.side,
-          distPct: closestDensityInfo.distPct
+          price: alertResult.price,
+          usd: alertResult.usd,
+          side: alertResult.side,
+          distPct: alertResult.distPct,
+          distBps: alertResult.distBps
         });
       }
     }
 
-    // Prune stale price cache if too large
+    // Prune stale lifetimes map
     if (levelLifetimes.current.size > 200) {
-      for (const key of levelLifetimes.current.keys()) {
-        if (!currentPrices.has(key)) {
-          levelLifetimes.current.delete(key);
-        }
+      for (const k of levelLifetimes.current.keys()) {
+        if (!currentPrices.has(k)) levelLifetimes.current.delete(k);
       }
     }
 
     setAsks(parsedAsks);
     setBids(parsedBids);
-  }, [densityThresholdUsd, proximityPct, symbol, onProximityAlert]);
+  }, [
+    densityThresholdUsd,
+    tickMultiplier,
+    baseTick,
+    minDistanceBps,
+    maxProximityBps,
+    cooldownSec,
+    symbol,
+    onProximityAlert
+  ]);
 
-  // Initial snapshot and WebSocket subscription with update throttling
+  // Initial snapshot and WebSocket subscriptions (Depth + AggTrade)
   useEffect(() => {
     levelLifetimes.current.clear();
     prevActiveDensities.current.clear();
-    spoofedLevels.current.clear();
-    setSpoofedList([]);
+    alertLatchState.current.clear();
+    tradeVolumeMap.current.clear();
+    tradeLog.current = [];
+    setRecentOrderflowEvents([]);
 
     // 1. Initial REST snapshot
     fetch(`${API_BASE}/depth?symbol=${symbol}&limit=20`)
@@ -195,24 +220,18 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
       })
       .catch(err => console.warn("Depth snapshot error:", err));
 
-    // 2. WebSocket Depth connection with throttling
     const cleanSym = symbol.toLowerCase();
-    const wsUrl = `wss://fstream.binance.com/ws/${cleanSym}@depth20@100ms`;
 
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-
+    // 2. Depth WebSocket connection
+    const depthWsUrl = `wss://fstream.binance.com/ws/${cleanSym}@depth20@100ms`;
+    if (depthWsRef.current) depthWsRef.current.close();
     try {
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
+      const ws = new WebSocket(depthWsUrl);
+      depthWsRef.current = ws;
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
           if (!data.b || !data.a) return;
-
           latestRawDepth.current = { b: data.b, a: data.a };
 
           if (refreshRateMs <= 100) {
@@ -228,14 +247,35 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
         } catch (_) {}
       };
     } catch (e) {
-      console.warn("OrderBook WS error:", e);
+      console.warn("Depth WS error:", e);
+    }
+
+    // 3. AggTrade WebSocket connection (tracks market trades for fill detection)
+    const tradeWsUrl = `wss://fstream.binance.com/ws/${cleanSym}@aggTrade`;
+    if (tradeWsRef.current) tradeWsRef.current.close();
+    try {
+      const tws = new WebSocket(tradeWsUrl);
+      tradeWsRef.current = tws;
+      tws.onmessage = (event) => {
+        try {
+          const t = JSON.parse(event.data);
+          if (!t.p || !t.q) return;
+          const price = parseFloat(t.p);
+          const qty = parseFloat(t.q);
+          const usd = price * qty;
+          const time = Number(t.T) || Date.now();
+
+          tradeLog.current.push({ price, usd, time });
+          tradeVolumeMap.current.set(price, (tradeVolumeMap.current.get(price) || 0) + usd);
+        } catch (_) {}
+      };
+    } catch (e) {
+      console.warn("Trade WS error:", e);
     }
 
     return () => {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
+      if (depthWsRef.current) depthWsRef.current.close();
+      if (tradeWsRef.current) tradeWsRef.current.close();
       if (throttleTimerRef.current) {
         clearTimeout(throttleTimerRef.current);
         throttleTimerRef.current = null;
@@ -274,24 +314,34 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
     <div className="flex flex-col h-full bg-[#0c0e12] text-[#d1d4dc] border border-[#161922] overflow-hidden text-xs select-none relative font-sans">
       {/* Header bar (Tealstreet style: clean, flat, high contrast) */}
       <div className="flex items-center justify-between px-2.5 py-1 bg-[#101217] border-b border-[#161922]">
-        <div className="flex items-center space-x-1.5 font-bold text-white text-[11px]">
+        <div className="flex items-center space-x-1 font-bold text-white text-[11px]">
           <Layers size={13} className="text-[#38bdf8]" />
           <span>Стакан L2</span>
-          {spoofedList.length > 0 && (
-            <span className="px-1 py-0.2 rounded bg-[#f43f5e22] text-[#f43f5e] text-[9px] font-mono flex items-center">
-              👻 {spoofedList.length}
-            </span>
-          )}
         </div>
 
-        <div className="flex items-center space-x-1.5 font-mono">
+        {/* Middle: Tick Aggregator (Task 5: x1, x10, x100) */}
+        <div className="flex items-center bg-[#08090c] p-0.5 rounded border border-[#161820] space-x-0.5 font-mono text-[9px]">
+          {[1, 10, 100].map((mult) => (
+            <button
+              key={mult}
+              onClick={() => setTickMultiplier(mult)}
+              className={`px-1.5 py-0.2 rounded transition ${tickMultiplier === mult ? 'bg-[#2563eb] text-white font-bold' : 'text-[#787f91] hover:text-white'}`}
+              title={`Агрегация шага цены x${mult}`}
+            >
+              x{mult}
+            </button>
+          ))}
+        </div>
+
+        {/* Right: Controls */}
+        <div className="flex items-center space-x-1 font-mono">
           {/* Refresh rate toggle */}
           <button
             onClick={() => {
               const next = refreshRateMs === 100 ? 500 : (refreshRateMs === 500 ? 1000 : 100);
               setRefreshRateMs(next);
             }}
-            className="px-1.5 py-0.5 rounded bg-[#161922] hover:bg-[#1f2430] text-[10px] text-[#787f91] hover:text-white transition"
+            className="px-1 py-0.5 rounded bg-[#161922] hover:bg-[#1f2430] text-[9px] text-[#787f91] hover:text-white transition"
             title="Частота обновления отрисовки стакана"
           >
             {refreshRateMs}ms
@@ -300,7 +350,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
           {/* Volume unit toggle */}
           <button
             onClick={() => setVolumeMode(v => v === "USDT" ? "COIN" : "USDT")}
-            className="px-1.5 py-0.5 rounded bg-[#161922] hover:bg-[#1f2430] text-[10px] font-bold text-[#26a69a] hover:text-white transition"
+            className="px-1 py-0.5 rounded bg-[#161922] hover:bg-[#1f2430] text-[9px] font-bold text-[#26a69a] hover:text-white transition"
             title="Переключить единицу объема (USDT / COIN)"
           >
             {volumeMode}
@@ -309,7 +359,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
           <button
             onClick={() => setShowSettings(!showSettings)}
             className={`p-1 rounded transition ${showSettings ? 'bg-[#2563eb] text-white' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'}`}
-            title="Настройки плотностей и спуфинга"
+            title="Настройки плотностей, сближения и спуфинга"
           >
             <Settings2 size={12} />
           </button>
@@ -331,14 +381,42 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
           </div>
 
           <div className="flex items-center justify-between">
-            <span className="text-[#787f91]">Алерт сближения (%):</span>
+            <span className="text-[#787f91]">Мин. дистанция (bps):</span>
             <input
               type="number"
-              step="0.05"
-              min="0.02"
-              max="2.0"
-              value={proximityPct}
-              onChange={(e) => setProximityPct(Math.max(0.01, Number(e.target.value)))}
+              step="1"
+              min="1"
+              max="50"
+              value={minDistanceBps}
+              onChange={(e) => setMinDistanceBps(Math.max(1, Number(e.target.value)))}
+              className="w-20 bg-[#08090c] border border-[#1f2430] rounded px-1.5 py-0.5 text-right font-mono text-white text-xs"
+              title="Фильтрует алерт прямо на спреде (5 bps = 0.05%)"
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-[#787f91]">Макс. сближение (bps):</span>
+            <input
+              type="number"
+              step="5"
+              min="5"
+              max="100"
+              value={maxProximityBps}
+              onChange={(e) => setMaxProximityBps(Math.max(5, Number(e.target.value)))}
+              className="w-20 bg-[#08090c] border border-[#1f2430] rounded px-1.5 py-0.5 text-right font-mono text-white text-xs"
+              title="Дистанция срабатывания алерта (25 bps = 0.25%)"
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-[#787f91]">Кулдаун алерта (сек):</span>
+            <input
+              type="number"
+              step="5"
+              min="5"
+              max="120"
+              value={cooldownSec}
+              onChange={(e) => setCooldownSec(Math.max(3, Number(e.target.value)))}
               className="w-20 bg-[#08090c] border border-[#1f2430] rounded px-1.5 py-0.5 text-right font-mono text-white text-xs"
             />
           </div>
@@ -359,16 +437,34 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
         </div>
       )}
 
-      {/* Spoof Alerts Strip */}
-      {spoofedList.length > 0 && (
-        <div className="px-2 py-1 bg-[#1c0e12] border-b border-[#f43f5e30] flex items-center justify-between text-[10px] text-[#f43f5e] font-mono spoof-badge">
-          <span className="flex items-center">
-            <AlertTriangle size={11} className="mr-1 text-[#f43f5e] animate-pulse" />
-            Спуф: ${formatPrice(spoofedList[0].price)} (${(spoofedList[0].usd / 1000).toFixed(0)}k сняли!)
-          </span>
-          <span className="text-[9px] opacity-70">
-            {Math.floor((Date.now() - spoofedList[0].time) / 1000)}s назад
-          </span>
+      {/* Orderflow Status Strip: «Снята (Спуф)» vs «Исполнена (Съели сделками)» (Task 4) */}
+      {recentOrderflowEvents.length > 0 && (
+        <div className="px-2 py-0.5 bg-[#090b0f] border-b border-[#161922] space-y-0.5 font-mono text-[10px]">
+          {recentOrderflowEvents.slice(0, 2).map((ev, idx) => {
+            const isFilled = ev.type === 'FILLED';
+            return (
+              <div 
+                key={idx}
+                className={`flex items-center justify-between px-1.5 py-0.2 rounded ${isFilled ? 'bg-[#26a69a14] text-[#26a69a]' : 'bg-[#ef535014] text-[#ef5350]'}`}
+              >
+                <span className="flex items-center">
+                  {isFilled ? (
+                    <CheckCircle size={10} className="mr-1 text-[#26a69a]" />
+                  ) : (
+                    <AlertTriangle size={10} className="mr-1 text-[#ef5350] animate-pulse" />
+                  )}
+                  {isFilled ? (
+                    <span>Исполнена: ${formatPrice(ev.price)} (${(ev.usd / 1000).toFixed(0)}k съели)</span>
+                  ) : (
+                    <span>Снята: ${formatPrice(ev.price)} (${(ev.usd / 1000).toFixed(0)}k спуф)</span>
+                  )}
+                </span>
+                <span className="text-[9px] opacity-70">
+                  {Math.max(1, Math.floor((Date.now() - ev.time) / 1000))}s
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -381,17 +477,16 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
 
       {/* Order Ladder */}
       <div className="flex-1 overflow-y-auto font-mono text-[11px] divide-y divide-[#13161f]">
-        {/* Asks (Sells - Crimson/Red) */}
+        {/* Asks (Sells - Crimson/Red, highest price at top, best ask at bottom) */}
         <div className="flex flex-col">
           {asks.map((item, idx) => {
             const vol = volumeMode === "USDT" ? item.usd : item.qty;
             const barWidth = Math.min(100, (vol / maxVolume) * 100);
-            const isNearWall = item.isDensity && item.isNear;
 
             return (
               <div 
                 key={`ask-${idx}`}
-                className={`relative grid grid-cols-3 px-2.5 py-0.5 items-center hover:bg-[#161922] transition-colors ${isNearWall ? 'proximity-alert-pulse' : ''}`}
+                className={`relative grid grid-cols-3 px-2.5 py-0.5 items-center hover:bg-[#161922] transition-colors ${item.isNear ? 'proximity-alert-pulse' : ''}`}
                 style={item.isDensity ? { backgroundColor: activePalette.bg, borderRight: `3px solid ${activePalette.border}` } : {}}
               >
                 {/* Visual depth bar */}
@@ -438,17 +533,16 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
           </span>
         </div>
 
-        {/* Bids (Buys - Teal/Green) */}
+        {/* Bids (Buys - Teal/Green, best bid at top, lowest at bottom) */}
         <div>
           {bids.map((item, idx) => {
             const vol = volumeMode === "USDT" ? item.usd : item.qty;
             const barWidth = Math.min(100, (vol / maxVolume) * 100);
-            const isNearWall = item.isDensity && item.isNear;
 
             return (
               <div 
                 key={`bid-${idx}`}
-                className={`relative grid grid-cols-3 px-2.5 py-0.5 items-center hover:bg-[#161922] transition-colors ${isNearWall ? 'proximity-alert-pulse' : ''}`}
+                className={`relative grid grid-cols-3 px-2.5 py-0.5 items-center hover:bg-[#161922] transition-colors ${item.isNear ? 'proximity-alert-pulse' : ''}`}
                 style={item.isDensity ? { backgroundColor: activePalette.bg, borderRight: `3px solid ${activePalette.border}` } : {}}
               >
                 {/* Visual depth bar */}
