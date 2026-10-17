@@ -96,8 +96,12 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
     chart.setStyles(THEME_STYLES);
 
     // Default indicators
-    chart.createIndicator('EMA', false, { id: 'candle_pane' });
-    chart.createIndicator('VOL');
+    try {
+      chart.createIndicator('EMA', true, { id: 'candle_pane' });
+      chart.createIndicator('VOL', false);
+    } catch (e) {
+      console.warn("Indicator init:", e);
+    }
 
     const handleResize = () => {
       chart.resize();
