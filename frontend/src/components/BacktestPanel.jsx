@@ -64,6 +64,8 @@ export default function BacktestPanel({
   onResult,
   showSignals,
   onToggleSignals,
+  onApplyStrategy,
+  onStrategyChange,
 }) {
   const [mode, setMode] = useState('single'); // 'single' | 'grid'
   const [strategy, setStrategy] = useState('delta_absorption');
@@ -75,13 +77,17 @@ export default function BacktestPanel({
   const [volMult, setVolMult] = useState(1.0);
   const [leverage, setLeverage] = useState(2);
 
-  // Grid Search parameters (ТАКТ 3)
-  const [slMin, setSlMin] = useState(0.3);
+  // Grid Search parameters (ТАКТ 2: SL 0.2%-1.0%, TP 0.5%-3.0%, Min Wall $200k-$2M)
+  const [slMin, setSlMin] = useState(0.2);
   const [slMax, setSlMax] = useState(1.0);
   const [slStep, setSlStep] = useState(0.2);
-  const [wallMinK, setWallMinK] = useState(500);
+  const [tpMin, setTpMin] = useState(0.5);
+  const [tpMax, setTpMax] = useState(3.0);
+  const [tpStep, setTpStep] = useState(0.5);
+  const [wallMinK, setWallMinK] = useState(200);
   const [wallMaxK, setWallMaxK] = useState(2000);
-  const [wallStepK, setWallStepK] = useState(500);
+  const [wallStepK, setWallStepK] = useState(600);
+  const [appliedFeedback, setAppliedFeedback] = useState(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -91,6 +97,7 @@ export default function BacktestPanel({
     setError(null);
     onResult(null);
     const pSl = overrideParams?.sl ?? sl;
+    const pTp = overrideParams?.tp ?? tp;
     const pWallK = overrideParams?.minWallK ?? minWallK;
     try {
       const res = await fetch(`${API_BASE}/backtest/run`, {
@@ -103,7 +110,7 @@ export default function BacktestPanel({
           strategy_type: strategy,
           params: {
             stop_loss_pct: Number(pSl) || 0.8,
-            take_profit_pct: Number(tp) || 1.5,
+            take_profit_pct: Number(pTp) || 1.5,
             min_density_usd: (Number(pWallK) || 0) * 1000,
             volume_multiplier: Number(volMult) || 1.0,
             leverage: Math.max(1, Math.round(Number(leverage) || 1)),
@@ -120,6 +127,31 @@ export default function BacktestPanel({
     }
   }, [symbol, timeframe, days, strategy, sl, tp, minWallK, volMult, leverage, onResult]);
 
+  const applySetup = useCallback((row) => {
+    const newSl = row.stop_loss_pct;
+    const newTp = row.take_profit_pct;
+    const newWallK = Math.round(row.min_density_usd / 1000);
+    setSl(newSl);
+    setTp(newTp);
+    setMinWallK(newWallK);
+    setAppliedFeedback(`Параметры #${row.rank} применены: SL ${newSl}%, TP ${newTp}%, Стенка $${newWallK}k`);
+    setTimeout(() => setAppliedFeedback(null), 3500);
+
+    if (onApplyStrategy) {
+      onApplyStrategy({
+        strategy,
+        sl: newSl,
+        tp: newTp,
+        minWallK: newWallK,
+        leverage,
+        volMult
+      });
+    }
+
+    setMode('single');
+    runSingle({ sl: newSl, tp: newTp, minWallK: newWallK });
+  }, [strategy, leverage, volMult, onApplyStrategy, runSingle]);
+
   const runGrid = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -133,13 +165,15 @@ export default function BacktestPanel({
           timeframe,
           days: Math.min(30, Math.max(1, Number(days) || 7)),
           strategy_type: strategy,
-          sl_min: Number(slMin) || 0.3,
+          sl_min: Number(slMin) || 0.2,
           sl_max: Number(slMax) || 1.0,
-          sl_step: Math.max(0.05, Number(slStep) || 0.1),
-          tp_pct: Number(tp) || 1.6,
-          wall_min_usd: (Number(wallMinK) || 0) * 1000,
-          wall_max_usd: (Number(wallMaxK) || 500) * 1000,
-          wall_step_usd: Math.max(50, Number(wallStepK) || 500) * 1000,
+          sl_step: Math.max(0.05, Number(slStep) || 0.2),
+          tp_min: Number(tpMin) || 0.5,
+          tp_max: Number(tpMax) || 3.0,
+          tp_step: Math.max(0.1, Number(tpStep) || 0.5),
+          wall_min_usd: (Number(wallMinK) || 200) * 1000,
+          wall_max_usd: (Number(wallMaxK) || 2000) * 1000,
+          wall_step_usd: Math.max(50, Number(wallStepK) || 600) * 1000,
           volume_multiplier: Number(volMult) || 1.0,
           leverage: Math.max(1, Math.round(Number(leverage) || 1)),
         }),
@@ -152,7 +186,7 @@ export default function BacktestPanel({
     } finally {
       setLoading(false);
     }
-  }, [symbol, timeframe, days, strategy, slMin, slMax, slStep, tp, wallMinK, wallMaxK, wallStepK, volMult, leverage, onResult]);
+  }, [symbol, timeframe, days, strategy, slMin, slMax, slStep, tpMin, tpMax, tpStep, wallMinK, wallMaxK, wallStepK, volMult, leverage, onResult]);
 
   if (!isOpen) return null;
 
@@ -178,7 +212,7 @@ export default function BacktestPanel({
             {symbol}
           </span>
 
-          {/* Mode Switcher: Одиночный прогон / Сетка параметров (Grid Search) */}
+          {/* Mode Switcher */}
           <div className="flex items-center bg-[#08090c] p-0.5 rounded border border-[#1f2430] font-mono text-[9.5px] ml-2 shrink-0">
             <button
               onClick={() => setMode('single')}
@@ -200,10 +234,16 @@ export default function BacktestPanel({
             </button>
           </div>
 
+          {appliedFeedback && (
+            <span className="hidden sm:inline font-mono text-[10px] text-[#26a69a] bg-[#26a69a18] border border-[#26a69a40] rounded px-2 py-0.5 animate-pulse truncate">
+              ✓ {appliedFeedback}
+            </span>
+          )}
+
           {result?.meta && (
             <span className="hidden xl:inline font-mono text-[10px] text-[#60697b] font-normal truncate">
               {result.meta.candles} свечей {result.meta.timeframe}
-              {result.meta.combinations_tested ? ` • Проверено комбинаций: ${result.meta.combinations_tested}` : ''}
+              {result.meta.combinations_tested ? ` • Комбинаций: ${result.meta.combinations_tested}` : ''}
             </span>
           )}
         </div>
@@ -216,13 +256,16 @@ export default function BacktestPanel({
         {/* Settings column */}
         <div
           style={{ borderColor: 'var(--border-subtle)' }}
-          className="w-[295px] shrink-0 p-2 border-r space-y-1.5 overflow-y-auto"
+          className="w-[305px] shrink-0 p-2 border-r space-y-1.5 overflow-y-auto"
         >
           <div className="flex space-x-1">
             {STRATEGIES.map((st) => (
               <button
                 key={st.id}
-                onClick={() => setStrategy(st.id)}
+                onClick={() => {
+                  setStrategy(st.id);
+                  if (onStrategyChange) onStrategyChange(st.id);
+                }}
                 className={`flex-1 px-1 py-1 rounded text-[9.5px] font-mono truncate transition ${
                   strategy === st.id ? 'bg-[#2563eb] text-white font-bold' : 'bg-[#08090c] text-[#787f91] hover:text-white'
                 }`}
@@ -266,13 +309,17 @@ export default function BacktestPanel({
                 <NumField label="SL шаг" value={slStep} onChange={setSlStep} step={0.1} min={0.05} suffix="%" />
               </div>
               <div className="grid grid-cols-3 gap-1">
+                <NumField label="TP от" value={tpMin} onChange={setTpMin} step={0.2} min={0.2} suffix="%" />
+                <NumField label="TP до" value={tpMax} onChange={setTpMax} step={0.2} min={0.2} suffix="%" />
+                <NumField label="TP шаг" value={tpStep} onChange={setTpStep} step={0.2} min={0.1} suffix="%" />
+              </div>
+              <div className="grid grid-cols-3 gap-1">
                 <NumField label="Стенка от" value={wallMinK} onChange={setWallMinK} step={100} min={0} suffix="k" />
                 <NumField label="Стенка до" value={wallMaxK} onChange={setWallMaxK} step={100} min={0} suffix="k" />
                 <NumField label="Шаг $k" value={wallStepK} onChange={setWallStepK} step={100} min={50} suffix="k" />
               </div>
-              <div className="grid grid-cols-3 gap-1">
+              <div className="grid grid-cols-2 gap-1">
                 <NumField label="Период" value={days} onChange={setDays} step={1} min={1} max={30} suffix="дн" />
-                <NumField label="TP фикс." value={tp} onChange={setTp} step={0.1} min={0.1} suffix="%" />
                 <NumField label="Плечо" value={leverage} onChange={setLeverage} step={1} min={1} max={125} suffix="x" />
               </div>
             </div>
@@ -281,7 +328,7 @@ export default function BacktestPanel({
           <button
             onClick={() => (mode === 'grid' ? runGrid() : runSingle())}
             disabled={loading}
-            className={`w-full flex items-center justify-center space-x-1.5 py-1.5 rounded disabled:opacity-60 text-white font-bold text-[11px] transition ${
+            className={`w-full flex items-center justify-center space-x-1.5 py-1.5 rounded disabled:opacity-60 text-white font-bold text-[11px] transition shadow-xs ${
               mode === 'grid' ? 'bg-[#9333ea] hover:bg-[#7e22ce]' : 'bg-[#2563eb] hover:bg-[#1d4ed8]'
             }`}
           >
@@ -290,7 +337,7 @@ export default function BacktestPanel({
               {loading
                 ? 'Считаю…'
                 : mode === 'grid'
-                ? 'Запустить Grid Search'
+                ? '⚡ Оптимизировать параметры'
                 : 'Запустить тест'}
             </span>
           </button>
@@ -308,7 +355,7 @@ export default function BacktestPanel({
           {!s && !loading && (
             <div className="flex-1 flex items-center justify-center text-[#60697b] text-[11px] font-mono">
               {mode === 'grid'
-                ? 'Задайте диапазоны SL и порога стенки ($k) и нажмите «Запустить Grid Search»'
+                ? 'Задайте диапазоны SL, TP и порога стенки ($k) и нажмите «⚡ Оптимизировать параметры»'
                 : 'Настройте стратегию и нажмите «Запустить тест»'}
             </div>
           )}
@@ -316,7 +363,7 @@ export default function BacktestPanel({
             <div className="flex-1 flex items-center justify-center text-[#38bdf8] text-[11px] font-mono">
               <Loader2 size={16} className="animate-spin mr-2" />
               {mode === 'grid'
-                ? 'Перебор сетки параметров и ранжирование по Sharpe Ratio…'
+                ? 'Быстрый расчет комбинаций сетки и сортировка по Profit Factor и Sharpe Ratio…'
                 : 'Загрузка истории Binance и расчёт…'}
             </div>
           )}
@@ -356,46 +403,48 @@ export default function BacktestPanel({
                         <th className="text-left px-2 py-1">#</th>
                         <th className="text-right px-2">SL %</th>
                         <th className="text-right px-2">TP %</th>
-                        <th className="text-right px-2">Стенка $</th>
-                        <th className="text-right px-2">Sharpe</th>
-                        <th className="text-right px-2">Net PnL %</th>
-                        <th className="text-right px-2">Win Rate</th>
+                        <th className="text-right px-2">Wall $</th>
+                        <th className="text-right px-2">WinRate %</th>
+                        <th className="text-right px-2">PnL %</th>
                         <th className="text-right px-2">PF</th>
-                        <th className="text-right px-2">Сделок</th>
+                        <th className="text-right px-2">Sharpe</th>
+                        <th className="text-center px-2">Действие</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#13161f]">
                       {gridRows.map((row) => (
                         <tr
                           key={row.rank}
-                          onClick={() => {
-                            setSl(row.stop_loss_pct);
-                            setMinWallK(Math.round(row.min_density_usd / 1000));
-                            setMode('single');
-                            runSingle({ sl: row.stop_loss_pct, minWallK: Math.round(row.min_density_usd / 1000) });
-                          }}
-                          title="Нажмите, чтобы применить эту комбинацию и показать сделки на графике"
-                          className={`cursor-pointer hover:bg-[#161922] ${row.rank === 1 ? 'bg-[#2563eb15]' : ''}`}
+                          className={`hover:bg-[#161922] ${row.rank === 1 ? 'bg-[#2563eb15]' : ''}`}
                         >
-                          <td className="px-2 py-0.5 font-bold text-[#a855f7]">#{row.rank}</td>
-                          <td className="px-2 text-right text-white">{row.stop_loss_pct}%</td>
-                          <td className="px-2 text-right text-[#787f91]">{row.take_profit_pct}%</td>
-                          <td className="px-2 text-right text-[#ffb300]">
+                          <td className="px-2 py-1 font-bold text-[#a855f7]">#{row.rank}</td>
+                          <td className="px-2 text-right text-white font-mono">{row.stop_loss_pct}%</td>
+                          <td className="px-2 text-right text-[#787f91] font-mono">{row.take_profit_pct}%</td>
+                          <td className="px-2 text-right text-[#ffb300] font-mono">
                             ${(row.min_density_usd / 1000).toFixed(0)}k
                           </td>
-                          <td className={`px-2 text-right font-bold ${row.sharpe_ratio > 0 ? 'text-[#38bdf8]' : 'text-[#787f91]'}`}>
-                            {row.sharpe_ratio}
-                          </td>
-                          <td className={`px-2 text-right font-bold ${row.total_pnl_pct >= 0 ? 'text-[#26a69a]' : 'text-[#ef5350]'}`}>
+                          <td className="px-2 text-right text-[#d1d4dc] font-mono">{row.win_rate_pct}%</td>
+                          <td className={`px-2 text-right font-bold font-mono ${row.total_pnl_pct >= 0 ? 'text-[#26a69a]' : 'text-[#ef5350]'}`}>
                             {row.total_pnl_pct >= 0 ? '+' : ''}{row.total_pnl_pct}%
                           </td>
-                          <td className="px-2 text-right text-[#d1d4dc]">{row.win_rate_pct}%</td>
-                          <td className="px-2 text-right text-[#d1d4dc]">{row.profit_factor >= 999 ? '∞' : row.profit_factor}</td>
-                          <td className="px-2 text-right text-[#787f91]">{row.total_trades}</td>
+                          <td className="px-2 text-right text-[#d1d4dc] font-mono">{row.profit_factor >= 999 ? '∞' : row.profit_factor}</td>
+                          <td className={`px-2 text-right font-bold font-mono ${row.sharpe_ratio > 0 ? 'text-[#38bdf8]' : 'text-[#787f91]'}`}>
+                            {row.sharpe_ratio}
+                          </td>
+                          <td className="px-2 text-center">
+                            <button
+                              onClick={() => applySetup(row)}
+                              className="px-2 py-0.5 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-bold text-[9.5px] transition shadow-xs"
+                              title="Мгновенно применить параметры к стратегии"
+                            >
+                              Применить
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
+
                 ) : (
                   <table className="w-full text-[10.5px] font-mono-numbers">
                     <thead

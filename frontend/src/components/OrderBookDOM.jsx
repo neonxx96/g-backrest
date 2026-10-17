@@ -27,7 +27,8 @@ const fmtCompactUsd = (usd) => {
 export default function OrderBookDOM({
   symbol = 'BTCUSDT',
   onProximityAlert,
-  uiConfig = null
+  uiConfig = null,
+  strategyLevels = []
 }) {
   // Aggregation multiplier: x1, x5, x10, x25, x50, x100
   const [tickMult, setTickMult] = useState(() => {
@@ -831,12 +832,22 @@ export default function OrderBookDOM({
                 domCellBg = 'rgba(255, 179, 0, 0.28)';
               }
 
+              const matchingStratLvl = strategyLevels?.find(
+                (lvl) => Math.abs(lvl.price - row.price) < stepSize * 0.55
+              );
+
               return (
                 <div
                   key={row.key}
                   style={{ height: `${ROW_HEIGHT}px` }}
                   className={`grid grid-cols-[36%_16%_26%_22%] items-center border-b border-[#11141c] text-[10.5px] leading-none hover:bg-[#191f2e] ${
                     isBestAsk ? 'border-b-2 border-b-[#38bdf8]' : ''
+                  } ${
+                    matchingStratLvl
+                      ? matchingStratLvl.type === 'BUY'
+                        ? 'bg-[#26a69a25] border-l-2 border-l-[#26a69a]'
+                        : 'bg-[#ef535025] border-l-2 border-l-[#ef5350]'
+                      : ''
                   }`}
                 >
                   {/* COLUMN 1: Footprint Cluster History (Bid x Ask + POC White Frame) */}
@@ -940,7 +951,7 @@ export default function OrderBookDOM({
                     )}
                   </div>
 
-                  {/* COLUMN 4: Price Ladder (Monospace, Spread Line Highlight) */}
+                  {/* COLUMN 4: Price Ladder (Monospace, Spread Line Highlight + Strategy Level Badge) */}
                   <div
                     className={`h-full flex items-center justify-end px-1.5 font-semibold ${
                       isBestAsk || isBestBid ? 'bg-[#161e2e]' : ''
@@ -950,7 +961,19 @@ export default function OrderBookDOM({
                         side === 'ask' ? 'var(--color-bear)' : 'var(--color-bull)'
                     }}
                   >
-                    <span>{row.price.toFixed(priceDecimals)}</span>
+                    <div className="flex items-center space-x-1 truncate">
+                      {matchingStratLvl && (
+                        <span
+                          className={`px-1 py-0.2 rounded text-[7.5px] font-bold text-white shrink-0 tracking-tighter truncate animate-pulse ${
+                            matchingStratLvl.type === 'BUY' ? 'bg-[#26a69a]' : 'bg-[#ef5350]'
+                          }`}
+                          title={matchingStratLvl.label}
+                        >
+                          {matchingStratLvl.type === 'BUY' ? 'BUY' : 'SELL'}
+                        </span>
+                      )}
+                      <span>{row.price.toFixed(priceDecimals)}</span>
+                    </div>
                   </div>
                 </div>
               );

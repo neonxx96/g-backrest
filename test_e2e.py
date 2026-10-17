@@ -140,8 +140,49 @@ def main():
         assert len(zip_bytes) > 0
     print(f"✅ OK! (Архив Parquet сформирован, размер: {len(zip_bytes):,} байт)")
 
+    # 14. Fast Grid Search Optimization (POST /api/backtest/optimize)
+    print("1️⃣4️⃣ Проверка быстрого Grid Search (POST /api/backtest/optimize)...", end=" ")
+    opt_res = request_json("http://127.0.0.1:8000/api/backtest/optimize", method="POST", payload={
+        "symbol": "BTCUSDT",
+        "timeframe": "15m",
+        "days": 5,
+        "strategy_type": "delta_absorption",
+        "sl_min": 0.2,
+        "sl_max": 0.8,
+        "sl_step": 0.3,
+        "tp_min": 0.5,
+        "tp_max": 2.0,
+        "tp_step": 0.7,
+        "wall_min_usd": 200000.0,
+        "wall_max_usd": 1400000.0,
+        "wall_step_usd": 600000.0,
+        "leverage": 2.0
+    })
+    assert "top_setups" in opt_res and len(opt_res["top_setups"]) > 0
+    best_opt = opt_res["top_setups"][0]
+    print(f"✅ OK! (Сетка рассчитана: {opt_res['meta']['combinations_tested']} комбинаций, топ-1 PF: {best_opt['profit_factor']}, WR: {best_opt['win_rate_pct']}%)")
+
+    # 15. Strategy Signal Persistence in SQLite (POST /api/signals)
+    print("1️⃣5️⃣ Проверка сохранения сигналов стратегии в SQLite (POST & GET /api/signals)...", end=" ")
+    sig_payload = {
+        "symbol": "BTCUSDT",
+        "timeframe": "15m",
+        "price": 81450.5,
+        "condition_type": "DENSITY_BOUNCE",
+        "direction": "BULLISH",
+        "description": "BUY ZONE: Wall $1.2M",
+        "normalized_metric": "+1.8σ"
+    }
+    created_sig = request_json("http://127.0.0.1:8000/api/signals", method="POST", payload=sig_payload)
+    assert created_sig["id"] > 0
+    assert created_sig["symbol"] == "BTCUSDT"
+
+    all_sigs = request_json("http://127.0.0.1:8000/api/signals?limit=5")
+    assert any(s["id"] == created_sig["id"] for s in all_sigs)
+    print(f"✅ OK! (Сигнал #{created_sig['id']} сохранен и подтвержден в SQLite)")
+
     print("=" * 70)
-    print("🎉 ВСЕ 13 E2E ТЕСТОВ ПРОЙДЕНЫ УСПЕШНО! СИСТЕМА ПОЛНОСТЬЮ ИСПРАВНА!")
+    print("🎉 ВСЕ 15 E2E ТЕСТОВ ПРОЙДЕНЫ УСПЕШНО! СИСТЕМА ПОЛНОСТЬЮ ИСПРАВНА!")
     print("=" * 70)
 
 if __name__ == "__main__":

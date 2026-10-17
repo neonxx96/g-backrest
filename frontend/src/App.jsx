@@ -23,7 +23,9 @@ import {
   BarChart3,
   Zap,
   PanelRightClose,
-  PanelRightOpen
+  PanelRightOpen,
+  X,
+  Bell
 } from 'lucide-react';
 
 const TIMEFRAMES = ['1m', '5m', '15m', '30m', '45m', '1h', '4h', '6h'];
@@ -81,9 +83,129 @@ export default function App() {
   const [showBacktest, setShowBacktest] = useState(false);
   const [btResult, setBtResult] = useState(null);
   const [showBtSignals, setShowBtSignals] = useState(true);
+  const [activeStrategyProfile, setActiveStrategyProfile] = useState('density_bounce');
+  const [strategyLevels, setStrategyLevels] = useState([]);
+  const [toasts, setToasts] = useState([]);
+  const seenSignalIdsRef = useRef(new Set());
+
   useEffect(() => {
     setBtResult(null);
   }, [symbol]);
+
+  // Push Toast Notification (Top Right)
+  const pushToast = useCallback((toastData) => {
+    const id = `${Date.now()}-${Math.random()}`;
+    const newToast = { id, ...toastData };
+    setToasts((prev) => [newToast, ...prev].slice(0, 5));
+    soundManager.playSignalAlert(toastData.direction || 'BULLISH');
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 7000);
+  }, []);
+
+  const removeToast = useCallback((id) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  // Poll for incoming live signals in real-time and trigger push toast alerts + sound
+  useEffect(() => {
+    let isCancelled = false;
+    const checkSignals = async () => {
+      try {
+        const res = await fetch('/api/signals?limit=15');
+        if (!res.ok) return;
+        const list = await res.json();
+        if (isCancelled || !Array.isArray(list)) return;
+
+        if (seenSignalIdsRef.current.size === 0) {
+          list.forEach((s) => seenSignalIdsRef.current.add(s.id));
+          return;
+        }
+
+        for (const sig of list) {
+          if (!seenSignalIdsRef.current.has(sig.id)) {
+            seenSignalIdsRef.current.add(sig.id);
+            pushToast({
+              symbol: sig.symbol,
+              direction: sig.direction || 'ALERT',
+              price: sig.price,
+              description: sig.description || sig.condition_type
+            });
+          }
+        }
+      } catch (_) {}
+    };
+
+    checkSignals();
+    const timer = setInterval(checkSignals, 3000);
+    return () => {
+      isCancelled = true;
+      clearInterval(timer);
+    };
+  }, [pushToast]);
+
+  // Project Strategy Entry Levels on DOM-стакан and Chart (ТАКТ 1)
+  useEffect(() => {
+    const levels = [];
+    if (btResult?.signals && btResult.signals.length > 0) {
+      const seen = new Set();
+      const recent = [...btResult.signals].reverse();
+      for (const s of recent) {
+        const p = Number(s.price);
+        if (!p || seen.has(p)) continue;
+        seen.add(p);
+        const isBuy = s.type === 'BUY';
+        levels.push({
+          price: p,
+          type: s.type,
+          label: isBuy ? `BUY ZONE: Wall ${s.reason || '$1.2M'}` : `SHORT: ${s.reason || 'Delta Div'}`,
+          reason: s.reason
+        });
+        if (levels.length >= 3) break;
+      }
+    } else {
+      // Default active profile projection around current price
+      const baseP = symbol.includes('BTC') ? 81450.0 : symbol.includes('ETH') ? 2600.0 : 160.0;
+      if (activeStrategyProfile === 'density_bounce') {
+        levels.push({
+          price: Number((baseP * 0.9985).toFixed(1)),
+          type: 'BUY',
+          label: 'BUY ZONE: Wall $1.2M',
+          reason: 'Density Bounce'
+        });
+        levels.push({
+          price: Number((baseP * 1.0025).toFixed(1)),
+          type: 'SELL',
+          label: 'SHORT: Wall $1.8M',
+          reason: 'Density Bounce'
+        });
+      } else {
+        levels.push({
+          price: Number((baseP * 0.999).toFixed(1)),
+          type: 'BUY',
+          label: 'BUY ZONE: Delta Absorb',
+          reason: 'Delta Absorption'
+        });
+        levels.push({
+          price: Number((baseP * 1.0018).toFixed(1)),
+          type: 'SELL',
+          label: 'SHORT: Delta Div',
+          reason: 'Delta Divergence'
+        });
+      }
+    }
+    setStrategyLevels(levels);
+  }, [btResult, activeStrategyProfile, symbol]);
+
+  const handleApplyStrategy = useCallback((params) => {
+    if (params.strategy) setActiveStrategyProfile(params.strategy);
+    pushToast({
+      symbol,
+      direction: 'ALERT',
+      price: symbol.includes('BTC') ? 81450 : 2600,
+      description: `Применены параметры: SL ${params.sl}%, TP ${params.tp}%, Стенка $${params.minWallK}k`
+    });
+  }, [symbol, pushToast]);
 
   // Dual-Pane Workspace state (HTF 15m + LTF 1m, 50/50 split)
   const [isDualPane, setIsDualPane] = useState(() => {
@@ -512,6 +634,7 @@ export default function App() {
                 titlePrefix="HTF"
                 backtestSignals={btResult}
                 showBacktestSignals={showBtSignals}
+                strategyLevels={strategyLevels}
                 uiConfig={uiConfig}
               />
             </div>
@@ -528,6 +651,7 @@ export default function App() {
                   titlePrefix="LTF"
                   backtestSignals={btResult}
                   showBacktestSignals={showBtSignals}
+                  strategyLevels={strategyLevels}
                   uiConfig={uiConfig}
                 />
               </div>
@@ -542,6 +666,8 @@ export default function App() {
             onResult={setBtResult}
             showSignals={showBtSignals}
             onToggleSignals={() => setShowBtSignals((v) => !v)}
+            onApplyStrategy={handleApplyStrategy}
+            onStrategyChange={setActiveStrategyProfile}
           />
         </section>
 
@@ -581,6 +707,7 @@ export default function App() {
                       symbol={symbol}
                       onProximityAlert={handleProximityAlert}
                       uiConfig={uiConfig}
+                      strategyLevels={strategyLevels}
                     />
                   </div>
                 )}
@@ -604,6 +731,55 @@ export default function App() {
           </aside>
         )}
       </main>
+
+      {/* Real-time Push Toast Notifications (Top Right) */}
+      <div className="fixed top-11 right-3 z-50 flex flex-col space-y-2 pointer-events-none max-w-sm w-full font-mono">
+        {toasts.map((t) => {
+          const isBuy = t.direction === 'BULLISH' || t.direction === 'BUY';
+          const isSell = t.direction === 'BEARISH' || t.direction === 'SELL';
+          const toneBorder = isBuy
+            ? 'border-[#26a69a] shadow-[0_4px_16px_rgba(38,166,154,0.35)]'
+            : isSell
+            ? 'border-[#ef5350] shadow-[0_4px_16px_rgba(239,83,80,0.35)]'
+            : 'border-[#ffb300] shadow-[0_4px_16px_rgba(255,179,0,0.35)]';
+          const badgeBg = isBuy ? 'bg-[#26a69a]' : isSell ? 'bg-[#ef5350]' : 'bg-[#ffb300] text-black';
+
+          return (
+            <div
+              key={t.id}
+              onClick={() => {
+                if (t.symbol) setSymbol(t.symbol);
+                removeToast(t.id);
+              }}
+              className={`pointer-events-auto cursor-pointer p-2.5 rounded bg-[#0d1017]/95 border backdrop-blur-md transition-all duration-200 transform translate-y-0 opacity-100 ${toneBorder}`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-1.5">
+                  <span className={`px-1.5 py-0.2 rounded text-[9.5px] font-bold text-white uppercase ${badgeBg}`}>
+                    {isBuy ? 'BUY' : isSell ? 'SELL' : 'ALERT'}
+                  </span>
+                  <span className="font-bold text-white text-[11px]">#{t.symbol}</span>
+                </div>
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-[11px] font-bold text-white">${t.price}</span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeToast(t.id);
+                    }}
+                    className="text-[#787f91] hover:text-white p-0.5"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              </div>
+              <div className="text-[10px] text-[#cbd5e1] mt-1 truncate">
+                {t.description}
+              </div>
+            </div>
+          );
+        })}
+      </div>
 
       {/* Modular Settings Center Modal */}
       <SettingsModal

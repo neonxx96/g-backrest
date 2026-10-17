@@ -258,6 +258,74 @@ try {
   });
 } catch (_) {}
 
+// 5. Register custom 'strategyLevelZone' (Strategy Entry Zone + Badge)
+try {
+  registerOverlay({
+    name: 'strategyLevelZone',
+    totalStep: 2,
+    needDefaultPointFigure: false,
+    needDefaultXAxisFigure: false,
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ coordinates, bounding, overlay }) => {
+      if (!coordinates || coordinates.length === 0) return [];
+      const { y } = coordinates[0];
+      const ext = overlay.extendData || {};
+      const isBuy = ext.type === 'BUY' || ext.side === 'BUY';
+      const label = ext.label || (isBuy ? 'BUY ZONE: Wall $1.2M' : 'SHORT: Delta Div');
+      const color = isBuy ? '#26a69a' : '#ef5350';
+      const fillColor = isBuy ? 'rgba(38, 166, 154, 0.16)' : 'rgba(239, 83, 80, 0.16)';
+      const width = (bounding && bounding.width) ? bounding.width : 2200;
+      const zoneHeight = 16;
+      return [
+        {
+          type: 'rect',
+          attrs: {
+            x: 0,
+            y: y - zoneHeight / 2,
+            width,
+            height: zoneHeight
+          },
+          styles: {
+            style: 'fill',
+            color: fillColor
+          }
+        },
+        {
+          type: 'line',
+          attrs: {
+            coordinates: [
+              { x: 0, y },
+              { x: width, y }
+            ]
+          },
+          styles: {
+            color,
+            size: 1.5,
+            style: 'dashed'
+          }
+        },
+        {
+          type: 'text',
+          attrs: {
+            x: 18,
+            y: y - 8,
+            text: ` ${label} `,
+            align: 'left',
+            baseline: 'middle'
+          },
+          styles: {
+            color: '#ffffff',
+            backgroundColor: color,
+            size: 9.5,
+            padding: 3,
+            borderRadius: 2
+          }
+        }
+      ];
+    }
+  });
+} catch (_) {}
+
 // 5. Register custom 'CVD' (Cumulative Volume Delta) sub-pane indicator
 try {
   registerIndicator({
@@ -407,6 +475,7 @@ export default function Chart({
   onTimeframeChange,
   backtestSignals = null,
   showBacktestSignals = true,
+  strategyLevels = [],
   uiConfig = null
 }) {
   const chartContainerRef = useRef(null);
@@ -416,6 +485,7 @@ export default function Chart({
   const trackedOverlays = useRef(new Map()); // id -> overlay data
   const drawingHistory = useRef([]); // history stack of overlay IDs for Ctrl+Z undo
   const btOverlayIds = useRef([]); // backtest signal overlays (never saved as drawings)
+  const activeStrategyLevelOverlays = useRef([]); // strategy entry zones (never saved as drawings)
   const lastScrolledResult = useRef(null);
   const [klinesVersion, setKlinesVersion] = useState(0);
   const [btTooltip, setBtTooltip] = useState(null);
@@ -1183,6 +1253,42 @@ export default function Chart({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [backtestSignals, showBacktestSignals, symbol, timeframe, klinesVersion, chartReady]);
+
+  // Strategy Key Entry Levels (Semi-transparent Zones with Badges: BUY ZONE: Wall $1.2M / SHORT: Delta Div)
+  useEffect(() => {
+    if (!chartRef.current) return;
+    const chart = chartRef.current;
+    const klines = currentKlines.current;
+
+    activeStrategyLevelOverlays.current.forEach(id => {
+      try { chart.removeOverlay({ id }); } catch (_) {}
+    });
+    activeStrategyLevelOverlays.current = [];
+
+    if (!Array.isArray(strategyLevels) || strategyLevels.length === 0 || !klines || klines.length === 0) {
+      return;
+    }
+
+    const anchorTs = klines[klines.length - 1].timestamp;
+
+    strategyLevels.forEach(lvl => {
+      const p = Number(lvl.price);
+      if (!p || !Number.isFinite(p)) return;
+      try {
+        const id = chart.createOverlay({
+          name: 'strategyLevelZone',
+          lock: true,
+          points: [{ timestamp: anchorTs, value: p }],
+          extendData: {
+            type: lvl.type || 'BUY',
+            label: lvl.label || (lvl.type === 'BUY' ? 'BUY ZONE: Wall $1.2M' : 'SHORT: Delta Div'),
+            price: p
+          }
+        });
+        if (id) activeStrategyLevelOverlays.current.push(id);
+      } catch (_) {}
+    });
+  }, [strategyLevels, symbol, timeframe, klinesVersion, chartReady]);
 
   // Drawing tool selection
   const handleSelectTool = (toolName) => {

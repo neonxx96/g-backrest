@@ -12,7 +12,7 @@ import subprocess
 import time
 import os
 
-TARGET_URL = "http://localhost:5173"
+TARGET_URL = "http://127.0.0.1:5173"
 OUT_FILE = sys.argv[1] if len(sys.argv) > 1 else "d:/AI_agent_space/gemini/current_screen.png"
 
 def launch_chrome():
@@ -57,24 +57,36 @@ async def capture_cdp():
         raise RuntimeError("Could not connect to Chrome debugging port 9222")
 
     async with websockets.connect(ws_url) as ws:
+        msg_counter = 100
+
+        async def send_cmd(method, params=None):
+            nonlocal msg_counter
+            msg_counter += 1
+            cid = msg_counter
+            req = {'id': cid, 'method': method}
+            if params:
+                req['params'] = params
+            await ws.send(json.dumps(req))
+            while True:
+                msg = json.loads(await ws.recv())
+                if msg.get('id') == cid:
+                    return msg
+
         size_env = os.environ.get("CDP_SIZE")
         if size_env:
             w, h = [int(v) for v in size_env.split(",")]
-            await ws.send(json.dumps({
-                'id': 99,
-                'method': 'Emulation.setDeviceMetricsOverride',
-                'params': {'width': w, 'height': h, 'deviceScaleFactor': 1, 'mobile': False}
-            }))
-            await ws.recv()
+            await send_cmd('Emulation.setDeviceMetricsOverride', {
+                'width': w, 'height': h, 'deviceScaleFactor': 1, 'mobile': False
+            })
 
         # Wait 3.5 seconds for React, Klinecharts, and Binance WS to render fully
         await asyncio.sleep(3.5)
         
         eval_script = os.environ.get("CDP_EVAL")
         if eval_script:
-            eval_req = {'id': 2, 'method': 'Runtime.evaluate', 'params': {'expression': eval_script, 'returnByValue': True, 'awaitPromise': True}}
-            await ws.send(json.dumps(eval_req))
-            ev_resp = json.loads(await ws.recv())
+            ev_resp = await send_cmd('Runtime.evaluate', {
+                'expression': eval_script, 'returnByValue': True, 'awaitPromise': True
+            })
             val = ev_resp.get('result', {}).get('result', {}).get('value')
             if val is not None:
                 print("CDP_EVAL_RESULT:", json.dumps(val, ensure_ascii=False))
@@ -83,17 +95,14 @@ async def capture_cdp():
         mouse = os.environ.get("CDP_MOUSE")
         if mouse:
             mx, my = [float(v) for v in mouse.split(",")]
-            for step in range(3):  # a few moves so hover state registers
-                await ws.send(json.dumps({'id': 10 + step, 'method': 'Input.dispatchMouseEvent',
-                                          'params': {'type': 'mouseMoved', 'x': mx + step, 'y': my + step}}))
-                await ws.recv()
+            for step in range(3):
+                await send_cmd('Input.dispatchMouseEvent', {
+                    'type': 'mouseMoved', 'x': mx + step, 'y': my + step
+                })
                 await asyncio.sleep(0.3)
 
-        req = {'id': 1, 'method': 'Page.captureScreenshot', 'params': {'format': 'png'}}
-        await ws.send(json.dumps(req))
-        resp = await ws.recv()
-        data = json.loads(resp)
-        img_b64 = data['result']['data']
+        resp = await send_cmd('Page.captureScreenshot', {'format': 'png'})
+        img_b64 = resp['result']['data']
         with open(OUT_FILE, 'wb') as f:
             f.write(base64.b64decode(img_b64))
         print(f"CAPTURED: {OUT_FILE} ({os.path.getsize(OUT_FILE)} bytes)")

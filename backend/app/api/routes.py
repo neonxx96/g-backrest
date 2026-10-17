@@ -110,6 +110,56 @@ async def update_settings(payload: SettingsSchema, db: AsyncSession = Depends(ge
     await db.refresh(setting)
     return setting
 
+class SignalCreateSchema(BaseModel):
+    symbol: str = "BTCUSDT"
+    timeframe: str = "15m"
+    price: float
+    condition_type: str = "STRATEGY_SIGNAL"
+    direction: str = "BULLISH"
+    description: str
+    normalized_metric: Optional[str] = None
+
+
+@router.post("/signals")
+async def create_signal(payload: SignalCreateSchema, db: AsyncSession = Depends(get_db)):
+    sig = SignalHistory(
+        symbol=payload.symbol.upper(),
+        timeframe=payload.timeframe,
+        price=payload.price,
+        condition_type=payload.condition_type,
+        direction=payload.direction,
+        description=payload.description,
+        normalized_metric=payload.normalized_metric,
+        created_at=datetime.utcnow()
+    )
+    db.add(sig)
+    await db.commit()
+    await db.refresh(sig)
+    try:
+        await broadcast_signal({
+            "symbol": sig.symbol,
+            "timeframe": sig.timeframe,
+            "price": sig.price,
+            "condition_type": sig.condition_type,
+            "direction": sig.direction,
+            "description": sig.description,
+            "normalized_metric": sig.normalized_metric,
+        })
+    except Exception:
+        pass
+    return {
+        "id": sig.id,
+        "symbol": sig.symbol,
+        "timeframe": sig.timeframe,
+        "price": sig.price,
+        "condition_type": sig.condition_type,
+        "direction": sig.direction,
+        "description": sig.description,
+        "normalized_metric": sig.normalized_metric,
+        "created_at": format_kyiv(sig.created_at)
+    }
+
+
 @router.get("/signals")
 async def get_signals(limit: int = Query(50), db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(SignalHistory).order_by(SignalHistory.created_at.desc()).limit(limit))
