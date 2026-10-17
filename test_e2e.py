@@ -181,8 +181,34 @@ def main():
     assert any(s["id"] == created_sig["id"] for s in all_sigs)
     print(f"✅ OK! (Сигнал #{created_sig['id']} сохранен и подтвержден в SQLite)")
 
+    # 16. Confluence Filter Suite check (POST /api/backtest/run with confluence filters)
+    print("1️⃣6️⃣ Проверка Confluence Filter Suite (CVD, OI, ATR Dynamic SL, RSI)...", end=" ")
+    confluence_res = request_json("http://127.0.0.1:8000/api/backtest/run", method="POST", payload={
+        "symbol": "BTCUSDT",
+        "timeframe": "15m",
+        "days": 14,
+        "strategy_type": "ema_trend",
+        "params": {
+            "stop_loss_pct": 0.8,
+            "take_profit_pct": 1.6,
+            "volume_multiplier": 1.0,
+            "leverage": 2.0,
+            "use_atr_filter": True,
+            "use_atr_sl": True,
+            "atr_multiplier": 1.5,
+            "use_cvd_filter": True,
+            "use_oi_filter": True,
+            "use_rsi_filter": True,
+        }
+    })
+    assert "summary" in confluence_res
+    assert "confluence_filters" in confluence_res["meta"]
+    cf_meta = confluence_res["meta"]["confluence_filters"]
+    assert cf_meta["atr_filter"] is True and cf_meta["cvd_filter"] is True
+    print(f"✅ OK! (Фильтры применены: {cf_meta}, PnL: {confluence_res['summary']['total_pnl_pct']}%, WR: {confluence_res['summary']['win_rate_pct']}%, сделок: {confluence_res['summary']['total_trades']})")
+
     print("=" * 70)
-    print("🎉 ВСЕ 15 E2E ТЕСТОВ ПРОЙДЕНЫ УСПЕШНО! СИСТЕМА ПОЛНОСТЬЮ ИСПРАВНА!")
+    print("🎉 ВСЕ 16 E2E ТЕСТОВ ПРОЙДЕНЫ УСПЕШНО! СИСТЕМА ПОЛНОСТЬЮ ИСПРАВНА!")
     print("=" * 70)
 
 if __name__ == "__main__":

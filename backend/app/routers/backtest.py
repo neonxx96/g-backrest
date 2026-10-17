@@ -31,6 +31,13 @@ class BacktestParams(BaseModel):
     min_density_usd: float = Field(100000.0, ge=0)
     volume_multiplier: float = Field(1.3, ge=0.5, le=20)
     leverage: float = Field(1.0, ge=1, le=125)
+    # Confluence Filter Suite
+    use_atr_filter: bool = False
+    use_atr_sl: bool = False
+    atr_multiplier: float = Field(1.5, ge=0.1, le=10.0)
+    use_cvd_filter: bool = False
+    use_oi_filter: bool = False
+    use_rsi_filter: bool = False
 
 
 class BacktestRequest(BaseModel):
@@ -44,6 +51,12 @@ class BacktestRequest(BaseModel):
     leverage: Optional[float] = None
     stop_loss_pct: Optional[float] = None
     take_profit_pct: Optional[float] = None
+    use_atr_filter: Optional[bool] = None
+    use_atr_sl: Optional[bool] = None
+    atr_multiplier: Optional[float] = None
+    use_cvd_filter: Optional[bool] = None
+    use_oi_filter: Optional[bool] = None
+    use_rsi_filter: Optional[bool] = None
 
     model_config = {"extra": "ignore"}
 
@@ -100,6 +113,33 @@ async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
     })
     df["delta"] = 2.0 * df["taker_buy_base_volume"] - df["volume"]
     df = df.drop_duplicates(subset="timestamp").sort_values("timestamp").reset_index(drop=True)
+
+    # Attempt to enrich with real Open Interest from Binance Futures
+    if timeframe in {"5m", "15m", "30m", "1h", "4h"}:
+        try:
+            oi_limit = min(500, max(50, int(days * 1440 / TF_MINUTES[timeframe])))
+            async with session.get(
+                f"{BINANCE_FUTURES_REST}/futures/data/openInterestHist",
+                params={"symbol": symbol, "period": timeframe, "limit": oi_limit},
+                timeout=5
+            ) as oi_resp:
+                if oi_resp.status == 200:
+                    oi_json = await oi_resp.json()
+                    if oi_json and isinstance(oi_json, list):
+                        oi_df = pd.DataFrame({
+                            "timestamp": [int(item["timestamp"]) for item in oi_json],
+                            "oi": [float(item["sumOpenInterest"]) for item in oi_json],
+                        }).drop_duplicates("timestamp").sort_values("timestamp")
+                        df = pd.merge_asof(
+                            df,
+                            oi_df,
+                            on="timestamp",
+                            direction="backward"
+                        )
+                        df["oi"] = df["oi"].ffill().bfill()
+        except Exception:
+            pass
+
     return df
 
 
@@ -188,6 +228,12 @@ async def run_backtest(req: BacktestRequest):
     leverage = req.leverage if req.leverage is not None else p.leverage
     sl = req.stop_loss_pct if req.stop_loss_pct is not None else p.stop_loss_pct
     tp = req.take_profit_pct if req.take_profit_pct is not None else p.take_profit_pct
+    use_atr_filter = req.use_atr_filter if req.use_atr_filter is not None else p.use_atr_filter
+    use_atr_sl = req.use_atr_sl if req.use_atr_sl is not None else p.use_atr_sl
+    atr_multiplier = req.atr_multiplier if req.atr_multiplier is not None else p.atr_multiplier
+    use_cvd_filter = req.use_cvd_filter if req.use_cvd_filter is not None else p.use_cvd_filter
+    use_oi_filter = req.use_oi_filter if req.use_oi_filter is not None else p.use_oi_filter
+    use_rsi_filter = req.use_rsi_filter if req.use_rsi_filter is not None else p.use_rsi_filter
 
     try:
         df = await fetch_history(symbol, req.timeframe, req.days)
@@ -209,6 +255,12 @@ async def run_backtest(req: BacktestRequest):
         100000.0,
         p.volume_multiplier,
         p.min_density_usd,
+        use_atr_filter,
+        use_atr_sl,
+        float(atr_multiplier),
+        use_cvd_filter,
+        use_oi_filter,
+        use_rsi_filter,
     )
     if "error" in raw:
         raise HTTPException(status_code=400, detail=raw["error"])
@@ -222,6 +274,14 @@ async def run_backtest(req: BacktestRequest):
         "to_time": int(df["timestamp"].iloc[-1]),
         "requested_days": req.days,
         "note": "min_density_usd is a turnover proxy (close*volume) for density_bounce; historical L2 not used",
+        "confluence_filters": {
+            "atr_filter": use_atr_filter,
+            "atr_sl": use_atr_sl,
+            "atr_multiplier": float(atr_multiplier),
+            "cvd_filter": use_cvd_filter,
+            "oi_filter": use_oi_filter,
+            "rsi_filter": use_rsi_filter,
+        }
     }
     return build_response(raw, req.initial_capital, meta)
 
@@ -244,6 +304,13 @@ class GridSearchRequest(BaseModel):
     volume_multiplier: float = Field(1.0, ge=0.5, le=20)
     leverage: float = Field(2.0, ge=1, le=125)
     initial_capital: float = Field(10000.0, gt=0)
+    # Confluence Filter Suite
+    use_atr_filter: bool = False
+    use_atr_sl: bool = False
+    atr_multiplier: float = 1.5
+    use_cvd_filter: bool = False
+    use_oi_filter: bool = False
+    use_rsi_filter: bool = False
 
     model_config = {"extra": "ignore"}
 
@@ -290,6 +357,12 @@ def _run_grid_sync(df: pd.DataFrame, req: GridSearchRequest) -> Dict[str, Any]:
                     100000.0,
                     req.volume_multiplier,
                     wall_usd,
+                    req.use_atr_filter,
+                    req.use_atr_sl,
+                    float(req.atr_multiplier),
+                    req.use_cvd_filter,
+                    req.use_oi_filter,
+                    req.use_rsi_filter,
                 )
                 if "error" in raw:
                     continue

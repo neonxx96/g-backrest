@@ -34,9 +34,11 @@ class OrderFlowBacktester:
         data['vol_ma20'] = data['volume'].rolling(window=20).mean()
         data['vol_ratio'] = data['volume'] / data['vol_ma20'].replace(0, np.nan)
 
-        # Delta & CVD
+        # Delta & CVD & CVD EMA 14
         if 'delta' not in data.columns and 'taker_buy_volume' in data.columns:
             data['delta'] = (2.0 * data['taker_buy_volume']) - data['volume']
+        elif 'delta' not in data.columns and 'taker_buy_base_volume' in data.columns:
+            data['delta'] = (2.0 * data['taker_buy_base_volume']) - data['volume']
         elif 'delta' not in data.columns:
             # Synthetic delta based on candle body & volume
             body = data['close'] - data['open']
@@ -44,6 +46,18 @@ class OrderFlowBacktester:
             data['delta'] = (body / rng).fillna(0) * data['volume']
 
         data['cvd'] = data['delta'].cumsum()
+        data['cvd_ema14'] = data['cvd'].ewm(span=14, adjust=False).mean()
+
+        # Open Interest (real or synthetic)
+        if 'oi' in data.columns:
+            data['oi_delta'] = data['oi'].diff().fillna(0)
+        elif 'open_interest' in data.columns:
+            data['oi'] = data['open_interest']
+            data['oi_delta'] = data['oi'].diff().fillna(0)
+        else:
+            # Synthetic OI tracking aggressive flow accumulation vs liquidation/exhaustion
+            data['oi'] = (data['delta'].abs() * 0.5 + data['volume'] * 0.1).cumsum()
+            data['oi_delta'] = data['oi'].diff().fillna(0)
 
         # RSI 14
         delta_p = data['close'].diff()
@@ -54,12 +68,13 @@ class OrderFlowBacktester:
         rs = avg_gain / avg_loss.replace(0, np.nan)
         data['rsi'] = 100 - (100 / (1 + rs))
 
-        # ATR 14
+        # ATR 14 & ATR EMA 20
         h_l = data['high'] - data['low']
         h_pc = (data['high'] - data['close'].shift(1)).abs()
         l_pc = (data['low'] - data['close'].shift(1)).abs()
         tr = pd.concat([h_l, h_pc, l_pc], axis=1).max(axis=1)
-        data['atr'] = tr.rolling(window=14).mean()
+        data['atr'] = tr.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+        data['atr_ema20'] = data['atr'].ewm(span=20, adjust=False).mean()
 
         return data
 
@@ -75,6 +90,13 @@ class OrderFlowBacktester:
         density_threshold_usd: float = 100000.0,
         volume_multiplier: float = 1.3,
         min_density_usd: float = 0.0,
+        # Confluence Filter Suite
+        use_atr_filter: bool = False,
+        use_atr_sl: bool = False,
+        atr_multiplier: float = 1.5,
+        use_cvd_filter: bool = False,
+        use_oi_filter: bool = False,
+        use_rsi_filter: bool = False,
     ) -> Dict[str, Any]:
         """
         Executes backtest on dataframe for chosen order flow strategy.
@@ -87,7 +109,7 @@ class OrderFlowBacktester:
         if df.empty or len(df) < 60:
             return {"error": "Недостаточно свечей для бэктеста (минимум 60)"}
 
-        data = df if 'ema50' in df.columns else self.calculate_indicators(df)
+        data = df if ('ema50' in df.columns and 'atr_ema20' in df.columns and 'cvd_ema14' in df.columns) else self.calculate_indicators(df)
         
         # Generate Signals based on strategy type
         # 1: Long, -1: Short, 0: Neutral
@@ -105,6 +127,10 @@ class OrderFlowBacktester:
         rsi_vals = data['rsi'].values
         delta_vals = data['delta'].values
         cvd_vals = data['cvd'].values
+        cvd_ema14_vals = data['cvd_ema14'].values
+        atr_vals = data['atr'].values
+        atr_ema20_vals = data['atr_ema20'].values
+        oi_delta_vals = data['oi_delta'].values
 
         for i in range(50, len(data)):
             c = close_vals[i]
@@ -118,32 +144,34 @@ class OrderFlowBacktester:
             turnover = c * volume_vals[i]
             passes_wall = (min_density_usd <= 0) or (turnover >= min_density_usd)
 
+            raw_signal = 0
+
             if strategy_type == "confluence_ema":
                 # EMA(20) Bounce/Cross + Volume Spike + Delta Confirmation
                 if passes_wall and prev_c <= prev_ema and c > ema and v_rat >= volume_multiplier and delta > 0 and 40 <= rsi <= 65:
-                    signals[i] = 1
+                    raw_signal = 1
                 elif passes_wall and prev_c >= prev_ema and c < ema and v_rat >= volume_multiplier and delta < 0 and 35 <= rsi <= 60:
-                    signals[i] = -1
+                    raw_signal = -1
 
             elif strategy_type == "ema_trend":
                 # EMA20 crosses EMA50 in direction of delta with volume confirmation
                 cross_up = ema20_vals[i-1] <= ema50_vals[i-1] and ema20_vals[i] > ema50_vals[i]
                 cross_dn = ema20_vals[i-1] >= ema50_vals[i-1] and ema20_vals[i] < ema50_vals[i]
                 if passes_wall and cross_up and v_rat >= volume_multiplier and delta > 0:
-                    signals[i] = 1
+                    raw_signal = 1
                 elif passes_wall and cross_dn and v_rat >= volume_multiplier and delta < 0:
-                    signals[i] = -1
+                    raw_signal = -1
 
             elif strategy_type == "delta_absorption":
                 # Delta Absorption: Local extreme with CVD divergence
                 local_min_price = min(low_vals[i-10:i])
                 local_min_cvd = min(cvd_vals[i-10:i])
                 if passes_wall and low_vals[i] <= local_min_price and cvd_vals[i] > local_min_cvd and delta > 0 and rsi < 40 and v_rat >= volume_multiplier:
-                    signals[i] = 1
+                    raw_signal = 1
                 local_max_price = max(high_vals[i-10:i])
                 local_max_cvd = max(cvd_vals[i-10:i])
                 if passes_wall and high_vals[i] >= local_max_price and cvd_vals[i] < local_max_cvd and delta < 0 and rsi > 60 and v_rat >= volume_multiplier:
-                    signals[i] = -1
+                    raw_signal = -1
 
             elif strategy_type == "density_bounce":
                 # Liquidity bounce proxy: pin-bar rejection with delta confirmation on big turnover
@@ -151,9 +179,63 @@ class OrderFlowBacktester:
                     is_pinbar_bull = (c - low_vals[i]) > 2 * (high_vals[i] - c) and delta > 0
                     is_pinbar_bear = (high_vals[i] - c) > 2 * (c - low_vals[i]) and delta < 0
                     if is_pinbar_bull and v_rat >= volume_multiplier and rsi < 40:
-                        signals[i] = 1
+                        raw_signal = 1
                     elif is_pinbar_bear and v_rat >= volume_multiplier and rsi > 60:
-                        signals[i] = -1
+                        raw_signal = -1
+
+            # CONFLUENCE FILTER SUITE VALIDATION
+            if raw_signal != 0:
+                cur_atr = atr_vals[i] if not np.isnan(atr_vals[i]) else 0.0
+                cur_atr_ema = atr_ema20_vals[i] if not np.isnan(atr_ema20_vals[i]) else 0.0
+                cur_cvd = cvd_vals[i]
+                cur_cvd_ema = cvd_ema14_vals[i]
+                cur_oi_delta = oi_delta_vals[i] if not np.isnan(oi_delta_vals[i]) else 0.0
+
+                allowed = True
+
+                # 1. ATR Volatility Spike Filter:
+                # Block entry if current ATR > 2 * EMA(ATR, 20) (impulsive spike / abnormal spread)
+                if use_atr_filter and cur_atr_ema > 0:
+                    if cur_atr > 2.0 * cur_atr_ema:
+                        allowed = False
+
+                # 2. Cumulative Delta (CVD) Absorption / Trend Confirmation:
+                # LONG: candle delta > 0 AND (CVD > EMA(CVD, 14) or bullish delta divergence)
+                # SHORT: candle delta < 0 AND (CVD < EMA(CVD, 14) or bearish delta divergence)
+                if allowed and use_cvd_filter:
+                    if raw_signal == 1:
+                        prev_min_p = min(low_vals[max(0, i-6):i])
+                        prev_min_cvd = min(cvd_vals[max(0, i-6):i])
+                        bull_div = (low_vals[i] <= prev_min_p and cur_cvd > prev_min_cvd) or (c < prev_c and cur_cvd > cvd_vals[i-1])
+                        if not (delta > 0 and (cur_cvd >= cur_cvd_ema or bull_div)):
+                            allowed = False
+                    elif raw_signal == -1:
+                        prev_max_p = max(high_vals[max(0, i-6):i])
+                        prev_max_cvd = max(cvd_vals[max(0, i-6):i])
+                        bear_div = (high_vals[i] >= prev_max_p and cur_cvd < prev_max_cvd) or (c > prev_c and cur_cvd < cvd_vals[i-1])
+                        if not (delta < 0 and (cur_cvd <= cur_cvd_ema or bear_div)):
+                            allowed = False
+
+                # 3. Open Interest (OI) Filter:
+                # Entry allowed only if OI is growing or stable (delta_OI >= 0)
+                if allowed and use_oi_filter:
+                    if cur_oi_delta < 0:
+                        allowed = False
+
+                # 4. RSI Extremum Filter:
+                # LONG: RSI < 40 or recovering from oversold (rsi_prev < 35 and rsi >= 30)
+                # SHORT: RSI > 60 or falling from overbought (rsi_prev > 65 and rsi <= 70)
+                if allowed and use_rsi_filter:
+                    prev_rsi = rsi_vals[i-1] if not np.isnan(rsi_vals[i-1]) else 50.0
+                    if raw_signal == 1:
+                        if not (rsi <= 40 or (prev_rsi <= 35 and rsi >= 30)):
+                            allowed = False
+                    elif raw_signal == -1:
+                        if not (rsi >= 60 or (prev_rsi >= 65 and rsi <= 70)):
+                            allowed = False
+
+                if allowed:
+                    signals[i] = raw_signal
 
 
         # Simulate Execution
@@ -247,14 +329,20 @@ class OrderFlowBacktester:
                 entry_time = cur_time
                 pos_size = capital * leverage
 
+                cur_atr = atr_vals[i] if not np.isnan(atr_vals[i]) else 0.0
+                if use_atr_sl and cur_atr > 0 and entry_price > 0:
+                    sl_dist = cur_atr * atr_multiplier
+                else:
+                    sl_dist = entry_price * (stop_loss_pct / 100.0)
+
                 if pos_dir == 1:
                     tp_price = entry_price * (1.0 + (take_profit_pct / 100.0))
-                    sl_price = entry_price * (1.0 - (stop_loss_pct / 100.0))
+                    sl_price = max(0.0, entry_price - sl_dist)
                     trailing_sl = sl_price
                     max_favorable = entry_price
                 else:
-                    tp_price = entry_price * (1.0 - (take_profit_pct / 100.0))
-                    sl_price = entry_price * (1.0 + (stop_loss_pct / 100.0))
+                    tp_price = max(0.0, entry_price * (1.0 - (take_profit_pct / 100.0)))
+                    sl_price = entry_price + sl_dist
                     trailing_sl = sl_price
                     max_favorable = entry_price
 

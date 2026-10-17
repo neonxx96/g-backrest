@@ -89,6 +89,14 @@ export default function BacktestPanel({
   const [wallStepK, setWallStepK] = useState(600);
   const [appliedFeedback, setAppliedFeedback] = useState(null);
 
+  // Confluence Filter Suite states
+  const [filterCvd, setFilterCvd] = useState(false);
+  const [filterOi, setFilterOi] = useState(false);
+  const [filterAtr, setFilterAtr] = useState(false);
+  const [filterAtrSl, setFilterAtrSl] = useState(false);
+  const [atrMultiplier, setAtrMultiplier] = useState(1.5);
+  const [filterRsi, setFilterRsi] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -114,6 +122,12 @@ export default function BacktestPanel({
             min_density_usd: (Number(pWallK) || 0) * 1000,
             volume_multiplier: Number(volMult) || 1.0,
             leverage: Math.max(1, Math.round(Number(leverage) || 1)),
+            use_atr_filter: filterAtr,
+            use_atr_sl: filterAtrSl,
+            atr_multiplier: Number(atrMultiplier) || 1.5,
+            use_cvd_filter: filterCvd,
+            use_oi_filter: filterOi,
+            use_rsi_filter: filterRsi,
           },
         }),
       });
@@ -125,7 +139,7 @@ export default function BacktestPanel({
     } finally {
       setLoading(false);
     }
-  }, [symbol, timeframe, days, strategy, sl, tp, minWallK, volMult, leverage, onResult]);
+  }, [symbol, timeframe, days, strategy, sl, tp, minWallK, volMult, leverage, filterAtr, filterAtrSl, atrMultiplier, filterCvd, filterOi, filterRsi, onResult]);
 
   const applySetup = useCallback((row) => {
     const newSl = row.stop_loss_pct;
@@ -176,6 +190,12 @@ export default function BacktestPanel({
           wall_step_usd: Math.max(50, Number(wallStepK) || 600) * 1000,
           volume_multiplier: Number(volMult) || 1.0,
           leverage: Math.max(1, Math.round(Number(leverage) || 1)),
+          use_atr_filter: filterAtr,
+          use_atr_sl: filterAtrSl,
+          atr_multiplier: Number(atrMultiplier) || 1.5,
+          use_cvd_filter: filterCvd,
+          use_oi_filter: filterOi,
+          use_rsi_filter: filterRsi,
         }),
       });
       const data = await res.json();
@@ -186,7 +206,7 @@ export default function BacktestPanel({
     } finally {
       setLoading(false);
     }
-  }, [symbol, timeframe, days, strategy, slMin, slMax, slStep, tpMin, tpMax, tpStep, wallMinK, wallMaxK, wallStepK, volMult, leverage, onResult]);
+  }, [symbol, timeframe, days, strategy, slMin, slMax, slStep, tpMin, tpMax, tpStep, wallMinK, wallMaxK, wallStepK, volMult, leverage, filterAtr, filterAtrSl, atrMultiplier, filterCvd, filterOi, filterRsi, onResult]);
 
   if (!isOpen) return null;
 
@@ -324,6 +344,115 @@ export default function BacktestPanel({
               </div>
             </div>
           )}
+
+          {/* Confluence Filter Suite */}
+          <div
+            style={{ backgroundColor: 'var(--bg-root)', borderColor: 'var(--border-subtle)' }}
+            className="border rounded p-1.5 space-y-1.5"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[9.5px] uppercase font-bold text-[#38bdf8] tracking-wider flex items-center gap-1">
+                <Sliders size={11} /> Фильтры входа (Confluence)
+              </span>
+              <span className="text-[9px] text-[#60697b] font-mono">
+                {[filterCvd, filterOi, filterAtr, filterRsi].filter(Boolean).length}/4
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-1 text-[9.5px] font-mono">
+              <button
+                type="button"
+                onClick={() => setFilterCvd(!filterCvd)}
+                className={`flex items-center justify-between px-1.5 py-1 rounded border transition ${
+                  filterCvd
+                    ? 'bg-[#2563eb25] text-[#38bdf8] border-[#2563eb60] font-bold'
+                    : 'bg-[#08090c] text-[#787f91] border-transparent hover:text-white'
+                }`}
+                title="Фильтр поглощения: свечная дельта > 0 и CVD > EMA(CVD, 14) (или дивергенция)"
+              >
+                <span>CVD Дельта</span>
+                <span className={`text-[8.5px] px-1 rounded ${filterCvd ? 'bg-[#2563eb] text-white' : 'bg-[#1e2330] text-[#60697b]'}`}>
+                  {filterCvd ? 'ON' : 'OFF'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setFilterOi(!filterOi)}
+                className={`flex items-center justify-between px-1.5 py-1 rounded border transition ${
+                  filterOi
+                    ? 'bg-[#2563eb25] text-[#38bdf8] border-[#2563eb60] font-bold'
+                    : 'bg-[#08090c] text-[#787f91] border-transparent hover:text-white'
+                }`}
+                title="Фильтр открытого интереса: вход разрешен только при ΔOI >= 0"
+              >
+                <span>OI Позиции</span>
+                <span className={`text-[8.5px] px-1 rounded ${filterOi ? 'bg-[#2563eb] text-white' : 'bg-[#1e2330] text-[#60697b]'}`}>
+                  {filterOi ? 'ON' : 'OFF'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setFilterAtr(!filterAtr)}
+                className={`flex items-center justify-between px-1.5 py-1 rounded border transition ${
+                  filterAtr
+                    ? 'bg-[#2563eb25] text-[#38bdf8] border-[#2563eb60] font-bold'
+                    : 'bg-[#08090c] text-[#787f91] border-transparent hover:text-white'
+                }`}
+                title="Фильтр волатильности: блокировать вход, если ATR > 2 * EMA(ATR, 20)"
+              >
+                <span>ATR Волатил.</span>
+                <span className={`text-[8.5px] px-1 rounded ${filterAtr ? 'bg-[#2563eb] text-white' : 'bg-[#1e2330] text-[#60697b]'}`}>
+                  {filterAtr ? 'ON' : 'OFF'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setFilterRsi(!filterRsi)}
+                className={`flex items-center justify-between px-1.5 py-1 rounded border transition ${
+                  filterRsi
+                    ? 'bg-[#2563eb25] text-[#38bdf8] border-[#2563eb60] font-bold'
+                    : 'bg-[#08090c] text-[#787f91] border-transparent hover:text-white'
+                }`}
+                title="Экстремум RSI: < 40 для Long, > 60 для Short"
+              >
+                <span>RSI Экстремум</span>
+                <span className={`text-[8.5px] px-1 rounded ${filterRsi ? 'bg-[#2563eb] text-white' : 'bg-[#1e2330] text-[#60697b]'}`}>
+                  {filterRsi ? 'ON' : 'OFF'}
+                </span>
+              </button>
+            </div>
+
+            {/* Dynamic ATR SL row */}
+            <div className="flex items-center justify-between pt-1 border-t border-[#1a1f2c] text-[9px] font-mono">
+              <label className="flex items-center space-x-1.5 cursor-pointer select-none text-[#94a3b8] hover:text-white">
+                <input
+                  type="checkbox"
+                  checked={filterAtrSl}
+                  onChange={(e) => setFilterAtrSl(e.target.checked)}
+                  className="rounded border-[#2a3042] bg-[#0c0e14] text-[#2563eb] focus:ring-0 w-3 h-3 cursor-pointer"
+                />
+                <span>Динамический SL (ATR)</span>
+              </label>
+              {filterAtrSl && (
+                <div className="flex items-center space-x-1">
+                  <span className="text-[#60697b]">mult</span>
+                  <input
+                    type="number"
+                    value={atrMultiplier}
+                    step={0.1}
+                    min={0.5}
+                    max={5.0}
+                    onChange={(e) => setAtrMultiplier(Number(e.target.value) || 1.5)}
+                    className="w-10 bg-[#08090c] border border-[#2a3042] rounded px-1 py-0.5 text-white text-[9.5px] text-right font-mono"
+                  />
+                  <span className="text-[#60697b]">×</span>
+                </div>
+              )}
+            </div>
+          </div>
 
           <button
             onClick={() => (mode === 'grid' ? runGrid() : runSingle())}
