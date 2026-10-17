@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, Save, Sliders, Bell, CheckCircle } from 'lucide-react';
 
-const API_BASE = "http://localhost:8000/api";
+const API_BASE = "/api";
 
 const TIMEFRAMES = ["1m", "5m", "15m", "30m", "45m", "1h", "4h", "6h"];
 
@@ -43,15 +43,15 @@ export default function SettingsModal({ isOpen, onClose, userId = "0" }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-[#181c27] border border-[#2a2e39] rounded-xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[90vh] text-xs text-[#d1d4dc]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+      <div className="bg-[#0e1118] border border-[#1b212f] rounded-xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[90vh] text-xs text-[#d1d4dc]">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 bg-[#1e222d] border-b border-[#2a2e39]">
+        <div className="flex items-center justify-between px-4 py-3 bg-[#121620] border-b border-[#1b212f]">
           <div className="flex items-center space-x-2 font-bold text-white text-sm">
-            <Sliders size={16} className="text-[#2962ff]" />
+            <Sliders size={16} className="text-[#2563eb]" />
             <span>Настройки сканера и фильтров</span>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-[#2a2e39] text-[#787b86]">
+          <button onClick={onClose} className="p-1 rounded hover:bg-[#1a2130] text-[#848e9c]">
             <X size={16} />
           </button>
         </div>
@@ -60,13 +60,13 @@ export default function SettingsModal({ isOpen, onClose, userId = "0" }) {
         <div className="p-4 overflow-y-auto space-y-4">
           {/* Timeframe */}
           <div>
-            <label className="block text-[#787b86] mb-1 font-semibold">Базовый таймфрейм сигналов:</label>
+            <label className="block text-[#848e9c] mb-1 font-semibold">Базовый таймфрейм сканирования:</label>
             <div className="grid grid-cols-4 gap-1.5">
               {TIMEFRAMES.map(tf => (
                 <button
                   key={tf}
                   onClick={() => handleChange('timeframe', tf)}
-                  className={`py-1.5 rounded font-mono font-semibold transition ${settings.timeframe === tf ? 'bg-[#2962ff] text-white' : 'bg-[#1e222d] hover:bg-[#2a2e39] text-[#787b86]'}`}
+                  className={`py-1.5 rounded font-mono font-semibold transition ${settings.timeframe === tf ? 'bg-[#2563eb] text-white' : 'bg-[#121620] hover:bg-[#1a2130] text-[#848e9c]'}`}
                 >
                   {tf}
                 </button>
@@ -74,7 +74,7 @@ export default function SettingsModal({ isOpen, onClose, userId = "0" }) {
             </div>
           </div>
 
-          <div className="h-px bg-[#2a2e39]" />
+          <div className="h-px bg-[#1b212f]" />
 
           {/* 24h Price Change */}
           <div className="space-y-1.5">
@@ -84,7 +84,7 @@ export default function SettingsModal({ isOpen, onClose, userId = "0" }) {
                 type="checkbox"
                 checked={settings.price_change_enabled}
                 onChange={e => handleChange('price_change_enabled', e.target.checked)}
-                className="w-4 h-4 accent-[#2962ff]"
+                className="w-4 h-4 accent-[#2563eb]"
               />
             </div>
             <div className="flex items-center space-x-3">
@@ -95,7 +95,7 @@ export default function SettingsModal({ isOpen, onClose, userId = "0" }) {
                 step="0.5"
                 value={settings.price_change_min}
                 onChange={e => handleChange('price_change_min', parseFloat(e.target.value))}
-                className="flex-1 accent-[#2962ff]"
+                className="flex-1 accent-[#2563eb]"
               />
               <span className="font-mono w-12 text-right font-bold text-white">
                 {settings.price_change_min}%
@@ -111,7 +111,7 @@ export default function SettingsModal({ isOpen, onClose, userId = "0" }) {
                 type="checkbox"
                 checked={settings.oi_change_enabled}
                 onChange={e => handleChange('oi_change_enabled', e.target.checked)}
-                className="w-4 h-4 accent-[#2962ff]"
+                className="w-4 h-4 accent-[#2563eb]"
               />
             </div>
             <div className="flex items-center space-x-3">
@@ -122,7 +122,7 @@ export default function SettingsModal({ isOpen, onClose, userId = "0" }) {
                 step="0.5"
                 value={settings.oi_change_min}
                 onChange={e => handleChange('oi_change_min', parseFloat(e.target.value))}
-                className="flex-1 accent-[#2962ff]"
+                className="flex-1 accent-[#2563eb]"
               />
               <span className="font-mono w-12 text-right font-bold text-white">
                 {settings.oi_change_min}%
@@ -138,7 +138,7 @@ export default function SettingsModal({ isOpen, onClose, userId = "0" }) {
                 type="checkbox"
                 checked={settings.liquidation_enabled}
                 onChange={e => handleChange('liquidation_enabled', e.target.checked)}
-                className="w-4 h-4 accent-[#2962ff]"
+                className="w-4 h-4 accent-[#2563eb]"
               />
             </div>
             <input
@@ -146,11 +146,11 @@ export default function SettingsModal({ isOpen, onClose, userId = "0" }) {
               step="10000"
               value={settings.liquidation_min_usd}
               onChange={e => handleChange('liquidation_min_usd', parseFloat(e.target.value))}
-              className="w-full bg-[#1e222d] border border-[#2a2e39] rounded px-2 py-1 font-mono text-white"
+              className="w-full bg-[#121620] border border-[#1b212f] rounded px-2 py-1 font-mono text-white"
             />
           </div>
 
-          <div className="h-px bg-[#2a2e39]" />
+          <div className="h-px bg-[#1b212f]" />
 
           {/* EMA(20) Cross */}
           <div className="flex items-center justify-between">
@@ -159,7 +159,7 @@ export default function SettingsModal({ isOpen, onClose, userId = "0" }) {
               type="checkbox"
               checked={settings.ema_cross_enabled}
               onChange={e => handleChange('ema_cross_enabled', e.target.checked)}
-              className="w-4 h-4 accent-[#2962ff]"
+              className="w-4 h-4 accent-[#2563eb]"
             />
           </div>
 
@@ -171,7 +171,7 @@ export default function SettingsModal({ isOpen, onClose, userId = "0" }) {
                 type="checkbox"
                 checked={settings.vol_spike_enabled}
                 onChange={e => handleChange('vol_spike_enabled', e.target.checked)}
-                className="w-4 h-4 accent-[#2962ff]"
+                className="w-4 h-4 accent-[#2563eb]"
               />
             </div>
             <div className="flex items-center space-x-3">
@@ -182,7 +182,7 @@ export default function SettingsModal({ isOpen, onClose, userId = "0" }) {
                 step="0.1"
                 value={settings.vol_spike_mult}
                 onChange={e => handleChange('vol_spike_mult', parseFloat(e.target.value))}
-                className="flex-1 accent-[#2962ff]"
+                className="flex-1 accent-[#2563eb]"
               />
               <span className="font-mono w-12 text-right font-bold text-white">
                 {settings.vol_spike_mult}x
@@ -198,7 +198,7 @@ export default function SettingsModal({ isOpen, onClose, userId = "0" }) {
                 type="checkbox"
                 checked={settings.rsi_filter_enabled}
                 onChange={e => handleChange('rsi_filter_enabled', e.target.checked)}
-                className="w-4 h-4 accent-[#2962ff]"
+                className="w-4 h-4 accent-[#2563eb]"
               />
             </div>
             <div className="flex items-center space-x-2">
@@ -206,14 +206,14 @@ export default function SettingsModal({ isOpen, onClose, userId = "0" }) {
                 type="number"
                 value={settings.rsi_min}
                 onChange={e => handleChange('rsi_min', parseFloat(e.target.value))}
-                className="w-1/2 bg-[#1e222d] border border-[#2a2e39] rounded px-2 py-1 font-mono text-white text-center"
+                className="w-1/2 bg-[#121620] border border-[#1b212f] rounded px-2 py-1 font-mono text-white text-center"
                 placeholder="RSI Min"
               />
               <input
                 type="number"
                 value={settings.rsi_max}
                 onChange={e => handleChange('rsi_max', parseFloat(e.target.value))}
-                className="w-1/2 bg-[#1e222d] border border-[#2a2e39] rounded px-2 py-1 font-mono text-white text-center"
+                className="w-1/2 bg-[#121620] border border-[#1b212f] rounded px-2 py-1 font-mono text-white text-center"
                 placeholder="RSI Max"
               />
             </div>
@@ -230,7 +230,7 @@ export default function SettingsModal({ isOpen, onClose, userId = "0" }) {
                 step="5"
                 value={settings.cooldown_minutes}
                 onChange={e => handleChange('cooldown_minutes', parseInt(e.target.value))}
-                className="flex-1 accent-[#2962ff]"
+                className="flex-1 accent-[#2563eb]"
               />
               <span className="font-mono w-16 text-right font-bold text-white">
                 {settings.cooldown_minutes} мин
@@ -239,42 +239,42 @@ export default function SettingsModal({ isOpen, onClose, userId = "0" }) {
           </div>
 
           {/* Notifications Toggle */}
-          <div className="flex items-center justify-between p-2.5 rounded bg-[#1e222d] border border-[#2a2e39]">
+          <div className="flex items-center justify-between p-2.5 rounded bg-[#121620] border border-[#1b212f]">
             <div className="flex items-center space-x-2">
-              <Bell size={14} className="text-[#089981]" />
+              <Bell size={14} className="text-[#00c087]" />
               <span className="font-semibold text-white">Отправлять в Telegram бот:</span>
             </div>
             <input
               type="checkbox"
               checked={settings.notifications_enabled}
               onChange={e => handleChange('notifications_enabled', e.target.checked)}
-              className="w-4 h-4 accent-[#089981]"
+              className="w-4 h-4 accent-[#00c087]"
             />
           </div>
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-4 py-3 bg-[#1e222d] border-t border-[#2a2e39]">
+        <div className="flex items-center justify-between px-4 py-3 bg-[#121620] border-t border-[#1b212f]">
           {saveSuccess ? (
-            <span className="text-[#089981] font-semibold flex items-center space-x-1">
+            <span className="text-[#00c087] font-semibold flex items-center space-x-1">
               <CheckCircle size={14} className="mr-1" />
               Применено без перезапуска!
             </span>
           ) : (
-            <span className="text-[#787b86]">Применяется моментально</span>
+            <span className="text-[#6b7280]">Применяется моментально</span>
           )}
 
           <div className="flex space-x-2">
             <button
               onClick={onClose}
-              className="px-3 py-1.5 rounded bg-[#2a2e39] hover:bg-[#363a45] text-white font-semibold"
+              className="px-3 py-1.5 rounded bg-[#1b212f] hover:bg-[#283245] text-white font-semibold transition"
             >
               Отмена
             </button>
             <button
               onClick={handleSave}
               disabled={isSaving}
-              className="px-4 py-1.5 rounded bg-[#2962ff] hover:bg-[#1e4bd8] text-white font-semibold flex items-center space-x-1"
+              className="px-4 py-1.5 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-semibold flex items-center space-x-1 transition"
             >
               <Save size={13} className="mr-1" />
               {isSaving ? "Сохранение..." : "Сохранить"}

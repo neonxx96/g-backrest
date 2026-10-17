@@ -133,6 +133,13 @@ async def get_klines(symbol: str = Query("BTCUSDT"), timeframe: str = Query("15m
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@router.get("/depth")
+async def get_depth(symbol: str = Query("BTCUSDT"), limit: int = Query(20)):
+    try:
+        return await binance_service.fetch_order_book(symbol=symbol.upper(), limit=limit)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @router.get("/drawings")
 async def get_drawings(symbol: str, timeframe: str, user_id: str = "0", db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(DrawingData).where(

@@ -7,41 +7,42 @@ import {
   Hash, 
   Trash2, 
   Magnet, 
-  Activity, 
-  BarChart2, 
-  TrendingUp,
-  Save
+  Save,
+  Maximize2
 } from 'lucide-react';
 
-const API_BASE = "http://localhost:8000/api";
+const API_BASE = "/api";
 
 const THEME_STYLES = {
   grid: {
-    horizontal: { color: '#1e222d', style: 'dash', size: 1 },
-    vertical: { color: '#1e222d', style: 'dash', size: 1 }
+    show: true,
+    horizontal: { color: '#161b26', style: 'dash', size: 1, dashedValue: [3, 3] },
+    vertical: { color: '#161b26', style: 'dash', size: 1, dashedValue: [3, 3] }
   },
   candle: {
     type: 'candle_solid',
     bar: {
-      upColor: '#089981',
-      downColor: '#f23645',
-      noChangeColor: '#888888',
-      upBorderColor: '#089981',
-      downBorderColor: '#f23645',
-      noChangeBorderColor: '#888888',
-      upWickColor: '#089981',
-      downWickColor: '#f23645',
-      noChangeWickColor: '#888888'
+      upColor: '#00c087',
+      downColor: '#f6465d',
+      noChangeColor: '#848e9c',
+      upBorderColor: '#00c087',
+      downBorderColor: '#f6465d',
+      noChangeBorderColor: '#848e9c',
+      upWickColor: '#00c087',
+      downWickColor: '#f6465d',
+      noChangeWickColor: '#848e9c'
     },
     priceMark: {
-      high: { color: '#787b86' },
-      low: { color: '#787b86' },
+      show: true,
+      high: { show: true, color: '#848e9c', textSize: 10 },
+      low: { show: true, color: '#848e9c', textSize: 10 },
       last: {
-        upColor: '#089981',
-        downColor: '#f23645',
-        noChangeColor: '#888888',
-        line: { style: 'dash' },
-        text: { color: '#ffffff' }
+        show: true,
+        upColor: '#00c087',
+        downColor: '#f6465d',
+        noChangeColor: '#848e9c',
+        line: { show: true, style: 'dash', dashedValue: [4, 4], size: 1 },
+        text: { show: true, color: '#ffffff', size: 11, paddingLeft: 4, paddingRight: 4, paddingTop: 2, paddingBottom: 2 }
       }
     }
   },
@@ -50,29 +51,30 @@ const THEME_STYLES = {
       style: 'fill',
       borderStyle: 'solid',
       borderSize: 1,
-      upColor: '#08998166',
-      downColor: '#f2364566',
-      noChangeColor: '#88888866'
+      upColor: '#00c08740',
+      downColor: '#f6465d40',
+      noChangeColor: '#848e9c40'
     }],
     lines: [
-      { style: 'solid', size: 1.5, color: '#2962ff' },
-      { style: 'solid', size: 1.5, color: '#ff9800' },
-      { style: 'solid', size: 1.5, color: '#e91e63' }
+      { style: 'solid', size: 1.5, color: '#2962ff' }, // EMA 20 Blue
+      { style: 'solid', size: 1.5, color: '#f59e0b' }, // EMA 50 Orange
+      { style: 'solid', size: 1.5, color: '#ec4899' }  // Pink
     ]
   },
   xAxis: {
-    axisLine: { color: '#2a2e39' },
-    tickLine: { color: '#2a2e39' },
-    tickText: { color: '#787b86' }
+    axisLine: { show: true, color: '#1f2937' },
+    tickLine: { show: true, color: '#1f2937' },
+    tickText: { color: '#848e9c', size: 11 }
   },
   yAxis: {
-    axisLine: { color: '#2a2e39' },
-    tickLine: { color: '#2a2e39' },
-    tickText: { color: '#787b86' }
+    axisLine: { show: true, color: '#1f2937' },
+    tickLine: { show: true, color: '#1f2937' },
+    tickText: { color: '#848e9c', size: 11 }
   },
   crosshair: {
-    horizontal: { line: { color: '#787b86', style: 'dash' }, text: { color: '#ffffff', backgroundColor: '#2a2e39' } },
-    vertical: { line: { color: '#787b86', style: 'dash' }, text: { color: '#ffffff', backgroundColor: '#2a2e39' } }
+    show: true,
+    horizontal: { show: true, line: { color: '#6b7280', style: 'dash', dashedValue: [3, 3] }, text: { color: '#ffffff', backgroundColor: '#1f2937' } },
+    vertical: { show: true, line: { color: '#6b7280', style: 'dash', dashedValue: [3, 3] }, text: { color: '#ffffff', backgroundColor: '#1f2937' } }
   }
 };
 
@@ -93,6 +95,7 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
     const chart = init(chartContainerRef.current);
     chartRef.current = chart;
     
+    // Apply custom dark theme
     chart.setStyles(THEME_STYLES);
 
     // Default indicators
@@ -100,11 +103,11 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
       chart.createIndicator('EMA', true, { id: 'candle_pane' });
       chart.createIndicator('VOL', false);
     } catch (e) {
-      console.warn("Indicator init:", e);
+      console.warn("Indicator init warning:", e);
     }
 
     const handleResize = () => {
-      chart.resize();
+      if (chartRef.current) chartRef.current.resize();
     };
     window.addEventListener('resize', handleResize);
 
@@ -120,18 +123,23 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
     if (!chartRef.current) return;
     const chart = chartRef.current;
 
-    setStatusMsg("Загрузка данных...");
+    setStatusMsg("Загрузка...");
 
     // 1. Load history from REST API
-    fetch(`${API_BASE}/klines?symbol=${symbol}&timeframe=${timeframe}&limit=300`)
-      .then(res => res.json())
+    fetch(`${API_BASE}/klines?symbol=${symbol}&timeframe=${timeframe}&limit=250`)
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+        return res.json();
+      })
       .then(data => {
         if (Array.isArray(data) && data.length > 0) {
           chart.applyNewData(data);
           setStatusMsg("");
           loadDrawings();
+          // Adjust view
+          chart.resize();
         } else {
-          setStatusMsg("Нет данных по монете");
+          setStatusMsg("Нет данных");
         }
       })
       .catch(err => {
@@ -149,32 +157,36 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
     const wsInterval = (timeframe === "45m" || timeframe === "6h") ? (timeframe === "45m" ? "15m" : "1h") : timeframe;
     const wsUrl = `wss://fstream.binance.com/ws/${symbol.toLowerCase()}@kline_${wsInterval}`;
     
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    try {
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
 
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        const k = msg.k;
-        if (!k) return;
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          const k = msg.k;
+          if (!k || !chartRef.current) return;
 
-        // Only stream directly if native timeframe, or refresh current bar
-        if (timeframe !== "45m" && timeframe !== "6h") {
-          const candle = {
-            timestamp: k.t,
-            open: parseFloat(k.o),
-            high: parseFloat(k.h),
-            low: parseFloat(k.l),
-            close: parseFloat(k.c),
-            volume: parseFloat(k.v),
-            turnover: parseFloat(k.q)
-          };
-          chart.updateData(candle);
+          // Native interval live update
+          if (timeframe !== "45m" && timeframe !== "6h") {
+            const candle = {
+              timestamp: k.t,
+              open: parseFloat(k.o),
+              high: parseFloat(k.h),
+              low: parseFloat(k.l),
+              close: parseFloat(k.c),
+              volume: parseFloat(k.v),
+              turnover: parseFloat(k.q)
+            };
+            chartRef.current.updateData(candle);
+          }
+        } catch (e) {
+          // ignore
         }
-      } catch (e) {
-        // ignore malformed ws messages
-      }
-    };
+      };
+    } catch (e) {
+      console.warn("WebSocket connect error:", e);
+    }
 
     return () => {
       if (wsRef.current) {
@@ -226,10 +238,10 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
       })
     })
     .then(res => res.json())
-    .then(() => setStatusMsg("Рисунки сохранены!"))
-    .catch(() => setStatusMsg("Ошибка сохранения рисунков"));
+    .then(() => setStatusMsg("Сохранено!"))
+    .catch(() => setStatusMsg("Ошибка сохранения"));
 
-    setTimeout(() => setStatusMsg(""), 2500);
+    setTimeout(() => setStatusMsg(""), 2000);
   };
 
   // Drawing tool selection
@@ -259,103 +271,110 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
       if (indicators.rsi) {
         chart.removeIndicator({ name: 'RSI' });
       } else {
-        chart.createIndicator('RSI');
+        chart.createIndicator('RSI', false);
       }
       setIndicators(prev => ({ ...prev, rsi: !prev.rsi }));
     } else if (name === 'macd') {
       if (indicators.macd) {
         chart.removeIndicator({ name: 'MACD' });
       } else {
-        chart.createIndicator('MACD');
+        chart.createIndicator('MACD', false);
       }
       setIndicators(prev => ({ ...prev, macd: !prev.macd }));
     }
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#131722] text-[#d1d4dc] select-none border border-[#1e222d] rounded-lg overflow-hidden">
+    <div className="flex flex-col h-full w-full bg-[#0e1118] text-[#d1d4dc] select-none border border-[#1b212f] rounded-lg overflow-hidden shadow-2xl">
       {/* Top Toolbar */}
-      <div className="flex items-center justify-between px-3 py-2 bg-[#1e222d] border-b border-[#2a2e39] text-xs">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-[#121620] border-b border-[#1b212f] text-xs">
         {/* Drawing Tools */}
         <div className="flex items-center space-x-1">
           <button 
-            title="Отрезок / Трендовая" 
+            title="Отрезок / Трендовая линия" 
             onClick={() => handleSelectTool('segment')}
-            className={`p-1.5 rounded hover:bg-[#2a2e39] ${activeTool === 'segment' ? 'bg-[#2962ff] text-white' : 'text-[#787b86]'}`}
+            className={`px-2 py-1 rounded transition flex items-center ${activeTool === 'segment' ? 'bg-[#2563eb] text-white' : 'text-[#848e9c] hover:bg-[#1a2130] hover:text-white'}`}
           >
-            <Minus size={15} />
+            <Minus size={14} className="mr-1" />
+            <span className="text-[11px]">Трендовая</span>
           </button>
+          
           <button 
             title="Горизонтальный уровень" 
             onClick={() => handleSelectTool('horizontalStraightLine')}
-            className={`p-1.5 rounded hover:bg-[#2a2e39] ${activeTool === 'horizontalStraightLine' ? 'bg-[#2962ff] text-white' : 'text-[#787b86]'}`}
+            className={`px-2 py-1 rounded transition flex items-center ${activeTool === 'horizontalStraightLine' ? 'bg-[#2563eb] text-white' : 'text-[#848e9c] hover:bg-[#1a2130] hover:text-white'}`}
           >
-            <span className="font-bold text-xs">—</span>
+            <span className="font-mono text-xs mr-1">—</span>
+            <span className="text-[11px]">Уровень</span>
           </button>
+
           <button 
             title="Луч" 
             onClick={() => handleSelectTool('rayLine')}
-            className={`p-1.5 rounded hover:bg-[#2a2e39] ${activeTool === 'rayLine' ? 'bg-[#2962ff] text-white' : 'text-[#787b86]'}`}
+            className={`p-1.5 rounded transition ${activeTool === 'rayLine' ? 'bg-[#2563eb] text-white' : 'text-[#848e9c] hover:bg-[#1a2130] hover:text-white'}`}
           >
-            <MoveRight size={15} />
+            <MoveRight size={14} />
           </button>
+
           <button 
-            title="Прямоугольник (Зона)" 
+            title="Прямоугольник (Зона плотности/имбаланса)" 
             onClick={() => handleSelectTool('rect')}
-            className={`p-1.5 rounded hover:bg-[#2a2e39] ${activeTool === 'rect' ? 'bg-[#2962ff] text-white' : 'text-[#787b86]'}`}
+            className={`p-1.5 rounded transition ${activeTool === 'rect' ? 'bg-[#2563eb] text-white' : 'text-[#848e9c] hover:bg-[#1a2130] hover:text-white'}`}
           >
-            <Square size={14} />
+            <Square size={13} />
           </button>
+
           <button 
             title="Уровни Фибоначчи" 
             onClick={() => handleSelectTool('fibonacciLine')}
-            className={`p-1.5 rounded hover:bg-[#2a2e39] ${activeTool === 'fibonacciLine' ? 'bg-[#2962ff] text-white' : 'text-[#787b86]'}`}
+            className={`p-1.5 rounded transition ${activeTool === 'fibonacciLine' ? 'bg-[#2563eb] text-white' : 'text-[#848e9c] hover:bg-[#1a2130] hover:text-white'}`}
           >
-            <Hash size={14} />
+            <Hash size={13} />
           </button>
 
-          <div className="h-4 w-px bg-[#2a2e39] mx-1" />
+          <div className="h-4 w-px bg-[#1f2937] mx-1" />
 
           <button 
-            title="Магнит к свечам" 
+            title="Магнит" 
             onClick={() => setMagnetEnabled(!magnetEnabled)}
-            className={`p-1.5 rounded hover:bg-[#2a2e39] ${magnetEnabled ? 'bg-[#089981] text-white' : 'text-[#787b86]'}`}
+            className={`p-1.5 rounded transition ${magnetEnabled ? 'bg-[#00c087] text-white' : 'text-[#848e9c] hover:bg-[#1a2130] hover:text-white'}`}
           >
-            <Magnet size={14} />
+            <Magnet size={13} />
           </button>
 
           <button 
-            title="Очистить все рисунки" 
+            title="Очистить рисунки" 
             onClick={handleClearDrawings}
-            className="p-1.5 rounded hover:bg-[#2a2e39] text-[#f23645]"
+            className="p-1.5 rounded text-[#f6465d] hover:bg-[#f6465d22] transition"
           >
-            <Trash2 size={14} />
+            <Trash2 size={13} />
           </button>
 
           <button 
-            title="Сохранить рисунки в профиль" 
+            title="Сохранить рисунки" 
             onClick={saveDrawings}
-            className="p-1.5 rounded hover:bg-[#2a2e39] text-[#089981]"
+            className="p-1.5 rounded text-[#00c087] hover:bg-[#00c08722] transition"
           >
-            <Save size={14} />
+            <Save size={13} />
           </button>
         </div>
 
         {/* Indicators and Status */}
         <div className="flex items-center space-x-2">
           {statusMsg && (
-            <span className="text-[#ff9800] text-xs font-mono animate-pulse">{statusMsg}</span>
+            <span className="text-[#f59e0b] text-[11px] font-mono animate-pulse mr-2">{statusMsg}</span>
           )}
           
           <button 
             onClick={() => toggleIndicator('rsi')}
-            className={`px-2 py-1 rounded text-xs font-semibold ${indicators.rsi ? 'bg-[#2962ff] text-white' : 'bg-[#2a2e39] text-[#787b86]'}`}
+            className={`px-2 py-0.5 rounded text-[11px] font-medium transition ${indicators.rsi ? 'bg-[#2563eb] text-white' : 'bg-[#1a2130] text-[#848e9c] hover:text-white'}`}
           >
-            RSI(14)
+            RSI
           </button>
+          
           <button 
             onClick={() => toggleIndicator('macd')}
-            className={`px-2 py-1 rounded text-xs font-semibold ${indicators.macd ? 'bg-[#2962ff] text-white' : 'bg-[#2a2e39] text-[#787b86]'}`}
+            className={`px-2 py-0.5 rounded text-[11px] font-medium transition ${indicators.macd ? 'bg-[#2563eb] text-white' : 'bg-[#1a2130] text-[#848e9c] hover:text-white'}`}
           >
             MACD
           </button>
@@ -366,7 +385,7 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
       <div 
         ref={chartContainerRef} 
         className="flex-1 w-full h-full relative" 
-        style={{ minHeight: '400px' }} 
+        style={{ minHeight: '450px', backgroundColor: '#0e1118' }} 
       />
     </div>
   );

@@ -117,6 +117,20 @@ class BinanceService:
             logger.error(f"Error querying liquidations for {symbol}: {e}")
             return 0.0
 
+    # --- 3b. Order Book Depth ---
+    async def fetch_order_book(self, symbol: str, limit: int = 20) -> Dict[str, Any]:
+        """Fetches Level 2 depth snapshot for orderbook."""
+        session = await self.get_session()
+        url = f"{BINANCE_FUTURES_REST}/fapi/v1/depth"
+        params = {'symbol': symbol.upper(), 'limit': limit}
+        try:
+            async with session.get(url, params=params) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+        except Exception as e:
+            logger.error(f"Error fetching depth for {symbol}: {e}")
+        return {'bids': [], 'asks': []}
+
     # --- 4. Klines & Custom Timeframes (with CVD) ---
     async def fetch_klines(self, symbol: str, timeframe: str = "15m", limit: int = 100) -> pd.DataFrame:
         """

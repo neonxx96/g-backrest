@@ -8,16 +8,13 @@ import {
   Layers, 
   Bell, 
   Search, 
-  TrendingUp, 
-  ExternalLink,
-  ChevronDown
+  TrendingUp
 } from 'lucide-react';
 
 const TIMEFRAMES = ["1m", "15m", "30m", "45m", "1h", "4h", "6h"];
 const POPULAR_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "DOGEUSDT", "XRPUSDT", "BNBUSDT", "SUIUSDT", "NEARUSDT"];
 
 export default function App() {
-  // Parse query params from URL if opened from Telegram: ?symbol=BTCUSDT&tf=15m&user_id=123
   const params = new URLSearchParams(window.location.search);
   const initialSymbol = (params.get('symbol') || "BTCUSDT").toUpperCase();
   const initialTf = params.get('tf') || "15m";
@@ -47,44 +44,44 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-[#0d1117] text-[#d1d4dc] font-sans overflow-hidden">
+    <div className="flex flex-col h-screen w-screen bg-[#080a0f] text-[#d1d4dc] font-sans overflow-hidden">
       {/* Top Header Bar */}
-      <header className="flex items-center justify-between px-4 py-2 bg-[#131722] border-b border-[#1e222d] shadow-sm z-20">
+      <header className="flex items-center justify-between px-3 py-1.5 bg-[#0e1118] border-b border-[#1b212f] z-20">
         {/* Brand & Symbol Selector */}
         <div className="flex items-center space-x-3">
-          <div className="flex items-center space-x-2 font-black text-white text-base tracking-wide">
-            <span className="p-1 rounded bg-[#2962ff] text-white">
-              <TrendingUp size={16} />
+          <div className="flex items-center space-x-1.5 font-black text-white text-sm tracking-wide">
+            <span className="p-1 rounded bg-[#2563eb] text-white">
+              <TrendingUp size={15} />
             </span>
-            <span>Signal<span className="text-[#2962ff]">Script</span></span>
+            <span>Signal<span className="text-[#2563eb]">Script</span></span>
           </div>
 
-          <div className="h-5 w-px bg-[#2a2e39] mx-1" />
+          <div className="h-4 w-px bg-[#1f2937] mx-1" />
 
-          {/* Active Symbol & Quick Selector */}
+          {/* Active Symbol */}
           <div className="flex items-center space-x-1.5">
-            <span className="text-sm font-extrabold text-white font-mono bg-[#1e222d] px-2.5 py-1 rounded border border-[#2a2e39]">
+            <span className="text-xs font-black text-white font-mono bg-[#121620] px-2 py-0.5 rounded border border-[#1b212f]">
               {symbol}
             </span>
 
             <form onSubmit={handleSearchSubmit} className="relative">
               <input
                 type="text"
-                placeholder="Поиск..."
+                placeholder="Поиск монеты..."
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
-                className="w-24 focus:w-36 transition-all duration-200 bg-[#1e222d] border border-[#2a2e39] rounded px-2 py-1 text-xs text-white placeholder-[#787b86] outline-none font-mono"
+                className="w-28 focus:w-36 transition-all duration-200 bg-[#121620] border border-[#1b212f] rounded px-2 py-0.5 text-xs text-white placeholder-[#6b7280] outline-none font-mono"
               />
-              <Search size={11} className="absolute right-2 top-2 text-[#787b86] pointer-events-none" />
+              <Search size={11} className="absolute right-2 top-1.5 text-[#6b7280] pointer-events-none" />
             </form>
 
-            {/* Quick dropdown pills */}
-            <div className="hidden lg:flex items-center space-x-1 pl-1">
-              {POPULAR_SYMBOLS.slice(0, 4).map(sym => (
+            {/* Popular symbols */}
+            <div className="hidden xl:flex items-center space-x-1 pl-1">
+              {POPULAR_SYMBOLS.map(sym => (
                 <button
                   key={sym}
                   onClick={() => setSymbol(sym)}
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition ${symbol === sym ? 'bg-[#2962ff] text-white font-bold' : 'bg-[#181c27] hover:bg-[#1e222d] text-[#787b86]'}`}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition ${symbol === sym ? 'bg-[#2563eb] text-white font-bold' : 'bg-[#121620] hover:bg-[#1a2130] text-[#848e9c]'}`}
                 >
                   {sym.replace("USDT", "")}
                 </button>
@@ -94,41 +91,41 @@ export default function App() {
         </div>
 
         {/* Timeframe Buttons */}
-        <div className="flex items-center space-x-1 bg-[#181c27] p-0.5 rounded border border-[#2a2e39]">
+        <div className="flex items-center space-x-1 bg-[#121620] p-0.5 rounded border border-[#1b212f]">
           {TIMEFRAMES.map((tf) => (
             <button
               key={tf}
               onClick={() => setTimeframe(tf)}
-              className={`px-2 py-1 rounded text-xs font-mono font-semibold transition ${timeframe === tf ? 'bg-[#2962ff] text-white' : 'text-[#787b86] hover:text-white hover:bg-[#1e222d]'}`}
+              className={`px-2 py-0.5 rounded text-xs font-mono font-medium transition ${timeframe === tf ? 'bg-[#2563eb] text-white' : 'text-[#848e9c] hover:text-white hover:bg-[#1a2130]'}`}
             >
               {tf}
             </button>
           ))}
         </div>
 
-        {/* Actions & Toggles */}
+        {/* Action Toggles */}
         <div className="flex items-center space-x-2">
           <button
             onClick={() => setShowOrderBook(!showOrderBook)}
-            className={`px-2.5 py-1 rounded text-xs font-semibold flex items-center space-x-1.5 transition ${showOrderBook ? 'bg-[#1e222d] text-white border border-[#2a2e39]' : 'text-[#787b86] hover:bg-[#1e222d]'}`}
+            className={`px-2.5 py-1 rounded text-xs font-semibold flex items-center space-x-1 transition ${showOrderBook ? 'bg-[#121620] text-white border border-[#1b212f]' : 'text-[#848e9c] hover:bg-[#121620]'}`}
             title="Переключить стакан"
           >
-            <Layers size={13} className="text-[#2962ff]" />
+            <Layers size={13} className="text-[#2563eb]" />
             <span className="hidden sm:inline">Стакан</span>
           </button>
 
           <button
             onClick={() => setShowSignals(!showSignals)}
-            className={`px-2.5 py-1 rounded text-xs font-semibold flex items-center space-x-1.5 transition ${showSignals ? 'bg-[#1e222d] text-white border border-[#2a2e39]' : 'text-[#787b86] hover:bg-[#1e222d]'}`}
+            className={`px-2.5 py-1 rounded text-xs font-semibold flex items-center space-x-1 transition ${showSignals ? 'bg-[#121620] text-white border border-[#1b212f]' : 'text-[#848e9c] hover:bg-[#121620]'}`}
             title="Переключить ленту сигналов"
           >
-            <Bell size={13} className="text-[#089981]" />
+            <Bell size={13} className="text-[#00c087]" />
             <span className="hidden sm:inline">Сигналы</span>
           </button>
 
           <button
             onClick={() => setShowSettings(true)}
-            className="px-3 py-1 rounded text-xs font-semibold bg-[#2962ff] hover:bg-[#1e4bd8] text-white flex items-center space-x-1.5 shadow"
+            className="px-3 py-1 rounded text-xs font-semibold bg-[#2563eb] hover:bg-[#1d4ed8] text-white flex items-center space-x-1.5 transition"
           >
             <Sliders size={13} />
             <span>Настройки</span>
@@ -137,7 +134,7 @@ export default function App() {
       </header>
 
       {/* Main Workspace Body */}
-      <div className="flex-1 flex overflow-hidden p-2 gap-2">
+      <div className="flex-1 flex overflow-hidden p-1.5 gap-1.5">
         {/* Left: Chart Container */}
         <div className="flex-1 flex flex-col h-full min-w-0">
           <Chart symbol={symbol} timeframe={timeframe} userId={userId} />
