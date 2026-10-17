@@ -1,7 +1,8 @@
 """
 Backtest Router
-POST /api/backtest/run — runs a strategy on real Binance Futures history and
-returns summary, trades, chart signals and equity curve (JSON-safe: no NaN/Inf).
+POST /api/backtest/run — runs a strategy on real Binance Futures history with realistic
+Maker/Taker fees, stop slippage ticks, Multi-TP scaling out, and 500-run Monte Carlo stress test.
+POST /api/backtest/optimize — runs fast heuristic Genetic Optimization (or Grid Search) in < 3s.
 """
 
 import asyncio
@@ -39,6 +40,14 @@ class BacktestParams(BaseModel):
     use_cvd_filter: bool = False
     use_oi_filter: bool = False
     use_rsi_filter: bool = False
+    # ТАКТ 1: Realistic Execution Engine & Multi-TP Scaling Out
+    maker_fee_pct: float = Field(0.02, ge=0.0, le=2.0)
+    taker_fee_pct: float = Field(0.05, ge=0.0, le=2.0)
+    slippage_ticks: int = Field(2, ge=0, le=20)
+    use_multi_tp: bool = True
+    tp1_pct: float = Field(0.6, gt=0, le=50)
+    tp1_atr_mult: float = Field(1.5, gt=0, le=10)
+    atr_period: int = Field(14, ge=3, le=100)
 
 
 class BacktestRequest(BaseModel):
@@ -48,7 +57,7 @@ class BacktestRequest(BaseModel):
     strategy_type: str = "ema_trend"
     params: BacktestParams = BacktestParams()
     initial_capital: float = Field(10000.0, gt=0)
-    # Legacy flat fields (older clients / test_e2e.py). Used only if `params` not sent.
+    # Legacy / flat override fields
     leverage: Optional[float] = None
     stop_loss_pct: Optional[float] = None
     take_profit_pct: Optional[float] = None
@@ -58,6 +67,10 @@ class BacktestRequest(BaseModel):
     use_cvd_filter: Optional[bool] = None
     use_oi_filter: Optional[bool] = None
     use_rsi_filter: Optional[bool] = None
+    maker_fee_pct: Optional[float] = None
+    taker_fee_pct: Optional[float] = None
+    slippage_ticks: Optional[int] = None
+    use_multi_tp: Optional[bool] = None
 
     model_config = {"extra": "ignore"}
 
@@ -78,12 +91,22 @@ def _clean(v: Any) -> Any:
     return v
 
 
+_HISTORY_CACHE: Dict[tuple, tuple] = {}
+_HISTORY_CACHE_TTL_SEC = 60.0
+
+
 async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
-    """Paginated Binance klines with multi-endpoint fallback (Futures -> Spot -> Vision)."""
+    """Paginated Binance klines with multi-endpoint fallback (Futures -> Spot -> Vision) and 60s TTL cache."""
+    cache_key = (symbol.upper(), timeframe, int(days))
+    now_ts = time.time()
+    cached = _HISTORY_CACHE.get(cache_key)
+    if cached is not None and (now_ts - cached[0]) < _HISTORY_CACHE_TTL_SEC:
+        return cached[1].copy()
+
     tf_min = TF_MINUTES.get(timeframe, 5)
     need = min(int(days * 1440 / tf_min), MAX_CANDLES)
     session = await binance_service.adapter.get_session()
-    
+
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
@@ -95,13 +118,13 @@ async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
     ]
 
     rows: List[list] = []
-    
+
     for ep in endpoints:
         rows = []
         end_ms = int(time.time() * 1000)
         max_chunk = ep["max_limit"]
         endpoint_ok = True
-        
+
         while len(rows) < need:
             limit = min(max_chunk, need - len(rows))
             params = {"symbol": symbol, "interval": timeframe, "limit": limit, "endTime": end_ms}
@@ -121,7 +144,7 @@ async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
             except Exception:
                 endpoint_ok = False
                 break
-                
+
         if endpoint_ok and rows:
             break
 
@@ -166,18 +189,18 @@ async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
         except Exception:
             pass
 
-    return df
+    _HISTORY_CACHE[cache_key] = (now_ts, df)
+    return df.copy()
 
 
 def _sharpe(equity_curve: List[Dict[str, float]]) -> float:
-    eq = np.array([p["equity"] for p in equity_curve], dtype=float)
+    eq = np.array([float(p["equity"]) for p in equity_curve], dtype=float)
     if len(eq) < 3:
         return 0.0
     rets = np.diff(eq) / np.where(eq[:-1] == 0, 1.0, eq[:-1])
     sd = float(np.std(rets))
     if sd == 0 or not math.isfinite(sd):
         return 0.0
-    # per-trade Sharpe, annualisation is not meaningful for event-driven trades
     return float(np.mean(rets) / sd * math.sqrt(len(rets)))
 
 
@@ -194,6 +217,11 @@ def build_response(raw: Dict[str, Any], initial_capital: float, meta: Dict[str, 
             "type": side,
             "entry_price": t["entry_price"],
             "exit_price": t["exit_price"],
+            "gross_pnl_usd": t.get("gross_pnl_usd", t["pnl_usd"]),
+            "gross_pnl_pct": t.get("gross_pnl_pct", t["pnl_pct"]),
+            "fee_paid_usd": t.get("fee_paid_usd", 0.0),
+            "slippage_cost_usd": t.get("slippage_cost_usd", 0.0),
+            "tp1_hit": t.get("tp1_hit", False),
             "pnl_pct": t["pnl_pct"],
             "pnl_usd": t["pnl_usd"],
             "reason": t["exit_reason"],
@@ -213,19 +241,31 @@ def build_response(raw: Dict[str, Any], initial_capital: float, meta: Dict[str, 
     total = raw.get("total_trades", 0)
     wins = raw.get("wins_count", 0)
     pf = raw.get("profit_factor", 0.0)
-    if pf >= 999.0:  # engine sentinel for "no losing trades"
+    if pf >= 999.0:
         pf = 999.0
 
     equity_curve = raw.get("equity_curve", [])
+    sharpe_val = raw.get("sharpe_ratio")
+    if sharpe_val is None:
+        sharpe_val = round(_sharpe(equity_curve), 2)
+
     summary = {
         "total_pnl_pct": raw.get("roi_pct", 0.0),
+        "net_pnl_usd": raw.get("net_pnl", 0.0),
+        "gross_pnl_usd": raw.get("gross_pnl", raw.get("net_pnl", 0.0)),
+        "gross_pnl_pct": raw.get("gross_roi_pct", raw.get("roi_pct", 0.0)),
+        "total_fees_usd": raw.get("total_fees_usd", 0.0),
+        "total_slippage_usd": raw.get("total_slippage_usd", 0.0),
+        "total_exchange_cost_usd": raw.get("total_exchange_cost_usd", raw.get("total_fees_usd", 0.0)),
+        "recovery_factor": raw.get("recovery_factor", 0.0),
         "win_rate_pct": raw.get("win_rate_pct", 0.0),
         "total_trades": total,
         "winning_trades": wins,
         "losing_trades": raw.get("losses_count", 0),
         "profit_factor": pf,
         "max_drawdown_pct": raw.get("max_drawdown_pct", 0.0),
-        "sharpe_ratio": round(_sharpe(equity_curve), 2),
+        "sharpe_ratio": round(float(sharpe_val), 2),
+        "sortino_ratio": round(float(raw.get("sortino_ratio", 0.0)), 2),
     }
 
     return _clean({
@@ -234,9 +274,15 @@ def build_response(raw: Dict[str, Any], initial_capital: float, meta: Dict[str, 
         "signals": signals,
         "equity_curve": equity_curve,
         "confluence_matrix": raw.get("confluence_matrix", []),
+        "monte_carlo": raw.get("monte_carlo"),
+        "execution_config": raw.get("execution_config"),
         "meta": meta,
         # legacy keys (test_e2e.py / BacktestModal)
         "net_pnl": raw.get("net_pnl", 0.0),
+        "gross_pnl": raw.get("gross_pnl", 0.0),
+        "total_fees_usd": raw.get("total_fees_usd", 0.0),
+        "total_slippage_usd": raw.get("total_slippage_usd", 0.0),
+        "recovery_factor": raw.get("recovery_factor", 0.0),
         "roi_pct": raw.get("roi_pct", 0.0),
         "win_rate_pct": raw.get("win_rate_pct", 0.0),
         "total_trades": total,
@@ -254,7 +300,6 @@ async def run_backtest(req: BacktestRequest):
         raise HTTPException(status_code=422, detail=f"strategy_type must be one of {sorted(STRATEGIES)}")
 
     p = req.params
-    # Legacy flat fields override only when provided
     leverage = req.leverage if req.leverage is not None else p.leverage
     sl = req.stop_loss_pct if req.stop_loss_pct is not None else p.stop_loss_pct
     tp = req.take_profit_pct if req.take_profit_pct is not None else p.take_profit_pct
@@ -265,6 +310,11 @@ async def run_backtest(req: BacktestRequest):
     use_oi_filter = req.use_oi_filter if req.use_oi_filter is not None else p.use_oi_filter
     use_rsi_filter = req.use_rsi_filter if req.use_rsi_filter is not None else p.use_rsi_filter
 
+    maker_fee_pct = req.maker_fee_pct if req.maker_fee_pct is not None else p.maker_fee_pct
+    taker_fee_pct = req.taker_fee_pct if req.taker_fee_pct is not None else p.taker_fee_pct
+    slippage_ticks = req.slippage_ticks if req.slippage_ticks is not None else p.slippage_ticks
+    use_multi_tp = req.use_multi_tp if req.use_multi_tp is not None else p.use_multi_tp
+
     try:
         df = await fetch_history(symbol, req.timeframe, req.days)
     except Exception as e:
@@ -272,14 +322,19 @@ async def run_backtest(req: BacktestRequest):
     if df.empty:
         raise HTTPException(status_code=400, detail=f"No candles for {symbol}")
 
-    engine = OrderFlowBacktester(initial_capital=req.initial_capital)
+    engine = OrderFlowBacktester(
+        initial_capital=req.initial_capital,
+        maker_fee_pct=maker_fee_pct,
+        taker_fee_pct=taker_fee_pct,
+        slippage_ticks=slippage_ticks,
+    )
     raw = await asyncio.to_thread(
         engine.run_backtest,
         df,
         req.strategy_type,
         tp,
         sl,
-        False,           # use_trailing: plain SL/TP so results match the UI parameters
+        False,
         0.5,
         float(leverage),
         100000.0,
@@ -291,6 +346,15 @@ async def run_backtest(req: BacktestRequest):
         use_cvd_filter,
         use_oi_filter,
         use_rsi_filter,
+        maker_fee_pct,
+        taker_fee_pct,
+        slippage_ticks,
+        use_multi_tp,
+        p.tp1_pct,
+        p.tp1_atr_mult,
+        p.atr_period,
+        14,
+        True,
     )
     if "error" in raw:
         raise HTTPException(status_code=400, detail=raw["error"])
@@ -303,7 +367,12 @@ async def run_backtest(req: BacktestRequest):
         "from_time": int(df["timestamp"].iloc[0]),
         "to_time": int(df["timestamp"].iloc[-1]),
         "requested_days": req.days,
-        "note": "min_density_usd is a turnover proxy (close*volume) for density_bounce; historical L2 not used",
+        "execution": {
+            "maker_fee_pct": maker_fee_pct,
+            "taker_fee_pct": taker_fee_pct,
+            "slippage_ticks": slippage_ticks,
+            "use_multi_tp": use_multi_tp,
+        },
         "confluence_filters": {
             "atr_filter": use_atr_filter,
             "atr_sl": use_atr_sl,
@@ -316,24 +385,34 @@ async def run_backtest(req: BacktestRequest):
     return build_response(raw, req.initial_capital, meta)
 
 
-class GridSearchRequest(BaseModel):
+class OptimizeRequest(BaseModel):
     symbol: str = "BTCUSDT"
     timeframe: str = "5m"
     days: int = Field(7, ge=1, le=30)
     strategy_type: str = "delta_absorption"
+    optimizer_mode: str = "genetic"  # "genetic" | "grid"
     sl_min: float = Field(0.2, gt=0, le=20)
-    sl_max: float = Field(1.0, gt=0, le=20)
+    sl_max: float = Field(1.2, gt=0, le=20)
     sl_step: float = Field(0.2, gt=0, le=10)
     tp_min: float = Field(0.5, gt=0, le=100)
     tp_max: float = Field(3.0, gt=0, le=100)
     tp_step: float = Field(0.5, gt=0, le=50)
     tp_pct: Optional[float] = None
-    wall_min_usd: float = Field(200000.0, ge=0)
-    wall_max_usd: float = Field(2000000.0, ge=0)
+    wall_min_usd: float = Field(300000.0, ge=0)
+    wall_max_usd: float = Field(3000000.0, ge=0)
     wall_step_usd: float = Field(600000.0, gt=0)
     volume_multiplier: float = Field(1.0, ge=0.5, le=20)
     leverage: float = Field(2.0, ge=1, le=125)
     initial_capital: float = Field(10000.0, gt=0)
+    # Execution realism
+    maker_fee_pct: float = Field(0.02, ge=0.0, le=2.0)
+    taker_fee_pct: float = Field(0.05, ge=0.0, le=2.0)
+    slippage_ticks: int = Field(2, ge=0, le=20)
+    use_multi_tp: bool = True
+    # Current baseline parameters for "Before vs After" comparison
+    current_sl_pct: float = 0.8
+    current_tp_pct: float = 1.6
+    current_wall_usd: float = 300000.0
     # Confluence Filter Suite
     use_atr_filter: bool = False
     use_atr_sl: bool = False
@@ -341,110 +420,14 @@ class GridSearchRequest(BaseModel):
     use_cvd_filter: bool = False
     use_oi_filter: bool = False
     use_rsi_filter: bool = False
+    population_size: int = Field(14, ge=6, le=30)
+    generations: int = Field(5, ge=2, le=10)
 
     model_config = {"extra": "ignore"}
 
 
-def _build_axis(lo: float, hi: float, step: float, max_pts: int = 8) -> List[float]:
-    if hi < lo:
-        lo, hi = hi, lo
-    if step <= 0 or abs(hi - lo) < 1e-9:
-        return [round(lo, 4)]
-    vals = []
-    cur = lo
-    while cur <= hi + 1e-7 and len(vals) < max_pts:
-        vals.append(round(cur, 4))
-        cur += step
-    return vals or [round(lo, 4)]
-
-
-def _run_grid_sync(df: pd.DataFrame, req: GridSearchRequest) -> Dict[str, Any]:
-    sl_vals = _build_axis(req.sl_min, req.sl_max, req.sl_step, max_pts=5)
-    if req.tp_pct is not None and req.tp_pct > 0 and req.tp_min == 0.5 and req.tp_max == 3.0 and req.tp_step == 0.5:
-        tp_vals = [req.tp_pct]
-    else:
-        tp_vals = _build_axis(req.tp_min, req.tp_max, req.tp_step, max_pts=4)
-    wall_vals = _build_axis(req.wall_min_usd, req.wall_max_usd, req.wall_step_usd, max_pts=4)
-
-    engine = OrderFlowBacktester(initial_capital=req.initial_capital)
-    enriched_df = engine.calculate_indicators(df) if len(df) >= 60 else df
-    rows: List[Dict[str, Any]] = []
-    best_raw: Optional[Dict[str, Any]] = None
-    best_key = (-1e18, -1e18, -1e18)
-    best_params: Dict[str, Any] = {}
-
-    for sl in sl_vals:
-        for tp in tp_vals:
-            for wall_usd in wall_vals:
-                raw = engine.run_backtest(
-                    enriched_df,
-                    req.strategy_type,
-                    tp,
-                    sl,
-                    False,
-                    0.5,
-                    float(req.leverage),
-                    100000.0,
-                    req.volume_multiplier,
-                    wall_usd,
-                    req.use_atr_filter,
-                    req.use_atr_sl,
-                    float(req.atr_multiplier),
-                    req.use_cvd_filter,
-                    req.use_oi_filter,
-                    req.use_rsi_filter,
-                )
-                if "error" in raw:
-                    continue
-                eq = raw.get("equity_curve", [])
-                sharpe = round(_sharpe(eq), 2)
-                pnl_pct = float(raw.get("roi_pct", 0.0))
-                pf = float(raw.get("profit_factor", 0.0))
-                if pf >= 999.0:
-                    pf = 999.0
-                total_trades = int(raw.get("total_trades", 0))
-                row = {
-                    "stop_loss_pct": sl,
-                    "take_profit_pct": tp,
-                    "min_density_usd": wall_usd,
-                    "volume_multiplier": req.volume_multiplier,
-                    "leverage": req.leverage,
-                    "total_pnl_pct": round(pnl_pct, 2),
-                    "win_rate_pct": round(float(raw.get("win_rate_pct", 0.0)), 2),
-                    "profit_factor": round(pf, 2),
-                    "max_drawdown_pct": round(float(raw.get("max_drawdown_pct", 0.0)), 2),
-                    "total_trades": total_trades,
-                    "winning_trades": int(raw.get("wins_count", 0)),
-                    "losing_trades": int(raw.get("losses_count", 0)),
-                    "sharpe_ratio": sharpe,
-                }
-                rows.append(row)
-                has_trades = 1 if total_trades > 0 else 0
-                cand_key = (has_trades, pf, sharpe, pnl_pct)
-                if best_raw is None or cand_key > (1 if best_params.get("total_trades", 0) > 0 else 0, best_key[0], best_key[1], best_key[2]):
-                    best_raw = raw
-                    best_key = (pf, sharpe, pnl_pct)
-                    best_params = row
-
-    # Sort primarily by Profit Factor and Sharpe Ratio
-    rows.sort(
-        key=lambda r: (
-            1 if r["total_trades"] > 0 else 0,
-            r["profit_factor"],
-            r["sharpe_ratio"],
-            r["total_pnl_pct"]
-        ),
-        reverse=True
-    )
-    for idx, r in enumerate(rows, start=1):
-        r["rank"] = idx
-
-    top_setups = rows[:5]
-    return {"rows": rows, "top_setups": top_setups, "best_raw": best_raw, "best_params": best_params}
-
-
 @backtest_router.post("/optimize")
-async def optimize_backtest(req: GridSearchRequest):
+async def optimize_backtest(req: OptimizeRequest):
     symbol = req.symbol.strip().upper()
     if req.timeframe not in TF_MINUTES:
         raise HTTPException(status_code=422, detail=f"timeframe must be one of {list(TF_MINUTES)}")
@@ -458,7 +441,37 @@ async def optimize_backtest(req: GridSearchRequest):
     if df.empty:
         raise HTTPException(status_code=400, detail=f"No candles for {symbol}")
 
-    out = await asyncio.to_thread(_run_grid_sync, df, req)
+    engine = OrderFlowBacktester(
+        initial_capital=req.initial_capital,
+        maker_fee_pct=req.maker_fee_pct,
+        taker_fee_pct=req.taker_fee_pct,
+        slippage_ticks=req.slippage_ticks,
+    )
+
+    out = await asyncio.to_thread(
+        engine.run_genetic_optimization,
+        df,
+        req.strategy_type,
+        (req.sl_min, req.sl_max),
+        (req.tp_min, req.tp_max),
+        (req.wall_min_usd, req.wall_max_usd),
+        float(req.leverage),
+        float(req.volume_multiplier),
+        float(req.maker_fee_pct),
+        float(req.taker_fee_pct),
+        int(req.slippage_ticks),
+        bool(req.use_multi_tp),
+        {
+            "stop_loss_pct": req.current_sl_pct,
+            "take_profit_pct": req.current_tp_pct,
+            "min_density_usd": req.current_wall_usd,
+            "use_cvd_filter": req.use_cvd_filter,
+            "atr_period": 14,
+        },
+        int(req.population_size),
+        int(req.generations),
+    )
+
     rows = out["rows"]
     top_setups = out.get("top_setups", rows[:5])
     best_raw = out["best_raw"] or {"trades": [], "equity_curve": []}
@@ -471,13 +484,17 @@ async def optimize_backtest(req: GridSearchRequest):
         "from_time": int(df["timestamp"].iloc[0]),
         "to_time": int(df["timestamp"].iloc[-1]),
         "requested_days": req.days,
-        "mode": "grid",
-        "combinations_tested": len(rows),
+        "mode": "genetic",
+        "combinations_tested": out["iterations_count"],
+        "generations": out["generations"],
+        "elapsed_ms": out["elapsed_ms"],
         "best_params": out["best_params"],
     }
     resp = build_response(best_raw, req.initial_capital, meta)
     resp["top_setups"] = _clean(top_setups)
     resp["grid_results"] = _clean(rows)
+    resp["before_optimization"] = _clean(out["before_optimization"])
+    resp["after_optimization"] = _clean(out["after_optimization"])
     return resp
 
 
@@ -515,5 +532,3 @@ async def inspect_level(req: InspectLevelRequest):
     res["timeframe"] = tf
     res["days"] = days
     return _clean(res)
-
-
