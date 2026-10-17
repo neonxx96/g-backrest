@@ -96,13 +96,30 @@ class BinanceAdapter(BaseExchangeAdapter):
             resample_rule = "6h"
             req_limit = limit * 6
 
-        url = f"{BINANCE_FUTURES_REST}/fapi/v1/klines"
+        urls = [
+            f"{BINANCE_FUTURES_REST}/fapi/v1/klines",
+            "https://api.binance.com/api/v3/klines",
+            "https://data-api.binance.vision/api/v3/klines"
+        ]
         params = {'symbol': symbol.upper(), 'interval': fetch_tf, 'limit': min(req_limit, 500)}
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        data = None
 
-        async with session.get(url, params=params) as resp:
-            if resp.status != 200:
-                raise ValueError(f"Binance klines error {resp.status} for {symbol}")
-            data = await resp.json()
+        for u in urls:
+            try:
+                async with session.get(u, params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=6)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data and isinstance(data, list):
+                            break
+            except Exception:
+                pass
+
+        if not data:
+            raise ValueError(f"Binance klines error across all endpoints for {symbol}")
+
 
         records = []
         for k in data:

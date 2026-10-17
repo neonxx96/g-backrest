@@ -6,11 +6,15 @@ and returns an intelligent analytical breakdown with actionable strategy paramet
 """
 
 import re
+import json
 import logging
+import asyncio
+import aiohttp
 from typing import Dict, Any, Optional, List
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from backend.app.config import OPENROUTER_API_KEY, OPENROUTER_MODEL
 from backend.app.routers.backtest import fetch_history, build_response, BacktestParams
 from backend.app.services.orderflow_backtester import OrderFlowBacktester
 
@@ -25,6 +29,81 @@ class AIOptimizeRequest(BaseModel):
     timeframe: Optional[str] = "5m"
     days: Optional[int] = 7
     initial_capital: Optional[float] = 10000.0
+
+
+async def query_openrouter_llm(prompt: str, base_symbol: str = "BTCUSDT", base_tf: str = "5m") -> Optional[Dict[str, Any]]:
+    """
+    Calls OpenRouter LLM (Gemini / LLaMA) with fallback.
+    Returns structured strategy parameters if successful, else None.
+    """
+    if not OPENROUTER_API_KEY or "sk-or-v1" not in OPENROUTER_API_KEY:
+        return None
+
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY.strip()}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "http://localhost:5173",
+        "X-Title": "SignalScript Quantitative Terminal"
+    }
+
+    system_prompt = (
+        "Ты — Lead Quantitative Trader и эксперт по Order Flow & Footprint торговым стратегиям. "
+        "Пользователь описывает торговую идею или требования к бэктесту на русском языке. "
+        "Тебе необходимо извлечь параметры и вернуть СТРОГО валидный JSON следующего формата:\n"
+        "{\n"
+        '  "symbol": "BTCUSDT",\n'
+        '  "timeframe": "5m",\n'
+        '  "strategy_type": "density_bounce" | "delta_absorption" | "confluence_ema" | "ema_trend",\n'
+        '  "reasoning": "Краткое обоснование стратегии на русском языке",\n'
+        '  "params": {\n'
+        '    "stop_loss_pct": 0.6,\n'
+        '    "take_profit_pct": 1.5,\n'
+        '    "min_density_usd": 1000000.0,\n'
+        '    "volume_multiplier": 1.2,\n'
+        '    "leverage": 2.0,\n'
+        '    "use_atr_filter": true,\n'
+        '    "use_atr_sl": false,\n'
+        '    "atr_multiplier": 1.5,\n'
+        '    "use_cvd_filter": true,\n'
+        '    "use_oi_filter": false,\n'
+        '    "use_rsi_filter": true\n'
+        "  }\n"
+        "}\n"
+        "Верни ТОЛЬКО JSON без markdown-тегов и пояснений."
+    )
+
+    payload = {
+        "model": OPENROUTER_MODEL or "google/gemini-2.0-flash-001",
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Базовый тикер: {base_symbol}, таймфрейм: {base_tf}. Запрос: {prompt}"}
+        ],
+        "temperature": 0.2,
+        "max_tokens": 800
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    content = data["choices"][0]["message"]["content"].strip()
+                    # Clean markdown if present
+                    if content.startswith("```"):
+                        content = re.sub(r"^```(?:json)?", "", content)
+                        content = re.sub(r"```$", "", content).strip()
+                    parsed = json.loads(content)
+                    if "params" in parsed and "strategy_type" in parsed:
+                        logger.info("Successfully received strategy configuration from OpenRouter LLM")
+                        return parsed
+                else:
+                    err_text = await resp.text()
+                    logger.warning(f"OpenRouter returned status {resp.status}: {err_text[:120]}")
+    except Exception as e:
+        logger.warning(f"OpenRouter query failed or timed out: {e}")
+
+    return None
 
 
 def parse_prompt_to_strategy(prompt: str, base_symbol: str = "BTCUSDT", base_tf: str = "5m") -> Dict[str, Any]:
@@ -189,12 +268,23 @@ async def optimize_strategy(payload: AIOptimizeRequest):
     if not payload.prompt or not payload.prompt.strip():
         raise HTTPException(status_code=400, detail="Промпт не может быть пустым")
 
-    # 1. Parse prompt
-    parsed = parse_prompt_to_strategy(
-        prompt=payload.prompt,
-        base_symbol=payload.symbol or "BTCUSDT",
-        base_tf=payload.timeframe or "5m"
-    )
+    # 1. Parse prompt via OpenRouter LLM or smart fallback
+    parsed = None
+    try:
+        parsed = await query_openrouter_llm(
+            prompt=payload.prompt,
+            base_symbol=payload.symbol or "BTCUSDT",
+            base_tf=payload.timeframe or "5m"
+        )
+    except Exception as e:
+        logger.warning(f"Error querying OpenRouter: {e}")
+
+    if not parsed:
+        parsed = parse_prompt_to_strategy(
+            prompt=payload.prompt,
+            base_symbol=payload.symbol or "BTCUSDT",
+            base_tf=payload.timeframe or "5m"
+        )
 
     sym = parsed["symbol"]
     tf = parsed["timeframe"]
@@ -273,5 +363,7 @@ async def optimize_strategy(payload: AIOptimizeRequest):
         "trades": result.get("trades", []),
         "signals": result.get("signals", []),
         "equity_curve": result.get("equity_curve", []),
+        "confluence_matrix": result.get("confluence_matrix", []),
         "meta": meta
     }
+

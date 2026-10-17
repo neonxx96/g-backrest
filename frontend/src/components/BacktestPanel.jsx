@@ -103,6 +103,7 @@ export default function BacktestPanel({
   const [filterAtrSl, setFilterAtrSl] = useState(false);
   const [atrMultiplier, setAtrMultiplier] = useState(1.5);
   const [filterRsi, setFilterRsi] = useState(false);
+  const [viewTab, setViewTab] = useState('trades'); // 'trades' | 'matrix'
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -282,12 +283,44 @@ export default function BacktestPanel({
     }
   }, [aiResult, result, onStrategyChange, onApplyStrategy]);
 
+  const applyConfluenceSetup = useCallback((item) => {
+    const rec = item.recommended_filters || {};
+    setFilterCvd(!!rec.use_cvd_filter);
+    setFilterOi(!!rec.use_oi_filter);
+    setFilterAtr(!!rec.use_atr_filter);
+    const newWallK = rec.min_density_usd ? Math.round(rec.min_density_usd / 1000) : minWallK;
+    const newVolMult = rec.volume_multiplier || volMult;
+    setMinWallK(newWallK);
+    setVolMult(newVolMult);
+    setAppliedFeedback(`Связка "${item.condition_name}" применена к стратегии!`);
+    setTimeout(() => setAppliedFeedback(null), 3500);
+
+    if (onApplyStrategy) {
+      onApplyStrategy({
+        strategy,
+        sl,
+        tp,
+        minWallK: newWallK,
+        volMult: newVolMult,
+        leverage,
+        useCvd: !!rec.use_cvd_filter,
+        useOi: !!rec.use_oi_filter,
+        useAtr: !!rec.use_atr_filter
+      });
+    }
+
+    setViewTab('trades');
+    runSingle({ minWallK: newWallK });
+  }, [strategy, sl, tp, minWallK, volMult, leverage, onApplyStrategy, runSingle]);
+
   if (!isOpen) return null;
 
   const s = result?.summary;
   const pnlTone = s ? (s.total_pnl_pct > 0 ? 'pos' : s.total_pnl_pct < 0 ? 'neg' : null) : null;
-  const lastTrades = result?.trades ? [...result.trades].slice(-10).reverse() : [];
+  const lastTrades = result?.trades ? [...result.trades].slice(-15).reverse() : [];
   const gridRows = result?.grid_results || [];
+  const confluenceMatrix = result?.confluence_matrix || [];
+
 
   return (
     <div
@@ -681,7 +714,44 @@ export default function BacktestPanel({
                 </button>
               </div>
 
-              {/* Table: either Grid Search Leaderboard or Last 10 Trades */}
+              {/* Table Switcher Bar */}
+              <div className="flex items-center justify-between py-0.5 border-b border-[#1f2430]">
+                <div className="flex items-center space-x-1 font-mono text-[9.5px]">
+                  {mode === 'grid' && gridRows.length > 0 ? (
+                    <span className="text-[#a855f7] font-bold">Лидерборд сетки SL/TP ({gridRows.length})</span>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => setViewTab('trades')}
+                        className={`px-2 py-0.5 rounded transition ${
+                          viewTab === 'trades'
+                            ? 'bg-[#2563eb] text-white font-bold'
+                            : 'text-[#787f91] hover:text-white bg-[#08090c]'
+                        }`}
+                      >
+                        📋 Сделки ({lastTrades.length})
+                      </button>
+                      <button
+                        onClick={() => setViewTab('matrix')}
+                        className={`px-2 py-0.5 rounded transition flex items-center gap-1 ${
+                          viewTab === 'matrix'
+                            ? 'bg-[#26a69a] text-black font-bold'
+                            : 'text-[#787f91] hover:text-white bg-[#08090c]'
+                        }`}
+                      >
+                        <span>🧬 Матрица связок</span>
+                        {confluenceMatrix.length > 0 && (
+                          <span className={`text-[8.5px] px-1 rounded-full ${viewTab === 'matrix' ? 'bg-black text-white' : 'bg-[#26a69a25] text-[#26a69a]'}`}>
+                            {confluenceMatrix.length}
+                          </span>
+                        )}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Table: Grid Search, Confluence Matrix or Trades */}
               <div
                 style={{ borderColor: 'var(--border-subtle)' }}
                 className="flex-1 overflow-y-auto border rounded"
@@ -738,6 +808,86 @@ export default function BacktestPanel({
                     </tbody>
                   </table>
 
+                ) : viewTab === 'matrix' ? (
+                  <table className="w-full text-[10.5px] font-mono-numbers">
+                    <thead
+                      style={{ backgroundColor: 'var(--bg-panel)' }}
+                      className="sticky top-0 text-[#60697b] text-[9px] uppercase tracking-wider"
+                    >
+                      <tr>
+                        <th className="text-left px-2 py-1">Связка условий Order Flow</th>
+                        <th className="text-right px-2">Сделок</th>
+                        <th className="text-right px-2">WinRate %</th>
+                        <th className="text-right px-2">PF</th>
+                        <th className="text-right px-2">Ср. PnL %</th>
+                        <th className="text-center px-2">Оценка</th>
+                        <th className="text-center px-2">Действие</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#13161f]">
+                      {confluenceMatrix.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="text-center py-4 text-[#60697b]">
+                            Матрица рассчитывается при наличии сделок в бэктесте
+                          </td>
+                        </tr>
+                      )}
+                      {confluenceMatrix.map((item, idx) => (
+                        <tr key={idx} className={`hover:bg-[#161922] ${item.grade === 'High Probability' ? 'bg-[#26a69a10]' : ''}`}>
+                          <td className="px-2 py-1 text-white font-mono text-[10px]">
+                            <div className="font-semibold text-[#f8fafc]">{item.condition_name}</div>
+                            <div className="text-[8.5px] text-[#787f91] flex flex-wrap gap-1 mt-0.5">
+                              {item.factors?.imbalance && <span className="bg-[#1e2330] px-1 rounded text-[#38bdf8]">{item.factors.imbalance}</span>}
+                              {item.factors?.cvd && <span className="bg-[#1e2330] px-1 rounded text-[#a855f7]">{item.factors.cvd}</span>}
+                              {item.factors?.oi && <span className="bg-[#1e2330] px-1 rounded text-[#22c55e]">{item.factors.oi}</span>}
+                              {item.factors?.wall && item.factors.wall !== 'Без крупной стенки' && (
+                                <span className="bg-[#1e2330] px-1 rounded text-[#f59e0b]">{item.factors.wall}</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-2 text-right text-[#d1d4dc] font-mono">{item.total_trades}</td>
+                          <td className="px-2 text-right">
+                            <span className={`px-1.5 py-0.5 rounded font-bold text-[10px] ${
+                              item.win_rate_pct >= 60
+                                ? 'bg-[#26a69a25] text-[#26a69a] border border-[#26a69a50]'
+                                : item.win_rate_pct >= 45
+                                ? 'bg-[#f59e0b20] text-[#f59e0b] border border-[#f59e0b40]'
+                                : 'text-[#94a3b8]'
+                            }`}>
+                              {item.win_rate_pct}%
+                            </span>
+                          </td>
+                          <td className={`px-2 text-right font-bold font-mono ${item.profit_factor >= 1.5 ? 'text-[#26a69a]' : item.profit_factor >= 1.0 ? 'text-[#38bdf8]' : 'text-[#ef5350]'}`}>
+                            {item.profit_factor >= 999 ? '∞' : item.profit_factor}
+                          </td>
+                          <td className={`px-2 text-right font-mono ${item.avg_pnl_pct >= 0 ? 'text-[#26a69a]' : 'text-[#ef5350]'}`}>
+                            {item.avg_pnl_pct >= 0 ? '+' : ''}{item.avg_pnl_pct}%
+                          </td>
+                          <td className="px-2 text-center">
+                            <span className={`text-[8.5px] uppercase font-bold px-1.5 py-0.5 rounded ${
+                              item.grade === 'High Probability'
+                                ? 'bg-[#26a69a] text-black'
+                                : item.grade === 'Moderate'
+                                ? 'bg-[#38bdf825] text-[#38bdf8]'
+                                : 'bg-[#1e2330] text-[#60697b]'
+                            }`}>
+                              {item.grade}
+                            </span>
+                          </td>
+                          <td className="px-2 text-center">
+                            <button
+                              onClick={() => applyConfluenceSetup(item)}
+                              className="px-2 py-0.5 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-bold text-[9px] transition shadow-xs cursor-pointer flex items-center gap-1 mx-auto"
+                              title="Мгновенно применить фильтры этой связки"
+                            >
+                              <span>⚡ Применить</span>
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
                 ) : (
                   <table className="w-full text-[10.5px] font-mono-numbers">
                     <thead
@@ -779,6 +929,7 @@ export default function BacktestPanel({
                   </table>
                 )}
               </div>
+
             </>
           )}
         </div>

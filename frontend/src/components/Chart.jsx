@@ -13,7 +13,9 @@ import {
   X,
   RotateCcw,
   Eye,
-  Check
+  Check,
+  BarChart3,
+  Loader2
 } from 'lucide-react';
 
 const API_BASE = "/api";
@@ -603,8 +605,46 @@ export default function Chart({
   const vwapLineOverlay = useRef(null);
   const currentKlines = useRef([]);
 
-  // Context Menu State (Task 6)
-  const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0 });
+  // Context Menu & Level Inspector State (ТАКТ 3)
+  const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, price: null });
+  const [levelInspectorData, setLevelInspectorData] = useState(null);
+  const [inspectingLevel, setInspectingLevel] = useState(false);
+
+  const handleInspectLevel = useCallback(async (targetPrice) => {
+    let p = targetPrice;
+    if (!p && currentKlines.current.length > 0) {
+      p = currentKlines.current[currentKlines.current.length - 1].close;
+    }
+    if (!p) return;
+    setInspectingLevel(true);
+    setStatusMsg(`Анализ отскоков от $${p.toFixed(1)}...`);
+    try {
+      const res = await fetch(`${API_BASE}/backtest/inspect-level`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol,
+          timeframe,
+          price: Number(p),
+          days: 14,
+          tolerance_pct: 0.35
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setLevelInspectorData(data);
+        setStatusMsg(`Уровень $${p.toFixed(1)}: ${data.bounce_winrate_pct}% отскоков`);
+      } else {
+        setStatusMsg("Ошибка анализа уровня");
+      }
+    } catch (err) {
+      console.error('Inspect level error:', err);
+      setStatusMsg("Сбой запроса анализа уровня");
+    } finally {
+      setInspectingLevel(false);
+      setTimeout(() => setStatusMsg(""), 2500);
+    }
+  }, [symbol, timeframe]);
 
   // Initialize KLineChart instance with ResizeObserver (ТАКТ 1)
   useEffect(() => {
@@ -1666,18 +1706,38 @@ export default function Chart({
     }
   };
 
-  // Right-Click Context Menu handler (Task 6)
+  // Right-Click Context Menu handler (Task 6 & ТАКТ 3)
   const handleContextMenu = (e) => {
     e.preventDefault();
     const bounds = chartContainerRef.current?.getBoundingClientRect();
     if (!bounds) return;
 
-    // Constrain context menu within canvas
-    const x = Math.min(e.clientX, bounds.right - 190);
-    const y = Math.min(e.clientY, bounds.bottom - 220);
+    const relX = e.clientX - bounds.left;
+    const relY = e.clientY - bounds.top;
 
-    setContextMenu({ visible: true, x, y });
+    let clickedPrice = null;
+    if (chartRef.current) {
+      try {
+        if (typeof chartRef.current.convertFromPixel === 'function') {
+          const pt = chartRef.current.convertFromPixel({ x: relX, y: relY }, { paneId: 'candle_pane' });
+          if (pt && typeof pt.value === 'number') {
+            clickedPrice = pt.value;
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (!clickedPrice && currentKlines.current.length > 0) {
+      clickedPrice = currentKlines.current[currentKlines.current.length - 1].close;
+    }
+
+    // Constrain context menu within canvas
+    const x = Math.min(e.clientX, bounds.right - 230);
+    const y = Math.min(e.clientY, bounds.bottom - 280);
+
+    setContextMenu({ visible: true, x, y, price: clickedPrice });
   };
+
 
   const handleResetScale = () => {
     if (chartRef.current) {
@@ -1913,13 +1973,33 @@ export default function Chart({
         )}
 
 
-        {/* Right-Click Context Menu (Task 6) */}
+        {/* Right-Click Context Menu (Task 6 & ТАКТ 3) */}
         {contextMenu.visible && (
           <div 
             style={{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }}
-            className="fixed z-50 bg-[#101217] border border-[#1f2430] rounded shadow-2xl py-1 w-48 text-[11px] font-mono text-[#d1d4dc] backdrop-blur-md select-none"
+            className="fixed z-50 bg-[#101217] border border-[#1f2430] rounded shadow-2xl py-1 w-52 text-[11px] font-mono text-[#d1d4dc] backdrop-blur-md select-none"
             onClick={(e) => e.stopPropagation()}
           >
+            {contextMenu.price && (
+              <>
+                <button
+                  onClick={() => {
+                    const p = contextMenu.price;
+                    setContextMenu({ visible: false, x: 0, y: 0 });
+                    handleInspectLevel(p);
+                  }}
+                  className="w-full px-3 py-1.5 text-left bg-[#38bdf815] hover:bg-[#38bdf828] text-[#38bdf8] flex items-center space-x-2 transition font-bold"
+                  title="Экспресс-бэктест отскоков и пробоев от этого уровня за 14 дней"
+                >
+                  <BarChart3 size={13} className="text-[#38bdf8] shrink-0" />
+                  <span className="truncate">
+                    📊 Отскоки ${contextMenu.price >= 1000 ? contextMenu.price.toFixed(1) : contextMenu.price.toFixed(3)}
+                  </span>
+                </button>
+                <div className="h-px bg-[#161820] my-1" />
+              </>
+            )}
+
             <button
               onClick={handleResetScale}
               className="w-full px-3 py-1.5 text-left hover:bg-[#191c26] hover:text-white flex items-center space-x-2 transition"
@@ -1987,6 +2067,51 @@ export default function Chart({
             </button>
           </div>
         )}
+
+        {/* Level Inspector Result Card (ТАКТ 3) */}
+        {levelInspectorData && (
+          <div className="absolute top-12 right-4 z-40 bg-[#0c0f17]/95 border border-[#38bdf880] rounded shadow-2xl p-3 w-80 text-xs font-mono text-white backdrop-blur-md animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between pb-1.5 border-b border-[#1f2430] mb-2">
+              <div className="flex items-center gap-1.5 font-bold text-[#38bdf8]">
+                <BarChart3 size={14} />
+                <span>Отскоки от уровня ${levelInspectorData.level_price?.toFixed(1)}</span>
+              </div>
+              <button 
+                onClick={() => setLevelInspectorData(null)} 
+                className="text-[#787f91] hover:text-white cursor-pointer px-1"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-3 gap-1.5 mb-2 text-center">
+              <div className="bg-[#141822] p-1.5 rounded">
+                <div className="text-[9px] text-[#787f91]">КАСАНИЙ</div>
+                <div className="text-sm font-bold text-white">{levelInspectorData.total_touches}</div>
+              </div>
+              <div className="bg-[#141822] p-1.5 rounded">
+                <div className="text-[9px] text-[#787f91]">WINRATE</div>
+                <div className={`text-sm font-bold ${levelInspectorData.bounce_winrate_pct >= 55 ? 'text-[#26a69a]' : 'text-[#ef5350]'}`}>
+                  {levelInspectorData.bounce_winrate_pct}%
+                </div>
+              </div>
+              <div className="bg-[#141822] p-1.5 rounded">
+                <div className="text-[9px] text-[#787f91]">СР. ИМПУЛЬС</div>
+                <div className="text-sm font-bold text-[#26a69a]">+{levelInspectorData.avg_bounce_pnl_pct}%</div>
+              </div>
+            </div>
+
+            <div className="text-[10px] text-[#94a3b8] bg-[#07090e] p-2 rounded border border-[#1e2330] leading-relaxed mb-2">
+              {levelInspectorData.recommendation}
+            </div>
+
+            <div className="flex items-center justify-between text-[9px] text-[#64748b]">
+              <span>Период: {levelInspectorData.days}дн ({levelInspectorData.timeframe})</span>
+              <span>Отскоков: {levelInspectorData.bounces_count} / Пробоев: {levelInspectorData.breakouts_count}</span>
+            </div>
+          </div>
+        )}
+
 
         {errorDetails && (
           <div className="absolute top-3 left-3 bg-[#181014] border border-[#ef535040] text-[#ef5350] px-3 py-2 rounded text-xs max-w-md shadow-xl backdrop-blur-md z-30">

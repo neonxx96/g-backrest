@@ -252,6 +252,7 @@ class OrderFlowBacktester:
         trailing_sl = 0.0
         max_favorable = 0.0
         pos_size = 0.0
+        entry_context_snapshot = None
 
         for i in range(len(data)):
             cur_time = int(ts_vals[i])
@@ -317,9 +318,20 @@ class OrderFlowBacktester:
                         "exit_price": round(exit_price, 4),
                         "pnl_usd": round(pnl_usd, 2),
                         "pnl_pct": round(pnl_pct * 100.0 * leverage, 2),
-                        "exit_reason": exit_reason
+                        "exit_reason": exit_reason,
+                        "context_snapshot": entry_context_snapshot or {
+                            "imbalance_ratio": 1.0,
+                            "imbalance_group": "< 1.5x (Нейтральный)",
+                            "poc_position": "На уровне POC",
+                            "cvd_trend": "CVD > EMA",
+                            "cvd_divergence": "Без дивергенции",
+                            "oi_status": "Флэт OI",
+                            "wall_type": "Без крупной стенки",
+                            "turnover_usd": 0
+                        }
                     })
                     in_pos = False
+                    entry_context_snapshot = None
                     equity_curve.append({"time": cur_time, "equity": round(capital, 2)})
 
             # 2. Check Entry if flat
@@ -328,6 +340,83 @@ class OrderFlowBacktester:
                 entry_price = close_p * (1.0 + (self.slippage_pct if pos_dir == 1 else -self.slippage_pct))
                 entry_time = cur_time
                 pos_size = capital * leverage
+
+                # Capture cluster and indicator context snapshot
+                vol_i = float(volume_vals[i]) if not np.isnan(volume_vals[i]) else 1.0
+                delta_i = float(delta_vals[i]) if not np.isnan(delta_vals[i]) else 0.0
+                buy_vol = max(0.0, (vol_i + delta_i) / 2.0)
+                sell_vol = max(1e-9, vol_i - buy_vol)
+                if pos_dir == 1:
+                    imb_ratio = buy_vol / sell_vol
+                else:
+                    imb_ratio = sell_vol / buy_vol
+
+                if imb_ratio >= 3.0:
+                    imb_group = "> 3:1 (Сильный дисбаланс)"
+                elif imb_ratio >= 1.5:
+                    imb_group = "1.5x - 3.0x (Умеренный)"
+                else:
+                    imb_group = "< 1.5x (Нейтральный)"
+
+                # POC of previous candle: (O + 2*C + H + L) / 5
+                prev_idx = max(0, i - 1)
+                prev_poc = (float(open_vals[prev_idx]) + 2.0 * float(close_vals[prev_idx]) + float(high_vals[prev_idx]) + float(low_vals[prev_idx])) / 5.0
+                if entry_price > prev_poc * 1.0006:
+                    poc_pos = "Выше POC"
+                elif entry_price < prev_poc * 0.9994:
+                    poc_pos = "Ниже POC"
+                else:
+                    poc_pos = "На уровне POC"
+
+                # CVD and EMA(14)
+                cur_cvd = float(cvd_vals[i]) if not np.isnan(cvd_vals[i]) else 0.0
+                cur_cvd_ema = float(cvd_ema14_vals[i]) if not np.isnan(cvd_ema14_vals[i]) else 0.0
+                cvd_trend = "CVD > EMA" if cur_cvd >= cur_cvd_ema else "CVD <= EMA"
+
+                # CVD Divergence (last 6 candles)
+                lookback = min(6, i)
+                if lookback >= 2:
+                    min_p = min(low_vals[i-lookback:i])
+                    max_p = max(high_vals[i-lookback:i])
+                    min_c = min(cvd_vals[i-lookback:i])
+                    max_c = max(cvd_vals[i-lookback:i])
+                    if pos_dir == 1 and low_p <= min_p and cur_cvd > min_c:
+                        cvd_div = "Бычья дивергенция"
+                    elif pos_dir == -1 and high_p >= max_p and cur_cvd < max_c:
+                        cvd_div = "Медвежья дивергенция"
+                    else:
+                        cvd_div = "Без дивергенции"
+                else:
+                    cvd_div = "Без дивергенции"
+
+                # Open Interest
+                cur_oi_d = float(oi_delta_vals[i]) if not np.isnan(oi_delta_vals[i]) else 0.0
+                if cur_oi_d > 0.5:
+                    oi_status = "Набор OI (Expansion)"
+                elif cur_oi_d < -0.5:
+                    oi_status = "Сброс OI (Flush)"
+                else:
+                    oi_status = "Флэт OI"
+
+                # Wall / OrderBook Density
+                turnover_bar = close_p * vol_i
+                if turnover_bar >= 1_000_000:
+                    wall_type = "Стенка > $1M"
+                elif turnover_bar >= 400_000:
+                    wall_type = "Стенка $400k-$1M"
+                else:
+                    wall_type = "Без крупной стенки"
+
+                entry_context_snapshot = {
+                    "imbalance_ratio": round(float(imb_ratio), 2),
+                    "imbalance_group": imb_group,
+                    "poc_position": poc_pos,
+                    "cvd_trend": cvd_trend,
+                    "cvd_divergence": cvd_div,
+                    "oi_status": oi_status,
+                    "wall_type": wall_type,
+                    "turnover_usd": round(float(turnover_bar), 0)
+                }
 
                 cur_atr = atr_vals[i] if not np.isnan(atr_vals[i]) else 0.0
                 if use_atr_sl and cur_atr > 0 and entry_price > 0:
@@ -375,6 +464,9 @@ class OrderFlowBacktester:
         net_pnl = round(capital - self.initial_capital, 2)
         roi_pct = round((net_pnl / self.initial_capital) * 100, 2)
 
+        # Confluence matrix
+        confluence_matrix = self.calculate_confluence_matrix(trades)
+
         return {
             "strategy": strategy_type,
             "initial_capital": self.initial_capital,
@@ -389,7 +481,209 @@ class OrderFlowBacktester:
             "max_drawdown_pct": round(max_dd_pct, 2),
             "max_drawdown_usd": round(max_dd_usd, 2),
             "equity_curve": equity_curve,
-            "trades": trades[-1000:]
+            "trades": trades[-1000:],
+            "confluence_matrix": confluence_matrix
+        }
+
+    def calculate_confluence_matrix(self, trades: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Aggregates orderflow trades by context conditions (imbalances, POC, CVD, OI, walls)
+        and computes WinRate, Profit Factor, sample size, and recommended filters.
+        """
+        if not trades:
+            return []
+
+        # Buckets for grouping
+        groups: Dict[str, Dict[str, Any]] = {}
+
+        def record(combo_name: str, factors: Dict[str, Any], t: Dict[str, Any]):
+            if combo_name not in groups:
+                groups[combo_name] = {
+                    "condition_name": combo_name,
+                    "factors": factors,
+                    "trades": []
+                }
+            groups[combo_name]["trades"].append(t)
+
+        for t in trades:
+            ctx = t.get("context_snapshot") or {}
+            imb = ctx.get("imbalance_group", "< 1.5x (Нейтральный)")
+            poc = ctx.get("poc_position", "На уровне POC")
+            cvd = ctx.get("cvd_trend", "CVD > EMA")
+            div = ctx.get("cvd_divergence", "Без дивергенции")
+            oi = ctx.get("oi_status", "Флэт OI")
+            wall = ctx.get("wall_type", "Без крупной стенки")
+
+            # 1. Full primary combination
+            full_combo = f"{imb} + {cvd} + {oi}"
+            record(full_combo, {"imbalance": imb, "cvd": cvd, "oi": oi, "poc": poc, "wall": wall}, t)
+
+            # 2. Imbalance + Wall
+            record(f"{imb} + {wall}", {"imbalance": imb, "wall": wall}, t)
+
+            # 3. CVD Trend + POC position
+            record(f"{cvd} + {poc}", {"cvd": cvd, "poc": poc}, t)
+
+            # 4. CVD Divergence + OI Status
+            if div != "Без дивергенции":
+                record(f"{div} + {oi}", {"divergence": div, "oi": oi}, t)
+
+            # 5. Wall + OI Expansion
+            if "Стенка" in wall:
+                record(f"{wall} + {oi}", {"wall": wall, "oi": oi}, t)
+
+        matrix = []
+        for combo_name, data in groups.items():
+            t_list = data["trades"]
+            total_n = len(t_list)
+            if total_n == 0:
+                continue
+
+            wins_n = sum(1 for tr in t_list if tr.get("pnl_usd", 0) > 0)
+            wr = round((wins_n / total_n) * 100.0, 1)
+
+            profit_sum = sum(tr.get("pnl_usd", 0) for tr in t_list if tr.get("pnl_usd", 0) > 0)
+            loss_sum = abs(sum(tr.get("pnl_usd", 0) for tr in t_list if tr.get("pnl_usd", 0) <= 0))
+            if loss_sum > 0:
+                pf = round(profit_sum / loss_sum, 2)
+            else:
+                pf = 9.99 if profit_sum > 0 else 0.0
+
+            avg_pnl = round(sum(tr.get("pnl_pct", 0) for tr in t_list) / total_n, 2)
+
+            grade = "High Probability" if (wr >= 60.0 and total_n >= 3) else ("Moderate" if wr >= 45.0 else "Low")
+
+            factors = data["factors"]
+            recommended = {
+                "use_cvd_filter": "CVD > EMA" in factors.values(),
+                "use_oi_filter": "Набор OI (Expansion)" in factors.values(),
+                "use_atr_filter": True,
+                "min_density_usd": 1000000.0 if "Стенка > $1M" in factors.values() else (400000.0 if "Стенка $400k-$1M" in factors.values() else 0.0),
+                "volume_multiplier": 1.5 if "> 3:1" in str(factors) else 1.2
+            }
+
+            matrix.append({
+                "condition_name": combo_name,
+                "factors": factors,
+                "total_trades": total_n,
+                "win_trades": wins_n,
+                "win_rate_pct": wr,
+                "profit_factor": pf,
+                "avg_pnl_pct": avg_pnl,
+                "grade": grade,
+                "recommended_filters": recommended
+            })
+
+        # Sort: High Probability first, then by win rate and profit factor
+        matrix.sort(key=lambda m: (1 if m["grade"] == "High Probability" else (0.5 if m["grade"] == "Moderate" else 0), m["win_rate_pct"], m["profit_factor"], m["total_trades"]), reverse=True)
+        return matrix[:15]
+
+    def inspect_level_bounces(
+        self,
+        df: pd.DataFrame,
+        level_price: float,
+        tolerance_pct: float = 0.35,
+        lookforward_bars: int = 6
+    ) -> Dict[str, Any]:
+        """
+        Express backtest of historical price bounces and breakouts from a specified price level.
+        Detects candle touches and tests whether price bounced away (>= +0.8%) or broke through.
+        """
+        if df.empty or level_price <= 0:
+            return {
+                "level_price": level_price,
+                "total_touches": 0,
+                "bounces_count": 0,
+                "breakouts_count": 0,
+                "bounce_winrate_pct": 0.0,
+                "avg_bounce_pnl_pct": 0.0,
+                "touches": [],
+                "recommendation": "Недостаточно данных для анализа уровня"
+            }
+
+        tol = (tolerance_pct / 100.0)
+        upper_band = level_price * (1.0 + tol)
+        lower_band = level_price * (1.0 - tol)
+
+        high_vals = df['high'].values
+        low_vals = df['low'].values
+        close_vals = df['close'].values
+        open_vals = df['open'].values
+        ts_vals = df['timestamp'].values
+
+        n = len(df)
+        touches = []
+        last_touch_bar = -10
+
+        for i in range(1, n - lookforward_bars):
+            # Cooldown between touches
+            if i - last_touch_bar < 4:
+                continue
+
+            h = high_vals[i]
+            l = low_vals[i]
+
+            # Candle touches the level band
+            if l <= upper_band and h >= lower_band:
+                prev_c = close_vals[i - 1]
+                # Approach direction: from above (support test) or from below (resistance test)
+                is_support_test = prev_c >= level_price
+                touch_type = "Поддержка (LONG)" if is_support_test else "Сопротивление (SHORT)"
+
+                # Look forward to evaluate bounce vs breakout
+                forward_highs = high_vals[i+1 : i+1+lookforward_bars]
+                forward_lows = low_vals[i+1 : i+1+lookforward_bars]
+
+                if is_support_test:
+                    # Bounce needs upward movement >= +0.7% without breaking below tolerance * 1.5
+                    max_rebound = (max(forward_highs) - level_price) / level_price * 100.0
+                    max_penetration = (level_price - min(forward_lows)) / level_price * 100.0
+                    is_bounce = max_rebound >= 0.7 and max_penetration <= (tolerance_pct * 1.6)
+                    pnl_move = round(max_rebound if is_bounce else -max_penetration, 2)
+                else:
+                    # Resistance test: downward movement >= -0.7%
+                    max_rebound = (level_price - min(forward_lows)) / level_price * 100.0
+                    max_penetration = (max(forward_highs) - level_price) / level_price * 100.0
+                    is_bounce = max_rebound >= 0.7 and max_penetration <= (tolerance_pct * 1.6)
+                    pnl_move = round(max_rebound if is_bounce else -max_penetration, 2)
+
+                touches.append({
+                    "timestamp": int(ts_vals[i]),
+                    "candle_time": str(pd.to_datetime(ts_vals[i], unit='ms')),
+                    "test_type": touch_type,
+                    "outcome": "Отскок (Bounce)" if is_bounce else "Пробой (Breakout)",
+                    "max_movement_pct": pnl_move
+                })
+                last_touch_bar = i
+
+        total_touches = len(touches)
+        bounces = [t for t in touches if "Отскок" in t["outcome"]]
+        breakouts = [t for t in touches if "Пробой" in t["outcome"]]
+        bounces_count = len(bounces)
+        breakouts_count = len(breakouts)
+
+        bounce_wr = round((bounces_count / total_touches * 100.0), 1) if total_touches > 0 else 0.0
+        avg_bounce_pnl = round(sum(t["max_movement_pct"] for t in bounces) / bounces_count, 2) if bounces_count > 0 else 0.0
+
+        if total_touches >= 5 and bounce_wr >= 60.0:
+            rec = f"✅ Сильный рабочий уровень ${level_price:.2f}: отскоки отрабатывают в {bounce_wr}% случаев (средний импульс +{avg_bounce_pnl}%). Рекомендуется лимитный вход на отскок со стопом {tolerance_pct * 1.5:.2f}%."
+        elif total_touches >= 3 and bounce_wr >= 45.0:
+            rec = f"⚠️ Умеренный уровень ${level_price:.2f}: WinRate отскока {bounce_wr}% ({bounces_count}/{total_touches}). Требуется обязательное подтверждение поглощением дельты (CVD) в стакане."
+        elif total_touches > 0:
+            rec = f"🛑 Пробойный уровень ${level_price:.2f}: отскоки всего {bounce_wr}%, преобладают импульсные пробои ({breakouts_count} из {total_touches}). Опасен для отскока, предпочтителен вход на пробой."
+        else:
+            rec = f"ℹ️ На уровне ${level_price:.2f} за выбранный период не зафиксировано касаний."
+
+        return {
+            "level_price": level_price,
+            "total_touches": total_touches,
+            "bounces_count": bounces_count,
+            "breakouts_count": breakouts_count,
+            "bounce_winrate_pct": bounce_wr,
+            "avg_bounce_pnl_pct": avg_bounce_pnl,
+            "recommendation": rec,
+            "touches": touches[-30:]
         }
 
 orderflow_backtester = OrderFlowBacktester()
+

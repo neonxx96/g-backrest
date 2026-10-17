@@ -9,6 +9,7 @@ import math
 import time
 from typing import Any, Dict, List, Optional
 
+import aiohttp
 import numpy as np
 import pandas as pd
 from fastapi import APIRouter, HTTPException
@@ -16,7 +17,7 @@ from pydantic import BaseModel, Field
 
 from backend.app.adapters.exchange.binance import BINANCE_FUTURES_REST
 from backend.app.services.binance_service import binance_service
-from backend.app.services.orderflow_backtester import OrderFlowBacktester
+from backend.app.services.orderflow_backtester import OrderFlowBacktester, orderflow_backtester
 
 backtest_router = APIRouter(prefix="/api/backtest", tags=["backtest"])
 
@@ -78,25 +79,50 @@ def _clean(v: Any) -> Any:
 
 
 async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
-    """Paginated Binance Futures klines (1500 per request) covering `days` days."""
-    tf_min = TF_MINUTES[timeframe]
+    """Paginated Binance klines with multi-endpoint fallback (Futures -> Spot -> Vision)."""
+    tf_min = TF_MINUTES.get(timeframe, 5)
     need = min(int(days * 1440 / tf_min), MAX_CANDLES)
-    end_ms = int(time.time() * 1000)
     session = await binance_service.adapter.get_session()
-    rows: List[list] = []
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
 
-    while len(rows) < need:
-        limit = min(1500, need - len(rows))
-        params = {"symbol": symbol, "interval": timeframe, "limit": limit, "endTime": end_ms}
-        async with session.get(f"{BINANCE_FUTURES_REST}/fapi/v1/klines", params=params) as resp:
-            if resp.status != 200:
-                raise ValueError(f"Binance klines error {resp.status} for {symbol}")
-            chunk = await resp.json()
-        if not chunk:
-            break
-        rows = chunk + rows
-        end_ms = int(chunk[0][0]) - 1
-        if len(chunk) < limit:
+    endpoints = [
+        {"url": f"{BINANCE_FUTURES_REST}/fapi/v1/klines", "max_limit": 1500},
+        {"url": "https://api.binance.com/api/v3/klines", "max_limit": 1000},
+        {"url": "https://data-api.binance.vision/api/v3/klines", "max_limit": 1000}
+    ]
+
+    rows: List[list] = []
+    
+    for ep in endpoints:
+        rows = []
+        end_ms = int(time.time() * 1000)
+        max_chunk = ep["max_limit"]
+        endpoint_ok = True
+        
+        while len(rows) < need:
+            limit = min(max_chunk, need - len(rows))
+            params = {"symbol": symbol, "interval": timeframe, "limit": limit, "endTime": end_ms}
+            try:
+                async with session.get(ep["url"], params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                    if resp.status == 200:
+                        chunk = await resp.json()
+                        if not chunk or not isinstance(chunk, list):
+                            break
+                        rows = chunk + rows
+                        end_ms = int(chunk[0][0]) - 1
+                        if len(chunk) < limit:
+                            break
+                    else:
+                        endpoint_ok = False
+                        break
+            except Exception:
+                endpoint_ok = False
+                break
+                
+        if endpoint_ok and rows:
             break
 
     if not rows:
@@ -160,6 +186,7 @@ def build_response(raw: Dict[str, Any], initial_capital: float, meta: Dict[str, 
     trades, signals = [], []
     for idx, t in enumerate(raw_trades, start=1):
         side = "BUY" if t["direction"] == "LONG" else "SELL"
+        ctx = t.get("context_snapshot") or {}
         trades.append({
             "id": idx,
             "entry_time": t["entry_time"],
@@ -170,6 +197,7 @@ def build_response(raw: Dict[str, Any], initial_capital: float, meta: Dict[str, 
             "pnl_pct": t["pnl_pct"],
             "pnl_usd": t["pnl_usd"],
             "reason": t["exit_reason"],
+            "context_snapshot": ctx
         })
         signals.append({
             "time": t["entry_time"],
@@ -179,6 +207,7 @@ def build_response(raw: Dict[str, Any], initial_capital: float, meta: Dict[str, 
             "reason": t["exit_reason"],
             "pnl_pct": t["pnl_pct"],
             "pnl_usd": t["pnl_usd"],
+            "context_snapshot": ctx
         })
 
     total = raw.get("total_trades", 0)
@@ -204,6 +233,7 @@ def build_response(raw: Dict[str, Any], initial_capital: float, meta: Dict[str, 
         "trades": trades,
         "signals": signals,
         "equity_curve": equity_curve,
+        "confluence_matrix": raw.get("confluence_matrix", []),
         "meta": meta,
         # legacy keys (test_e2e.py / BacktestModal)
         "net_pnl": raw.get("net_pnl", 0.0),
@@ -449,4 +479,41 @@ async def optimize_backtest(req: GridSearchRequest):
     resp["top_setups"] = _clean(top_setups)
     resp["grid_results"] = _clean(rows)
     return resp
+
+
+class InspectLevelRequest(BaseModel):
+    symbol: str = Field(default="BTCUSDT")
+    timeframe: str = Field(default="5m")
+    price: float = Field(..., description="Ценовой уровень для анализа")
+    days: Optional[int] = Field(default=14, ge=1, le=30)
+    tolerance_pct: Optional[float] = Field(default=0.35, ge=0.05, le=5.0)
+
+
+@backtest_router.post("/inspect-level")
+async def inspect_level(req: InspectLevelRequest):
+    sym = req.symbol.strip().upper()
+    tf = req.timeframe.strip()
+    if tf not in TF_MINUTES:
+        tf = "5m"
+    days = req.days or 14
+
+    try:
+        df = await fetch_history(sym, tf, days)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Ошибка загрузки истории Binance: {e}")
+
+    if df.empty or len(df) < 10:
+        raise HTTPException(status_code=400, detail=f"Недостаточно свечей для {sym}")
+
+    res = orderflow_backtester.inspect_level_bounces(
+        df=df,
+        level_price=req.price,
+        tolerance_pct=req.tolerance_pct or 0.35,
+        lookforward_bars=6
+    )
+    res["symbol"] = sym
+    res["timeframe"] = tf
+    res["days"] = days
+    return _clean(res)
+
 
