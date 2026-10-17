@@ -49,7 +49,6 @@ async def periodic_scanner_worker():
             signals = await scanner.scan_market()
             for sig in signals:
                 logger.info(f"Signal detected: {sig['symbol']} {sig['condition_type']}")
-                await broadcast_signal(sig)
         except Exception as e:
             logger.error(f"Error in periodic scanner: {e}")
         await asyncio.sleep(60)

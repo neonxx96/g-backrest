@@ -111,12 +111,29 @@ if dp:
         )
         await message.answer(text, parse_mode=ParseMode.HTML)
 
+from collections import deque
+import time
+from backend.app.utils import format_kyiv_time
+
+# Rate limiter: track timestamps of sent alerts
+_sent_alert_timestamps = deque()
+MAX_ALERTS_PER_MINUTE = 10
+
 async def broadcast_signal(signal: Dict[str, Any]):
     """
-    Sends signal notification to all subscribed Telegram users.
+    Sends signal notification to all subscribed Telegram users with Kyiv time and anti-spam protection.
     """
     if not bot:
         logger.warning("Telegram Bot is not initialized or token missing.")
+        return
+
+    now = time.time()
+    # Purge timestamps older than 60 seconds
+    while _sent_alert_timestamps and now - _sent_alert_timestamps[0] > 60:
+        _sent_alert_timestamps.popleft()
+
+    if len(_sent_alert_timestamps) >= MAX_ALERTS_PER_MINUTE:
+        logger.warning(f"Telegram alert rate limit reached ({MAX_ALERTS_PER_MINUTE}/min). Suppressing alert for {signal.get('symbol')} to avoid spam.")
         return
 
     sym = signal['symbol']
@@ -127,17 +144,18 @@ async def broadcast_signal(signal: Dict[str, Any]):
 
     icon = "🟢" if direct == 'BULLISH' else ("🔴" if direct == 'BEARISH' else "⚡")
     chart_link = f"{FRONTEND_URL}/?symbol={sym}&tf={tf}"
+    kyiv_time = format_kyiv_time()
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📈 Открыть график", url=chart_link)]
     ])
 
     msg_text = (
-        f"{icon} <b>СИГНАЛ: #{sym}</b>\n\n"
-        f"⏱ <b>Таймфрейм:</b> <code>{tf}</code>\n"
+        f"{icon} <b>#{sym}</b> | <code>{tf}</code>\n"
+        f"⚡ <b>Триггер:</b> {desc}\n"
         f"💰 <b>Цена:</b> <code>{price}</code>\n"
-        f"⚡ <b>Условие:</b> {desc}\n\n"
-        f"🔗 <a href='{chart_link}'>Перейти на KLineChart</a>"
+        f"🕒 <b>Время:</b> <code>{kyiv_time}</code> (Киев)\n\n"
+        f"🔗 <a href='{chart_link}'>Открыть график в терминале</a>"
     )
 
     try:
@@ -151,10 +169,12 @@ async def broadcast_signal(signal: Dict[str, Any]):
         for uid in subscribers:
             try:
                 await bot.send_message(chat_id=uid, text=msg_text, parse_mode=ParseMode.HTML, reply_markup=kb)
+                _sent_alert_timestamps.append(now)
             except Exception as e:
                 logger.warning(f"Could not send signal to telegram user {uid}: {e}")
     except Exception as e:
         logger.error(f"Error in broadcast_signal: {e}")
+
 
 async def start_bot_polling():
     """Runs bot polling loop in background."""

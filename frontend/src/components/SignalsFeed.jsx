@@ -14,7 +14,8 @@ export default function SignalsFeed({ onSelectSignal }) {
       .then(data => {
         if (Array.isArray(data)) {
           setSignals(data);
-          setLastUpdated(new Date().toLocaleTimeString());
+          const kyivTime = new Date().toLocaleTimeString('ru-RU', { timeZone: 'Europe/Kyiv', hour12: false });
+          setLastUpdated(`${kyivTime} (Киев)`);
         }
       })
       .catch(err => console.error("Could not fetch signals:", err));

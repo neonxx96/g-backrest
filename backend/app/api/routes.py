@@ -15,6 +15,7 @@ from backend.app.db.models import UserSetting, SignalHistory, DrawingData
 from backend.app.services.binance_service import binance_service
 from backend.app.services.scanner import scanner
 from backend.app.services.bot import broadcast_signal
+from backend.app.utils import format_kyiv
 
 router = APIRouter(prefix="/api")
 
@@ -22,7 +23,7 @@ router = APIRouter(prefix="/api")
 
 class SettingsSchema(BaseModel):
     user_id: str = "0"
-    price_change_min: float = 2.0
+    price_change_min: float = 2.5
     price_change_enabled: bool = True
     oi_change_min: float = 3.0
     oi_change_enabled: bool = True
@@ -105,7 +106,7 @@ async def get_signals(limit: int = Query(50), db: AsyncSession = Depends(get_db)
             "condition_type": r.condition_type,
             "direction": r.direction,
             "description": r.description,
-            "created_at": r.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            "created_at": format_kyiv(r.created_at)
         }
         for r in records
     ]

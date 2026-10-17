@@ -20,6 +20,7 @@ from backend.app.services.indicators import (
     check_rsi_condition,
     check_cvd_divergence
 )
+from backend.app.services.bot import broadcast_signal
 
 logger = logging.getLogger(__name__)
 
@@ -189,11 +190,26 @@ class MarketScanner:
                         'description': f"Дивергенция кумулятивной дельты ({cvd_div})"
                     })
 
+            # E. ATR Volatility Spike
+            if setting.atr_filter_enabled:
+                atr_pct = float(df.iloc[-1].get('atr_pct', 0.0))
+                if atr_pct >= setting.atr_volatility_min_pct:
+                    if not self.is_in_cooldown(sym, "ATR_VOLATILITY", setting.cooldown_minutes):
+                        self.update_cooldown(sym, "ATR_VOLATILITY")
+                        new_signals.append({
+                            'symbol': sym,
+                            'timeframe': setting.timeframe,
+                            'price': last_price,
+                            'condition_type': 'ATR_VOLATILITY',
+                            'direction': 'VOLATILE',
+                            'description': f"Всплеск волатильности: ATR {atr_pct:.2f}% от цены"
+                        })
+
         # Run tasks for candidates
         tasks = [inspect_candidate(c) for c in candidates[:60]] # process top candidates
         await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Save to database
+        # Save to database and broadcast
         if new_signals:
             async with AsyncSessionLocal() as db:
                 for sig in new_signals:
@@ -207,6 +223,13 @@ class MarketScanner:
                         created_at=datetime.utcnow()
                     )
                     db.add(record)
+                    
+                    if setting.notifications_enabled:
+                        try:
+                            await broadcast_signal(sig)
+                        except Exception as e:
+                            logger.error(f"Error broadcasting signal {sig['symbol']}: {e}")
+
                 await db.commit()
 
         self.last_scan_results = new_signals

@@ -34,7 +34,28 @@
 
 ---
 
-## 💻 Пошаговый запуск на Windows (Локально)
+## 💻 Быстрый запуск на Windows в 1 клик
+
+Для максимального удобства подготовлен готовый PowerShell-скрипт запуска:
+
+```powershell
+cd d:\AI_agent_space\gemini
+.\run_app.ps1
+```
+
+* **Что делает скрипт:**
+  1. Автоматически запускает FastAPI бэкенд на `http://127.0.0.1:8000`.
+  2. Запускает React Vite фронтенд на `http://localhost:5173`.
+  3. Открывает браузер с терминалом.
+
+* **Для быстрой остановки:**
+```powershell
+.\stop_app.ps1
+```
+
+---
+
+## 💻 Ручной запуск (по шагам)
 
 ### Шаг 1: Клонирование репозитория и окружение
 ```powershell
@@ -46,7 +67,7 @@ python -m venv .venv
 
 # Установка зависимостей бэкенда
 pip install -r requirements.txt
-pip install fastapi "uvicorn[standard]" aiogram aiosqlite sqlalchemy aiohttp pydantic python-dotenv websockets greenlet pytest
+pip install fastapi "uvicorn[standard]" aiogram aiosqlite sqlalchemy aiohttp pydantic python-dotenv websockets greenlet pytest pyarrow
 ```
 
 ### Шаг 2: Установка зависимостей фронтенда

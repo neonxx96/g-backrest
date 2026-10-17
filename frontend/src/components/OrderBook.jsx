@@ -18,12 +18,22 @@ export default function OrderBook({ symbol = "BTCUSDT" }) {
   const [densityColor, setDensityColor] = useState("gold");
   const [showSettings, setShowSettings] = useState(false);
 
-  // Map of price -> timestamp when density was first spotted
-  const densityLifetimes = useRef(new Map());
+  // Map of price -> timestamp when level was first seen
+  const levelLifetimes = useRef(new Map());
   const wsRef = useRef(null);
+  const [, setTick] = useState(0);
+
+  // Periodic tick every second to update lifetime displays smoothly
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTick(t => (t + 1) % 10000);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const processDepth = (rawBids, rawAsks) => {
     const now = Date.now();
+    const currentPrices = new Set();
 
     // Process asks (sorted descending so lowest ask is near the spread)
     const parsedAsks = (rawAsks || []).slice(0, 16).reverse().map(([p, q]) => {
@@ -31,15 +41,14 @@ export default function OrderBook({ symbol = "BTCUSDT" }) {
       const qty = parseFloat(q);
       const usd = price * qty;
       const isDensity = usd >= densityThresholdUsd;
+      currentPrices.add(price);
 
-      if (isDensity && !densityLifetimes.current.has(price)) {
-        densityLifetimes.current.set(price, now);
-      } else if (!isDensity && densityLifetimes.current.has(price)) {
-        densityLifetimes.current.delete(price);
+      if (!levelLifetimes.current.has(price)) {
+        levelLifetimes.current.set(price, now);
       }
 
-      const firstSeen = densityLifetimes.current.get(price);
-      const lifetimeSec = firstSeen ? Math.floor((now - firstSeen) / 1000) : 0;
+      const firstSeen = levelLifetimes.current.get(price) || now;
+      const lifetimeSec = Math.max(0, Math.floor((now - firstSeen) / 1000));
 
       return { price, qty, usd, isDensity, lifetimeSec };
     });
@@ -50,25 +59,33 @@ export default function OrderBook({ symbol = "BTCUSDT" }) {
       const qty = parseFloat(q);
       const usd = price * qty;
       const isDensity = usd >= densityThresholdUsd;
+      currentPrices.add(price);
 
-      if (isDensity && !densityLifetimes.current.has(price)) {
-        densityLifetimes.current.set(price, now);
-      } else if (!isDensity && densityLifetimes.current.has(price)) {
-        densityLifetimes.current.delete(price);
+      if (!levelLifetimes.current.has(price)) {
+        levelLifetimes.current.set(price, now);
       }
 
-      const firstSeen = densityLifetimes.current.get(price);
-      const lifetimeSec = firstSeen ? Math.floor((now - firstSeen) / 1000) : 0;
+      const firstSeen = levelLifetimes.current.get(price) || now;
+      const lifetimeSec = Math.max(0, Math.floor((now - firstSeen) / 1000));
 
       return { price, qty, usd, isDensity, lifetimeSec };
     });
+
+    // Prune stale prices not seen recently if map grows too large
+    if (levelLifetimes.current.size > 200) {
+      for (const key of levelLifetimes.current.keys()) {
+        if (!currentPrices.has(key)) {
+          levelLifetimes.current.delete(key);
+        }
+      }
+    }
 
     setAsks(parsedAsks);
     setBids(parsedBids);
   };
 
   useEffect(() => {
-    densityLifetimes.current.clear();
+    levelLifetimes.current.clear();
 
     // 1. Immediate REST Snapshot
     fetch(`${API_BASE}/depth?symbol=${symbol}&limit=20`)
@@ -131,7 +148,7 @@ export default function OrderBook({ symbol = "BTCUSDT" }) {
   };
 
   const formatLifetime = (seconds) => {
-    if (!seconds || seconds <= 0) return "";
+    if (seconds <= 0) return "<1s";
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
     return m > 0 ? `${m}m ${s}s` : `${s}s`;
@@ -228,13 +245,18 @@ export default function OrderBook({ symbol = "BTCUSDT" }) {
                 <span className="text-right text-[#e2e8f0] z-10">
                   {volumeMode === "USDT" ? `$${(item.usd / 1000).toFixed(1)}k` : item.qty.toFixed(2)}
                 </span>
-                <span className="text-right text-[10px] z-10" style={item.isDensity ? { color: activePalette.text } : { color: '#6b7280' }}>
-                  {item.isDensity && item.lifetimeSec > 0 ? (
+                <span className="text-right text-[10px] z-10" style={item.isDensity ? { color: activePalette.text } : { color: '#848e9c' }}>
+                  {item.isDensity ? (
                     <span className="flex items-center justify-end space-x-0.5 font-bold">
                       <Clock size={10} className="inline mr-0.5" />
                       {formatLifetime(item.lifetimeSec)}
+                      {item.lifetimeSec >= 60 && <span className="ml-1 text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300">СТЕНА</span>}
                     </span>
-                  ) : "-"}
+                  ) : (
+                    <span className="font-mono text-[#64748b]">
+                      {formatLifetime(item.lifetimeSec)}
+                    </span>
+                  )}
                 </span>
               </div>
             );
@@ -272,13 +294,18 @@ export default function OrderBook({ symbol = "BTCUSDT" }) {
                 <span className="text-right text-[#e2e8f0] z-10">
                   {volumeMode === "USDT" ? `$${(item.usd / 1000).toFixed(1)}k` : item.qty.toFixed(2)}
                 </span>
-                <span className="text-right text-[10px] z-10" style={item.isDensity ? { color: activePalette.text } : { color: '#6b7280' }}>
-                  {item.isDensity && item.lifetimeSec > 0 ? (
+                <span className="text-right text-[10px] z-10" style={item.isDensity ? { color: activePalette.text } : { color: '#848e9c' }}>
+                  {item.isDensity ? (
                     <span className="flex items-center justify-end space-x-0.5 font-bold">
                       <Clock size={10} className="inline mr-0.5" />
                       {formatLifetime(item.lifetimeSec)}
+                      {item.lifetimeSec >= 60 && <span className="ml-1 text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300">СТЕНА</span>}
                     </span>
-                  ) : "-"}
+                  ) : (
+                    <span className="font-mono text-[#64748b]">
+                      {formatLifetime(item.lifetimeSec)}
+                    </span>
+                  )}
                 </span>
               </div>
             );

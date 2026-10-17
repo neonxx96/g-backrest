@@ -20,7 +20,7 @@ class UserSetting(Base):
     user_id = Column(String, unique=True, index=True, default="0")
     
     # 24h market filters
-    price_change_min = Column(Float, default=2.0)          # Price change % >= 2.0%
+    price_change_min = Column(Float, default=2.5)          # Price change % >= 2.5%
     price_change_enabled = Column(Boolean, default=True)
     
     oi_change_min = Column(Float, default=3.0)             # OI change % >= 3.0%
