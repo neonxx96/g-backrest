@@ -43,21 +43,21 @@ export default function SettingsModal({ isOpen, onClose, userId = "0" }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-      <div className="bg-[#0e1118] border border-[#1b212f] rounded-xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[90vh] text-xs text-[#d1d4dc]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4 select-none">
+      <div className="bg-[#0c0e12] border border-[#1f2430] rounded-lg w-full max-w-lg overflow-hidden shadow-2xl flex flex-col max-h-[90vh] text-xs text-[#d1d4dc] font-sans">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 bg-[#121620] border-b border-[#1b212f]">
-          <div className="flex items-center space-x-2 font-bold text-white text-sm">
-            <Sliders size={16} className="text-[#2563eb]" />
+        <div className="flex items-center justify-between px-3.5 py-2.5 bg-[#101217] border-b border-[#161820]">
+          <div className="flex items-center space-x-2 font-bold text-white text-xs">
+            <Sliders size={14} className="text-[#38bdf8]" />
             <span>Настройки сканера и фильтров</span>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-[#1a2130] text-[#848e9c]">
-            <X size={16} />
+          <button onClick={onClose} className="p-1 rounded hover:bg-[#161820] text-[#787f91] hover:text-white transition">
+            <X size={15} />
           </button>
         </div>
 
         {/* Form Body */}
-        <div className="p-4 overflow-y-auto space-y-4">
+        <div className="p-3.5 overflow-y-auto space-y-3.5 font-mono">
           {/* Timeframe */}
           <div>
             <label className="block text-[#848e9c] mb-1 font-semibold">Базовый таймфрейм сканирования:</label>
@@ -254,29 +254,29 @@ export default function SettingsModal({ isOpen, onClose, userId = "0" }) {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-4 py-3 bg-[#121620] border-t border-[#1b212f]">
+        <div className="flex items-center justify-between px-3.5 py-2.5 bg-[#101217] border-t border-[#161820]">
           {saveSuccess ? (
-            <span className="text-[#00c087] font-semibold flex items-center space-x-1">
-              <CheckCircle size={14} className="mr-1" />
+            <span className="text-[#26a69a] font-semibold flex items-center space-x-1 font-mono text-[11px]">
+              <CheckCircle size={13} className="mr-1" />
               Применено без перезапуска!
             </span>
           ) : (
-            <span className="text-[#6b7280]">Применяется моментально</span>
+            <span className="text-[#60697b] font-mono text-[10px]">Применяется моментально</span>
           )}
 
           <div className="flex space-x-2">
             <button
               onClick={onClose}
-              className="px-3 py-1.5 rounded bg-[#1b212f] hover:bg-[#283245] text-white font-semibold transition"
+              className="px-3 py-1 rounded bg-[#161820] hover:bg-[#1f2430] text-[#d1d4dc] font-mono text-xs transition"
             >
               Отмена
             </button>
             <button
               onClick={handleSave}
               disabled={isSaving}
-              className="px-4 py-1.5 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-semibold flex items-center space-x-1 transition"
+              className="px-3.5 py-1 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-mono text-xs font-semibold flex items-center space-x-1 transition"
             >
-              <Save size={13} className="mr-1" />
+              <Save size={12} className="mr-1" />
               {isSaving ? "Сохранение..." : "Сохранить"}
             </button>
           </div>

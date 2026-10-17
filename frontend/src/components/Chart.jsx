@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { init, dispose } from 'klinecharts';
+import { init, dispose, registerOverlay } from 'klinecharts';
 import { 
   Minus, 
   MoveRight, 
@@ -8,40 +8,150 @@ import {
   Trash2, 
   Magnet, 
   Save,
-  Maximize2
+  Ruler,
+  TrendingUp,
+  X
 } from 'lucide-react';
 
 const API_BASE = "/api";
 
+// 1. Register custom 'rect' (Zone/Imbalance box) overlay
+try {
+  registerOverlay({
+    name: 'rect',
+    totalStep: 3,
+    needDefaultPointFigure: true,
+    needDefaultXAxisFigure: false,
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ coordinates }) => {
+      if (coordinates && coordinates.length > 1) {
+        const x = Math.min(coordinates[0].x, coordinates[1].x);
+        const y = Math.min(coordinates[0].y, coordinates[1].y);
+        const width = Math.abs(coordinates[0].x - coordinates[1].x);
+        const height = Math.abs(coordinates[0].y - coordinates[1].y);
+        return [
+          {
+            type: 'polygon',
+            attrs: {
+              coordinates: [
+                { x, y },
+                { x: x + width, y },
+                { x: x + width, y: y + height },
+                { x, y: y + height }
+              ]
+            },
+            styles: {
+              style: 'stroke_fill',
+              color: 'rgba(38, 166, 154, 0.12)',
+              borderColor: '#26a69a',
+              borderSize: 1
+            }
+          }
+        ];
+      }
+      return [];
+    }
+  });
+} catch (_) {}
+
+// 2. Register custom 'measure' (Ruler: Price Diff & % Change) overlay
+try {
+  registerOverlay({
+    name: 'measure',
+    totalStep: 3,
+    needDefaultPointFigure: true,
+    needDefaultXAxisFigure: false,
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ coordinates, overlay }) => {
+      if (coordinates && coordinates.length > 1 && overlay.points && overlay.points.length > 1) {
+        const p1 = overlay.points[0];
+        const p2 = overlay.points[1];
+        const x = Math.min(coordinates[0].x, coordinates[1].x);
+        const y = Math.min(coordinates[0].y, coordinates[1].y);
+        const width = Math.abs(coordinates[0].x - coordinates[1].x);
+        const height = Math.abs(coordinates[0].y - coordinates[1].y);
+
+        const v1 = Number(p1.value) || 0;
+        const v2 = Number(p2.value) || 0;
+        const priceDiff = v2 - v1;
+        const pctDiff = v1 !== 0 ? ((priceDiff / v1) * 100) : 0;
+        const isUp = priceDiff >= 0;
+        const fillColor = isUp ? 'rgba(38, 166, 154, 0.16)' : 'rgba(239, 83, 80, 0.16)';
+        const strokeColor = isUp ? '#26a69a' : '#ef5350';
+        const sign = isUp ? '+' : '';
+        const labelText = `${sign}${priceDiff.toFixed(2)} (${sign}${pctDiff.toFixed(2)}%)`;
+
+        return [
+          {
+            type: 'polygon',
+            attrs: {
+              coordinates: [
+                { x, y },
+                { x: x + width, y },
+                { x: x + width, y: y + height },
+                { x, y: y + height }
+              ]
+            },
+            styles: {
+              style: 'stroke_fill',
+              color: fillColor,
+              borderColor: strokeColor,
+              borderSize: 1,
+              borderStyle: 'dashed'
+            }
+          },
+          {
+            type: 'text',
+            attrs: {
+              x: coordinates[1].x,
+              y: coordinates[1].y - (isUp ? 10 : -16),
+              text: labelText,
+              align: 'center'
+            },
+            styles: {
+              color: '#ffffff',
+              backgroundColor: strokeColor,
+              padding: 4,
+              borderRadius: 2
+            }
+          }
+        ];
+      }
+      return [];
+    }
+  });
+} catch (_) {}
+
+// Tealstreet dark minimal theme configuration
 const THEME_STYLES = {
   grid: {
     show: true,
-    horizontal: { color: '#161b26', style: 'dash', size: 1, dashedValue: [3, 3] },
-    vertical: { color: '#161b26', style: 'dash', size: 1, dashedValue: [3, 3] }
+    horizontal: { color: '#12141c', style: 'dash', size: 1, dashedValue: [2, 4] },
+    vertical: { color: '#12141c', style: 'dash', size: 1, dashedValue: [2, 4] }
   },
   candle: {
     type: 'candle_solid',
     bar: {
-      upColor: '#00c087',
-      downColor: '#f6465d',
-      noChangeColor: '#848e9c',
-      upBorderColor: '#00c087',
-      downBorderColor: '#f6465d',
-      noChangeBorderColor: '#848e9c',
-      upWickColor: '#00c087',
-      downWickColor: '#f6465d',
-      noChangeWickColor: '#848e9c'
+      upColor: '#26a69a',
+      downColor: '#ef5350',
+      noChangeColor: '#787f91',
+      upBorderColor: '#26a69a',
+      downBorderColor: '#ef5350',
+      noChangeBorderColor: '#787f91',
+      upWickColor: '#26a69a',
+      downWickColor: '#ef5350',
+      noChangeWickColor: '#787f91'
     },
     priceMark: {
       show: true,
-      high: { show: true, color: '#848e9c', textSize: 10 },
-      low: { show: true, color: '#848e9c', textSize: 10 },
+      high: { show: true, color: '#787f91', textSize: 10 },
+      low: { show: true, color: '#787f91', textSize: 10 },
       last: {
         show: true,
-        upColor: '#00c087',
-        downColor: '#f6465d',
-        noChangeColor: '#848e9c',
-        line: { show: true, style: 'dash', dashedValue: [4, 4], size: 1 },
+        upColor: '#26a69a',
+        downColor: '#ef5350',
+        noChangeColor: '#787f91',
+        line: { show: true, style: 'dash', dashedValue: [3, 3], size: 1 },
         text: { show: true, color: '#ffffff', size: 11, paddingLeft: 4, paddingRight: 4, paddingTop: 2, paddingBottom: 2 }
       }
     }
@@ -51,30 +161,30 @@ const THEME_STYLES = {
       style: 'fill',
       borderStyle: 'solid',
       borderSize: 1,
-      upColor: '#00c08740',
-      downColor: '#f6465d40',
-      noChangeColor: '#848e9c40'
+      upColor: 'rgba(38, 166, 154, 0.25)',
+      downColor: 'rgba(239, 83, 80, 0.25)',
+      noChangeColor: 'rgba(120, 127, 145, 0.25)'
     }],
     lines: [
-      { style: 'solid', size: 1.5, color: '#2962ff' }, // EMA 20 Blue
-      { style: 'solid', size: 1.5, color: '#f59e0b' }, // EMA 50 Orange
-      { style: 'solid', size: 1.5, color: '#ec4899' }  // Pink
+      { style: 'solid', size: 1.5, color: '#38bdf8' }, // EMA 20 Cyan/Blue
+      { style: 'solid', size: 1.5, color: '#f59e0b' }, // EMA 50 Amber
+      { style: 'solid', size: 1.5, color: '#a855f7' }  // Purple
     ]
   },
   xAxis: {
-    axisLine: { show: true, color: '#1f2937' },
-    tickLine: { show: true, color: '#1f2937' },
-    tickText: { color: '#848e9c', size: 11 }
+    axisLine: { show: true, color: '#161922' },
+    tickLine: { show: true, color: '#161922' },
+    tickText: { color: '#60697b', size: 10, family: 'var(--font-mono)' }
   },
   yAxis: {
-    axisLine: { show: true, color: '#1f2937' },
-    tickLine: { show: true, color: '#1f2937' },
-    tickText: { color: '#848e9c', size: 11 }
+    axisLine: { show: true, color: '#161922' },
+    tickLine: { show: true, color: '#161922' },
+    tickText: { color: '#60697b', size: 10, family: 'var(--font-mono)' }
   },
   crosshair: {
     show: true,
-    horizontal: { show: true, line: { color: '#6b7280', style: 'dash', dashedValue: [3, 3] }, text: { color: '#ffffff', backgroundColor: '#1f2937' } },
-    vertical: { show: true, line: { color: '#6b7280', style: 'dash', dashedValue: [3, 3] }, text: { color: '#ffffff', backgroundColor: '#1f2937' } }
+    horizontal: { show: true, line: { color: '#2a3142', style: 'dash', dashedValue: [3, 3] }, text: { color: '#ffffff', backgroundColor: '#181c26' } },
+    vertical: { show: true, line: { color: '#2a3142', style: 'dash', dashedValue: [3, 3] }, text: { color: '#ffffff', backgroundColor: '#181c26' } }
   }
 };
 
@@ -82,6 +192,7 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
   const chartContainerRef = useRef(null);
   const chartRef = useRef(null);
   const wsRef = useRef(null);
+  const selectedOverlayId = useRef(null);
   
   const [chartReady, setChartReady] = useState(0);
   const [activeTool, setActiveTool] = useState(null);
@@ -94,7 +205,6 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
   useEffect(() => {
     if (!chartContainerRef.current) return;
     
-    // Clean up any existing instance in container
     try {
       dispose(chartContainerRef.current);
     } catch (_) {}
@@ -103,7 +213,6 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
     chartRef.current = chart;
     window.__chart = chart;
 
-    
     // Apply custom dark theme
     chart.setStyles(THEME_STYLES);
 
@@ -124,7 +233,6 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
       console.warn("Indicator init warning:", e);
     }
 
-    // Trigger data loading now that chart is ready
     setChartReady(prev => prev + 1);
 
     const handleResize = () => {
@@ -141,6 +249,28 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
     };
   }, []);
 
+  // Hotkey listener for Delete/Backspace on active overlay & Escape to cancel tool
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedOverlayId.current && chartRef.current) {
+          try {
+            chartRef.current.removeOverlay({ id: selectedOverlayId.current });
+            selectedOverlayId.current = null;
+            saveDrawings();
+          } catch (_) {}
+        }
+      } else if (e.key === 'Escape') {
+        setActiveTool(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [symbol, timeframe, userId]);
+
   // Fetch history candles & subscribe live WebSocket
   useEffect(() => {
     if (!chartRef.current || chartReady === 0) return;
@@ -152,84 +282,87 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
 
     const fetchKlines = async () => {
       try {
-        console.log(`[Chart] Запрос klines: symbol=${symbol}, tf=${timeframe}`);
         let res;
         try {
           res = await fetch(`${API_BASE}/klines?symbol=${symbol}&timeframe=${timeframe}&limit=250`);
         } catch (proxyErr) {
-          console.warn("[Chart] Ошибка прокси, резервный запрос напрямую к 127.0.0.1:8000:", proxyErr);
           res = await fetch(`http://127.0.0.1:8000/api/klines?symbol=${symbol}&timeframe=${timeframe}&limit=250`);
         }
 
         if (!res.ok) {
-          const errBody = await res.text();
-          throw new Error(`Сервер вернул статус ${res.status}: ${errBody || res.statusText}`);
+          const errText = await res.text();
+          throw new Error(`HTTP ${res.status}: ${errText}`);
         }
 
         const data = await res.json();
-        console.log(`[Chart] Успешно загружено ${data.length} свечей для ${symbol}`);
-
-        if (isCancelled || !chartRef.current) return;
+        if (isCancelled) return;
 
         if (Array.isArray(data) && data.length > 0) {
-          chart.applyNewData(data);
+          const formattedData = data.map(k => ({
+            timestamp: Number(k.timestamp),
+            open: Number(k.open),
+            high: Number(k.high),
+            low: Number(k.low),
+            close: Number(k.close),
+            volume: Number(k.volume),
+            turnover: Number(k.turnover || (k.close * k.volume))
+          }));
+
+          chart.applyNewData(formattedData);
           setStatusMsg("");
+          setErrorDetails(null);
+
+          // Restore saved drawings for this symbol & TF
           loadDrawings();
-          chart.resize();
         } else {
-          setStatusMsg("Нет данных");
-          setErrorDetails("Binance вернул пустой массив свечей");
+          setStatusMsg("Свечи отсутствуют");
         }
       } catch (err) {
-        if (!isCancelled) {
-          console.error("[Chart] Ошибка загрузки klines:", err);
-          setStatusMsg("Ошибка загрузки");
-          setErrorDetails(err.message || "Не удалось связаться с сервером данных");
-        }
+        if (isCancelled) return;
+        setStatusMsg("Ошибка загрузки");
+        setErrorDetails(err.message || String(err));
       }
     };
 
     fetchKlines();
 
-    // 2. Setup WebSocket live update
+    // Live Binance WebSocket Kline stream
+    const binanceInterval = timeframe === '45m' ? '15m' : (timeframe === '6h' ? '1h' : timeframe);
+    const cleanSym = symbol.toLowerCase();
+    const wsUrl = `wss://fstream.binance.com/ws/${cleanSym}@kline_${binanceInterval}`;
+
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
     }
 
-    // Supported native intervals on Binance ws
-    const wsInterval = (timeframe === "45m" || timeframe === "6h") ? (timeframe === "45m" ? "15m" : "1h") : timeframe;
-    const wsUrl = `wss://fstream.binance.com/ws/${symbol.toLowerCase()}@kline_${wsInterval}`;
-    
     try {
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onmessage = (event) => {
         try {
-          const msg = JSON.parse(event.data);
-          const k = msg.k;
+          const payload = JSON.parse(event.data);
+          const k = payload.k;
           if (!k || !chartRef.current) return;
 
-          // Native interval live update
-          if (timeframe !== "45m" && timeframe !== "6h") {
-            const candle = {
-              timestamp: k.t,
-              open: parseFloat(k.o),
-              high: parseFloat(k.h),
-              low: parseFloat(k.l),
-              close: parseFloat(k.c),
-              volume: parseFloat(k.v),
-              turnover: parseFloat(k.q)
-            };
-            chartRef.current.updateData(candle);
-          }
+          const bar = {
+            timestamp: Number(k.t),
+            open: parseFloat(k.o),
+            high: parseFloat(k.h),
+            low: parseFloat(k.l),
+            close: parseFloat(k.c),
+            volume: parseFloat(k.v),
+            turnover: parseFloat(k.q)
+          };
+
+          chartRef.current.updateData(bar);
         } catch (e) {
-          // ignore
+          console.warn("WS candle error:", e);
         }
       };
     } catch (e) {
-      console.warn("WebSocket connect error:", e);
+      console.warn("WebSocket init error:", e);
     }
 
     return () => {
@@ -239,8 +372,7 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
         wsRef.current = null;
       }
     };
-  }, [chartReady, symbol, timeframe]);
-
+  }, [symbol, timeframe, chartReady]);
 
   // Load drawings from backend
   const loadDrawings = useCallback(() => {
@@ -251,8 +383,19 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
           try {
             const list = JSON.parse(data.elements_json);
             if (Array.isArray(list)) {
+              chartRef.current.removeOverlay();
               list.forEach(overlay => {
-                chartRef.current.createOverlay(overlay);
+                chartRef.current.createOverlay({
+                  ...overlay,
+                  onSelected: (e) => {
+                    selectedOverlayId.current = e.overlay.id;
+                    return true;
+                  },
+                  onDeselected: () => {
+                    selectedOverlayId.current = null;
+                    return true;
+                  }
+                });
               });
             }
           } catch (e) {
@@ -264,14 +407,20 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
   }, [symbol, timeframe, userId]);
 
   // Save drawings to backend
-  const saveDrawings = () => {
+  const saveDrawings = useCallback(() => {
     if (!chartRef.current) return;
-    const overlays = chartRef.current.getOverlays();
-    const saveList = overlays.map(o => ({
-      name: o.name,
-      points: o.points,
-      styles: o.styles
-    }));
+    
+    // Attempt serialization
+    let saveList = [];
+    try {
+      if (typeof chartRef.current.getOverlays === 'function') {
+        saveList = chartRef.current.getOverlays().map(o => ({
+          name: o.name,
+          points: o.points,
+          styles: o.styles
+        }));
+      }
+    } catch (_) {}
 
     fetch(`${API_BASE}/drawings`, {
       method: "POST",
@@ -284,11 +433,12 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
       })
     })
     .then(res => res.json())
-    .then(() => setStatusMsg("Сохранено!"))
-    .catch(() => setStatusMsg("Ошибка сохранения"));
-
-    setTimeout(() => setStatusMsg(""), 2000);
-  };
+    .then(() => {
+      setStatusMsg("Сохранено!");
+      setTimeout(() => setStatusMsg(""), 1500);
+    })
+    .catch(() => {});
+  }, [symbol, timeframe, userId]);
 
   // Drawing tool selection
   const handleSelectTool = (toolName) => {
@@ -297,13 +447,27 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
     chartRef.current.createOverlay({
       name: toolName,
       lock: false,
-      mode: 'normal'
+      mode: magnetEnabled ? 'strong_magnet' : 'normal',
+      onDrawEnd: () => {
+        setActiveTool(null);
+        saveDrawings();
+        return true;
+      },
+      onSelected: (e) => {
+        selectedOverlayId.current = e.overlay.id;
+        return true;
+      },
+      onDeselected: () => {
+        selectedOverlayId.current = null;
+        return true;
+      }
     });
   };
 
   const handleClearDrawings = () => {
     if (!chartRef.current) return;
     chartRef.current.removeOverlay();
+    selectedOverlayId.current = null;
     setActiveTool(null);
     saveDrawings();
   };
@@ -345,67 +509,75 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
   };
 
   return (
-    <div className="flex flex-col h-full w-full bg-[#0e1118] text-[#d1d4dc] select-none border border-[#1b212f] rounded-lg overflow-hidden shadow-2xl relative">
-      {/* Top Toolbar */}
-      <div className="flex items-center justify-between px-3 py-1.5 bg-[#121620] border-b border-[#1b212f] text-xs">
+    <div className="flex flex-col h-full w-full bg-[#0c0e12] text-[#d1d4dc] select-none border border-[#161922] overflow-hidden relative font-sans">
+      {/* Top Drawing & Indicator Bar (Tealstreet style: ultra compact, flat, 1px lines) */}
+      <div className="flex items-center justify-between px-2.5 py-1 bg-[#101217] border-b border-[#161922] text-xs">
         {/* Drawing Tools */}
-        <div className="flex items-center space-x-1">
+        <div className="flex items-center space-x-0.5">
           <button 
-            title="Отрезок / Трендовая линия" 
+            title="Трендовая линия (Отрезок)" 
             onClick={() => handleSelectTool('segment')}
-            className={`px-2 py-1 rounded transition flex items-center ${activeTool === 'segment' ? 'bg-[#2563eb] text-white' : 'text-[#848e9c] hover:bg-[#1a2130] hover:text-white'}`}
+            className={`px-2 py-0.5 rounded text-[11px] font-mono flex items-center transition ${activeTool === 'segment' ? 'bg-[#2563eb] text-white' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'}`}
           >
-            <Minus size={14} className="mr-1" />
-            <span className="text-[11px]">Трендовая</span>
+            <Minus size={13} className="mr-1" />
+            <span>Линия</span>
           </button>
           
           <button 
-            title="Горизонтальный уровень" 
+            title="Горизонтальный уровень (Price Line)" 
             onClick={() => handleSelectTool('horizontalStraightLine')}
-            className={`px-2 py-1 rounded transition flex items-center ${activeTool === 'horizontalStraightLine' ? 'bg-[#2563eb] text-white' : 'text-[#848e9c] hover:bg-[#1a2130] hover:text-white'}`}
+            className={`px-2 py-0.5 rounded text-[11px] font-mono flex items-center transition ${activeTool === 'horizontalStraightLine' ? 'bg-[#2563eb] text-white' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'}`}
           >
             <span className="font-mono text-xs mr-1">—</span>
-            <span className="text-[11px]">Уровень</span>
+            <span>Уровень</span>
           </button>
 
           <button 
-            title="Луч" 
+            title="Луч (Ray Line)" 
             onClick={() => handleSelectTool('rayLine')}
-            className={`p-1.5 rounded transition ${activeTool === 'rayLine' ? 'bg-[#2563eb] text-white' : 'text-[#848e9c] hover:bg-[#1a2130] hover:text-white'}`}
+            className={`p-1 rounded transition ${activeTool === 'rayLine' ? 'bg-[#2563eb] text-white' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'}`}
           >
-            <MoveRight size={14} />
+            <MoveRight size={13} />
           </button>
 
           <button 
-            title="Прямоугольник (Зона плотности/имбаланса)" 
+            title="Прямоугольник (Зона плотности / имбаланс)" 
             onClick={() => handleSelectTool('rect')}
-            className={`p-1.5 rounded transition ${activeTool === 'rect' ? 'bg-[#2563eb] text-white' : 'text-[#848e9c] hover:bg-[#1a2130] hover:text-white'}`}
+            className={`p-1 rounded transition ${activeTool === 'rect' ? 'bg-[#2563eb] text-white' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'}`}
           >
-            <Square size={13} />
+            <Square size={12} />
           </button>
 
           <button 
             title="Уровни Фибоначчи" 
             onClick={() => handleSelectTool('fibonacciLine')}
-            className={`p-1.5 rounded transition ${activeTool === 'fibonacciLine' ? 'bg-[#2563eb] text-white' : 'text-[#848e9c] hover:bg-[#1a2130] hover:text-white'}`}
+            className={`p-1 rounded transition ${activeTool === 'fibonacciLine' ? 'bg-[#2563eb] text-white' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'}`}
           >
-            <Hash size={13} />
+            <Hash size={12} />
           </button>
 
-          <div className="h-4 w-px bg-[#1f2937] mx-1" />
+          <button 
+            title="Линейка (Замер % и пунктов)" 
+            onClick={() => handleSelectTool('measure')}
+            className={`p-1 rounded transition ${activeTool === 'measure' ? 'bg-[#2563eb] text-white' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'}`}
+          >
+            <Ruler size={13} />
+          </button>
+
+          <div className="h-3.5 w-px bg-[#1f2430] mx-1" />
 
           <button 
-            title="Магнит" 
+            title={magnetEnabled ? "Магнит включен (к свечам)" : "Магнит выключен"} 
             onClick={() => setMagnetEnabled(!magnetEnabled)}
-            className={`p-1.5 rounded transition ${magnetEnabled ? 'bg-[#00c087] text-white' : 'text-[#848e9c] hover:bg-[#1a2130] hover:text-white'}`}
+            className={`p-1 rounded transition ${magnetEnabled ? 'bg-[#26a69a] text-white' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'}`}
           >
             <Magnet size={13} />
           </button>
 
           <button 
-            title="Очистить рисунки" 
+            title="Очистить все рисунки" 
             onClick={handleClearDrawings}
-            className="p-1.5 rounded text-[#f6465d] hover:bg-[#f6465d22] transition"
+            className="p-1 rounded text-[#787f91] hover:text-[#ef5350] hover:bg-[#ef535018] transition"
           >
             <Trash2 size={13} />
           </button>
@@ -413,71 +585,64 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
           <button 
             title="Сохранить рисунки" 
             onClick={saveDrawings}
-            className="p-1.5 rounded text-[#00c087] hover:bg-[#00c08722] transition"
+            className="p-1 rounded text-[#787f91] hover:text-[#26a69a] hover:bg-[#26a69a18] transition"
           >
             <Save size={13} />
           </button>
         </div>
 
         {/* Indicators and Status */}
-        <div className="flex items-center space-x-1.5">
+        <div className="flex items-center space-x-1 font-mono-numbers">
           {statusMsg && (
-            <span className="text-[#f59e0b] text-[11px] font-mono animate-pulse mr-1">{statusMsg}</span>
+            <span className="text-[#f59e0b] text-[10px] font-mono animate-pulse mr-1">{statusMsg}</span>
           )}
           
           <button 
             onClick={() => toggleIndicator('ema')}
-            className={`px-2 py-0.5 rounded text-[11px] font-medium transition ${indicators.ema ? 'bg-[#2563eb] text-white' : 'bg-[#1a2130] text-[#848e9c] hover:text-white'}`}
+            className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition ${indicators.ema ? 'bg-[#1e293b] text-[#38bdf8] border border-[#38bdf840]' : 'text-[#60697b] hover:text-white'}`}
           >
-            EMA(20)
+            EMA
           </button>
 
           <button 
             onClick={() => toggleIndicator('vol')}
-            className={`px-2 py-0.5 rounded text-[11px] font-medium transition ${indicators.vol ? 'bg-[#2563eb] text-white' : 'bg-[#1a2130] text-[#848e9c] hover:text-white'}`}
+            className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition ${indicators.vol ? 'bg-[#1e293b] text-[#26a69a] border border-[#26a69a40]' : 'text-[#60697b] hover:text-white'}`}
           >
             VOL
           </button>
 
           <button 
             onClick={() => toggleIndicator('rsi')}
-            className={`px-2 py-0.5 rounded text-[11px] font-medium transition ${indicators.rsi ? 'bg-[#2563eb] text-white' : 'bg-[#1a2130] text-[#848e9c] hover:text-white'}`}
+            className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition ${indicators.rsi ? 'bg-[#1e293b] text-[#a855f7] border border-[#a855f740]' : 'text-[#60697b] hover:text-white'}`}
           >
             RSI
           </button>
           
           <button 
             onClick={() => toggleIndicator('macd')}
-            className={`px-2 py-0.5 rounded text-[11px] font-medium transition ${indicators.macd ? 'bg-[#2563eb] text-white' : 'bg-[#1a2130] text-[#848e9c] hover:text-white'}`}
+            className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition ${indicators.macd ? 'bg-[#1e293b] text-[#f59e0b] border border-[#f59e0b40]' : 'text-[#60697b] hover:text-white'}`}
           >
             MACD
           </button>
         </div>
       </div>
 
-      {/* Error Alert Overlay */}
-      {errorDetails && (
-        <div className="absolute top-10 left-3 right-3 z-30 p-2.5 rounded-lg bg-rose-950/90 border border-rose-800 text-rose-200 text-xs flex items-center justify-between shadow-2xl backdrop-blur-sm">
-          <div className="flex items-center space-x-2">
-            <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-            <span><strong>Ошибка:</strong> {errorDetails}</span>
-          </div>
-          <button
-            onClick={() => setChartReady(prev => prev + 1)}
-            className="px-2.5 py-1 bg-rose-700 hover:bg-rose-600 rounded text-white font-bold text-[11px] transition shrink-0 ml-3"
-          >
-            Повторить
-          </button>
-        </div>
-      )}
+      {/* Chart Canvas Area */}
+      <div className="flex-1 w-full h-full relative">
+        <div ref={chartContainerRef} className="w-full h-full" />
 
-      {/* Main Chart Canvas Container */}
-      <div 
-        ref={chartContainerRef} 
-        className="flex-1 w-full h-full relative" 
-        style={{ minHeight: '480px', backgroundColor: '#0e1118' }} 
-      />
+        {errorDetails && (
+          <div className="absolute top-3 left-3 bg-[#181014] border border-[#ef535040] text-[#ef5350] px-3 py-2 rounded text-xs max-w-md shadow-xl backdrop-blur-md z-30">
+            <div className="flex items-center justify-between font-bold mb-1">
+              <span>Ошибка подключения Binance Futures</span>
+              <button onClick={() => setErrorDetails(null)} className="text-[#848e9c] hover:text-white">
+                <X size={12} />
+              </button>
+            </div>
+            <div className="font-mono text-[10px] break-words opacity-90">{errorDetails}</div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
-
