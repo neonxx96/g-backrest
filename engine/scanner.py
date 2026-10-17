@@ -19,7 +19,9 @@ if sys.platform == "win32":
 
 from engine.data_loader import DataLoader
 from engine.indicators import add_all_indicators
+from engine.volume_profile import VolumeProfileEngine
 from strategies.mtf_pullback import MTFPullbackStrategy
+from strategies.cluster_breakout_strategy import ClusterAbsorptionStrategy
 
 class RealtimeScanner:
     def __init__(self, exchange_id: str = "bybit", market_type: str = "swap"):

@@ -22,10 +22,17 @@ from engine.indicators import add_all_indicators
 from engine.backtester import Backtester
 from engine.optimizer import StrategyOptimizer
 from strategies.mtf_pullback import MTFPullbackStrategy
+from strategies.cluster_breakout_strategy import ClusterAbsorptionStrategy
+
+STRATEGIES = {
+    'mtf': MTFPullbackStrategy,
+    'cluster': ClusterAbsorptionStrategy
+}
 
 def main():
     parser = argparse.ArgumentParser(description="g-backrest Backtest & Optimizer")
     parser.add_argument("--symbol", "-s", type=str, default="BTC/USDT", help="Trading pair")
+    parser.add_argument("--strategy", "-strat", type=str, default="mtf", choices=["mtf", "cluster"], help="Strategy (mtf, cluster)")
     parser.add_argument("--timeframe", "-t", type=str, default="15m", help="Base LTF timeframe (e.g. 5m, 15m)")
     parser.add_argument("--htf", type=str, default="1h", help="Higher timeframe (e.g. 1h, 4h)")
     parser.add_argument("--days", "-d", type=int, default=30, help="Days of history to backtest")
@@ -67,16 +74,25 @@ def main():
 
     backtester = Backtester(initial_capital=args.capital)
 
+    strategy_cls = STRATEGIES.get(args.strategy, MTFPullbackStrategy)
+
     if args.optimize:
-        print("🔍 Запуск оптимизации параметров сетки (Grid Search)...")
+        print(f"🔍 Запуск оптимизации параметров сетки для '{args.strategy}'...")
         optimizer = StrategyOptimizer(backtester=backtester)
-        param_grid = {
-            'tp_value': [1.5, 2.0, 2.5, 3.0],
-            'sl_value': [1.0, 1.2, 1.5],
-            'rsi_long_max': [32, 36, 40],
-            'rsi_short_min': [60, 64, 68]
-        }
-        top_results = optimizer.optimize(df, MTFPullbackStrategy, param_grid, top_n=5)
+        if args.strategy == 'cluster':
+            param_grid = {
+                'tp_value': [1.5, 2.0, 2.5],
+                'sl_value': [0.9, 1.2, 1.5],
+                'use_trailing': [True, False]
+            }
+        else:
+            param_grid = {
+                'tp_value': [1.5, 2.0, 2.5, 3.0],
+                'sl_value': [1.0, 1.2, 1.5],
+                'rsi_long_max': [32, 36, 40],
+                'rsi_short_min': [60, 64, 68]
+            }
+        top_results = optimizer.optimize(df, strategy_cls, param_grid, top_n=5)
         
         table_data = []
         for rank, r in enumerate(top_results, 1):
@@ -98,10 +114,10 @@ def main():
         
     else:
         # Single strategy run
-        strategy = MTFPullbackStrategy()
+        strategy = strategy_cls()
         stats = backtester.run(df, strategy)
         
-        print("📊 РЕЗУЛЬТАТЫ СТРАТЕГИИ MTF PULLBACK:")
+        print(f"📊 РЕЗУЛЬТАТЫ СТРАТЕГИИ [{strategy.name.upper()}]:")
         print(f"• Всего сделок:       {stats['total_trades']} (Прибыльных: {stats['wins']}, Убыточных: {stats['losses']})")
         print(f"• Винрейт (Win Rate): {stats['win_rate_pct']}%")
         print(f"• Профит-фактор:      {stats['profit_factor']}")
