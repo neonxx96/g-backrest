@@ -22,6 +22,7 @@ from backend.app.db.database import init_db
 from backend.app.api.routes import router as api_router
 from backend.app.api.data_routes import data_router
 from backend.app.routers.backtest import backtest_router
+from backend.app.routers.ai_copilot import ai_router
 from backend.app.services.binance_service import binance_service
 from backend.app.services.scanner import scanner
 from backend.app.services.recorder import recorder
@@ -99,6 +100,7 @@ app.add_middleware(
 app.include_router(api_router)
 app.include_router(data_router)
 app.include_router(backtest_router)
+app.include_router(ai_router)
 
 if __name__ == "__main__":
 

@@ -173,11 +173,12 @@ try {
   });
 } catch (_) {}
 
-// 3. Register custom 'liqMarker' (Liquidation subtle markers)
+// 3. Register custom 'liqMarker' (Live Liquidations on Chart)
 try {
   registerOverlay({
     name: 'liqMarker',
     totalStep: 2,
+    lock: true,
     needDefaultPointFigure: false,
     needDefaultXAxisFigure: false,
     needDefaultYAxisFigure: false,
@@ -185,41 +186,54 @@ try {
       if (!coordinates || coordinates.length === 0) return [];
       const { x, y } = coordinates[0];
       const side = overlay.extendData?.side || 'BUY';
-      const usd = overlay.extendData?.usd_amount || 0;
-      const isShortLiq = side === 'BUY';
-      const color = isShortLiq ? '#00e676' : '#ff3d00';
-      const radius = Math.min(9, Math.max(3.5, Math.log10(Math.max(1000, usd)) * 1.8));
+      const usd = Number(overlay.extendData?.usd_amount || 0);
+      const isShortLiq = side === 'BUY'; // Buy liquidation order = short position got liquidated
+      const color = isShortLiq ? '#00e676' : '#ff1744';
+      const radius = Math.min(13, Math.max(5, Math.log10(Math.max(1000, usd)) * 2.2));
+      const usdFormatted = usd >= 1000000 ? `$${(usd / 1000000).toFixed(2)}M` : `$${Math.round(usd / 1000)}k`;
+      const labelText = isShortLiq ? `💀 SHORT ${usdFormatted}` : `💀 LONG ${usdFormatted}`;
 
       const figures = [
+        // Outer glowing halo
         {
           type: 'circle',
-          attrs: { x, y, r: radius },
+          attrs: { x, y, r: radius + 4 },
           styles: {
             style: 'stroke_fill',
-            color: isShortLiq ? 'rgba(0, 230, 118, 0.22)' : 'rgba(255, 61, 0, 0.22)',
+            color: isShortLiq ? 'rgba(0, 230, 118, 0.22)' : 'rgba(255, 23, 68, 0.22)',
             borderColor: color,
-            borderSize: 1
+            borderSize: 1.5
+          }
+        },
+        // Inner bright core
+        {
+          type: 'circle',
+          attrs: { x, y, r: radius * 0.55 },
+          styles: {
+            style: 'fill',
+            color
           }
         }
       ];
 
-      // Only display text pill for large liquidations (>= $25k) to avoid chart clutter
-      if (usd >= 25000) {
+      // Pill label for liquidations >= $20k
+      if (usd >= 20000) {
         figures.push({
           type: 'text',
           attrs: {
             x,
-            y: y - radius - 3,
-            text: `$${(usd / 1000).toFixed(0)}k`,
-            align: 'center'
+            y: y - radius - 5,
+            text: ` ${labelText} `,
+            align: 'center',
+            baseline: 'bottom'
           },
           styles: {
             color: '#ffffff',
-            backgroundColor: 'rgba(15, 23, 42, 0.85)',
+            backgroundColor: isShortLiq ? '#059669' : '#dc2626',
             borderColor: color,
             borderSize: 0.5,
-            size: 8.5,
-            padding: 1.5,
+            size: 9.5,
+            padding: 2.5,
             borderRadius: 2
           }
         });
@@ -326,6 +340,65 @@ try {
             color: '#ffffff',
             backgroundColor: color,
             size: 9.5,
+            padding: 3,
+            borderRadius: 2
+          }
+        }
+      ];
+    }
+  });
+} catch (_) {}
+
+// 6. Register custom 'orderbookWall' (OrderBook Densities > $1M with right-aligned badge)
+try {
+  registerOverlay({
+    name: 'orderbookWall',
+    totalStep: 2,
+    lock: true,
+    needDefaultPointFigure: false,
+    needDefaultXAxisFigure: false,
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ coordinates, bounding, overlay }) => {
+      if (!coordinates || coordinates.length === 0) return [];
+      const { y } = coordinates[0];
+      const ext = overlay.extendData || {};
+      const isBuy = ext.side === 'BUY' || ext.side === 'bid';
+      const volUsd = ext.volume_usd || 0;
+      const volFormatted = volUsd >= 1000000 
+        ? `$${(volUsd / 1000000).toFixed(2)}M` 
+        : `$${Math.round(volUsd / 1000)}k`;
+      const badgeText = isBuy ? `[BUY WALL ${volFormatted}]` : `[SELL WALL ${volFormatted}]`;
+      const color = isBuy ? '#26a69a' : '#ef5350';
+      const width = (bounding && bounding.width) ? bounding.width : 2200;
+
+      return [
+        {
+          type: 'line',
+          attrs: {
+            coordinates: [
+              { x: 0, y },
+              { x: width, y }
+            ]
+          },
+          styles: {
+            color,
+            size: 1.5,
+            style: 'solid'
+          }
+        },
+        {
+          type: 'text',
+          attrs: {
+            x: Math.max(100, width - 12),
+            y: y,
+            text: ` ${badgeText} `,
+            align: 'right',
+            baseline: 'middle'
+          },
+          styles: {
+            color: '#ffffff',
+            backgroundColor: color,
+            size: 10,
             padding: 3,
             borderRadius: 2
           }
@@ -520,11 +593,13 @@ export default function Chart({
   const [showHeatmap, setShowHeatmap] = useState(() => localStorage.getItem('chart_heatmap') === 'true');
   const [showLiquidations, setShowLiquidations] = useState(() => localStorage.getItem('chart_liquidations') !== 'false');
   const [showVwap, setShowVwap] = useState(() => localStorage.getItem('chart_vwap') === 'true');
-  const [minLiqUsd, setMinLiqUsd] = useState(10000);
+  const [showWalls, setShowWalls] = useState(() => localStorage.getItem('chart_walls') !== 'false');
+  const [minLiqUsd, setMinLiqUsd] = useState(20000);
   const [heatmapMinUsd, setHeatmapMinUsd] = useState(50000);
   const [storageInfo, setStorageInfo] = useState({ earliest: '', usage: '' });
   const activeLiqOverlays = useRef([]);
   const activeHeatmapOverlays = useRef([]);
+  const activeWallOverlays = useRef([]);
   const vwapLineOverlay = useRef(null);
   const currentKlines = useRef([]);
 
@@ -1046,6 +1121,77 @@ export default function Chart({
     } catch (_) {}
   }, [symbol, showHeatmap, heatmapMinUsd]);
 
+  // Load and render OrderBook Densities (> $1M) as crisp horizontal levels on Chart (TACT 2)
+  const loadOrderBookWalls = useCallback(async () => {
+    if (!chartRef.current || !showWalls) {
+      activeWallOverlays.current.forEach(id => {
+        try { chartRef.current.removeOverlay({ id }); } catch (_) {}
+      });
+      activeWallOverlays.current = [];
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/depth?symbol=${symbol}&limit=100`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!chartRef.current) return;
+
+      const klines = currentKlines.current;
+      if (!klines || klines.length === 0) return;
+      const anchorTs = klines[klines.length - 1].timestamp;
+
+      const bids = (data.bids || []).map(([p, q]) => {
+        const price = parseFloat(p);
+        const qty = parseFloat(q);
+        return { price, volume_usd: price * qty, side: 'BUY' };
+      });
+
+      const asks = (data.asks || []).map(([p, q]) => {
+        const price = parseFloat(p);
+        const qty = parseFloat(q);
+        return { price, volume_usd: price * qty, side: 'SELL' };
+      });
+
+      // Top-3 bids > $1M (fallback >= 400k)
+      let bigBids = bids.filter(b => b.volume_usd >= 1000000).sort((a, b) => b.volume_usd - a.volume_usd).slice(0, 3);
+      if (bigBids.length === 0) {
+        bigBids = bids.filter(b => b.volume_usd >= 400000).sort((a, b) => b.volume_usd - a.volume_usd).slice(0, 2);
+      }
+
+      // Top-3 asks > $1M (fallback >= 400k)
+      let bigAsks = asks.filter(a => a.volume_usd >= 1000000).sort((a, b) => b.volume_usd - a.volume_usd).slice(0, 3);
+      if (bigAsks.length === 0) {
+        bigAsks = asks.filter(a => a.volume_usd >= 400000).sort((a, b) => b.volume_usd - a.volume_usd).slice(0, 2);
+      }
+
+      const wallsToRender = [...bigBids, ...bigAsks];
+
+      // Remove previous walls
+      activeWallOverlays.current.forEach(id => {
+        try { chartRef.current.removeOverlay({ id }); } catch (_) {}
+      });
+      activeWallOverlays.current = [];
+
+      // Render updated walls
+      wallsToRender.forEach(w => {
+        try {
+          const id = chartRef.current.createOverlay({
+            name: 'orderbookWall',
+            lock: true,
+            points: [{ timestamp: anchorTs, value: w.price }],
+            extendData: {
+              side: w.side,
+              volume_usd: w.volume_usd,
+              price: w.price
+            }
+          });
+          if (id) activeWallOverlays.current.push(id);
+        } catch (_) {}
+      });
+    } catch (_) {}
+  }, [symbol, showWalls]);
+
   // Fetch Storage Stats
   useEffect(() => {
     fetch(`${API_BASE}/recorder/status`)
@@ -1068,6 +1214,12 @@ export default function Chart({
   useEffect(() => {
     loadHeatmap();
   }, [loadHeatmap]);
+
+  useEffect(() => {
+    loadOrderBookWalls();
+    const wallTimer = setInterval(loadOrderBookWalls, 2500);
+    return () => clearInterval(wallTimer);
+  }, [loadOrderBookWalls]);
 
   useEffect(() => {
     updateVwapOverlay();
@@ -1144,10 +1296,14 @@ export default function Chart({
 
     fetchKlines();
 
-    // Live Binance WebSocket Kline stream with auto-reconnection and heartbeat fallback
+    // Live Binance WebSocket Kline stream with instant connection, failover, and heartbeat fallback
     const binanceInterval = timeframe === '45m' ? '15m' : (timeframe === '6h' ? '1h' : timeframe);
     const cleanSym = symbol.toLowerCase();
-    const wsUrl = `wss://fstream.binance.com/ws/${cleanSym}@kline_${binanceInterval}`;
+    const wsEndpoints = [
+      `wss://stream.binance.com:9443/ws/${cleanSym}@kline_${binanceInterval}`,
+      `wss://fstream.binance.com/ws/${cleanSym}@kline_${binanceInterval}`
+    ];
+    let endpointIdx = 0;
 
     let reconnectTimer = null;
     let heartbeatTimer = null;
@@ -1160,8 +1316,10 @@ export default function Chart({
         wsRef.current = null;
       }
 
+      const activeUrl = wsEndpoints[endpointIdx % wsEndpoints.length];
+
       try {
-        const ws = new WebSocket(wsUrl);
+        const ws = new WebSocket(activeUrl);
         wsRef.current = ws;
 
         ws.onopen = () => {
@@ -1171,7 +1329,7 @@ export default function Chart({
         ws.onmessage = (event) => {
           try {
             const payload = JSON.parse(event.data);
-            const k = payload.k;
+            const k = payload.k || payload;
             if (!k || !chartRef.current) return;
             lastTickTime = Date.now();
 
@@ -1183,24 +1341,31 @@ export default function Chart({
               barTimestamp = Math.floor(barTimestamp / (6 * 3600 * 1000)) * (6 * 3600 * 1000);
             }
 
+            const openP = parseFloat(k.o);
+            const highP = parseFloat(k.h);
+            const lowP = parseFloat(k.l);
+            const closeP = parseFloat(k.c);
+            const vol = parseFloat(k.v);
+            const turnover = parseFloat(k.q || (closeP * vol));
+
             const bar = {
               timestamp: barTimestamp,
-              open: parseFloat(k.o),
-              high: parseFloat(k.h),
-              low: parseFloat(k.l),
-              close: parseFloat(k.c),
-              volume: parseFloat(k.v),
-              turnover: parseFloat(k.q)
+              open: openP,
+              high: highP,
+              low: lowP,
+              close: closeP,
+              volume: vol,
+              turnover: turnover
             };
 
-            // Keep currentKlines in sync with live tick
+            // Keep currentKlines in sync with live tick: dynamically expand wicks and body on new highs/lows
             const klines = currentKlines.current;
             if (klines && klines.length > 0) {
               const lastBar = klines[klines.length - 1];
               if (lastBar.timestamp === barTimestamp) {
                 bar.open = lastBar.open;
-                bar.high = Math.max(lastBar.high, bar.high);
-                bar.low = Math.min(lastBar.low, bar.low);
+                bar.high = Math.max(lastBar.high, highP, closeP);
+                bar.low = Math.min(lastBar.low, lowP, closeP);
                 klines[klines.length - 1] = bar;
               } else if (barTimestamp > lastBar.timestamp) {
                 klines.push(bar);
@@ -1220,22 +1385,24 @@ export default function Chart({
 
         ws.onclose = () => {
           if (!isCancelled) {
-            reconnectTimer = setTimeout(connectWs, 2500);
+            endpointIdx++;
+            reconnectTimer = setTimeout(connectWs, 2000);
           }
         };
       } catch (e) {
         if (!isCancelled) {
-          reconnectTimer = setTimeout(connectWs, 3000);
+          endpointIdx++;
+          reconnectTimer = setTimeout(connectWs, 2500);
         }
       }
     };
 
     connectWs();
 
-    // Heartbeat fallback: checks every 4s; if no tick received for > 7s, polls REST endpoint
+    // Heartbeat fallback: checks every 3s; if no tick received for > 4.5s, polls REST endpoint
     heartbeatTimer = setInterval(async () => {
       if (isCancelled || !chartRef.current) return;
-      if (Date.now() - lastTickTime > 7000) {
+      if (Date.now() - lastTickTime > 4500) {
         try {
           const r = await fetch(`${API_BASE}/klines?symbol=${symbol}&timeframe=${timeframe}&limit=2`);
           if (r.ok) {
@@ -1258,10 +1425,11 @@ export default function Chart({
         } catch (_) {}
 
         if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+          endpointIdx++;
           connectWs();
         }
       }
-    }, 4000);
+    }, 3000);
 
     return () => {
       isCancelled = true;
