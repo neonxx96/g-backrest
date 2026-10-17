@@ -276,13 +276,29 @@ const THEME_STYLES = {
   }
 };
 
-export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = "0" }) {
+const USER_DRAWING_TYPES = new Set([
+  'segment', 'straightLine', 'horizontalStraightLine', 'verticalStraightLine',
+  'rayLine', 'arrow', 'priceLine', 'priceCoordinate', 'rect', 'fibonacciLine', 'measure'
+]);
+
+export default function Chart({ 
+  chartId = "primary", 
+  symbol = "BTCUSDT", 
+  timeframe = "15m", 
+  userId = "0", 
+  titlePrefix = "", 
+  onTimeframeChange 
+}) {
   const chartContainerRef = useRef(null);
   const chartRef = useRef(null);
   const wsRef = useRef(null);
   const selectedOverlayId = useRef(null);
   const trackedOverlays = useRef(new Map()); // id -> overlay data
+  const drawingHistory = useRef([]); // history stack of overlay IDs for Ctrl+Z undo
   
+  const prevSymbolRef = useRef(symbol);
+  const prevTimeframeRef = useRef(timeframe);
+
   const [chartReady, setChartReady] = useState(0);
   const [activeTool, setActiveTool] = useState(null);
   const [magnetEnabled, setMagnetEnabled] = useState(false);
@@ -337,6 +353,14 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
       console.warn("Indicator init warning:", e);
     }
 
+    // Crosshair Sync: subscribe to mouse crosshair movement
+    chart.subscribeAction('onCrosshairChange', (data) => {
+      const ts = data?.kLineData?.timestamp || null;
+      window.dispatchEvent(new CustomEvent('crosshair-sync', {
+        detail: { chartId, timestamp: ts }
+      }));
+    });
+
     setChartReady(prev => prev + 1);
 
     const handleResize = () => {
@@ -353,9 +377,11 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
     };
   }, []);
 
-  // Save drawings to backend
-  const saveDrawings = useCallback(() => {
+  // Save drawings for a specific symbol/timeframe (e.g. before coin switch)
+  const saveDrawingsFor = useCallback((targetSymbol, targetTimeframe) => {
     if (!chartRef.current) return;
+    const sym = (targetSymbol || symbol).toUpperCase();
+    const tf = targetTimeframe || timeframe;
     
     const saveList = [];
     
@@ -366,11 +392,13 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
         for (const instances of store._instances.values()) {
           instances.forEach(inst => {
             if (inst && inst.points && inst.points.length > 0) {
-              saveList.push({
-                name: inst.name,
-                points: inst.points,
-                styles: inst.styles
-              });
+              if (inst.id !== 'sync_crosshair_marker' && USER_DRAWING_TYPES.has(inst.name)) {
+                saveList.push({
+                  name: inst.name,
+                  points: inst.points,
+                  styles: inst.styles
+                });
+              }
             }
           });
         }
@@ -380,14 +408,15 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
     // Method 2: Fallback to trackedOverlays ref if store not directly accessible
     if (saveList.length === 0 && trackedOverlays.current.size > 0) {
       for (const [id, data] of trackedOverlays.current.entries()) {
+        if (id === 'sync_crosshair_marker') continue;
         const inst = chartRef.current.getOverlayById(id);
-        if (inst && inst.points && inst.points.length > 0) {
+        if (inst && inst.points && inst.points.length > 0 && USER_DRAWING_TYPES.has(inst.name)) {
           saveList.push({
             name: inst.name || data.name,
             points: inst.points,
             styles: inst.styles
           });
-        } else if (data && data.points) {
+        } else if (data && data.points && USER_DRAWING_TYPES.has(data.name)) {
           saveList.push(data);
         }
       }
@@ -398,18 +427,23 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         user_id: userId,
-        symbol: symbol.toUpperCase(),
-        timeframe,
+        symbol: sym,
+        timeframe: tf,
         elements_json: JSON.stringify(saveList)
       })
     })
     .then(res => res.json())
     .then(() => {
       setStatusMsg("Сохранено!");
-      setTimeout(() => setStatusMsg(""), 1500);
+      setTimeout(() => setStatusMsg(""), 1200);
     })
     .catch(() => {});
   }, [symbol, timeframe, userId]);
+
+  // Save current active drawings
+  const saveDrawings = useCallback(() => {
+    saveDrawingsFor(symbol, timeframe);
+  }, [saveDrawingsFor, symbol, timeframe]);
 
   // Load drawings from backend
   const loadDrawings = useCallback(() => {
@@ -422,9 +456,18 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
           try {
             const list = JSON.parse(data.elements_json);
             if (Array.isArray(list)) {
-              chartRef.current.removeOverlay();
+              // Remove ONLY tracked user drawings so liquidations & heatmap aren't wiped
+              for (const id of trackedOverlays.current.keys()) {
+                try {
+                  chartRef.current.removeOverlay({ id });
+                } catch (_) {}
+              }
               trackedOverlays.current.clear();
+              drawingHistory.current = [];
+              selectedOverlayId.current = null;
+
               list.forEach(overlay => {
+                if (!overlay || !overlay.name || !USER_DRAWING_TYPES.has(overlay.name)) return;
                 const id = chartRef.current.createOverlay({
                   ...overlay,
                   onSelected: (e) => {
@@ -438,6 +481,7 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
                 });
                 if (id) {
                   trackedOverlays.current.set(id, overlay);
+                  drawingHistory.current.push(id);
                 }
               });
             }
@@ -449,10 +493,35 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
       .catch(e => console.error("Could not load drawings:", e));
   }, [symbol, timeframe, userId]);
 
-  // Hotkey listener for Delete/Backspace on active overlay & Escape to cancel tool / context menu
+  // Undo last drawn figure (Ctrl+Z)
+  const handleUndo = useCallback(() => {
+    if (!chartRef.current) return;
+    if (drawingHistory.current.length > 0) {
+      const lastId = drawingHistory.current.pop();
+      try {
+        chartRef.current.removeOverlay({ id: lastId });
+      } catch (_) {}
+      trackedOverlays.current.delete(lastId);
+      if (selectedOverlayId.current === lastId) {
+        selectedOverlayId.current = null;
+      }
+      saveDrawings();
+      setStatusMsg("Отменено (Ctrl+Z)");
+      setTimeout(() => setStatusMsg(""), 1200);
+    }
+  }, [saveDrawings]);
+
+  // Hotkey listener for Ctrl+Z (Undo), Delete/Backspace on active overlay & Escape
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+      // Ctrl+Z or Cmd+Z: Undo last drawing figure
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z' || e.key === 'я' || e.key === 'Я')) {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedOverlayId.current && chartRef.current) {
@@ -471,7 +540,77 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [symbol, timeframe, userId, saveDrawings]);
+  }, [symbol, timeframe, userId, saveDrawings, handleUndo]);
+
+  // Global event listener for Undo
+  useEffect(() => {
+    const onUndo = () => handleUndo();
+    window.addEventListener('chart-undo-drawing', onUndo);
+    return () => window.removeEventListener('chart-undo-drawing', onUndo);
+  }, [handleUndo]);
+
+  // Crosshair synchronization listener from other chart in dual-pane
+  useEffect(() => {
+    const handleSync = (e) => {
+      if (!chartRef.current) return;
+      const { chartId: sourceId, timestamp } = e.detail || {};
+      if (sourceId && sourceId !== chartId) {
+        try {
+          const syncId = 'sync_crosshair_marker';
+          if (timestamp) {
+            const existing = chartRef.current.getOverlayById(syncId);
+            if (existing) {
+              chartRef.current.overrideOverlay({
+                id: syncId,
+                points: [{ timestamp }]
+              });
+            } else {
+              chartRef.current.createOverlay({
+                name: 'verticalStraightLine',
+                id: syncId,
+                points: [{ timestamp }],
+                lock: true,
+                needDefaultPointFigure: false,
+                needDefaultXAxisFigure: false,
+                needDefaultYAxisFigure: false,
+                styles: {
+                  line: {
+                    color: '#ff9800',
+                    size: 1,
+                    style: 'dashed'
+                  }
+                }
+              });
+            }
+          } else {
+            chartRef.current.removeOverlay({ id: syncId });
+          }
+        } catch (_) {}
+      }
+    };
+
+    window.addEventListener('crosshair-sync', handleSync);
+    return () => window.removeEventListener('crosshair-sync', handleSync);
+  }, [chartId]);
+
+  // Save current drawings before switching symbol/timeframe or on unmount
+  useEffect(() => {
+    if (prevSymbolRef.current !== symbol || prevTimeframeRef.current !== timeframe) {
+      if (prevSymbolRef.current && prevTimeframeRef.current) {
+        saveDrawingsFor(prevSymbolRef.current, prevTimeframeRef.current);
+      }
+      prevSymbolRef.current = symbol;
+      prevTimeframeRef.current = timeframe;
+    }
+  }, [symbol, timeframe, saveDrawingsFor]);
+
+  useEffect(() => {
+    return () => {
+      if (prevSymbolRef.current && prevTimeframeRef.current) {
+        saveDrawingsFor(prevSymbolRef.current, prevTimeframeRef.current);
+      }
+    };
+  }, [saveDrawingsFor]);
 
   // Recenter chart to real time on Space key
   useEffect(() => {
@@ -752,8 +891,13 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
             points: e.overlay.points,
             styles: e.overlay.styles
           });
+          if (!drawingHistory.current.includes(e.overlay.id)) {
+            drawingHistory.current.push(e.overlay.id);
+          }
         }
-        saveDrawings();
+        setTimeout(() => {
+          saveDrawings();
+        }, 50);
         return true;
       },
       onSelected: (e) => {
@@ -767,16 +911,24 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
     });
     if (overlayId) {
       trackedOverlays.current.set(overlayId, { name: toolName });
+      drawingHistory.current.push(overlayId);
     }
   };
 
   const handleClearDrawings = () => {
     if (!chartRef.current) return;
-    chartRef.current.removeOverlay();
+    for (const id of trackedOverlays.current.keys()) {
+      try {
+        chartRef.current.removeOverlay({ id });
+      } catch (_) {}
+    }
     trackedOverlays.current.clear();
+    drawingHistory.current = [];
     selectedOverlayId.current = null;
     setActiveTool(null);
     saveDrawings();
+    setStatusMsg("Разметка очищена");
+    setTimeout(() => setStatusMsg(""), 1200);
   };
 
   // Toggle indicators
@@ -854,6 +1006,27 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
       <div className="flex items-center justify-between px-2.5 py-1 bg-[#101217] border-b border-[#161922] text-xs">
         {/* Drawing Tools */}
         <div className="flex items-center space-x-0.5">
+          {titlePrefix && (
+            <div className="flex items-center space-x-1 mr-1.5 shrink-0 font-mono">
+              <span className="px-1.5 py-0.2 rounded bg-[#182030] text-[#38bdf8] font-bold text-[10px] border border-[#2b3955]">
+                {titlePrefix} ({timeframe})
+              </span>
+              {onTimeframeChange && (
+                <div className="flex items-center space-x-0.5 ml-1">
+                  {["1m", "5m", "15m", "1h"].map(tf => (
+                    <button
+                      key={tf}
+                      onClick={() => onTimeframeChange(tf)}
+                      className={`px-1 py-0.2 rounded text-[9.5px] transition ${timeframe === tf ? 'bg-[#2563eb] text-white font-bold' : 'text-[#787f91] hover:text-white'}`}
+                    >
+                      {tf}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <button 
             title="Трендовая линия (Отрезок)" 
             onClick={() => handleSelectTool('segment')}
@@ -912,6 +1085,14 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
             className={`p-1 rounded transition ${magnetEnabled ? 'bg-[#26a69a] text-white' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'}`}
           >
             <Magnet size={13} />
+          </button>
+
+          <button 
+            title="Отменить последнее действие (Ctrl+Z)" 
+            onClick={handleUndo}
+            className="p-1 rounded text-[#787f91] hover:text-[#ff9800] hover:bg-[#ff980018] transition"
+          >
+            <RotateCcw size={13} />
           </button>
 
           <button 

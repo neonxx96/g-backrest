@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Chart from './components/Chart';
 import OrderBook from './components/OrderBook';
+import Tape from './components/Tape';
 import SignalsFeed from './components/SignalsFeed';
 import SettingsModal from './components/SettingsModal';
 import { soundManager } from './utils/sound';
@@ -13,7 +14,9 @@ import {
   Volume2,
   VolumeX,
   Keyboard,
-  AlertTriangle
+  AlertTriangle,
+  Columns,
+  Zap
 } from 'lucide-react';
 
 const TIMEFRAMES = ["1m", "5m", "15m", "30m", "45m", "1h", "4h", "6h"];
@@ -29,9 +32,22 @@ export default function App() {
   const [timeframe, setTimeframe] = useState(initialTf);
   const [userId] = useState(initialUserId);
 
+  // Dual-Pane Workspace state (HTF 15m + LTF 1m)
+  const [isDualPane, setIsDualPane] = useState(() => {
+    const saved = localStorage.getItem('panel_dual_chart');
+    return saved !== null ? saved === 'true' : true;
+  });
+  const [secondaryTimeframe, setSecondaryTimeframe] = useState(() => {
+    return localStorage.getItem('secondary_tf') || "1m";
+  });
+
   // Panel layout state persisted in localStorage
   const [showOrderBook, setShowOrderBook] = useState(() => {
     const saved = localStorage.getItem('panel_orderbook');
+    return saved !== null ? saved === 'true' : true;
+  });
+  const [showTape, setShowTape] = useState(() => {
+    const saved = localStorage.getItem('panel_tape');
     return saved !== null ? saved === 'true' : true;
   });
   const [showSignals, setShowSignals] = useState(() => {
@@ -55,6 +71,19 @@ export default function App() {
     }
     localStorage.setItem('signalscript_theme', theme);
   }, [theme]);
+
+  // Persist layout preferences
+  useEffect(() => {
+    localStorage.setItem('panel_dual_chart', isDualPane ? 'true' : 'false');
+  }, [isDualPane]);
+
+  useEffect(() => {
+    localStorage.setItem('secondary_tf', secondaryTimeframe);
+  }, [secondaryTimeframe]);
+
+  useEffect(() => {
+    localStorage.setItem('panel_tape', showTape ? 'true' : 'false');
+  }, [showTape]);
 
   // Resizable sidebar state
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -141,11 +170,21 @@ export default function App() {
         });
       }
 
+      // Ctrl+Z or Cmd+Z: Undo drawing
+      else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z' || e.key === 'я' || e.key === 'Я')) {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('chart-undo-drawing'));
+      }
+
       // Panel toggles
       else if (e.key.toLowerCase() === 'o') {
         setShowOrderBook(v => !v);
+      } else if (e.key.toLowerCase() === 't') {
+        setShowTape(v => !v);
       } else if (e.key.toLowerCase() === 's') {
         setShowSignals(v => !v);
+      } else if (e.key.toLowerCase() === 'd') {
+        setIsDualPane(v => !v);
       } else if (e.key === '?') {
         setShowHotkeyHelp(v => !v);
       }
@@ -227,8 +266,9 @@ export default function App() {
           </div>
         </div>
 
-        {/* Center: Timeframe Selector */}
+        {/* Center: Timeframe Selector (HTF Senior Chart) */}
         <div className="flex items-center space-x-0.5 bg-[#0c0e12] p-0.5 rounded border border-[#161820] font-mono">
+          <span className="text-[9.5px] text-[#787f91] px-1 font-semibold uppercase">HTF:</span>
           {TIMEFRAMES.map((tf, idx) => (
             <button
               key={tf}
@@ -271,14 +311,34 @@ export default function App() {
             <Keyboard size={13} />
           </button>
 
+          {/* Workspace Toggle: Dual-Pane (1 / 2 Charts) */}
+          <button
+            onClick={() => setIsDualPane(v => !v)}
+            className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition ${isDualPane ? 'bg-[#141720] text-[#38bdf8] border-[#38bdf840]' : 'text-[#60697b] border-transparent hover:bg-[#141720]'}`}
+            title="Переключить 1 / 2 независимых графика HTF/LTF (Клавиша 'D')"
+          >
+            <Columns size={11} />
+            <span>{isDualPane ? '2 Графика [D]' : '1 График [D]'}</span>
+          </button>
+
           {/* Panel Toggle: OrderBook */}
           <button
             onClick={() => setShowOrderBook(v => !v)}
             className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition ${showOrderBook ? 'bg-[#141720] text-[#38bdf8] border-[#38bdf840]' : 'text-[#60697b] border-transparent hover:bg-[#141720]'}`}
-            title="Переключить стакан (Клавиша 'O')"
+            title="Переключить стакан L2 (Клавиша 'O')"
           >
             <Layers size={11} />
             <span>Стакан [O]</span>
+          </button>
+
+          {/* Panel Toggle: Tape (Time & Sales) */}
+          <button
+            onClick={() => setShowTape(v => !v)}
+            className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition ${showTape ? 'bg-[#141720] text-[#f59e0b] border-[#f59e0b40]' : 'text-[#60697b] border-transparent hover:bg-[#141720]'}`}
+            title="Переключить ленту сделок Time & Sales (Клавиша 'T')"
+          >
+            <Zap size={11} />
+            <span>Лента [T]</span>
           </button>
 
           {/* Panel Toggle: Signals */}
@@ -313,17 +373,36 @@ export default function App() {
 
       {/* Main Workspace Layout */}
       <main className="flex-1 flex overflow-hidden relative">
-        {/* Left Pane: Primary KLineChart (Flex-1) */}
-        <section className="flex-1 h-full min-w-0 bg-[#08090c] p-1 overflow-hidden">
-          <Chart 
-            symbol={symbol} 
-            timeframe={timeframe} 
-            userId={userId} 
-          />
+        {/* Central Workspace: Dual-Pane KLineCharts */}
+        <section className="flex-1 h-full min-w-0 bg-[#08090c] p-1 overflow-hidden flex">
+          {/* Left Chart (HTF Senior Timeframe, default 15m) */}
+          <div className={`${isDualPane ? 'w-1/2' : 'w-full'} h-full min-w-0 pr-0.5 transition-all`}>
+            <Chart 
+              chartId="primary"
+              symbol={symbol} 
+              timeframe={timeframe} 
+              userId={userId} 
+              titlePrefix="HTF"
+            />
+          </div>
+
+          {/* Right Chart (LTF Junior Microstructure Timeframe, default 1m) */}
+          {isDualPane && (
+            <div className="w-1/2 h-full min-w-0 pl-0.5 border-l border-[#161820] transition-all">
+              <Chart 
+                chartId="secondary"
+                symbol={symbol} 
+                timeframe={secondaryTimeframe} 
+                onTimeframeChange={setSecondaryTimeframe}
+                userId={userId} 
+                titlePrefix="LTF"
+              />
+            </div>
+          )}
         </section>
 
         {/* Resizable Splitter Handle (Task 6) */}
-        {(showOrderBook || showSignals) && (
+        {(showOrderBook || showTape || showSignals) && (
           <div
             onMouseDown={handleMouseDown}
             className="w-1.5 bg-[#08090c] hover:bg-[#38bdf880] cursor-col-resize transition-colors flex items-center justify-center relative group z-10"
@@ -333,25 +412,36 @@ export default function App() {
           </div>
         )}
 
-        {/* Right Pane: Resizable Sidebar (OrderBook and/or Signals) */}
-        {(showOrderBook || showSignals) && (
+        {/* Right Pane: Resizable Sidebar (OrderBook, Tape, Signals) */}
+        {(showOrderBook || showTape || showSignals) && (
           <aside 
             style={{ width: `${sidebarWidth}px` }} 
             className="h-full flex flex-col p-1 pl-0 space-y-1 overflow-hidden shrink-0"
           >
-            {/* OrderBook Panel */}
-            {showOrderBook && (
-              <div className={`${showSignals ? 'h-[58%]' : 'h-full'} w-full transition-all duration-150`}>
-                <OrderBook 
-                  symbol={symbol} 
-                  onProximityAlert={handleProximityAlert}
-                />
+            {/* Upper Row: OrderBook and Tape */}
+            {(showOrderBook || showTape) && (
+              <div className={`${showSignals ? 'h-[58%]' : 'h-full'} w-full flex space-x-1 transition-all duration-150`}>
+                {showOrderBook && (
+                  <div className={`${showTape ? 'w-[58%]' : 'w-full'} h-full transition-all`}>
+                    <OrderBook 
+                      symbol={symbol} 
+                      onProximityAlert={handleProximityAlert}
+                    />
+                  </div>
+                )}
+                {showTape && (
+                  <div className={`${showOrderBook ? 'w-[42%]' : 'w-full'} h-full transition-all`}>
+                    <Tape 
+                      symbol={symbol} 
+                    />
+                  </div>
+                )}
               </div>
             )}
 
             {/* Signals Feed Panel */}
             {showSignals && (
-              <div className={`${showOrderBook ? 'h-[42%]' : 'h-full'} w-full transition-all duration-150`}>
+              <div className={`${(showOrderBook || showTape) ? 'h-[42%]' : 'h-full'} w-full transition-all duration-150`}>
                 <SignalsFeed onSelectSignal={handleSelectSignal} />
               </div>
             )}
@@ -386,7 +476,7 @@ export default function App() {
 
             <div className="space-y-1.5 font-mono text-[11px]">
               <div className="flex justify-between py-0.5 border-b border-[#13161f]">
-                <span className="text-[#787f91]">Таймфреймы:</span>
+                <span className="text-[#787f91]">Таймфреймы HTF:</span>
                 <span className="text-white font-bold">1=1m, 2=5m, 3=15m, 4=30m, 5=1h, 6=4h, 7=6h</span>
               </div>
               <div className="flex justify-between py-0.5 border-b border-[#13161f]">
@@ -394,8 +484,16 @@ export default function App() {
                 <span className="text-white font-bold">Стрелка Вверх / Вниз</span>
               </div>
               <div className="flex justify-between py-0.5 border-b border-[#13161f]">
+                <span className="text-[#787f91]">1 / 2 Графика:</span>
+                <span className="text-white font-bold">D (сплит HTF/LTF)</span>
+              </div>
+              <div className="flex justify-between py-0.5 border-b border-[#13161f]">
                 <span className="text-[#787f91]">Стакан L2:</span>
                 <span className="text-white font-bold">O (вкл / выкл)</span>
+              </div>
+              <div className="flex justify-between py-0.5 border-b border-[#13161f]">
+                <span className="text-[#787f91]">Лента сделок (Tape):</span>
+                <span className="text-white font-bold">T (вкл / выкл)</span>
               </div>
               <div className="flex justify-between py-0.5 border-b border-[#13161f]">
                 <span className="text-[#787f91]">Лента сигналов:</span>
@@ -406,7 +504,11 @@ export default function App() {
                 <span className="text-white font-bold">Space (Пробел)</span>
               </div>
               <div className="flex justify-between py-0.5 border-b border-[#13161f]">
-                <span className="text-[#787f91]">Удалить рисунок:</span>
+                <span className="text-[#787f91]">Отменить фигуру:</span>
+                <span className="text-white font-bold">Ctrl + Z</span>
+              </div>
+              <div className="flex justify-between py-0.5 border-b border-[#13161f]">
+                <span className="text-[#787f91]">Удалить выбранную:</span>
                 <span className="text-white font-bold">Delete / Backspace</span>
               </div>
               <div className="flex justify-between py-0.5">
