@@ -60,6 +60,7 @@ class SettingsSchema(BaseModel):
     orderbook_volume_mode: str = "both"
     orderbook_tick_scale: float = 1.0
     theme: str = "tealstreet"
+    ui_config: str = "{}"
 
 class DrawingSaveSchema(BaseModel):
     user_id: str = "0"

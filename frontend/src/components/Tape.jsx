@@ -10,11 +10,17 @@ const FILTER_PRESETS = [
   { label: '>$100k', value: 100000 },
 ];
 
-export default function Tape({ symbol = "BTCUSDT" }) {
+export default function Tape({ symbol = "BTCUSDT", uiConfig = null }) {
   const [trades, setTrades] = useState([]);
-  const [minUsd, setMinUsd] = useState(5000); // Default filter: $5,000
+  const [minUsd, setMinUsd] = useState(uiConfig?.tapeMinUsd ?? 5000); // Default filter: $5,000
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const wsRef = useRef(null);
+
+  useEffect(() => {
+    if (uiConfig?.tapeMinUsd != null) {
+      setMinUsd(Number(uiConfig.tapeMinUsd));
+    }
+  }, [uiConfig?.tapeMinUsd]);
 
   // Buffer incoming trades and throttle updates for high-speed performance (60fps)
   const incomingBuffer = useRef([]);
@@ -138,13 +144,18 @@ export default function Tape({ symbol = "BTCUSDT" }) {
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#0c0e12] text-[#d1d4dc] border border-[#161922] overflow-hidden text-xs select-none relative font-sans">
+    <div
+      style={{ backgroundColor: 'var(--bg-panel)', borderColor: 'var(--border-subtle)', color: 'var(--text-main)' }}
+      className="flex flex-col h-full border overflow-hidden text-xs select-none relative font-sans"
+    >
       {/* Header Bar (Tealstreet / Bloomberg compact style) */}
-      <div className="flex items-center justify-between px-2.5 py-1 bg-[#101217] border-b border-[#161922]">
-        <div className="flex items-center space-x-1.5 font-bold text-white text-[11px]">
-          <Zap size={13} className="text-[#f59e0b]" />
+      <div
+        style={{ backgroundColor: 'var(--bg-panel-header)', borderColor: 'var(--border-subtle)' }}
+        className="flex items-center justify-between px-2 py-1 border-b"
+      >
+        <div className="flex items-center space-x-1 font-bold text-white text-[11px] truncate">
+          <Zap size={12} className="text-[#f59e0b] shrink-0" />
           <span>Лента</span>
-          <span className="text-[10px] text-[#787f91] font-mono">Time & Sales</span>
         </div>
 
         {/* Filter Threshold Pill & Menu */}

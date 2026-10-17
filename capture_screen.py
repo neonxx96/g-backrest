@@ -57,14 +57,27 @@ async def capture_cdp():
         raise RuntimeError("Could not connect to Chrome debugging port 9222")
 
     async with websockets.connect(ws_url) as ws:
-        # Wait 3 seconds for React and Klinecharts to render fully
-        await asyncio.sleep(3.0)
+        size_env = os.environ.get("CDP_SIZE")
+        if size_env:
+            w, h = [int(v) for v in size_env.split(",")]
+            await ws.send(json.dumps({
+                'id': 99,
+                'method': 'Emulation.setDeviceMetricsOverride',
+                'params': {'width': w, 'height': h, 'deviceScaleFactor': 1, 'mobile': False}
+            }))
+            await ws.recv()
+
+        # Wait 3.5 seconds for React, Klinecharts, and Binance WS to render fully
+        await asyncio.sleep(3.5)
         
         eval_script = os.environ.get("CDP_EVAL")
         if eval_script:
-            eval_req = {'id': 2, 'method': 'Runtime.evaluate', 'params': {'expression': eval_script}}
+            eval_req = {'id': 2, 'method': 'Runtime.evaluate', 'params': {'expression': eval_script, 'returnByValue': True, 'awaitPromise': True}}
             await ws.send(json.dumps(eval_req))
-            await ws.recv()
+            ev_resp = json.loads(await ws.recv())
+            val = ev_resp.get('result', {}).get('result', {}).get('value')
+            if val is not None:
+                print("CDP_EVAL_RESULT:", json.dumps(val, ensure_ascii=False))
             await asyncio.sleep(float(os.environ.get("CDP_WAIT", "1.0")))
 
         mouse = os.environ.get("CDP_MOUSE")

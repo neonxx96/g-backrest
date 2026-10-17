@@ -66,7 +66,8 @@ class UserSetting(Base):
     orderbook_levels = Column(Integer, default=20)
     orderbook_volume_mode = Column(String, default="both")  # 'numbers', 'bars', 'heatmap', 'both'
     orderbook_tick_scale = Column(Float, default=1.0)
-    theme = Column(String, default="tealstreet")            # 'tealstreet', 'bloomberg'
+    theme = Column(String, default="tealstreet")            # 'tealstreet', 'tiger', 'bloomberg'
+    ui_config = Column(Text, default="{}")                  # JSON string for font, opacity, EMA, subpanes, orderflow
 
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

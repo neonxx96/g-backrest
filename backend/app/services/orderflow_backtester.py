@@ -87,12 +87,13 @@ class OrderFlowBacktester:
         if df.empty or len(df) < 60:
             return {"error": "Недостаточно свечей для бэктеста (минимум 60)"}
 
-        data = self.calculate_indicators(df)
+        data = df if 'ema50' in df.columns else self.calculate_indicators(df)
         
         # Generate Signals based on strategy type
         # 1: Long, -1: Short, 0: Neutral
         signals = np.zeros(len(data))
 
+        ts_vals = data['timestamp'].values
         close_vals = data['close'].values
         open_vals = data['open'].values
         high_vals = data['high'].values
@@ -114,37 +115,39 @@ class OrderFlowBacktester:
             rsi = rsi_vals[i] if not np.isnan(rsi_vals[i]) else 50.0
             delta = delta_vals[i]
 
+            turnover = c * volume_vals[i]
+            passes_wall = (min_density_usd <= 0) or (turnover >= min_density_usd)
+
             if strategy_type == "confluence_ema":
                 # EMA(20) Bounce/Cross + Volume Spike + Delta Confirmation
-                if prev_c <= prev_ema and c > ema and v_rat >= volume_multiplier and delta > 0 and 40 <= rsi <= 65:
+                if passes_wall and prev_c <= prev_ema and c > ema and v_rat >= volume_multiplier and delta > 0 and 40 <= rsi <= 65:
                     signals[i] = 1
-                elif prev_c >= prev_ema and c < ema and v_rat >= volume_multiplier and delta < 0 and 35 <= rsi <= 60:
+                elif passes_wall and prev_c >= prev_ema and c < ema and v_rat >= volume_multiplier and delta < 0 and 35 <= rsi <= 60:
                     signals[i] = -1
 
             elif strategy_type == "ema_trend":
                 # EMA20 crosses EMA50 in direction of delta with volume confirmation
                 cross_up = ema20_vals[i-1] <= ema50_vals[i-1] and ema20_vals[i] > ema50_vals[i]
                 cross_dn = ema20_vals[i-1] >= ema50_vals[i-1] and ema20_vals[i] < ema50_vals[i]
-                if cross_up and v_rat >= volume_multiplier and delta > 0:
+                if passes_wall and cross_up and v_rat >= volume_multiplier and delta > 0:
                     signals[i] = 1
-                elif cross_dn and v_rat >= volume_multiplier and delta < 0:
+                elif passes_wall and cross_dn and v_rat >= volume_multiplier and delta < 0:
                     signals[i] = -1
 
             elif strategy_type == "delta_absorption":
                 # Delta Absorption: Local extreme with CVD divergence
                 local_min_price = min(low_vals[i-10:i])
                 local_min_cvd = min(cvd_vals[i-10:i])
-                if low_vals[i] <= local_min_price and cvd_vals[i] > local_min_cvd and delta > 0 and rsi < 40 and v_rat >= volume_multiplier:
+                if passes_wall and low_vals[i] <= local_min_price and cvd_vals[i] > local_min_cvd and delta > 0 and rsi < 40 and v_rat >= volume_multiplier:
                     signals[i] = 1
                 local_max_price = max(high_vals[i-10:i])
                 local_max_cvd = max(cvd_vals[i-10:i])
-                if high_vals[i] >= local_max_price and cvd_vals[i] < local_max_cvd and delta < 0 and rsi > 60 and v_rat >= volume_multiplier:
+                if passes_wall and high_vals[i] >= local_max_price and cvd_vals[i] < local_max_cvd and delta < 0 and rsi > 60 and v_rat >= volume_multiplier:
                     signals[i] = -1
 
             elif strategy_type == "density_bounce":
                 # Liquidity bounce proxy: pin-bar rejection with delta confirmation on big turnover
-                turnover = c * volume_vals[i]
-                if turnover >= min_density_usd:
+                if passes_wall:
                     is_pinbar_bull = (c - low_vals[i]) > 2 * (high_vals[i] - c) and delta > 0
                     is_pinbar_bear = (high_vals[i] - c) > 2 * (c - low_vals[i]) and delta < 0
                     if is_pinbar_bull and v_rat >= volume_multiplier and rsi < 40:
@@ -156,7 +159,7 @@ class OrderFlowBacktester:
         # Simulate Execution
         trades = []
         capital = self.initial_capital
-        equity_curve = [{"time": int(data.iloc[0]['timestamp']), "equity": capital}]
+        equity_curve = [{"time": int(ts_vals[0]), "equity": capital}]
         
         in_pos = False
         pos_dir = 0
@@ -169,12 +172,11 @@ class OrderFlowBacktester:
         pos_size = 0.0
 
         for i in range(len(data)):
-            row = data.iloc[i]
-            cur_time = int(row['timestamp'])
-            open_p = row['open']
-            high_p = row['high']
-            low_p = row['low']
-            close_p = row['close']
+            cur_time = int(ts_vals[i])
+            open_p = float(open_vals[i])
+            high_p = float(high_vals[i])
+            low_p = float(low_vals[i])
+            close_p = float(close_vals[i])
             sig = signals[i]
 
             # 1. Check Exit if in position

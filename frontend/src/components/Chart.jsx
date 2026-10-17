@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { init, dispose, registerOverlay } from 'klinecharts';
+import { init, dispose, registerOverlay, registerIndicator } from 'klinecharts';
 import { 
   Minus, 
   MoveRight, 
@@ -258,71 +258,140 @@ try {
   });
 } catch (_) {}
 
-// Tealstreet dark minimal theme configuration
-const THEME_STYLES = {
-  grid: {
-    show: true,
-    horizontal: { color: '#12141c', style: 'dash', size: 1, dashedValue: [2, 4] },
-    vertical: { color: '#12141c', style: 'dash', size: 1, dashedValue: [2, 4] }
-  },
-  candle: {
-    type: 'candle_solid',
-    bar: {
-      upColor: '#26a69a',
-      downColor: '#ef5350',
-      noChangeColor: '#787f91',
-      upBorderColor: '#26a69a',
-      downBorderColor: '#ef5350',
-      noChangeBorderColor: '#787f91',
-      upWickColor: '#26a69a',
-      downWickColor: '#ef5350',
-      noChangeWickColor: '#787f91'
-    },
-    priceMark: {
-      show: true,
-      high: { show: true, color: '#787f91', textSize: 10 },
-      low: { show: true, color: '#787f91', textSize: 10 },
-      last: {
-        show: true,
-        upColor: '#26a69a',
-        downColor: '#ef5350',
-        noChangeColor: '#787f91',
-        line: { show: true, style: 'dash', dashedValue: [3, 3], size: 1 },
-        text: { show: true, color: '#ffffff', size: 11, paddingLeft: 4, paddingRight: 4, paddingTop: 2, paddingBottom: 2 }
+// 5. Register custom 'CVD' (Cumulative Volume Delta) sub-pane indicator
+try {
+  registerIndicator({
+    name: 'CVD',
+    shortName: 'CVD (Дельта)',
+    shouldFormatBigNumber: true,
+    precision: 1,
+    figures: [
+      {
+        key: 'delta',
+        title: 'Δ: ',
+        type: 'bar',
+        baseValue: 0,
+        styles: (data) => {
+          const d = data.current?.indicatorData?.delta ?? 0;
+          return {
+            color: d >= 0 ? 'rgba(38, 166, 154, 0.55)' : 'rgba(239, 83, 80, 0.55)'
+          };
+        }
+      },
+      {
+        key: 'cvd',
+        title: 'CVD: ',
+        type: 'line',
+        styles: () => ({ color: '#38bdf8', size: 1.5 })
       }
+    ],
+    calc: (dataList) => {
+      let cum = 0;
+      return dataList.map(k => {
+        const rng = Math.max(1e-9, (k.high || 0) - (k.low || 0));
+        const buyRatio = ((k.close || 0) - (k.low || 0)) / rng;
+        const delta = (2 * buyRatio - 1) * (k.volume || 0);
+        cum += delta;
+        return { delta, cvd: cum };
+      });
     }
-  },
-  indicator: {
-    bars: [{
-      style: 'fill',
-      borderStyle: 'solid',
-      borderSize: 1,
-      upColor: 'rgba(38, 166, 154, 0.25)',
-      downColor: 'rgba(239, 83, 80, 0.25)',
-      noChangeColor: 'rgba(120, 127, 145, 0.25)'
-    }],
-    lines: [
-      { style: 'solid', size: 1.5, color: '#38bdf8' }, // EMA 20 Cyan/Blue
-      { style: 'solid', size: 1.5, color: '#f59e0b' }, // EMA 50 Amber
-      { style: 'solid', size: 1.5, color: '#a855f7' }  // Purple
-    ]
-  },
-  xAxis: {
-    axisLine: { show: true, color: '#161922' },
-    tickLine: { show: true, color: '#161922' },
-    tickText: { color: '#60697b', size: 10, family: 'var(--font-mono)' }
-  },
-  yAxis: {
-    axisLine: { show: true, color: '#161922' },
-    tickLine: { show: true, color: '#161922' },
-    tickText: { color: '#60697b', size: 10, family: 'var(--font-mono)' }
-  },
-  crosshair: {
-    show: true,
-    horizontal: { show: true, line: { color: '#2a3142', style: 'dash', dashedValue: [3, 3] }, text: { color: '#ffffff', backgroundColor: '#181c26' } },
-    vertical: { show: true, line: { color: '#2a3142', style: 'dash', dashedValue: [3, 3] }, text: { color: '#ffffff', backgroundColor: '#181c26' } }
-  }
-};
+  });
+} catch (_) {}
+
+function hexToRgba(hex, alpha = 1) {
+  if (!hex || typeof hex !== 'string' || !hex.startsWith('#')) return hex;
+  const h = hex.replace('#', '');
+  const full = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
+  const num = parseInt(full, 16);
+  if (Number.isNaN(num)) return hex;
+  const r = (num >> 16) & 255;
+  const g = (num >> 8) & 255;
+  const b = num & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function buildChartStyles(uiConfig = {}) {
+  const theme = uiConfig.theme || 'tealstreet';
+  const gridOpacity = uiConfig.gridOpacity ?? 0.22;
+  const candleOpacity = uiConfig.candleOpacity ?? 1.0;
+  const emaColors = uiConfig.emaColors || ['#38bdf8', '#f59e0b', '#a855f7'];
+  const emaWidth = uiConfig.emaWidth ?? 1.5;
+
+  const palette = theme === 'tiger'
+    ? { bull: '#00f5d4', bear: '#ff2a6d', gridRgb: '0, 229, 255', axis: '#141c2b', tick: '#64748b' }
+    : theme === 'bloomberg'
+    ? { bull: '#00e676', bear: '#ff3d00', gridRgb: '255, 152, 0', axis: '#332400', tick: '#b45309' }
+    : { bull: '#26a69a', bear: '#ef5350', gridRgb: '120, 135, 165', axis: '#161922', tick: '#60697b' };
+
+  const gridColor = `rgba(${palette.gridRgb}, ${gridOpacity})`;
+  const upCol = hexToRgba(palette.bull, candleOpacity);
+  const dnCol = hexToRgba(palette.bear, candleOpacity);
+
+  return {
+    grid: {
+      show: true,
+      horizontal: { color: gridColor, style: 'dash', size: 1, dashedValue: [2, 4] },
+      vertical: { color: gridColor, style: 'dash', size: 1, dashedValue: [2, 4] }
+    },
+    candle: {
+      type: 'candle_solid',
+      bar: {
+        upColor: upCol,
+        downColor: dnCol,
+        noChangeColor: '#787f91',
+        upBorderColor: palette.bull,
+        downBorderColor: palette.bear,
+        noChangeBorderColor: '#787f91',
+        upWickColor: palette.bull,
+        downWickColor: palette.bear,
+        noChangeWickColor: '#787f91'
+      },
+      priceMark: {
+        show: true,
+        high: { show: true, color: palette.tick, textSize: 10 },
+        low: { show: true, color: palette.tick, textSize: 10 },
+        last: {
+          show: true,
+          upColor: palette.bull,
+          downColor: palette.bear,
+          noChangeColor: '#787f91',
+          line: { show: true, style: 'dash', dashedValue: [3, 3], size: 1 },
+          text: { show: true, color: '#ffffff', size: 11, paddingLeft: 4, paddingRight: 4, paddingTop: 2, paddingBottom: 2 }
+        }
+      }
+    },
+    indicator: {
+      bars: [{
+        style: 'fill',
+        borderStyle: 'solid',
+        borderSize: 1,
+        upColor: hexToRgba(palette.bull, 0.28),
+        downColor: hexToRgba(palette.bear, 0.28),
+        noChangeColor: 'rgba(120, 127, 145, 0.25)'
+      }],
+      lines: [
+        { style: 'solid', size: emaWidth, color: emaColors[0] || '#38bdf8' },
+        { style: 'solid', size: emaWidth, color: emaColors[1] || '#f59e0b' },
+        { style: 'solid', size: emaWidth, color: emaColors[2] || '#a855f7' }
+      ]
+    },
+    xAxis: {
+      axisLine: { show: true, color: palette.axis },
+      tickLine: { show: true, color: palette.axis },
+      tickText: { color: palette.tick, size: 10, family: 'var(--font-mono)' }
+    },
+    yAxis: {
+      axisLine: { show: true, color: palette.axis },
+      tickLine: { show: true, color: palette.axis },
+      tickText: { color: palette.tick, size: 10, family: 'var(--font-mono)' }
+    },
+    crosshair: {
+      show: true,
+      horizontal: { show: true, line: { color: '#2a3142', style: 'dash', dashedValue: [3, 3] }, text: { color: '#ffffff', backgroundColor: '#181c26' } },
+      vertical: { show: true, line: { color: '#2a3142', style: 'dash', dashedValue: [3, 3] }, text: { color: '#ffffff', backgroundColor: '#181c26' } }
+    }
+  };
+}
 
 const USER_DRAWING_TYPES = new Set([
   'segment', 'straightLine', 'horizontalStraightLine', 'verticalStraightLine',
@@ -337,7 +406,8 @@ export default function Chart({
   titlePrefix = "", 
   onTimeframeChange,
   backtestSignals = null,
-  showBacktestSignals = true
+  showBacktestSignals = true,
+  uiConfig = null
 }) {
   const chartContainerRef = useRef(null);
   const chartRef = useRef(null);
@@ -356,7 +426,14 @@ export default function Chart({
   const [chartReady, setChartReady] = useState(0);
   const [activeTool, setActiveTool] = useState(null);
   const [magnetEnabled, setMagnetEnabled] = useState(false);
-  const [indicators, setIndicators] = useState({ ema: true, vol: true, rsi: true, macd: true, vwap: false });
+  const [indicators, setIndicators] = useState({
+    ema: uiConfig?.emaEnabled !== false,
+    vol: uiConfig?.subpanes?.vol !== false,
+    cvd: Boolean(uiConfig?.subpanes?.cvd),
+    rsi: Boolean(uiConfig?.subpanes?.rsi),
+    macd: Boolean(uiConfig?.subpanes?.macd),
+    vwap: false
+  });
   const [statusMsg, setStatusMsg] = useState("");
   const [errorDetails, setErrorDetails] = useState(null);
 
@@ -375,7 +452,7 @@ export default function Chart({
   // Context Menu State (Task 6)
   const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0 });
 
-  // Initialize KLineChart instance
+  // Initialize KLineChart instance with ResizeObserver (ТАКТ 1)
   useEffect(() => {
     if (!chartContainerRef.current) return;
     
@@ -387,8 +464,8 @@ export default function Chart({
     chartRef.current = chart;
     window.__chart = chart;
 
-    // Apply custom dark theme
-    chart.setStyles(THEME_STYLES);
+    // Apply initial theme styles
+    chart.setStyles(buildChartStyles(uiConfig || {}));
 
     // Set timezone to Europe/Kyiv
     try {
@@ -397,12 +474,26 @@ export default function Chart({
       console.warn("Timezone set warning:", e);
     }
 
-    // Default indicators: EMA on candles, Volume, RSI, MACD sub-panes
+    // Default indicators based on initial uiConfig
     try {
-      chart.createIndicator('EMA', true, { id: 'candle_pane' });
-      chart.createIndicator('VOL', false);
-      chart.createIndicator('RSI', false);
-      chart.createIndicator('MACD', false);
+      if (uiConfig?.emaEnabled !== false) {
+        chart.createIndicator({
+          name: 'EMA',
+          calcParams: uiConfig?.emaPeriods || [9, 21, 50]
+        }, true, { id: 'candle_pane' });
+      }
+      if (uiConfig?.subpanes?.vol !== false) {
+        chart.createIndicator('VOL', false, { id: 'pane_vol', height: 70 });
+      }
+      if (uiConfig?.subpanes?.cvd) {
+        chart.createIndicator('CVD', false, { id: 'pane_cvd', height: 75 });
+      }
+      if (uiConfig?.subpanes?.rsi) {
+        chart.createIndicator('RSI', false, { id: 'pane_rsi', height: 70 });
+      }
+      if (uiConfig?.subpanes?.macd) {
+        chart.createIndicator('MACD', false, { id: 'pane_macd', height: 75 });
+      }
     } catch (e) {
       console.warn("Indicator init warning:", e);
     }
@@ -417,19 +508,111 @@ export default function Chart({
 
     setChartReady(prev => prev + 1);
 
+    let rafId = null;
     const handleResize = () => {
-      if (chartRef.current) chartRef.current.resize();
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        if (chartRef.current) {
+          try { chartRef.current.resize(); } catch (_) {}
+        }
+      });
     };
+
     window.addEventListener('resize', handleResize);
 
+    // ResizeObserver for Dual-Pane 50/50 split and collapsible panels
+    let ro = null;
+    if (typeof ResizeObserver !== 'undefined' && chartContainerRef.current) {
+      ro = new ResizeObserver(() => handleResize());
+      ro.observe(chartContainerRef.current);
+    }
+
     return () => {
+      if (rafId) cancelAnimationFrame(rafId);
       window.removeEventListener('resize', handleResize);
+      if (ro) ro.disconnect();
       try {
         dispose(chartContainerRef.current);
       } catch (_) {}
       chartRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Dynamically apply uiConfig changes on the fly (theme, opacity, EMA, subpanes, precision)
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !uiConfig) return;
+
+    try {
+      chart.setStyles(buildChartStyles(uiConfig));
+    } catch (_) {}
+
+    // Precision
+    try {
+      if (uiConfig.pricePrecision && uiConfig.pricePrecision !== 'auto') {
+        chart.setPriceVolumePrecision(Number(uiConfig.pricePrecision), 2);
+      } else {
+        const p = symbol.includes('BTC') ? 1 : symbol.includes('ETH') || symbol.includes('SOL') ? 2 : 4;
+        chart.setPriceVolumePrecision(p, 2);
+      }
+    } catch (_) {}
+
+    // Sync EMA
+    try {
+      const wantEma = uiConfig.emaEnabled !== false;
+      const emaLines = (uiConfig.emaColors || ['#38bdf8', '#f59e0b', '#a855f7']).map(color => ({
+        style: 'solid',
+        size: uiConfig.emaWidth ?? 1.5,
+        color
+      }));
+      if (wantEma) {
+        if (!indicators.ema) {
+          chart.createIndicator({
+            name: 'EMA',
+            calcParams: uiConfig.emaPeriods || [9, 21, 50],
+            styles: { lines: emaLines }
+          }, true, { id: 'candle_pane' });
+        } else {
+          chart.overrideIndicator({
+            name: 'EMA',
+            calcParams: uiConfig.emaPeriods || [9, 21, 50],
+            styles: { lines: emaLines }
+          }, 'candle_pane');
+        }
+      } else if (indicators.ema) {
+        chart.removeIndicator('candle_pane', 'EMA');
+      }
+    } catch (_) {}
+
+    // Sync subpanes (VOL, CVD, RSI, MACD)
+    const sp = uiConfig.subpanes || {};
+    const syncPane = (key, indName, paneId, height = 70) => {
+      const want = Boolean(sp[key]);
+      const has = Boolean(indicators[key]);
+      try {
+        if (want && !has) {
+          chart.createIndicator(indName, false, { id: paneId, height });
+        } else if (!want && has) {
+          chart.removeIndicator(paneId, indName);
+        }
+      } catch (_) {}
+    };
+    syncPane('vol', 'VOL', 'pane_vol', 70);
+    syncPane('cvd', 'CVD', 'pane_cvd', 75);
+    syncPane('rsi', 'RSI', 'pane_rsi', 70);
+    syncPane('macd', 'MACD', 'pane_macd', 75);
+
+    setIndicators(prev => ({
+      ...prev,
+      ema: uiConfig.emaEnabled !== false,
+      vol: Boolean(sp.vol),
+      cvd: Boolean(sp.cvd),
+      rsi: Boolean(sp.rsi),
+      macd: Boolean(sp.macd)
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uiConfig, symbol]);
 
   // Save drawings for a specific symbol/timeframe (e.g. before coin switch)
   const saveDrawingsFor = useCallback((targetSymbol, targetTimeframe) => {
@@ -1064,30 +1247,44 @@ export default function Chart({
     
     if (name === 'rsi') {
       if (indicators.rsi) {
-        chart.removeIndicator({ name: 'RSI' });
+        try { chart.removeIndicator('pane_rsi', 'RSI'); } catch (_) {}
+        try { chart.removeIndicator({ name: 'RSI' }); } catch (_) {}
       } else {
-        chart.createIndicator('RSI', false);
+        chart.createIndicator('RSI', false, { id: 'pane_rsi', height: 70 });
       }
       setIndicators(prev => ({ ...prev, rsi: !prev.rsi }));
     } else if (name === 'macd') {
       if (indicators.macd) {
-        chart.removeIndicator({ name: 'MACD' });
+        try { chart.removeIndicator('pane_macd', 'MACD'); } catch (_) {}
+        try { chart.removeIndicator({ name: 'MACD' }); } catch (_) {}
       } else {
-        chart.createIndicator('MACD', false);
+        chart.createIndicator('MACD', false, { id: 'pane_macd', height: 75 });
       }
       setIndicators(prev => ({ ...prev, macd: !prev.macd }));
+    } else if (name === 'cvd') {
+      if (indicators.cvd) {
+        try { chart.removeIndicator('pane_cvd', 'CVD'); } catch (_) {}
+        try { chart.removeIndicator({ name: 'CVD' }); } catch (_) {}
+      } else {
+        chart.createIndicator('CVD', false, { id: 'pane_cvd', height: 75 });
+      }
+      setIndicators(prev => ({ ...prev, cvd: !prev.cvd }));
     } else if (name === 'ema') {
       if (indicators.ema) {
         chart.removeIndicator('candle_pane', 'EMA');
       } else {
-        chart.createIndicator('EMA', true, { id: 'candle_pane' });
+        chart.createIndicator({
+          name: 'EMA',
+          calcParams: uiConfig?.emaPeriods || [9, 21, 50]
+        }, true, { id: 'candle_pane' });
       }
       setIndicators(prev => ({ ...prev, ema: !prev.ema }));
     } else if (name === 'vol') {
       if (indicators.vol) {
-        chart.removeIndicator({ name: 'VOL' });
+        try { chart.removeIndicator('pane_vol', 'VOL'); } catch (_) {}
+        try { chart.removeIndicator({ name: 'VOL' }); } catch (_) {}
       } else {
-        chart.createIndicator('VOL', false);
+        chart.createIndicator('VOL', false, { id: 'pane_vol', height: 70 });
       }
       setIndicators(prev => ({ ...prev, vol: !prev.vol }));
     } else if (name === 'vwap') {
@@ -1127,18 +1324,24 @@ export default function Chart({
   };
 
   return (
-    <div className="flex flex-col h-full w-full bg-[#0c0e12] text-[#d1d4dc] select-none border border-[#161922] overflow-hidden relative font-sans">
-      {/* Top Drawing & Indicator Bar (Tealstreet style: ultra compact, flat, 1px lines) */}
-      <div className="flex items-center justify-between px-2.5 py-1 bg-[#101217] border-b border-[#161922] text-xs">
+    <div
+      style={{ backgroundColor: 'var(--bg-panel)', borderColor: 'var(--border-subtle)', color: 'var(--text-main)' }}
+      className="flex flex-col h-full w-full select-none border overflow-hidden relative font-sans"
+    >
+      {/* Top Drawing & Indicator Bar (Tealstreet/Tiger style: ultra compact, flat, responsive) */}
+      <div
+        style={{ backgroundColor: 'var(--bg-panel-header)', borderColor: 'var(--border-subtle)' }}
+        className="flex items-center justify-between px-2 py-1 border-b text-xs gap-1 overflow-x-auto"
+      >
         {/* Drawing Tools */}
-        <div className="flex items-center space-x-0.5">
+        <div className="flex items-center space-x-0.5 shrink-0">
           {titlePrefix && (
-            <div className="flex items-center space-x-1 mr-1.5 shrink-0 font-mono">
+            <div className="flex items-center space-x-1 mr-1 shrink-0 font-mono">
               <span className="px-1.5 py-0.2 rounded bg-[#182030] text-[#38bdf8] font-bold text-[10px] border border-[#2b3955]">
                 {titlePrefix} ({timeframe})
               </span>
               {onTimeframeChange && (
-                <div className="flex items-center space-x-0.5 ml-1">
+                <div className="flex items-center space-x-0.5 ml-0.5">
                   {["1m", "5m", "15m", "1h"].map(tf => (
                     <button
                       key={tf}
@@ -1156,19 +1359,19 @@ export default function Chart({
           <button 
             title="Трендовая линия (Отрезок)" 
             onClick={() => handleSelectTool('segment')}
-            className={`px-2 py-0.5 rounded text-[11px] font-mono flex items-center transition ${activeTool === 'segment' ? 'bg-[#2563eb] text-white' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'}`}
+            className={`px-1.5 py-0.5 rounded text-[10.5px] font-mono flex items-center transition ${activeTool === 'segment' ? 'bg-[#2563eb] text-white' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'}`}
           >
-            <Minus size={13} className="mr-1" />
-            <span>Линия</span>
+            <Minus size={12} className="mr-0.5" />
+            <span className="hidden 2xl:inline">Линия</span>
           </button>
           
           <button 
             title="Горизонтальный уровень (Price Line)" 
             onClick={() => handleSelectTool('horizontalStraightLine')}
-            className={`px-2 py-0.5 rounded text-[11px] font-mono flex items-center transition ${activeTool === 'horizontalStraightLine' ? 'bg-[#2563eb] text-white' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'}`}
+            className={`px-1.5 py-0.5 rounded text-[10.5px] font-mono flex items-center transition ${activeTool === 'horizontalStraightLine' ? 'bg-[#2563eb] text-white' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'}`}
           >
-            <span className="font-mono text-xs mr-1">—</span>
-            <span>Уровень</span>
+            <span className="font-mono text-xs mr-0.5">—</span>
+            <span className="hidden 2xl:inline">Уровень</span>
           </button>
 
           <button 
@@ -1176,7 +1379,7 @@ export default function Chart({
             onClick={() => handleSelectTool('rayLine')}
             className={`p-1 rounded transition ${activeTool === 'rayLine' ? 'bg-[#2563eb] text-white' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'}`}
           >
-            <MoveRight size={13} />
+            <MoveRight size={12} />
           </button>
 
           <button 
@@ -1184,7 +1387,7 @@ export default function Chart({
             onClick={() => handleSelectTool('rect')}
             className={`p-1 rounded transition ${activeTool === 'rect' ? 'bg-[#2563eb] text-white' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'}`}
           >
-            <Square size={12} />
+            <Square size={11} />
           </button>
 
           <button 
@@ -1192,7 +1395,7 @@ export default function Chart({
             onClick={() => handleSelectTool('fibonacciLine')}
             className={`p-1 rounded transition ${activeTool === 'fibonacciLine' ? 'bg-[#2563eb] text-white' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'}`}
           >
-            <Hash size={12} />
+            <Hash size={11} />
           </button>
 
           <button 
@@ -1200,17 +1403,17 @@ export default function Chart({
             onClick={() => handleSelectTool('measure')}
             className={`p-1 rounded transition ${activeTool === 'measure' ? 'bg-[#2563eb] text-white' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'}`}
           >
-            <Ruler size={13} />
+            <Ruler size={12} />
           </button>
 
-          <div className="h-3.5 w-px bg-[#1f2430] mx-1" />
+          <div className="h-3.5 w-px bg-[#1f2430] mx-0.5" />
 
           <button 
             title={magnetEnabled ? "Магнит включен (к свечам)" : "Магнит выключен"} 
             onClick={() => setMagnetEnabled(!magnetEnabled)}
             className={`p-1 rounded transition ${magnetEnabled ? 'bg-[#26a69a] text-white' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'}`}
           >
-            <Magnet size={13} />
+            <Magnet size={12} />
           </button>
 
           <button 
@@ -1218,7 +1421,7 @@ export default function Chart({
             onClick={handleUndo}
             className="p-1 rounded text-[#787f91] hover:text-[#ff9800] hover:bg-[#ff980018] transition"
           >
-            <RotateCcw size={13} />
+            <RotateCcw size={12} />
           </button>
 
           <button 
@@ -1226,7 +1429,7 @@ export default function Chart({
             onClick={handleClearDrawings}
             className="p-1 rounded text-[#787f91] hover:text-[#ef5350] hover:bg-[#ef535018] transition"
           >
-            <Trash2 size={13} />
+            <Trash2 size={12} />
           </button>
 
           <button 
@@ -1234,18 +1437,12 @@ export default function Chart({
             onClick={saveDrawings}
             className="p-1 rounded text-[#787f91] hover:text-[#26a69a] hover:bg-[#26a69a18] transition"
           >
-            <Save size={13} />
+            <Save size={12} />
           </button>
         </div>
 
         {/* Indicators, Overlays and Storage Status */}
-        <div className="flex items-center space-x-1 font-mono-numbers">
-          {storageInfo.earliest && (
-            <span className="hidden xl:inline text-[#60697b] text-[10px] mr-1.5 px-1.5 py-0.2 rounded bg-[#13161f] border border-[#1c212d]">
-              Данные с {storageInfo.earliest}
-            </span>
-          )}
-
+        <div className="flex items-center space-x-1 font-mono-numbers shrink-0">
           {statusMsg && (
             <span className="text-[#f59e0b] text-[10px] font-mono animate-pulse mr-1">{statusMsg}</span>
           )}
@@ -1257,9 +1454,10 @@ export default function Chart({
               setShowHeatmap(next);
               localStorage.setItem('chart_heatmap', next ? 'true' : 'false');
             }}
-            className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition flex items-center space-x-1 ${showHeatmap ? 'bg-[#ff980022] text-[#ff9800] border border-[#ff980050]' : 'text-[#60697b] hover:text-white'}`}
+            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition flex items-center ${showHeatmap ? 'bg-[#ff980022] text-[#ff9800] border border-[#ff980050]' : 'text-[#60697b] hover:text-white'}`}
           >
-            <span>🔥 Плотности</span>
+            <span>🔥</span>
+            <span className="hidden xl:inline ml-0.5">Плотн.</span>
           </button>
 
           <button 
@@ -1269,44 +1467,53 @@ export default function Chart({
               setShowLiquidations(next);
               localStorage.setItem('chart_liquidations', next ? 'true' : 'false');
             }}
-            className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition flex items-center space-x-1 ${showLiquidations ? 'bg-[#ef535022] text-[#ef5350] border border-[#ef535050]' : 'text-[#60697b] hover:text-white'}`}
+            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition flex items-center ${showLiquidations ? 'bg-[#ef535022] text-[#ef5350] border border-[#ef535050]' : 'text-[#60697b] hover:text-white'}`}
           >
-            <span>💥 Ликвидации</span>
+            <span>💥</span>
+            <span className="hidden xl:inline ml-0.5">Ликв.</span>
           </button>
 
           <div className="h-3 w-px bg-[#1f2430] mx-0.5" />
 
           <button 
             onClick={() => toggleIndicator('vwap')}
-            className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition ${showVwap ? 'bg-[#1e293b] text-[#ffb300] border border-[#ffb30050]' : 'text-[#60697b] hover:text-white'}`}
+            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition ${showVwap ? 'bg-[#1e293b] text-[#ffb300] border border-[#ffb30050]' : 'text-[#60697b] hover:text-white'}`}
           >
             VWAP
           </button>
 
           <button 
             onClick={() => toggleIndicator('ema')}
-            className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition ${indicators.ema ? 'bg-[#1e293b] text-[#38bdf8] border border-[#38bdf840]' : 'text-[#60697b] hover:text-white'}`}
+            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition ${indicators.ema ? 'bg-[#1e293b] text-[#38bdf8] border border-[#38bdf840]' : 'text-[#60697b] hover:text-white'}`}
           >
             EMA
           </button>
 
           <button 
             onClick={() => toggleIndicator('vol')}
-            className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition ${indicators.vol ? 'bg-[#1e293b] text-[#26a69a] border border-[#26a69a40]' : 'text-[#60697b] hover:text-white'}`}
+            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition ${indicators.vol ? 'bg-[#1e293b] text-[#26a69a] border border-[#26a69a40]' : 'text-[#60697b] hover:text-white'}`}
           >
             VOL
           </button>
 
           <button 
+            onClick={() => toggleIndicator('cvd')}
+            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition ${indicators.cvd ? 'bg-[#1e293b] text-[#00e5ff] border border-[#00e5ff40]' : 'text-[#60697b] hover:text-white'}`}
+            title="Кумулятивная дельта объёма (CVD)"
+          >
+            CVD
+          </button>
+
+          <button 
             onClick={() => toggleIndicator('rsi')}
-            className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition ${indicators.rsi ? 'bg-[#1e293b] text-[#a855f7] border border-[#a855f740]' : 'text-[#60697b] hover:text-white'}`}
+            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition ${indicators.rsi ? 'bg-[#1e293b] text-[#a855f7] border border-[#a855f740]' : 'text-[#60697b] hover:text-white'}`}
           >
             RSI
           </button>
           
           <button 
             onClick={() => toggleIndicator('macd')}
-            className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition ${indicators.macd ? 'bg-[#1e293b] text-[#f59e0b] border border-[#f59e0b40]' : 'text-[#60697b] hover:text-white'}`}
+            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition ${indicators.macd ? 'bg-[#1e293b] text-[#f59e0b] border border-[#f59e0b40]' : 'text-[#60697b] hover:text-white'}`}
           >
             MACD
           </button>

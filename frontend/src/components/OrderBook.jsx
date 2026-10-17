@@ -12,15 +12,26 @@ const DENSITY_PALETTES = {
   purple: { bg: 'rgba(213, 0, 249, 0.18)', border: '#d500f9', text: '#d500f9' }
 };
 
-export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
+export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert, uiConfig = null }) {
   const [bids, setBids] = useState([]);
   const [asks, setAsks] = useState([]);
   const [volumeMode, setVolumeMode] = useState("USDT"); // "USDT" or "COIN"
-  const [densityThresholdUsd, setDensityThresholdUsd] = useState(50000); // $50k default
+  const [densityThresholdUsd, setDensityThresholdUsd] = useState(uiConfig?.densityThresholdUsd || 50000); // $50k default
   const [densityColor, setDensityColor] = useState("gold");
-  const [tickMultiplier, setTickMultiplier] = useState(1); // 1, 2, 5, 10, 50, 100
+  const [tickMultiplier, setTickMultiplier] = useState(uiConfig?.tickStep || 1); // 1, 2, 5, 10, 50, 100
   const [levelCount, setLevelCount] = useState(20); // 15, 20, 30, 50
   const [displayMode, setDisplayMode] = useState("both"); // "both", "numbers", "bars", "heatmap"
+  const wallLifetimeSec = uiConfig?.wallLifetimeSec || 60;
+  const spoofDistancePct = uiConfig?.spoofDistancePct ?? 0.35;
+
+  useEffect(() => {
+    if (uiConfig?.densityThresholdUsd != null) {
+      setDensityThresholdUsd(Number(uiConfig.densityThresholdUsd));
+    }
+    if (uiConfig?.tickStep != null) {
+      setTickMultiplier(Number(uiConfig.tickStep));
+    }
+  }, [uiConfig?.densityThresholdUsd, uiConfig?.tickStep]);
   
   // Proximity Settings
   const [minDistanceBps, setMinDistanceBps] = useState(5); // min 5 bps = 0.05%
@@ -147,7 +158,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
       midPrice,
       tradeVolumeMap: tradeVolumeMap.current,
       densityThresholdUsd,
-      spoofDistancePct: 0.35,
+      spoofDistancePct,
       fillRatio: 0.5
     });
 
@@ -203,6 +214,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
     minDistanceBps,
     maxProximityBps,
     cooldownSec,
+    spoofDistancePct,
     symbol,
     onProximityAlert
   ]);
@@ -328,11 +340,17 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
   const spreadPrice = bids[0] && asks[asks.length - 1] ? Math.abs(asks[asks.length - 1].price - bids[0].price).toFixed(2) : "0.00";
 
   return (
-    <div className="flex flex-col h-full bg-[#0c0e12] text-[#d1d4dc] border border-[#161922] overflow-hidden text-xs select-none relative font-sans">
+    <div
+      style={{ backgroundColor: 'var(--bg-panel)', borderColor: 'var(--border-subtle)', color: 'var(--text-main)' }}
+      className="flex flex-col h-full border overflow-hidden text-xs select-none relative font-sans"
+    >
       {/* Header bar (Tealstreet style: clean, flat, high contrast) */}
-      <div className="flex items-center justify-between px-2.5 py-1 bg-[#101217] border-b border-[#161922]">
-        <div className="flex items-center space-x-1 font-bold text-white text-[11px]">
-          <Layers size={13} className="text-[#38bdf8]" />
+      <div
+        style={{ backgroundColor: 'var(--bg-panel-header)', borderColor: 'var(--border-subtle)' }}
+        className="flex items-center justify-between px-2 py-1 border-b"
+      >
+        <div className="flex items-center space-x-1 font-bold text-white text-[11px] shrink-0">
+          <Layers size={12} className="text-[#38bdf8]" />
           <span>Стакан L2</span>
         </div>
 
@@ -342,7 +360,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
             <button
               key={mult}
               onClick={() => setTickMultiplier(mult)}
-              className={`px-1.5 py-0.2 rounded transition ${tickMultiplier === mult ? 'bg-[#2563eb] text-white font-bold' : 'text-[#787f91] hover:text-white'}`}
+              className={`px-1 py-0.2 rounded transition ${tickMultiplier === mult ? 'bg-[#2563eb] text-white font-bold' : 'text-[#787f91] hover:text-white'}`}
               title={`Агрегация шага цены x${mult}`}
             >
               x{mult}
@@ -517,19 +535,19 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
                 key={idx}
                 className={`flex items-center justify-between px-1.5 py-0.2 rounded ${isFilled ? 'bg-[#26a69a14] text-[#26a69a]' : 'bg-[#ef535014] text-[#ef5350]'}`}
               >
-                <span className="flex items-center">
+                <span className="flex items-center truncate">
                   {isFilled ? (
-                    <CheckCircle size={10} className="mr-1 text-[#26a69a]" />
+                    <CheckCircle size={10} className="mr-1 text-[#26a69a] shrink-0" />
                   ) : (
-                    <AlertTriangle size={10} className="mr-1 text-[#ef5350] animate-pulse" />
+                    <AlertTriangle size={10} className="mr-1 text-[#ef5350] animate-pulse shrink-0" />
                   )}
                   {isFilled ? (
-                    <span>Исполнена: ${formatPrice(ev.price)} (${(ev.usd / 1000).toFixed(0)}k съели)</span>
+                    <span className="truncate">Исполнена: ${formatPrice(ev.price)} (${(ev.usd / 1000).toFixed(0)}k)</span>
                   ) : (
-                    <span>Снята: ${formatPrice(ev.price)} (${(ev.usd / 1000).toFixed(0)}k спуф)</span>
+                    <span className="truncate">Снята: ${formatPrice(ev.price)} (${(ev.usd / 1000).toFixed(0)}k спуф)</span>
                   )}
                 </span>
-                <span className="text-[9px] opacity-70">
+                <span className="text-[9px] opacity-70 ml-1 shrink-0">
                   {Math.max(1, Math.floor((Date.now() - ev.time) / 1000))}s
                 </span>
               </div>
@@ -539,7 +557,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
       )}
 
       {/* Column Headers */}
-      <div className="grid grid-cols-3 px-2.5 py-1 text-[10px] text-[#60697b] font-semibold uppercase border-b border-[#161922] bg-[#090b0f] font-mono">
+      <div className="grid grid-cols-3 px-2 py-0.5 text-[9.5px] text-[#60697b] font-semibold uppercase border-b border-[#161922] bg-[#090b0f] font-mono">
         <span>Цена</span>
         <span className="text-right">Объем ({volumeMode})</span>
         <span className="text-right">Жизнь</span>
@@ -556,7 +574,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
             return (
               <div 
                 key={`ask-${idx}`}
-                className={`relative grid grid-cols-3 px-2.5 py-0.5 items-center hover:bg-[#161922] transition-colors ${item.isNear ? 'proximity-alert-pulse' : ''}`}
+                className={`relative grid grid-cols-3 px-2 py-0.5 items-center hover:bg-[#161922] transition-colors ${item.isNear ? 'proximity-alert-pulse' : ''}`}
                 style={item.isDensity ? { backgroundColor: activePalette.bg, borderRight: `3px solid ${activePalette.border}` } : (displayMode === 'heatmap' ? { backgroundColor: `rgba(239, 83, 80, ${Math.min(0.65, 0.05 + (vol / maxVolume) * 0.6)})` } : {})}
               >
                 {/* Visual depth bar */}
@@ -567,7 +585,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
                   />
                 )}
                 
-                <span className="text-[#ef5350] font-semibold z-10 font-mono-numbers">
+                <span style={{ color: 'var(--color-bear)' }} className="font-semibold z-10 font-mono-numbers">
                   {formatPrice(item.price)}
                 </span>
                 
@@ -580,7 +598,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
                     <span className="flex items-center justify-end space-x-0.5 font-bold font-mono">
                       <Clock size={10} className="inline mr-0.5" />
                       {formatLifetime(item.lifetimeSec)}
-                      {item.lifetimeSec >= 60 && (
+                      {item.lifetimeSec >= wallLifetimeSec && (
                         <span className="ml-1 text-[8px] px-1 rounded bg-[#ffb30030] text-[#ffb300]">СТЕНА</span>
                       )}
                     </span>
@@ -596,8 +614,12 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
         </div>
 
         {/* Current Mid Spread Divider */}
-        <div ref={spreadRef} className="py-0.5 px-2.5 bg-[#101217] flex items-center justify-between text-[11px] font-bold border-y border-[#161922]">
-          <span className="text-[#26a69a] text-xs font-mono font-mono-numbers">
+        <div
+          ref={spreadRef}
+          style={{ backgroundColor: 'var(--bg-panel-header)', borderColor: 'var(--border-subtle)' }}
+          className="py-0.5 px-2 flex items-center justify-between text-[11px] font-bold border-y"
+        >
+          <span style={{ color: 'var(--color-bull)' }} className="text-xs font-mono font-mono-numbers">
             {bids[0] ? formatPrice(bids[0].price) : "---"}
           </span>
           <span className="text-[10px] text-[#60697b] font-normal font-mono">
@@ -614,7 +636,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
             return (
               <div 
                 key={`bid-${idx}`}
-                className={`relative grid grid-cols-3 px-2.5 py-0.5 items-center hover:bg-[#161922] transition-colors ${item.isNear ? 'proximity-alert-pulse' : ''}`}
+                className={`relative grid grid-cols-3 px-2 py-0.5 items-center hover:bg-[#161922] transition-colors ${item.isNear ? 'proximity-alert-pulse' : ''}`}
                 style={item.isDensity ? { backgroundColor: activePalette.bg, borderRight: `3px solid ${activePalette.border}` } : (displayMode === 'heatmap' ? { backgroundColor: `rgba(38, 166, 154, ${Math.min(0.65, 0.05 + (vol / maxVolume) * 0.6)})` } : {})}
               >
                 {/* Visual depth bar */}
@@ -625,7 +647,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
                   />
                 )}
 
-                <span className="text-[#26a69a] font-semibold z-10 font-mono-numbers">
+                <span style={{ color: 'var(--color-bull)' }} className="font-semibold z-10 font-mono-numbers">
                   {formatPrice(item.price)}
                 </span>
 
@@ -638,7 +660,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
                     <span className="flex items-center justify-end space-x-0.5 font-bold font-mono">
                       <Clock size={10} className="inline mr-0.5" />
                       {formatLifetime(item.lifetimeSec)}
-                      {item.lifetimeSec >= 60 && (
+                      {item.lifetimeSec >= wallLifetimeSec && (
                         <span className="ml-1 text-[8px] px-1 rounded bg-[#ffb30030] text-[#ffb300]">СТЕНА</span>
                       )}
                     </span>

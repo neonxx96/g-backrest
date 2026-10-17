@@ -41,6 +41,7 @@ async def init_db():
                 "orderbook_volume_mode": "VARCHAR DEFAULT 'both'",
                 "orderbook_tick_scale": "FLOAT DEFAULT 1.0",
                 "theme": "VARCHAR DEFAULT 'tealstreet'",
+                "ui_config": "TEXT DEFAULT '{}'",
             }
             for col_name, col_type in new_cols.items():
                 if col_name not in cols:

@@ -224,3 +224,137 @@ async def run_backtest(req: BacktestRequest):
         "note": "min_density_usd is a turnover proxy (close*volume) for density_bounce; historical L2 not used",
     }
     return build_response(raw, req.initial_capital, meta)
+
+
+class GridSearchRequest(BaseModel):
+    symbol: str = "BTCUSDT"
+    timeframe: str = "5m"
+    days: int = Field(7, ge=1, le=30)
+    strategy_type: str = "delta_absorption"
+    sl_min: float = Field(0.3, gt=0, le=20)
+    sl_max: float = Field(1.0, gt=0, le=20)
+    sl_step: float = Field(0.2, gt=0, le=10)
+    tp_pct: float = Field(1.6, gt=0, le=100)
+    wall_min_usd: float = Field(500000.0, ge=0)
+    wall_max_usd: float = Field(2000000.0, ge=0)
+    wall_step_usd: float = Field(500000.0, gt=0)
+    volume_multiplier: float = Field(1.0, ge=0.5, le=20)
+    leverage: float = Field(2.0, ge=1, le=125)
+    initial_capital: float = Field(10000.0, gt=0)
+
+    model_config = {"extra": "ignore"}
+
+
+def _build_axis(lo: float, hi: float, step: float, max_pts: int = 8) -> List[float]:
+    if hi < lo:
+        lo, hi = hi, lo
+    if step <= 0 or abs(hi - lo) < 1e-9:
+        return [round(lo, 4)]
+    vals = []
+    cur = lo
+    while cur <= hi + 1e-7 and len(vals) < max_pts:
+        vals.append(round(cur, 4))
+        cur += step
+    return vals or [round(lo, 4)]
+
+
+def _run_grid_sync(df: pd.DataFrame, req: GridSearchRequest) -> Dict[str, Any]:
+    sl_vals = _build_axis(req.sl_min, req.sl_max, req.sl_step, max_pts=8)
+    wall_vals = _build_axis(req.wall_min_usd, req.wall_max_usd, req.wall_step_usd, max_pts=6)
+
+    engine = OrderFlowBacktester(initial_capital=req.initial_capital)
+    enriched_df = engine.calculate_indicators(df) if len(df) >= 60 else df
+    rows: List[Dict[str, Any]] = []
+    best_raw: Optional[Dict[str, Any]] = None
+    best_key = (-1e18, -1e18)
+    best_params: Dict[str, Any] = {}
+
+    for sl in sl_vals:
+        for wall_usd in wall_vals:
+            raw = engine.run_backtest(
+                enriched_df,
+                req.strategy_type,
+                req.tp_pct,
+                sl,
+                False,
+                0.5,
+                float(req.leverage),
+                100000.0,
+                req.volume_multiplier,
+                wall_usd,
+            )
+            if "error" in raw:
+                continue
+            eq = raw.get("equity_curve", [])
+            sharpe = round(_sharpe(eq), 2)
+            pnl_pct = float(raw.get("roi_pct", 0.0))
+            pf = float(raw.get("profit_factor", 0.0))
+            if pf >= 999.0:
+                pf = 999.0
+            total_trades = int(raw.get("total_trades", 0))
+            row = {
+                "stop_loss_pct": sl,
+                "take_profit_pct": req.tp_pct,
+                "min_density_usd": wall_usd,
+                "volume_multiplier": req.volume_multiplier,
+                "leverage": req.leverage,
+                "total_pnl_pct": round(pnl_pct, 2),
+                "win_rate_pct": round(float(raw.get("win_rate_pct", 0.0)), 2),
+                "profit_factor": round(pf, 2),
+                "max_drawdown_pct": round(float(raw.get("max_drawdown_pct", 0.0)), 2),
+                "total_trades": total_trades,
+                "winning_trades": int(raw.get("wins_count", 0)),
+                "losing_trades": int(raw.get("losses_count", 0)),
+                "sharpe_ratio": sharpe,
+            }
+            rows.append(row)
+            # Rank combinations with >=1 trade above 0-trade combinations
+            has_trades = 1 if total_trades > 0 else 0
+            cand_key = (has_trades, sharpe, pnl_pct)
+            if best_raw is None or cand_key > (1 if best_params.get("total_trades", 0) > 0 else 0, best_key[0], best_key[1]):
+                best_raw = raw
+                best_key = (sharpe, pnl_pct)
+                best_params = row
+
+    rows.sort(key=lambda r: (1 if r["total_trades"] > 0 else 0, r["sharpe_ratio"], r["total_pnl_pct"]), reverse=True)
+    for idx, r in enumerate(rows, start=1):
+        r["rank"] = idx
+
+    return {"rows": rows, "best_raw": best_raw, "best_params": best_params}
+
+
+@backtest_router.post("/optimize")
+async def optimize_backtest(req: GridSearchRequest):
+    symbol = req.symbol.strip().upper()
+    if req.timeframe not in TF_MINUTES:
+        raise HTTPException(status_code=422, detail=f"timeframe must be one of {list(TF_MINUTES)}")
+    if req.strategy_type not in STRATEGIES:
+        raise HTTPException(status_code=422, detail=f"strategy_type must be one of {sorted(STRATEGIES)}")
+
+    try:
+        df = await fetch_history(symbol, req.timeframe, req.days)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"History load failed: {e}")
+    if df.empty:
+        raise HTTPException(status_code=400, detail=f"No candles for {symbol}")
+
+    out = await asyncio.to_thread(_run_grid_sync, df, req)
+    rows = out["rows"]
+    best_raw = out["best_raw"] or {"trades": [], "equity_curve": []}
+
+    meta = {
+        "symbol": symbol,
+        "timeframe": req.timeframe,
+        "strategy_type": req.strategy_type,
+        "candles": int(len(df)),
+        "from_time": int(df["timestamp"].iloc[0]),
+        "to_time": int(df["timestamp"].iloc[-1]),
+        "requested_days": req.days,
+        "mode": "grid",
+        "combinations_tested": len(rows),
+        "best_params": out["best_params"],
+    }
+    resp = build_response(best_raw, req.initial_capital, meta)
+    resp["grid_results"] = _clean(rows)
+    return resp
+
