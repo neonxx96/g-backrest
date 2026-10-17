@@ -95,9 +95,16 @@ export default function SignalsFeed({ onSelectSignal }) {
                     </span>
                   </div>
 
-                  <span className={`px-1.5 py-0.2 rounded text-[9px] font-semibold border ${badgeClass} font-mono`}>
-                    {sig.direction || sig.condition_type}
-                  </span>
+                  <div className="flex items-center space-x-1">
+                    {sig.normalized_metric && (
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-[#1e293b] text-[#38bdf8] border border-[#38bdf840]">
+                        {sig.normalized_metric}
+                      </span>
+                    )}
+                    <span className={`px-1.5 py-0.2 rounded text-[9px] font-semibold border ${badgeClass} font-mono`}>
+                      {sig.direction || sig.condition_type}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="text-[11px] text-[#94a3b8] leading-tight">

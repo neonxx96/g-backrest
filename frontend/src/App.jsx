@@ -42,6 +42,20 @@ export default function App() {
   const [showHotkeyHelp, setShowHotkeyHelp] = useState(false);
   const [isMuted, setIsMuted] = useState(() => soundManager.isMuted);
 
+  // Dual theme state (Tealstreet / Bloomberg) (Stage 3, Task 7)
+  const [theme, setTheme] = useState(() => {
+    return localStorage.getItem('signalscript_theme') || 'tealstreet';
+  });
+
+  useEffect(() => {
+    if (theme === 'bloomberg') {
+      document.documentElement.setAttribute('data-theme', 'bloomberg');
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+    localStorage.setItem('signalscript_theme', theme);
+  }, [theme]);
+
   // Resizable sidebar state
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem('terminal_sidebar_width');
@@ -88,11 +102,18 @@ export default function App() {
     window.addEventListener('mouseup', onMouseUp);
   }, []);
 
-  // Global Hotkeys (Task 5)
+  // Global Hotkeys (Task 5 & Space Recenter)
   useEffect(() => {
     const handleKeyDown = (e) => {
       // Ignore hotkeys when typing in search or input fields
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+      // Space hotkey: Recenter chart and orderbook on current price
+      if (e.code === 'Space') {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('recenter-market-price'));
+        return;
+      }
 
       // Timeframe via numbers
       if (e.key === '1') setTimeframe('1m');
@@ -270,6 +291,15 @@ export default function App() {
             <span>Сигналы [S]</span>
           </button>
 
+          {/* Theme Switcher Button (Tealstreet / Bloomberg) */}
+          <button
+            onClick={() => setTheme(t => t === 'tealstreet' ? 'bloomberg' : 'tealstreet')}
+            className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition ${theme === 'bloomberg' ? 'bg-[#ff9800] text-black font-bold border-[#ff9800]' : 'text-[#787f91] border-[#1f2430] hover:text-white bg-[#101217]'}`}
+            title="Переключить тему оформления (Tealstreet / Bloomberg)"
+          >
+            <span>{theme === 'bloomberg' ? '⚡ BBG' : '🌙 TEAL'}</span>
+          </button>
+
           {/* Settings Modal */}
           <button
             onClick={() => setShowSettings(true)}
@@ -370,6 +400,10 @@ export default function App() {
               <div className="flex justify-between py-0.5 border-b border-[#13161f]">
                 <span className="text-[#787f91]">Лента сигналов:</span>
                 <span className="text-white font-bold">S (вкл / выкл)</span>
+              </div>
+              <div className="flex justify-between py-0.5 border-b border-[#13161f]">
+                <span className="text-[#787f91]">Центрировать цену:</span>
+                <span className="text-white font-bold">Space (Пробел)</span>
               </div>
               <div className="flex justify-between py-0.5 border-b border-[#13161f]">
                 <span className="text-[#787f91]">Удалить рисунок:</span>

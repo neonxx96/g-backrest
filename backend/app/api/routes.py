@@ -3,6 +3,7 @@ FastAPI REST API Routes
 Provides endpoints for settings, signals, klines, drawings, and manual scans.
 """
 
+import json
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -11,9 +12,11 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.db.database import get_db
-from backend.app.db.models import UserSetting, SignalHistory, DrawingData
+from backend.app.db.models import UserSetting, SignalHistory, DrawingData, LiquidationEvent
 from backend.app.services.binance_service import binance_service
 from backend.app.services.scanner import scanner
+from backend.app.services.recorder import recorder
+from backend.app.services.indicators.registry import registry
 from backend.app.services.bot import broadcast_signal
 from backend.app.utils import format_kyiv
 
@@ -44,6 +47,19 @@ class SettingsSchema(BaseModel):
     atr_filter_enabled: bool = False
     cooldown_minutes: int = 30
     notifications_enabled: bool = True
+
+    # Stage 3 additions
+    heatmap_enabled: bool = True
+    heatmap_min_usd: float = 100000.0
+    storage_max_gb: float = 100.0
+    storage_retention_days: int = 14
+    storage_path: str = "data/recorded"
+    normalization_mode: str = "raw"
+    coin_overrides: str = "{}"
+    orderbook_levels: int = 20
+    orderbook_volume_mode: str = "both"
+    orderbook_tick_scale: float = 1.0
+    theme: str = "tealstreet"
 
 class DrawingSaveSchema(BaseModel):
     user_id: str = "0"
@@ -106,6 +122,7 @@ async def get_signals(limit: int = Query(50), db: AsyncSession = Depends(get_db)
             "condition_type": r.condition_type,
             "direction": r.direction,
             "description": r.description,
+            "normalized_metric": getattr(r, "normalized_metric", None),
             "created_at": format_kyiv(r.created_at)
         }
         for r in records
@@ -184,3 +201,69 @@ async def run_scan_now():
     for sig in signals:
         await broadcast_signal(sig)
     return {"found": len(signals), "signals": signals}
+
+@router.get("/liquidations")
+async def get_liquidations(
+    symbol: str = Query("BTCUSDT"),
+    min_usd: float = Query(0.0),
+    limit: int = Query(100),
+    db: AsyncSession = Depends(get_db)
+):
+    """Returns recent liquidation events filtered by symbol and minimum USD threshold."""
+    stmt = select(LiquidationEvent).where(
+        LiquidationEvent.symbol == symbol.upper(),
+        LiquidationEvent.usd_amount >= min_usd
+    ).order_by(LiquidationEvent.timestamp.desc()).limit(limit)
+    res = await db.execute(stmt)
+    records = res.scalars().all()
+    return [
+        {
+            "id": r.id,
+            "symbol": r.symbol,
+            "side": r.side,  # BUY (short liq) or SELL (long liq)
+            "price": r.price,
+            "quantity": r.quantity,
+            "usd_amount": r.usd_amount,
+            "timestamp": int(r.timestamp.timestamp() * 1000)
+        }
+        for r in records
+    ]
+
+@router.get("/heatmap")
+async def get_heatmap(
+    symbol: str = Query("BTCUSDT"),
+    min_usd: float = Query(50000.0),
+    limit: int = Query(400)
+):
+    """Returns historical orderbook density levels for chart heatmap overlay."""
+    return recorder.get_heatmap_data(symbol=symbol.upper(), min_usd=min_usd, limit=limit)
+
+@router.get("/indicators")
+async def get_indicators():
+    """Returns metadata and schemas of all modular indicator plugins."""
+    return registry.list_indicators()
+
+@router.get("/settings/coins")
+async def get_coin_settings(user_id: str = "0", db: AsyncSession = Depends(get_db)):
+    """Returns JSON dictionary of coin-specific indicator overrides."""
+    res = await db.execute(select(UserSetting).where(UserSetting.user_id == user_id))
+    setting = res.scalar_one_or_none()
+    raw = setting.coin_overrides if setting and setting.coin_overrides else "{}"
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {}
+
+@router.post("/settings/coins")
+async def save_coin_settings(payload: Dict[str, Any], user_id: str = "0", db: AsyncSession = Depends(get_db)):
+    """Saves per-coin overrides dictionary into UserSetting."""
+    res = await db.execute(select(UserSetting).where(UserSetting.user_id == user_id))
+    setting = res.scalar_one_or_none()
+    if not setting:
+        setting = UserSetting(user_id=user_id)
+        db.add(setting)
+    setting.coin_overrides = json.dumps(payload)
+    setting.updated_at = datetime.utcnow()
+    await db.commit()
+    return {"status": "saved", "coin_overrides": payload}
+

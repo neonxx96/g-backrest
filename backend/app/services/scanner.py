@@ -98,22 +98,34 @@ class MarketScanner:
         # 4. Check candidates on TF indicators & OI & Liquidations
         new_signals = []
 
+        # Parse per-coin overrides
+        import json
+        try:
+            coin_overrides = json.loads(setting.coin_overrides) if setting.coin_overrides else {}
+        except Exception:
+            coin_overrides = {}
+
+        norm_mode = getattr(setting, 'normalization_mode', 'raw') or 'raw'
+
         # Limit concurrent kline fetches to avoid rate limit spikes
         semaphore = asyncio.Semaphore(10)
 
         async def inspect_candidate(cand: Dict[str, Any]):
             sym = cand['symbol']
+            coin_cfg = coin_overrides.get(sym, {})
             
             # Check 24h OI change if enabled
             if setting.oi_change_enabled:
                 oi_chg = await binance_service.fetch_open_interest_24h_change(sym)
-                if abs(oi_chg) < setting.oi_change_min:
+                min_oi = float(coin_cfg.get('oi_change_min', setting.oi_change_min))
+                if abs(oi_chg) < min_oi:
                     return
 
             # Check 24h Liquidations if enabled
             if setting.liquidation_enabled:
                 liq_usd = await binance_service.get_24h_liquidations_sum(sym)
-                if liq_usd < setting.liquidation_min_usd:
+                min_liq = float(coin_cfg.get('liquidation_min_usd', setting.liquidation_min_usd))
+                if liq_usd < min_liq:
                     return
 
             # Fetch klines for indicator analysis
@@ -127,53 +139,71 @@ class MarketScanner:
             if df.empty or len(df) < 20:
                 return
 
-            df = compute_indicators(df)
+            eff_ema_period = int(coin_cfg.get('ema_period', 20))
+            df = compute_indicators(df, overrides={'ema': {'period': eff_ema_period}})
             last_price = cand['last_price']
             
             # --- Check Indicator Triggers ---
             
-            # A. EMA 20 Cross
+            # A. EMA Cross
             if setting.ema_cross_enabled:
                 cross = check_ema20_cross(df)
                 if cross and not self.is_in_cooldown(sym, "EMA_CROSS", setting.cooldown_minutes):
                     self.update_cooldown(sym, "EMA_CROSS")
+                    col = f"ema_{eff_ema_period}" if f"ema_{eff_ema_period}" in df.columns else "ema_20"
+                    diff = df['close'] - df[col]
+                    norm_diff = normalize_series(diff, mode=norm_mode, atr_series=df.get('atr'))
+                    norm_display = format_normalized_display(float(norm_diff.iloc[-1]), norm_mode)
+
                     new_signals.append({
                         'symbol': sym,
                         'timeframe': setting.timeframe,
                         'price': last_price,
                         'condition_type': 'EMA_CROSS',
                         'direction': cross,
-                        'description': f"Свеча пересекла EMA(20) снизу вверх ({cross})" if cross == 'BULLISH' else f"Свеча пересекла EMA(20) сверху вниз ({cross})"
+                        'description': f"Свеча пересекла EMA({eff_ema_period}) снизу вверх ({cross})" if cross == 'BULLISH' else f"Свеча пересекла EMA({eff_ema_period}) сверху вниз ({cross})",
+                        'normalized_metric': norm_display
                     })
 
             # B. Volume Spike
             if setting.vol_spike_enabled:
-                if check_volume_spike(df, setting.vol_spike_mult):
+                eff_vol_mult = float(coin_cfg.get('vol_spike_mult', setting.vol_spike_mult))
+                if check_volume_spike(df, eff_vol_mult):
                     if not self.is_in_cooldown(sym, "VOL_SPIKE", setting.cooldown_minutes):
                         self.update_cooldown(sym, "VOL_SPIKE")
                         vol_r = round(df.iloc[-1]['vol_ratio'], 1)
+                        norm_vol = normalize_series(df['vol_ratio'], mode=norm_mode)
+                        norm_display = format_normalized_display(float(norm_vol.iloc[-1]), norm_mode)
+
                         new_signals.append({
                             'symbol': sym,
                             'timeframe': setting.timeframe,
                             'price': last_price,
                             'condition_type': 'VOL_SPIKE',
                             'direction': 'ALERT',
-                            'description': f"Всплеск объема в {vol_r}x выше среднего MA20"
+                            'description': f"Всплеск объема в {vol_r}x выше среднего MA",
+                            'normalized_metric': norm_display
                         })
 
             # C. RSI Extreme
             if setting.rsi_filter_enabled:
-                rsi_state = check_rsi_condition(df, setting.rsi_min, setting.rsi_max)
+                eff_rsi_min = float(coin_cfg.get('rsi_min', setting.rsi_min))
+                eff_rsi_max = float(coin_cfg.get('rsi_max', setting.rsi_max))
+                rsi_state = check_rsi_condition(df, eff_rsi_min, eff_rsi_max)
                 if rsi_state and not self.is_in_cooldown(sym, "RSI_EXTREME", setting.cooldown_minutes):
                     self.update_cooldown(sym, "RSI_EXTREME")
                     rsi_val = round(df.iloc[-1]['rsi'], 1)
+                    norm_rsi = normalize_series(df['rsi'], mode=norm_mode)
+                    norm_display = format_normalized_display(float(norm_rsi.iloc[-1]), norm_mode)
+
                     new_signals.append({
                         'symbol': sym,
                         'timeframe': setting.timeframe,
                         'price': last_price,
                         'condition_type': 'RSI_EXTREME',
                         'direction': 'OVERSOLD' if rsi_state == 'OVERSOLD' else 'OVERBOUGHT',
-                        'description': f"RSI вышел в экстремальную зону ({rsi_val})"
+                        'description': f"RSI вышел в экстремальную зону ({rsi_val})",
+                        'normalized_metric': norm_display
                     })
 
             # D. CVD Divergence
@@ -181,19 +211,24 @@ class MarketScanner:
                 cvd_div = check_cvd_divergence(df)
                 if cvd_div and not self.is_in_cooldown(sym, "CVD_DIV", setting.cooldown_minutes):
                     self.update_cooldown(sym, "CVD_DIV")
+                    norm_cvd = normalize_series(df['cvd'], mode=norm_mode)
+                    norm_display = format_normalized_display(float(norm_cvd.iloc[-1]), norm_mode)
+
                     new_signals.append({
                         'symbol': sym,
                         'timeframe': setting.timeframe,
                         'price': last_price,
                         'condition_type': 'CVD_DIV',
                         'direction': cvd_div,
-                        'description': f"Дивергенция кумулятивной дельты ({cvd_div})"
+                        'description': f"Дивергенция кумулятивной дельты ({cvd_div})",
+                        'normalized_metric': norm_display
                     })
 
             # E. ATR Volatility Spike
             if setting.atr_filter_enabled:
                 atr_pct = float(df.iloc[-1].get('atr_pct', 0.0))
-                if atr_pct >= setting.atr_volatility_min_pct:
+                min_atr = float(coin_cfg.get('atr_volatility_min_pct', setting.atr_volatility_min_pct))
+                if atr_pct >= min_atr:
                     if not self.is_in_cooldown(sym, "ATR_VOLATILITY", setting.cooldown_minutes):
                         self.update_cooldown(sym, "ATR_VOLATILITY")
                         new_signals.append({
@@ -202,8 +237,27 @@ class MarketScanner:
                             'price': last_price,
                             'condition_type': 'ATR_VOLATILITY',
                             'direction': 'VOLATILE',
-                            'description': f"Всплеск волатильности: ATR {atr_pct:.2f}% от цены"
+                            'description': f"Всплеск волатильности: ATR {atr_pct:.2f}% от цены",
+                            'normalized_metric': f"{atr_pct:.1f}% ATR"
                         })
+
+            # F. VWAP Trigger
+            from backend.app.services.indicators import check_vwap_signal
+            eff_vwap_thresh = float(coin_cfg.get('vwap_deviation_pct', 1.5))
+            vwap_sig = check_vwap_signal(df, deviation_threshold_pct=eff_vwap_thresh)
+            if vwap_sig and not self.is_in_cooldown(sym, vwap_sig['condition_type'], setting.cooldown_minutes):
+                self.update_cooldown(sym, vwap_sig['condition_type'])
+                norm_vwap = normalize_series(df['vwap_deviation_pct'], mode=norm_mode)
+                norm_display = format_normalized_display(float(norm_vwap.iloc[-1]), norm_mode)
+                new_signals.append({
+                    'symbol': sym,
+                    'timeframe': setting.timeframe,
+                    'price': last_price,
+                    'condition_type': vwap_sig['condition_type'],
+                    'direction': vwap_sig['direction'],
+                    'description': vwap_sig['description'],
+                    'normalized_metric': norm_display
+                })
 
         # Run tasks for candidates
         tasks = [inspect_candidate(c) for c in candidates[:60]] # process top candidates
@@ -220,6 +274,7 @@ class MarketScanner:
                         condition_type=sig['condition_type'],
                         direction=sig['direction'],
                         description=sig['description'],
+                        normalized_metric=sig.get('normalized_metric'),
                         created_at=datetime.utcnow()
                     )
                     db.add(record)

@@ -18,7 +18,9 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
   const [volumeMode, setVolumeMode] = useState("USDT"); // "USDT" or "COIN"
   const [densityThresholdUsd, setDensityThresholdUsd] = useState(50000); // $50k default
   const [densityColor, setDensityColor] = useState("gold");
-  const [tickMultiplier, setTickMultiplier] = useState(1); // 1, 10, 100 (Price Tick Aggregator)
+  const [tickMultiplier, setTickMultiplier] = useState(1); // 1, 2, 5, 10, 50, 100
+  const [levelCount, setLevelCount] = useState(20); // 15, 20, 30, 50
+  const [displayMode, setDisplayMode] = useState("both"); // "both", "numbers", "bars", "heatmap"
   
   // Proximity Settings
   const [minDistanceBps, setMinDistanceBps] = useState(5); // min 5 bps = 0.05%
@@ -28,6 +30,9 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
   const [refreshRateMs, setRefreshRateMs] = useState(100); // 100ms, 500ms, 1000ms
   const [showSettings, setShowSettings] = useState(false);
   const [recentOrderflowEvents, setRecentOrderflowEvents] = useState([]);
+
+  // Recenter spread ref
+  const spreadRef = useRef(null);
 
   // Stateful tracking refs
   const levelLifetimes = useRef(new Map());
@@ -188,11 +193,12 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
       }
     }
 
-    setAsks(parsedAsks);
-    setBids(parsedBids);
+    setAsks(parsedAsks.slice(-levelCount));
+    setBids(parsedBids.slice(0, levelCount));
   }, [
     densityThresholdUsd,
     tickMultiplier,
+    levelCount,
     baseTick,
     minDistanceBps,
     maxProximityBps,
@@ -200,6 +206,17 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
     symbol,
     onProximityAlert
   ]);
+
+  // Center spread on Space hotkey
+  useEffect(() => {
+    const handleRecenter = () => {
+      if (spreadRef.current) {
+        spreadRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+    };
+    window.addEventListener('recenter-market-price', handleRecenter);
+    return () => window.removeEventListener('recenter-market-price', handleRecenter);
+  }, []);
 
   // Initial snapshot and WebSocket subscriptions (Depth + AggTrade)
   useEffect(() => {
@@ -434,6 +451,59 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
               ))}
             </div>
           </div>
+
+          {/* TigerTrade Step 6 Controls */}
+          <div className="pt-1 border-t border-[#1b212f] space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[#787f91]">Сжатие тиков:</span>
+              <div className="flex space-x-1">
+                {[1, 2, 5, 10, 50, 100].map(mult => (
+                  <button
+                    key={mult}
+                    onClick={() => setTickMultiplier(mult)}
+                    className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition ${tickMultiplier === mult ? 'bg-[#2563eb] text-white font-bold' : 'bg-[#08090c] text-[#787f91] hover:text-white'}`}
+                  >
+                    x{mult}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="text-[#787f91]">Уровней стакана:</span>
+              <div className="flex space-x-1">
+                {[15, 20, 30, 50].map(cnt => (
+                  <button
+                    key={cnt}
+                    onClick={() => setLevelCount(cnt)}
+                    className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition ${levelCount === cnt ? 'bg-[#2563eb] text-white font-bold' : 'bg-[#08090c] text-[#787f91] hover:text-white'}`}
+                  >
+                    {cnt}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="text-[#787f91]">Режим отображения:</span>
+              <div className="flex space-x-1">
+                {[
+                  { id: 'both', label: 'Все' },
+                  { id: 'numbers', label: 'Числа' },
+                  { id: 'bars', label: 'Бары' },
+                  { id: 'heatmap', label: 'Тепло' },
+                ].map(m => (
+                  <button
+                    key={m.id}
+                    onClick={() => setDisplayMode(m.id)}
+                    className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition ${displayMode === m.id ? 'bg-[#ff9800] text-black font-bold' : 'bg-[#08090c] text-[#787f91] hover:text-white'}`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -487,19 +557,21 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
               <div 
                 key={`ask-${idx}`}
                 className={`relative grid grid-cols-3 px-2.5 py-0.5 items-center hover:bg-[#161922] transition-colors ${item.isNear ? 'proximity-alert-pulse' : ''}`}
-                style={item.isDensity ? { backgroundColor: activePalette.bg, borderRight: `3px solid ${activePalette.border}` } : {}}
+                style={item.isDensity ? { backgroundColor: activePalette.bg, borderRight: `3px solid ${activePalette.border}` } : (displayMode === 'heatmap' ? { backgroundColor: `rgba(239, 83, 80, ${Math.min(0.65, 0.05 + (vol / maxVolume) * 0.6)})` } : {})}
               >
                 {/* Visual depth bar */}
-                <div 
-                  className="absolute right-0 top-0 bottom-0 bg-[#ef535016] pointer-events-none"
-                  style={{ width: `${barWidth}%` }}
-                />
+                {(displayMode === 'both' || displayMode === 'bars') && (
+                  <div 
+                    className="absolute right-0 top-0 bottom-0 bg-[#ef535016] pointer-events-none"
+                    style={{ width: `${barWidth}%` }}
+                  />
+                )}
                 
                 <span className="text-[#ef5350] font-semibold z-10 font-mono-numbers">
                   {formatPrice(item.price)}
                 </span>
                 
-                <span className="text-right text-[#d1d4dc] z-10 font-mono-numbers">
+                <span className={`text-right text-[#d1d4dc] z-10 font-mono-numbers ${displayMode === 'bars' ? 'opacity-0' : ''}`}>
                   {volumeMode === "USDT" ? `$${(item.usd / 1000).toFixed(1)}k` : item.qty.toFixed(2)}
                 </span>
                 
@@ -524,7 +596,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
         </div>
 
         {/* Current Mid Spread Divider */}
-        <div className="py-0.5 px-2.5 bg-[#101217] flex items-center justify-between text-[11px] font-bold border-y border-[#161922]">
+        <div ref={spreadRef} className="py-0.5 px-2.5 bg-[#101217] flex items-center justify-between text-[11px] font-bold border-y border-[#161922]">
           <span className="text-[#26a69a] text-xs font-mono font-mono-numbers">
             {bids[0] ? formatPrice(bids[0].price) : "---"}
           </span>
@@ -543,19 +615,21 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert }) {
               <div 
                 key={`bid-${idx}`}
                 className={`relative grid grid-cols-3 px-2.5 py-0.5 items-center hover:bg-[#161922] transition-colors ${item.isNear ? 'proximity-alert-pulse' : ''}`}
-                style={item.isDensity ? { backgroundColor: activePalette.bg, borderRight: `3px solid ${activePalette.border}` } : {}}
+                style={item.isDensity ? { backgroundColor: activePalette.bg, borderRight: `3px solid ${activePalette.border}` } : (displayMode === 'heatmap' ? { backgroundColor: `rgba(38, 166, 154, ${Math.min(0.65, 0.05 + (vol / maxVolume) * 0.6)})` } : {})}
               >
                 {/* Visual depth bar */}
-                <div 
-                  className="absolute right-0 top-0 bottom-0 bg-[#26a69a16] pointer-events-none"
-                  style={{ width: `${barWidth}%` }}
-                />
+                {(displayMode === 'both' || displayMode === 'bars') && (
+                  <div 
+                    className="absolute right-0 top-0 bottom-0 bg-[#26a69a16] pointer-events-none"
+                    style={{ width: `${barWidth}%` }}
+                  />
+                )}
 
                 <span className="text-[#26a69a] font-semibold z-10 font-mono-numbers">
                   {formatPrice(item.price)}
                 </span>
 
-                <span className="text-right text-[#d1d4dc] z-10 font-mono-numbers">
+                <span className={`text-right text-[#d1d4dc] z-10 font-mono-numbers ${displayMode === 'bars' ? 'opacity-0' : ''}`}>
                   {volumeMode === "USDT" ? `$${(item.usd / 1000).toFixed(1)}k` : item.qty.toFixed(2)}
                 </span>
 

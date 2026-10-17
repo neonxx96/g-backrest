@@ -27,6 +27,7 @@ class OrderFlowRecorder:
         self.focus_symbols: List[str] = list(FOCUS_SYMBOLS)
         self.watchlist_symbols: List[str] = list(WATCHLIST_SYMBOLS)
         self.max_storage_gb: float = MAX_STORAGE_GB
+        self.max_retention_days: int = 14
         self.data_dir: Path = RECORDED_DATA_DIR
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -168,12 +169,27 @@ class OrderFlowRecorder:
     def check_and_rotate_storage(self):
         """
         Calculates total size of RECORDED_DATA_DIR.
-        If usage exceeds max_storage_gb, deletes oldest daily Parquet files (FIFO).
+        Prunes files exceeding max_retention_days and enforces max_storage_gb FIFO rotation.
         """
         all_files = list(self.data_dir.glob("*/*.parquet"))
         if not all_files:
             return
 
+        now = time.time()
+        # 1. Retention days purge
+        if self.max_retention_days > 0:
+            retention_cutoff = now - (self.max_retention_days * 86400)
+            for f in list(all_files):
+                try:
+                    if f.stat().st_mtime < retention_cutoff:
+                        f_size = f.stat().st_size
+                        f.unlink()
+                        logger.info(f"Retention limit ({self.max_retention_days}d) purged: {f.name} ({f_size / 1024 / 1024:.1f} MB)")
+                except Exception as e:
+                    logger.error(f"Error purging old file {f}: {e}")
+            all_files = list(self.data_dir.glob("*/*.parquet"))
+
+        # 2. Storage quota FIFO rotation
         total_bytes = sum(f.stat().st_size for f in all_files)
         total_gb = total_bytes / (1024 ** 3)
 
@@ -198,10 +214,17 @@ class OrderFlowRecorder:
                     logger.error(f"Error purging file {f}: {e}")
 
     def get_storage_stats(self) -> Dict[str, Any]:
-        """Returns disk quota status, file counts, and breakdown per symbol."""
+        """Returns disk quota status, file counts, breakdown per symbol, and earliest timestamp."""
         all_files = list(self.data_dir.glob("*/*.parquet"))
         total_bytes = sum(f.stat().st_size for f in all_files) if all_files else 0
         total_gb = total_bytes / (1024 ** 3)
+
+        earliest_time = None
+        for f in all_files:
+            mtime = f.stat().st_mtime
+            if earliest_time is None or mtime < earliest_time:
+                earliest_time = mtime
+        earliest_str = datetime.fromtimestamp(earliest_time).strftime("%Y-%m-%d %H:%M") if earliest_time else datetime.utcnow().strftime("%Y-%m-%d %H:%M")
 
         symbol_breakdown = {}
         for sym in self.focus_symbols + self.watchlist_symbols:
@@ -220,6 +243,9 @@ class OrderFlowRecorder:
         return {
             "is_recording": self.is_running,
             "max_storage_gb": self.max_storage_gb,
+            "max_retention_days": self.max_retention_days,
+            "storage_path": str(self.data_dir),
+            "earliest_recorded_at": earliest_str,
             "used_storage_gb": round(total_gb, 3),
             "used_storage_mb": round(total_bytes / (1024 * 1024), 1),
             "usage_pct": round((total_gb / self.max_storage_gb) * 100, 2) if self.max_storage_gb > 0 else 0,
@@ -229,6 +255,70 @@ class OrderFlowRecorder:
             "watchlist_symbols": self.watchlist_symbols,
             "breakdown": symbol_breakdown
         }
+
+    def get_heatmap_data(self, symbol: str, min_usd: float = 50000.0, limit: int = 400) -> List[Dict[str, Any]]:
+        """
+        Extracts historical orderbook depth density snapshots for chart heatmap.
+        Filters price levels where USD volume >= min_usd.
+        """
+        sym = symbol.upper()
+        results = []
+        today_str = date.today().strftime("%Y-%m-%d")
+        sym_dir = self.data_dir / sym
+        parquet_file = sym_dir / f"depth_{today_str}.parquet"
+
+        raw_snapshots = []
+        if parquet_file.exists():
+            try:
+                df = pd.read_parquet(parquet_file)
+                if not df.empty:
+                    sample_size = min(limit // 2, len(df))
+                    step = max(1, len(df) // sample_size)
+                    sampled_df = df.iloc[::step].tail(sample_size)
+                    for _, row in sampled_df.iterrows():
+                        raw_snapshots.append({
+                            'timestamp': int(row['timestamp']),
+                            'bids': json.loads(row['bids']) if isinstance(row['bids'], str) else row['bids'],
+                            'asks': json.loads(row['asks']) if isinstance(row['asks'], str) else row['asks']
+                        })
+            except Exception as e:
+                logger.error(f"Error reading depth parquet for heatmap: {e}")
+
+        mem_snapshots = [b for b in self.depth_buffer if b.get('symbol') == sym]
+        if mem_snapshots:
+            step = max(1, len(mem_snapshots) // min(50, len(mem_snapshots)))
+            for item in mem_snapshots[::step]:
+                raw_snapshots.append({
+                    'timestamp': int(item['timestamp']),
+                    'bids': json.loads(item['bids']) if isinstance(item['bids'], str) else item['bids'],
+                    'asks': json.loads(item['asks']) if isinstance(item['asks'], str) else item['asks']
+                })
+
+        raw_snapshots.sort(key=lambda x: x['timestamp'])
+        snapshots_to_use = raw_snapshots[-limit:]
+
+        for snap in snapshots_to_use:
+            ts = snap['timestamp']
+            for p, q in snap.get('bids', []):
+                usd = float(p) * float(q)
+                if usd >= min_usd:
+                    results.append({
+                        'timestamp': ts,
+                        'price': float(p),
+                        'volume_usd': usd,
+                        'side': 'bid'
+                    })
+            for p, q in snap.get('asks', []):
+                usd = float(p) * float(q)
+                if usd >= min_usd:
+                    results.append({
+                        'timestamp': ts,
+                        'price': float(p),
+                        'volume_usd': usd,
+                        'side': 'ask'
+                    })
+
+        return results
 
     def export_dataset_zip(self, symbol: Optional[str] = None) -> Path:
         """Zips recorded parquet files for a given symbol or all symbols for downloading."""

@@ -59,6 +59,14 @@ async def capture_cdp():
     async with websockets.connect(ws_url) as ws:
         # Wait 3 seconds for React and Klinecharts to render fully
         await asyncio.sleep(3.0)
+        
+        eval_script = os.environ.get("CDP_EVAL")
+        if eval_script:
+            eval_req = {'id': 2, 'method': 'Runtime.evaluate', 'params': {'expression': eval_script}}
+            await ws.send(json.dumps(eval_req))
+            await ws.recv()
+            await asyncio.sleep(1.0)
+
         req = {'id': 1, 'method': 'Page.captureScreenshot', 'params': {'format': 'png'}}
         await ws.send(json.dumps(req))
         resp = await ws.recv()

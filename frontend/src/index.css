@@ -15,10 +15,30 @@
   --color-bull-soft: rgba(38, 166, 154, 0.12);
   --color-bear: #ef5350;
   --color-bear-soft: rgba(239, 83, 80, 0.12);
-  --color-accent: #38bdf8;
   --color-density-gold: #ffb300;
   --color-spoof: #f43f5e;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Roboto Mono', 'SF Mono', Consolas, monospace;
+}
+
+[data-theme="bloomberg"] {
+  --bg-root: #000000;
+  --bg-panel: #050505;
+  --bg-panel-header: #0c0b08;
+  --bg-subtle: #14120c;
+  --bg-hover: #221c10;
+  --border-subtle: #332400;
+  --border-active: #f59e0b;
+  --text-main: #ff9800;
+  --text-muted: #b45309;
+  --text-dim: #78350f;
+  --color-bull: #00e676;
+  --color-bull-soft: rgba(0, 230, 118, 0.15);
+  --color-bear: #ff3d00;
+  --color-bear-soft: rgba(255, 61, 0, 0.15);
+  --color-accent: #fbbf24;
+  --color-density-gold: #fde047;
+  --color-spoof: #ff1744;
+  --font-mono: 'Consolas', 'Courier New', monospace;
 }
 
 * {

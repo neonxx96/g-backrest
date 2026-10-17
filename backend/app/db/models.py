@@ -50,6 +50,24 @@ class UserSetting(Base):
 
     cooldown_minutes = Column(Integer, default=30)         # Cooldown per symbol+condition
     notifications_enabled = Column(Boolean, default=True)
+
+    # Stage 3: Heatmap & Storage settings
+    heatmap_enabled = Column(Boolean, default=True)
+    heatmap_min_usd = Column(Float, default=100000.0)
+    storage_max_gb = Column(Float, default=100.0)
+    storage_retention_days = Column(Integer, default=14)
+    storage_path = Column(String, default="data/recorded")
+
+    # Stage 3: Indicator Normalization & Per-coin overrides
+    normalization_mode = Column(String, default="raw")      # 'raw', 'atr_pct', 'z_score', 'percentile'
+    coin_overrides = Column(Text, default="{}")             # JSON string for per-coin indicator settings
+
+    # Stage 3: TigerTrade Orderbook & Theme settings
+    orderbook_levels = Column(Integer, default=20)
+    orderbook_volume_mode = Column(String, default="both")  # 'numbers', 'bars', 'heatmap', 'both'
+    orderbook_tick_scale = Column(Float, default=1.0)
+    theme = Column(String, default="tealstreet")            # 'tealstreet', 'bloomberg'
+
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class LiquidationEvent(Base):
@@ -80,9 +98,10 @@ class SignalHistory(Base):
     symbol = Column(String, index=True)
     timeframe = Column(String)
     price = Column(Float)
-    condition_type = Column(String)  # 'EMA_CROSS', 'VOL_SPIKE', 'RSI_EXTREME', 'CVD_DIV'
-    direction = Column(String)       # 'BULLISH', 'BEARISH'
+    condition_type = Column(String)  # 'EMA_CROSS', 'VOL_SPIKE', 'RSI_EXTREME', 'CVD_DIV', 'VWAP_CROSS'
+    direction = Column(String)       # 'BULLISH', 'BEARISH', etc.
     description = Column(Text)
+    normalized_metric = Column(String, nullable=True, default=None)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 class DrawingData(Base):

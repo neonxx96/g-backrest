@@ -125,6 +125,91 @@ try {
   });
 } catch (_) {}
 
+// 3. Register custom 'liqMarker' (Liquidation Bubbles)
+try {
+  registerOverlay({
+    name: 'liqMarker',
+    totalStep: 2,
+    needDefaultPointFigure: false,
+    needDefaultXAxisFigure: false,
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ coordinates, overlay }) => {
+      if (!coordinates || coordinates.length === 0) return [];
+      const { x, y } = coordinates[0];
+      const side = overlay.extendData?.side || 'BUY';
+      const usd = overlay.extendData?.usd_amount || 0;
+      const isShortLiq = side === 'BUY';
+      const color = isShortLiq ? '#00e676' : '#ff3d00';
+      const radius = Math.min(16, Math.max(5, Math.log10(Math.max(1000, usd)) * 2.6));
+      return [
+        {
+          type: 'circle',
+          attrs: { x, y, r: radius },
+          styles: {
+            style: 'stroke_fill',
+            color: isShortLiq ? 'rgba(0, 230, 118, 0.35)' : 'rgba(255, 61, 0, 0.35)',
+            borderColor: color,
+            borderSize: 1.5
+          }
+        },
+        {
+          type: 'text',
+          attrs: {
+            x,
+            y: y - radius - 2,
+            text: `$${(usd / 1000).toFixed(0)}k`,
+            align: 'center'
+          },
+          styles: {
+            color: '#ffffff',
+            backgroundColor: color,
+            size: 9,
+            padding: 2,
+            borderRadius: 2
+          }
+        }
+      ];
+    }
+  });
+} catch (_) {}
+
+// 4. Register custom 'densityHeatmap' (Orderbook Density Block)
+try {
+  registerOverlay({
+    name: 'densityHeatmap',
+    totalStep: 2,
+    needDefaultPointFigure: false,
+    needDefaultXAxisFigure: false,
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ coordinates, overlay }) => {
+      if (!coordinates || coordinates.length === 0) return [];
+      const { x, y } = coordinates[0];
+      const side = overlay.extendData?.side || 'bid';
+      const volUsd = overlay.extendData?.volume_usd || 0;
+      const isBid = side === 'bid';
+      const alpha = Math.min(0.70, Math.max(0.15, (volUsd / 500000) * 0.45));
+      const color = isBid ? `rgba(38, 166, 154, ${alpha})` : `rgba(239, 83, 80, ${alpha})`;
+      const width = 24;
+      const height = 4;
+      return [
+        {
+          type: 'rect',
+          attrs: {
+            x: x - width / 2,
+            y: y - height / 2,
+            width,
+            height
+          },
+          styles: {
+            style: 'fill',
+            color
+          }
+        }
+      ];
+    }
+  });
+} catch (_) {}
+
 // Tealstreet dark minimal theme configuration
 const THEME_STYLES = {
   grid: {
@@ -201,9 +286,21 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
   const [chartReady, setChartReady] = useState(0);
   const [activeTool, setActiveTool] = useState(null);
   const [magnetEnabled, setMagnetEnabled] = useState(false);
-  const [indicators, setIndicators] = useState({ ema: true, vol: true, rsi: true, macd: true });
+  const [indicators, setIndicators] = useState({ ema: true, vol: true, rsi: true, macd: true, vwap: false });
   const [statusMsg, setStatusMsg] = useState("");
   const [errorDetails, setErrorDetails] = useState(null);
+
+  // Stage 3: Heatmap, Liquidations, VWAP, Storage info
+  const [showHeatmap, setShowHeatmap] = useState(() => localStorage.getItem('chart_heatmap') !== 'false');
+  const [showLiquidations, setShowLiquidations] = useState(() => localStorage.getItem('chart_liquidations') !== 'false');
+  const [showVwap, setShowVwap] = useState(() => localStorage.getItem('chart_vwap') === 'true');
+  const [minLiqUsd, setMinLiqUsd] = useState(10000);
+  const [heatmapMinUsd, setHeatmapMinUsd] = useState(50000);
+  const [storageInfo, setStorageInfo] = useState({ earliest: '', usage: '' });
+  const activeLiqOverlays = useRef([]);
+  const activeHeatmapOverlays = useRef([]);
+  const vwapLineOverlay = useRef(null);
+  const currentKlines = useRef([]);
 
   // Context Menu State (Task 6)
   const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0 });
@@ -376,6 +473,151 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [symbol, timeframe, userId, saveDrawings]);
 
+  // Recenter chart to real time on Space key
+  useEffect(() => {
+    const handleRecenter = () => {
+      if (chartRef.current) {
+        try {
+          chartRef.current.scrollToRealTime();
+          setStatusMsg("Центрировано на текущей цене");
+          setTimeout(() => setStatusMsg(""), 1200);
+        } catch (_) {}
+      }
+    };
+    window.addEventListener('recenter-market-price', handleRecenter);
+    return () => window.removeEventListener('recenter-market-price', handleRecenter);
+  }, []);
+
+  // Update VWAP Overlay
+  const updateVwapOverlay = useCallback((klinesData) => {
+    if (!chartRef.current || !showVwap) return;
+    const klines = klinesData || currentKlines.current;
+    if (!klines || klines.length < 2) return;
+
+    try {
+      let cumPV = 0;
+      let cumV = 0;
+      const vwapPoints = [];
+      klines.forEach(k => {
+        const tp = (k.high + k.low + k.close) / 3;
+        cumPV += tp * k.volume;
+        cumV += k.volume;
+        const vwapVal = cumV > 0 ? cumPV / cumV : k.close;
+        vwapPoints.push({ timestamp: k.timestamp, value: vwapVal });
+      });
+
+      if (vwapLineOverlay.current) {
+        try { chartRef.current.removeOverlay({ id: vwapLineOverlay.current }); } catch (_) {}
+      }
+
+      if (vwapPoints.length >= 2) {
+        const p1 = vwapPoints[0];
+        const p2 = vwapPoints[vwapPoints.length - 1];
+        const id = chartRef.current.createOverlay({
+          name: 'segment',
+          points: [p1, p2],
+          styles: {
+            line: { color: '#ffb300', size: 2, style: 'solid' }
+          }
+        });
+        vwapLineOverlay.current = id;
+      }
+    } catch (_) {}
+  }, [showVwap]);
+
+  // Load and render Liquidations on Chart
+  const loadLiquidations = useCallback(async () => {
+    if (!chartRef.current || !showLiquidations) {
+      activeLiqOverlays.current.forEach(id => {
+        try { chartRef.current.removeOverlay({ id }); } catch (_) {}
+      });
+      activeLiqOverlays.current = [];
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/liquidations?symbol=${symbol}&min_usd=${minLiqUsd}&limit=50`);
+      if (!res.ok) return;
+      const data = await res.json();
+
+      activeLiqOverlays.current.forEach(id => {
+        try { chartRef.current.removeOverlay({ id }); } catch (_) {}
+      });
+      activeLiqOverlays.current = [];
+
+      if (Array.isArray(data)) {
+        data.forEach(evt => {
+          const id = chartRef.current.createOverlay({
+            name: 'liqMarker',
+            points: [{ timestamp: evt.timestamp, value: evt.price }],
+            extendData: { side: evt.side, usd_amount: evt.usd_amount }
+          });
+          if (id) activeLiqOverlays.current.push(id);
+        });
+      }
+    } catch (_) {}
+  }, [symbol, showLiquidations, minLiqUsd]);
+
+  // Load and render Density Heatmap on Chart
+  const loadHeatmap = useCallback(async () => {
+    if (!chartRef.current || !showHeatmap) {
+      activeHeatmapOverlays.current.forEach(id => {
+        try { chartRef.current.removeOverlay({ id }); } catch (_) {}
+      });
+      activeHeatmapOverlays.current = [];
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/heatmap?symbol=${symbol}&min_usd=${heatmapMinUsd}&limit=350`);
+      if (!res.ok) return;
+      const data = await res.json();
+
+      activeHeatmapOverlays.current.forEach(id => {
+        try { chartRef.current.removeOverlay({ id }); } catch (_) {}
+      });
+      activeHeatmapOverlays.current = [];
+
+      if (Array.isArray(data)) {
+        data.forEach(pt => {
+          const id = chartRef.current.createOverlay({
+            name: 'densityHeatmap',
+            points: [{ timestamp: pt.timestamp, value: pt.price }],
+            extendData: { side: pt.side, volume_usd: pt.volume_usd }
+          });
+          if (id) activeHeatmapOverlays.current.push(id);
+        });
+      }
+    } catch (_) {}
+  }, [symbol, showHeatmap, heatmapMinUsd]);
+
+  // Fetch Storage Stats
+  useEffect(() => {
+    fetch(`${API_BASE}/recorder/status`)
+      .then(res => res.json())
+      .then(stat => {
+        if (stat) {
+          setStorageInfo({
+            earliest: stat.earliest_recorded_at || '',
+            usage: `${stat.used_storage_mb || 0} MB / ${stat.max_storage_gb || 100} GB`
+          });
+        }
+      })
+      .catch(() => {});
+  }, [symbol]);
+
+  useEffect(() => {
+    loadLiquidations();
+  }, [loadLiquidations]);
+
+  useEffect(() => {
+    loadHeatmap();
+  }, [loadHeatmap]);
+
+  useEffect(() => {
+    updateVwapOverlay();
+  }, [updateVwapOverlay]);
+
   // Close context menu on outside click
   useEffect(() => {
     const handleWindowClick = () => {
@@ -424,12 +666,16 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
             turnover: Number(k.turnover || (k.close * k.volume))
           }));
 
+          currentKlines.current = formattedData;
           chart.applyNewData(formattedData);
           setStatusMsg("");
           setErrorDetails(null);
 
-          // Restore saved drawings for this symbol & TF
+          // Restore saved drawings, vwap, liquidations, and heatmap
           loadDrawings();
+          updateVwapOverlay(formattedData);
+          loadLiquidations();
+          loadHeatmap();
         } else {
           setStatusMsg("Свечи отсутствуют");
         }
@@ -566,6 +812,17 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
         chart.createIndicator('VOL', false);
       }
       setIndicators(prev => ({ ...prev, vol: !prev.vol }));
+    } else if (name === 'vwap') {
+      const nextVwap = !showVwap;
+      setShowVwap(nextVwap);
+      setIndicators(prev => ({ ...prev, vwap: nextVwap }));
+      localStorage.setItem('chart_vwap', nextVwap ? 'true' : 'false');
+      if (!nextVwap && vwapLineOverlay.current) {
+        try { chart.removeOverlay({ id: vwapLineOverlay.current }); } catch (_) {}
+        vwapLineOverlay.current = null;
+      } else {
+        updateVwapOverlay();
+      }
     }
   };
 
@@ -674,12 +931,51 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
           </button>
         </div>
 
-        {/* Indicators and Status */}
+        {/* Indicators, Overlays and Storage Status */}
         <div className="flex items-center space-x-1 font-mono-numbers">
+          {storageInfo.earliest && (
+            <span className="hidden xl:inline text-[#60697b] text-[10px] mr-1.5 px-1.5 py-0.2 rounded bg-[#13161f] border border-[#1c212d]">
+              Данные с {storageInfo.earliest}
+            </span>
+          )}
+
           {statusMsg && (
             <span className="text-[#f59e0b] text-[10px] font-mono animate-pulse mr-1">{statusMsg}</span>
           )}
           
+          <button 
+            title="Тепловая карта плотностей стакана во времени"
+            onClick={() => {
+              const next = !showHeatmap;
+              setShowHeatmap(next);
+              localStorage.setItem('chart_heatmap', next ? 'true' : 'false');
+            }}
+            className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition flex items-center space-x-1 ${showHeatmap ? 'bg-[#ff980022] text-[#ff9800] border border-[#ff980050]' : 'text-[#60697b] hover:text-white'}`}
+          >
+            <span>🔥 Плотности</span>
+          </button>
+
+          <button 
+            title="Маркеры ликвидаций Binance Futures"
+            onClick={() => {
+              const next = !showLiquidations;
+              setShowLiquidations(next);
+              localStorage.setItem('chart_liquidations', next ? 'true' : 'false');
+            }}
+            className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition flex items-center space-x-1 ${showLiquidations ? 'bg-[#ef535022] text-[#ef5350] border border-[#ef535050]' : 'text-[#60697b] hover:text-white'}`}
+          >
+            <span>💥 Ликвидации</span>
+          </button>
+
+          <div className="h-3 w-px bg-[#1f2430] mx-0.5" />
+
+          <button 
+            onClick={() => toggleIndicator('vwap')}
+            className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition ${showVwap ? 'bg-[#1e293b] text-[#ffb300] border border-[#ffb30050]' : 'text-[#60697b] hover:text-white'}`}
+          >
+            VWAP
+          </button>
+
           <button 
             onClick={() => toggleIndicator('ema')}
             className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition ${indicators.ema ? 'bg-[#1e293b] text-[#38bdf8] border border-[#38bdf840]' : 'text-[#60697b] hover:text-white'}`}
