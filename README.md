@@ -1,104 +1,114 @@
-# 🚀 g-backrest: Multi-Timeframe Backtesting, Optimization & Real-Time Probability Engine
+# 🚀 Signal Script: Торговый терминал, Сканер Binance Futures и Telegram-Алерты
 
-[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://python.org)
-[![CCXT](https://img.shields.io/badge/CCXT-Supported-green.svg)](https://github.com/ccxt/ccxt)
-[![License](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
-
-Профессиональная система для бэктеста внутридневных стратегий, подбора оптимальных параметров (Grid Search) и оценки вероятности сигналов в реальном времени. Разработана для трейдеров, использующих **Tiger Trade**, **Bybit**, **Binance** и **OKX**.
-
----
-
-## 📌 Ключевые возможности
-
-1. **Мульти-таймфреймовый анализ (MTF Cross / Перекрестие ТФ):**
-   - Старший таймфрейм (HTF: 1h / 4h / 1d) определяет глобальный тренд (EMA 50/200, структура).
-   - Младший таймфрейм (LTF: 1m / 5m / 15m) ловит точки входа на откате с подтверждением объема.
-   - Строгая стыковка данных через `merge_asof(direction='backward')` полностью исключает **Lookahead Bias** (заглядывание в будущее).
-
-2. **Реалистичный симулятор сделок (Backtester):**
-   - Учет комиссий биржи (Maker/Taker) и проскальзывания (Slippage).
-   - Динамический расчет Take Profit и Stop Loss (на базе волатильности ATR, фиксированных % или Risk/Reward).
-   - Поддержка алгоритма **Trailing Stop** для удержания и защиты прибыли.
-   - Расчет профессиональных метрик: Win Rate, Profit Factor, Net Profit %, Max Drawdown, Realized R:R, серии побед/поражений.
-
-3. **Оптимизатор параметров (Grid Optimizer):**
-   - Автоматический перебор параметров (уровни RSI, множители TP/SL, фильтры объема).
-   - Ранжирование и вывод ТОП-конфигураций с максимальным математическим ожиданием.
-
-4. **Сканер вероятностей в реальном времени (Real-Time Scanner):**
-   - Мониторинг списка монет (Watchlist) в live-режиме через публичные вебсокеты/API бирж.
-   - Оценка вероятности/силы сигнала (Confidence %) на основе конfluence-факторов (тренд + объем + RSI + VWAP).
-
-5. **Гибкие источники данных:**
-   - Прямой выгрузчик с бирж через CCXT с автоматической пагинацией и кэшированием в Parquet.
-   - Поддержка исторических архивов **[CryptoDataDownload](https://www.cryptodatadownload.com/)**.
-   - Готовность к интеграции снимков стакана и сделок **[Crypto Lake](https://crypto-lake.com/)**.
+Профессиональное MVP приложение для крипто-фьючерсного трейдера:
+- Сканирует рынок **Binance USDT-M Futures** (топ-150 пар по объему).
+- Рассчитывает индикаторы в реальном времени: **EMA(20) кросс, всплеск объема (xN), RSI экстремумы, CVD (Cumulative Volume Delta) и волатильность**.
+- Учитывает **24ч изменение цены, Open Interest, сумму ликвидаций** (через живой WebSocket) и **рыночную капитализацию** (CoinGecko).
+- Шлёт карточки сигналов в **Telegram бот** со ссылкой на интерактивный график.
+- Легкий веб-интерфейс на **React + Vite** с графиком **KLineChart** (удобное рисование уровней, лучей, фибо, прямоугольников с сохранением в профиль) и **живым стаканом (L2 Depth)** с подсветкой плотностей и таймером жизни заявки.
 
 ---
 
-## 📂 Структура проекта
-
-```text
-d:\AI_agent_space\gemini\
-├── config/
-│   └── default_config.yaml      # Все настройки стратегии, фильтров и риск-менеджмента
-├── data/
-│   ├── cache/                  # Быстрый локальный кэш свечей (Parquet)
-│   └── sample/                 # Папка для пользовательских CSV (CryptoDataDownload / Crypto Lake)
-├── engine/
-│   ├── data_loader.py          # Загрузка истории с бирж, парсинг CSV и MTF-синхронизация
-│   ├── indicators.py           # Векторный расчет индикаторов (EMA, RSI, MACD, BB, ATR, VWAP)
-│   ├── strategy_base.py        # Базовый класс стратегий и расчет уровней TP/SL
-│   ├── backtester.py           # Посвечной движок бэктеста с комиссиями и трейлингом
-│   ├── optimizer.py            # Grid Search оптимизатор лучших параметров
-│   └── scanner.py              # Сканер live-рынка и оценка вероятностей
-├── strategies/
-│   └── mtf_pullback.py         # Мульти-таймфреймовая стратегия отката по тренду
-├── charts/                     # Сгенерированные графики в стиле Tiger Trade
-├── analyzer.py                 # Live-анализатор одной пары с рендером графика
-├── backtest_cli.py             # CLI для запуска тестов и подбора параметров
-├── scanner_cli.py              # CLI сканера рынка в реальном времени
-└── requirements.txt
-```
+## 🛠️ Стек технологий
+- **Backend:** Python 3.11+, FastAPI, asyncio, aiogram 3, SQLite (SQLAlchemy + aiosqlite), pandas/numpy
+- **Frontend:** React + Vite, KLineChart (v10), Tailwind CSS, Lucide Icons
+- **Данные:** Публичный Binance Futures API (REST + WebSocket), CoinGecko API (с кэшированием)
+- **Деплой:** Docker, Docker Compose, Proxmox VE, Cloudflare Tunnel
 
 ---
 
-## ⚡ Быстрый старт
+## ⚙️ Переменные окружения (`.env`)
 
-### 1. Установка зависимостей
+Все секреты и параметры хранятся в файле `.env` в корне проекта (образец в `.env.example`):
+
+| Переменная | Описание | Значение по умолчанию |
+|---|---|---|
+| `BINANCE_API_KEY` | API-ключ Binance (опционально, публичные данные работают без него) | `T1jRxJf...` |
+| `BINANCE_API_SECRET` | Секретный ключ Binance | `fI9PNV8...` |
+| `TELEGRAM_BOT_TOKEN` | Токен Telegram-бота от @BotFather | `5122605345:AAGyu...` |
+| `BACKEND_HOST` | Хост для запуска FastAPI сервера | `127.0.0.1` |
+| `BACKEND_PORT` | Порт бэкенда | `8000` |
+| `FRONTEND_URL` | Адрес фронтенда (для формирования ссылок в боте) | `http://localhost:5173` |
+| `DATABASE_URL` | Путь к базе SQLite | `sqlite+aiosqlite:///./data/signals.db` |
+| `LOG_LEVEL` | Уровень логирования (`INFO` / `DEBUG`) | `INFO` |
+
+---
+
+## 💻 Пошаговый запуск на Windows (Локально)
+
+### Шаг 1: Клонирование репозитория и окружение
 ```powershell
+cd d:\AI_agent_space\gemini
+
+# Создание виртуального окружения (если еще не создано)
 python -m venv .venv
 .\.venv\Scripts\activate
+
+# Установка зависимостей бэкенда
 pip install -r requirements.txt
+pip install fastapi "uvicorn[standard]" aiogram aiosqlite sqlalchemy aiohttp pydantic python-dotenv websockets greenlet pytest
 ```
 
-### 2. Запуск бэктеста на истории (14 дней, 15m + 1h)
+### Шаг 2: Установка зависимостей фронтенда
 ```powershell
-.\.venv\Scripts\python.exe backtest_cli.py --symbol BTC/USDT --timeframe 15m --htf 1h --days 14
-```
-
-### 3. Подбор оптимальных параметров (Grid Optimization за 30 дней)
-```powershell
-.\.venv\Scripts\python.exe backtest_cli.py --symbol BTC/USDT --timeframe 15m --htf 1h --days 30 --optimize
-```
-
-### 4. Сканирование рынка в реальном времени
-```powershell
-.\.venv\Scripts\python.exe scanner_cli.py --symbols BTC/USDT,ETH/USDT,SOL/USDT --ltf 15m --htf 1h
-```
-
-### 5. Получение актуального графика и индикаторов (Tiger Trade Style)
-```powershell
-.\.venv\Scripts\python.exe analyzer.py --symbol BTC/USDT --timeframe 15m
+cd frontend
+npm install
+cd ..
 ```
 
 ---
 
-## ⏱️ План реализации на ближайшие 24 часа
+### Шаг 3: Запуск Бэкенда (Терминал 1)
+В первом окне PowerShell:
+```powershell
+cd d:\AI_agent_space\gemini
+.\.venv\Scripts\python.exe backend/main.py
+```
+* Бэкенд запустится на `http://127.0.0.1:8000`.
+* Автоматически подключится стрим ликвидаций Binance WebSocket `!forceOrder@arr`.
+* Запустится Telegram-бот (начнет слушать команды `/start`, `/status`, `/filters`).
+* Запустится периодический сканер рынка (каждую минуту).
 
-| Этап | Задачи | Статус |
-|------|--------|--------|
-| **Этап 1 (База)** | Движок данных, индикаторы, MTF-синхронизация, бэктестер, сканер |  **Выполнено** |
-| **Этап 2 (Данные)** | Интеграция парсера Crypto Lake (стакан/тиковые сделки), расширение кэша | 🔄 **В процессе** |
-| **Этап 3 (Стратегии)** | Добавление кластерных индикаторов (Delta/CVD, Volume Profile, POC) | ⏳ **Запланировано** |
-| **Этап 4 (Уведомления)**| Live-уведомления при появлении сетапов с высокой вероятностью ($>75\%$) | ⏳ **Запланировано** |
+---
+
+### Шаг 4: Запуск Веб-Интерфейса (Терминал 2)
+Во втором окне PowerShell:
+```powershell
+cd d:\AI_agent_space\gemini\frontend
+npm run dev
+```
+* Фронтенд запустится на **`http://localhost:5173`**.
+* Откройте этот адрес в браузере.
+
+---
+
+## 🎯 Проверка работы (Критерии MVP)
+
+1. **Проверка автотестов индикаторов и фильтров:**
+   ```powershell
+   .\.venv\Scripts\python.exe -m pytest backend/tests -v
+   ```
+   *(5 из 5 тестов проходят успешно: EMA cross, Volume spike, RSI, CVD, Cooldown).*
+
+2. **Проверка консольного сканера:**
+   ```powershell
+   .\.venv\Scripts\python.exe test_scanner_cli.py
+   ```
+   *(Подключается к Binance REST, выводит статус и активные настройки).*
+
+3. **Веб-интерфейс `http://localhost:5173`:**
+   * **График KLineChart:** свечи подгружаются с Binance, в реальном времени тикают по WebSocket.
+   * **Таймфреймы:** быстрое переключение `1m, 15m, 30m, 45m, 1h, 4h, 6h` (45m и 6h собираются бэкендом).
+   * **Рисование:** кнопки отрезков, лучей, уровней, прямоугольников и Фибоначчи в верхней панели. Рисунки автоматически сохраняются по монете и ТФ в базу данных при нажатии кнопки сохранения.
+   * **Стакан (Depth L2):** справа отображаются реальные заявки Binance, крупные плотности подсвечиваются золотым/бирюзовым цветом, рядом пишется таймер жизни заявки (`1m 45s`), переключатель `COIN / USDT`.
+   * **Быстрые настройки:** кнопка «Настройки» в шапке открывает окно фильтров. Изменения сохраняются в базу и применяются сканером мгновенно без перезапуска сервера.
+
+4. **Telegram Бот (`@BehanceGoTopPro_bot`):**
+   * Откройте диалог с ботом и нажмите `/start`.
+   * Бот зарегистрирует ваш Telegram ID и пришлет персональную ссылку на веб-терминал.
+   * При срабатывании условий бот присылает уведомление с кнопкой прямого перехода на график монеты.
+
+---
+
+## 🐳 Запуск через Docker и Деплой на Proxmox
+Подробная инструкция по развертыванию контейнеров на сервере с Proxmox и безопасной публикации в интернет через Cloudflare Tunnel находится в файле **[`DEPLOY.md`](file:///d:/AI_agent_space/gemini/DEPLOY.md)**.
