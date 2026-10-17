@@ -173,7 +173,7 @@ try {
   });
 } catch (_) {}
 
-// 3. Register custom 'liqMarker' (Liquidation Bubbles)
+// 3. Register custom 'liqMarker' (Liquidation subtle markers)
 try {
   registerOverlay({
     name: 'liqMarker',
@@ -188,40 +188,49 @@ try {
       const usd = overlay.extendData?.usd_amount || 0;
       const isShortLiq = side === 'BUY';
       const color = isShortLiq ? '#00e676' : '#ff3d00';
-      const radius = Math.min(16, Math.max(5, Math.log10(Math.max(1000, usd)) * 2.6));
-      return [
+      const radius = Math.min(9, Math.max(3.5, Math.log10(Math.max(1000, usd)) * 1.8));
+
+      const figures = [
         {
           type: 'circle',
           attrs: { x, y, r: radius },
           styles: {
             style: 'stroke_fill',
-            color: isShortLiq ? 'rgba(0, 230, 118, 0.35)' : 'rgba(255, 61, 0, 0.35)',
+            color: isShortLiq ? 'rgba(0, 230, 118, 0.22)' : 'rgba(255, 61, 0, 0.22)',
             borderColor: color,
-            borderSize: 1.5
+            borderSize: 1
           }
-        },
-        {
+        }
+      ];
+
+      // Only display text pill for large liquidations (>= $25k) to avoid chart clutter
+      if (usd >= 25000) {
+        figures.push({
           type: 'text',
           attrs: {
             x,
-            y: y - radius - 2,
+            y: y - radius - 3,
             text: `$${(usd / 1000).toFixed(0)}k`,
             align: 'center'
           },
           styles: {
             color: '#ffffff',
-            backgroundColor: color,
-            size: 9,
-            padding: 2,
+            backgroundColor: 'rgba(15, 23, 42, 0.85)',
+            borderColor: color,
+            borderSize: 0.5,
+            size: 8.5,
+            padding: 1.5,
             borderRadius: 2
           }
-        }
-      ];
+        });
+      }
+
+      return figures;
     }
   });
 } catch (_) {}
 
-// 4. Register custom 'densityHeatmap' (Orderbook Density Block)
+// 4. Register custom 'densityHeatmap' (Clean Orderbook Density Line/Shelf)
 try {
   registerOverlay({
     name: 'densityHeatmap',
@@ -235,10 +244,10 @@ try {
       const side = overlay.extendData?.side || 'bid';
       const volUsd = overlay.extendData?.volume_usd || 0;
       const isBid = side === 'bid';
-      const alpha = Math.min(0.70, Math.max(0.15, (volUsd / 500000) * 0.45));
+      const alpha = Math.min(0.40, Math.max(0.12, (volUsd / 600000) * 0.35));
       const color = isBid ? `rgba(38, 166, 154, ${alpha})` : `rgba(239, 83, 80, ${alpha})`;
-      const width = 24;
-      const height = 4;
+      const width = 28;
+      const height = 2;
       return [
         {
           type: 'rect',
@@ -507,8 +516,8 @@ export default function Chart({
   const [statusMsg, setStatusMsg] = useState("");
   const [errorDetails, setErrorDetails] = useState(null);
 
-  // Stage 3: Heatmap, Liquidations, VWAP, Storage info
-  const [showHeatmap, setShowHeatmap] = useState(() => localStorage.getItem('chart_heatmap') !== 'false');
+  // Stage 3: Heatmap (default OFF for clean chart), Liquidations, VWAP, Storage info
+  const [showHeatmap, setShowHeatmap] = useState(() => localStorage.getItem('chart_heatmap') === 'true');
   const [showLiquidations, setShowLiquidations] = useState(() => localStorage.getItem('chart_liquidations') !== 'false');
   const [showVwap, setShowVwap] = useState(() => localStorage.getItem('chart_vwap') === 'true');
   const [minLiqUsd, setMinLiqUsd] = useState(10000);
@@ -1135,49 +1144,131 @@ export default function Chart({
 
     fetchKlines();
 
-    // Live Binance WebSocket Kline stream
+    // Live Binance WebSocket Kline stream with auto-reconnection and heartbeat fallback
     const binanceInterval = timeframe === '45m' ? '15m' : (timeframe === '6h' ? '1h' : timeframe);
     const cleanSym = symbol.toLowerCase();
     const wsUrl = `wss://fstream.binance.com/ws/${cleanSym}@kline_${binanceInterval}`;
 
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
+    let reconnectTimer = null;
+    let heartbeatTimer = null;
+    let lastTickTime = Date.now();
 
-    try {
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
+    const connectWs = () => {
+      if (isCancelled) return;
+      if (wsRef.current) {
+        try { wsRef.current.close(); } catch (_) {}
+        wsRef.current = null;
+      }
 
-      ws.onmessage = (event) => {
-        try {
-          const payload = JSON.parse(event.data);
-          const k = payload.k;
-          if (!k || !chartRef.current) return;
+      try {
+        const ws = new WebSocket(wsUrl);
+        wsRef.current = ws;
 
-          const bar = {
-            timestamp: Number(k.t),
-            open: parseFloat(k.o),
-            high: parseFloat(k.h),
-            low: parseFloat(k.l),
-            close: parseFloat(k.c),
-            volume: parseFloat(k.v),
-            turnover: parseFloat(k.q)
-          };
+        ws.onopen = () => {
+          lastTickTime = Date.now();
+        };
 
-          chartRef.current.updateData(bar);
-        } catch (e) {
-          console.warn("WS candle error:", e);
+        ws.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data);
+            const k = payload.k;
+            if (!k || !chartRef.current) return;
+            lastTickTime = Date.now();
+
+            let barTimestamp = Number(k.t);
+            // Custom TF bucket alignment
+            if (timeframe === '45m') {
+              barTimestamp = Math.floor(barTimestamp / (45 * 60 * 1000)) * (45 * 60 * 1000);
+            } else if (timeframe === '6h') {
+              barTimestamp = Math.floor(barTimestamp / (6 * 3600 * 1000)) * (6 * 3600 * 1000);
+            }
+
+            const bar = {
+              timestamp: barTimestamp,
+              open: parseFloat(k.o),
+              high: parseFloat(k.h),
+              low: parseFloat(k.l),
+              close: parseFloat(k.c),
+              volume: parseFloat(k.v),
+              turnover: parseFloat(k.q)
+            };
+
+            // Keep currentKlines in sync with live tick
+            const klines = currentKlines.current;
+            if (klines && klines.length > 0) {
+              const lastBar = klines[klines.length - 1];
+              if (lastBar.timestamp === barTimestamp) {
+                bar.open = lastBar.open;
+                bar.high = Math.max(lastBar.high, bar.high);
+                bar.low = Math.min(lastBar.low, bar.low);
+                klines[klines.length - 1] = bar;
+              } else if (barTimestamp > lastBar.timestamp) {
+                klines.push(bar);
+                if (klines.length > 500) klines.shift();
+              }
+            }
+
+            chartRef.current.updateData(bar);
+          } catch (e) {
+            console.warn("WS candle error:", e);
+          }
+        };
+
+        ws.onerror = () => {
+          try { ws.close(); } catch (_) {}
+        };
+
+        ws.onclose = () => {
+          if (!isCancelled) {
+            reconnectTimer = setTimeout(connectWs, 2500);
+          }
+        };
+      } catch (e) {
+        if (!isCancelled) {
+          reconnectTimer = setTimeout(connectWs, 3000);
         }
-      };
-    } catch (e) {
-      console.warn("WebSocket init error:", e);
-    }
+      }
+    };
+
+    connectWs();
+
+    // Heartbeat fallback: checks every 4s; if no tick received for > 7s, polls REST endpoint
+    heartbeatTimer = setInterval(async () => {
+      if (isCancelled || !chartRef.current) return;
+      if (Date.now() - lastTickTime > 7000) {
+        try {
+          const r = await fetch(`${API_BASE}/klines?symbol=${symbol}&timeframe=${timeframe}&limit=2`);
+          if (r.ok) {
+            const data = await r.json();
+            if (Array.isArray(data) && data.length > 0) {
+              const latest = data[data.length - 1];
+              const bar = {
+                timestamp: Number(latest.timestamp),
+                open: Number(latest.open),
+                high: Number(latest.high),
+                low: Number(latest.low),
+                close: Number(latest.close),
+                volume: Number(latest.volume),
+                turnover: Number(latest.turnover || (latest.close * latest.volume))
+              };
+              chartRef.current.updateData(bar);
+              lastTickTime = Date.now();
+            }
+          }
+        } catch (_) {}
+
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+          connectWs();
+        }
+      }
+    }, 4000);
 
     return () => {
       isCancelled = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
       if (wsRef.current) {
-        wsRef.current.close();
+        try { wsRef.current.close(); } catch (_) {}
         wsRef.current = null;
       }
     };

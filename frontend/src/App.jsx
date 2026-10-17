@@ -24,6 +24,8 @@ import {
   Zap,
   PanelRightClose,
   PanelRightOpen,
+  Maximize2,
+  Minimize2,
   X,
   Bell
 } from 'lucide-react';
@@ -233,6 +235,39 @@ export default function App() {
   const [showHotkeyHelp, setShowHotkeyHelp] = useState(false);
   const [isMuted, setIsMuted] = useState(() => soundManager.isMuted);
 
+  // Zen / Focus Mode: 100% chart without clutter
+  const [isFocusMode, setIsFocusMode] = useState(false);
+  const prevPanelsRef = useRef(null);
+
+  const toggleFocusMode = useCallback(() => {
+    setIsFocusMode((prev) => {
+      if (!prev) {
+        prevPanelsRef.current = {
+          orderbook: showOrderBook,
+          tape: showTape,
+          signals: showSignals,
+          dual: isDualPane
+        };
+        setShowOrderBook(false);
+        setShowTape(false);
+        setShowSignals(false);
+        setIsDualPane(false);
+        return true;
+      } else {
+        if (prevPanelsRef.current) {
+          setShowOrderBook(prevPanelsRef.current.orderbook);
+          setShowTape(prevPanelsRef.current.tape);
+          setShowSignals(prevPanelsRef.current.signals);
+          setIsDualPane(prevPanelsRef.current.dual);
+        } else {
+          setShowOrderBook(true);
+          setShowTape(true);
+        }
+        return false;
+      }
+    });
+  }, [showOrderBook, showTape, showSignals, isDualPane]);
+
   useEffect(() => {
     localStorage.setItem('panel_dual_chart', isDualPane ? 'true' : 'false');
   }, [isDualPane]);
@@ -347,6 +382,8 @@ export default function App() {
         setIsDualPane((v) => !v);
       } else if (e.key.toLowerCase() === 'b' || e.key.toLowerCase() === 'и') {
         setShowBacktest((v) => !v);
+      } else if (e.key.toLowerCase() === 'f' || e.key.toLowerCase() === 'а') {
+        toggleFocusMode();
       } else if (e.key === '?') {
         setShowHotkeyHelp((v) => !v);
       }
@@ -519,6 +556,20 @@ export default function App() {
           >
             <Columns size={11} />
             <span>{isDualPane ? '2 Граф [D]' : '1 Граф [D]'}</span>
+          </button>
+
+          {/* Clean Focus / Zen Mode Toggle */}
+          <button
+            onClick={toggleFocusMode}
+            className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition ${
+              isFocusMode
+                ? 'bg-[#052e16] text-[#4ade80] border-[#22c55e60] font-bold'
+                : 'text-[#60697b] border-transparent hover:bg-[#141720] hover:text-white'
+            }`}
+            title="Фокус на графике (100% экран без лишних панелей, Клавиша 'F')"
+          >
+            {isFocusMode ? <Minimize2 size={11} /> : <Maximize2 size={11} />}
+            <span>{isFocusMode ? 'Выйти [F]' : 'Фокус [F]'}</span>
           </button>
 
           {/* Backtest drawer toggle */}
