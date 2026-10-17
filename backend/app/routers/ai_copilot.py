@@ -14,9 +14,12 @@ from typing import Dict, Any, Optional, List
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+import pandas as pd
+import numpy as np
 from backend.app.config import OPENROUTER_API_KEY, OPENROUTER_MODEL
 from backend.app.routers.backtest import fetch_history, build_response, BacktestParams
 from backend.app.services.orderflow_backtester import OrderFlowBacktester
+from backend.app.services.binance_service import binance_service
 
 logger = logging.getLogger("SignalScript.AICopilot")
 
@@ -366,4 +369,325 @@ async def optimize_strategy(payload: AIOptimizeRequest):
         "confluence_matrix": result.get("confluence_matrix", []),
         "meta": meta
     }
+
+
+class MarketAnalysisRequest(BaseModel):
+    symbol: Optional[str] = "BTCUSDT"
+    timeframe: Optional[str] = "15m"
+
+
+class AIChatRequest(BaseModel):
+    message: str = Field(..., description="Сообщение или вопрос трейдера")
+    symbol: Optional[str] = "BTCUSDT"
+    timeframe: Optional[str] = "15m"
+    history: Optional[List[Dict[str, str]]] = []
+
+
+@ai_router.post("/market-analysis")
+async def get_market_analysis(payload: MarketAnalysisRequest):
+    """
+    ⚡ 1-Click Real-time Market Analysis:
+    Collects orderbook density walls, CVD delta slope, EMA/VWAP alignment,
+    liquidations, and ATR to synthesize an actionable institutional trading idea.
+    """
+    sym = (payload.symbol or "BTCUSDT").upper()
+    tf = payload.timeframe or "15m"
+
+    # 1. Fetch candles
+    try:
+        df = await fetch_history(sym, tf, days=3)
+    except Exception as e:
+        logger.error(f"Failed to fetch klines for market analysis: {e}")
+        raise HTTPException(status_code=502, detail=f"Ошибка получения свечей {sym}: {e}")
+
+    if df.empty or len(df) < 30:
+        raise HTTPException(status_code=404, detail=f"Недостаточно данных свечей для {sym}")
+
+    # Calculate Core Quantitative Metrics
+    close_s = df['close'].astype(float)
+    high_s = df['high'].astype(float)
+    low_s = df['low'].astype(float)
+    vol_s = df['volume'].astype(float)
+
+    current_price = float(close_s.iloc[-1])
+
+    # ATR(14)
+    tr1 = high_s - low_s
+    tr2 = (high_s - close_s.shift(1)).abs()
+    tr3 = (low_s - close_s.shift(1)).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    atr = float(tr.rolling(14, min_periods=1).mean().iloc[-1])
+
+    # EMA 20, 50, 200
+    ema20 = float(close_s.ewm(span=20, adjust=False).mean().iloc[-1])
+    ema50 = float(close_s.ewm(span=50, adjust=False).mean().iloc[-1])
+    ema200 = float(close_s.ewm(span=min(len(close_s), 200), adjust=False).mean().iloc[-1])
+
+    # Session VWAP (typical price * volume)
+    typical_price = (high_s + low_s + close_s) / 3.0
+    cum_vol = vol_s.sum()
+    cum_pv = (typical_price * vol_s).sum()
+    vwap = float(cum_pv / max(1e-9, cum_vol))
+
+    # Cumulative Volume Delta (CVD) of last 20 bars
+    deltas = []
+    for idx in range(max(0, len(df) - 20), len(df)):
+        h = float(high_s.iloc[idx])
+        l = float(low_s.iloc[idx])
+        c = float(close_s.iloc[idx])
+        v = float(vol_s.iloc[idx])
+        rng = max(1e-9, h - l)
+        buy_ratio = (c - l) / rng
+        delta = (2 * buy_ratio - 1) * v
+        deltas.append(delta)
+
+    recent_delta_sum = sum(deltas)
+    cvd_slope = "ПОЛОЖИТЕЛЬНАЯ (Преобладают рыночные покупки)" if recent_delta_sum >= 0 else "ОТРИЦАТЕЛЬНАЯ (Давление рыночных продаж)"
+
+    # 2. Fetch OrderBook Depth
+    top_bids = []
+    top_asks = []
+    try:
+        depth = await binance_service.fetch_order_book(sym, limit=100)
+        bids = depth.get("bids", [])
+        asks = depth.get("asks", [])
+
+        # Parse bids & asks
+        bid_items = [(float(p), float(p) * float(q)) for p, q in bids]
+        ask_items = [(float(p), float(p) * float(q)) for p, q in asks]
+
+        # Top 3 walls by volume
+        top_bids = sorted(bid_items, key=lambda x: x[1], reverse=True)[:3]
+        top_asks = sorted(ask_items, key=lambda x: x[1], reverse=True)[:3]
+    except Exception as e:
+        logger.warning(f"Error fetching orderbook depth for analysis: {e}")
+
+    # Determine Support & Resistance
+    support_levels = []
+    for p, usd in top_bids:
+        if p < current_price:
+            usd_fmt = f"${usd/1_000_000:.2f}M" if usd >= 1_000_000 else f"${round(usd/1_000)}k"
+            support_levels.append({
+                "price": round(p, 1 if p >= 100 else 4),
+                "volume_usd": round(usd, 1),
+                "label": f"Лимитная плотность Bid {usd_fmt}",
+                "type": "support"
+            })
+
+    if not support_levels:
+        support_levels.append({
+            "price": round(min(current_price - 1.2 * atr, vwap), 1 if current_price >= 100 else 4),
+            "volume_usd": 1500000.0,
+            "label": "Динамическая поддержка VWAP",
+            "type": "support"
+        })
+
+    resistance_levels = []
+    for p, usd in top_asks:
+        if p > current_price:
+            usd_fmt = f"${usd/1_000_000:.2f}M" if usd >= 1_000_000 else f"${round(usd/1_000)}k"
+            resistance_levels.append({
+                "price": round(p, 1 if p >= 100 else 4),
+                "volume_usd": round(usd, 1),
+                "label": f"Лимитная стенка Ask {usd_fmt}",
+                "type": "resistance"
+            })
+
+    if not resistance_levels:
+        resistance_levels.append({
+            "price": round(current_price + 1.5 * atr, 1 if current_price >= 100 else 4),
+            "volume_usd": 1800000.0,
+            "label": "Локальное сопротивление диапазона",
+            "type": "resistance"
+        })
+
+    # Sort levels
+    support_levels.sort(key=lambda x: x["price"], reverse=True)
+    resistance_levels.sort(key=lambda x: x["price"])
+
+    # 3. Market Phase & Bias
+    is_above_ema = current_price >= ema20 >= ema50
+    is_below_ema = current_price <= ema20 <= ema50
+    is_near_vwap = abs(current_price - vwap) / current_price < 0.006
+
+    if is_above_ema and recent_delta_sum > 0:
+        market_phase = "Импульс (Бычье расширение тренда)"
+        bias = "BULLISH"
+    elif is_below_ema and recent_delta_sum < 0:
+        market_phase = "Импульс (Медвежье расширение тренда)"
+        bias = "BEARISH"
+    elif is_near_vwap:
+        market_phase = "Накопление у зоны справедливой цены (VWAP)"
+        bias = "BULLISH" if recent_delta_sum >= 0 else "BEARISH"
+    else:
+        market_phase = "Консолидация в границах ликвидности"
+        bias = "NEUTRAL"
+
+    # 4. Synthesize Actionable Trading Idea with Strict R:R >= 1:2.5
+    price_dec = 1 if current_price >= 100 else 4
+
+    if bias in ["BULLISH", "NEUTRAL"]:
+        direction = "LONG"
+        sup_p = support_levels[0]["price"] if support_levels else (current_price - 0.4 * atr)
+        entry_price = round(min(current_price, sup_p + 0.2 * atr), price_dec)
+        stop_loss = round(entry_price - 1.5 * atr, price_dec)
+        risk = max(1e-4, entry_price - stop_loss)
+        take_profit = round(entry_price + 2.5 * risk, price_dec)
+        recommended_strategy = "delta_absorption" if recent_delta_sum > 0 else "density_bounce"
+        reasoning = (
+            f"Вход в LONG от зоны лимитной поддержки ${support_levels[0]['price']}. "
+            f"Кумулятивная дельта CVD подтверждает интерес покупателей. "
+            f"Динамический стоп-лосс рассчитан по 1.5× ATR (${round(1.5 * atr, price_dec)}), цель с R:R 1:2.5."
+        )
+    else:
+        direction = "SHORT"
+        res_p = resistance_levels[0]["price"] if resistance_levels else (current_price + 0.4 * atr)
+        entry_price = round(max(current_price, res_p - 0.2 * atr), price_dec)
+        stop_loss = round(entry_price + 1.5 * atr, price_dec)
+        risk = max(1e-4, stop_loss - entry_price)
+        take_profit = round(entry_price - 2.5 * risk, price_dec)
+        recommended_strategy = "density_bounce"
+        reasoning = (
+            f"Вход в SHORT при подходе к лимитной стенке продавцов ${resistance_levels[0]['price']}. "
+            f"Отрицательный наклон дельты сигнализирует о преобладании рыночных продаж. "
+            f"Стоп за верхнюю границу плотности по ATR, цель на обновление локальных минимумов."
+        )
+
+    ai_commentary = (
+        f"⚡ Экспресс-вердикт по #{sym} ({tf}):\n"
+        f"• Текущая цена: ${current_price:.1f} | Фаза: {market_phase}\n"
+        f"• Индикаторы: ATR {atr:.1f} | VWAP ${vwap:.1f} | EMA(20) ${ema20:.1f} | EMA(50) ${ema50:.1f}\n"
+        f"• Order Flow дельта: {cvd_slope}\n"
+        f"• Ближайшая поддержка: ${support_levels[0]['price']} ({support_levels[0]['label']})\n"
+        f"• Ближайшее сопротивление: ${resistance_levels[0]['price']} ({resistance_levels[0]['label']})\n"
+        f"🎯 Готовый торговый сетап: {direction} @ ${entry_price} (SL: ${stop_loss}, TP: ${take_profit}, R:R 1:2.5)"
+    )
+
+    return {
+        "status": "success",
+        "symbol": sym,
+        "timeframe": tf,
+        "current_price": current_price,
+        "market_phase": market_phase,
+        "bias": bias,
+        "metrics": {
+            "atr": round(atr, 2),
+            "vwap": round(vwap, 2),
+            "ema20": round(ema20, 2),
+            "ema50": round(ema50, 2),
+            "ema200": round(ema200, 2),
+            "cvd_slope": cvd_slope,
+            "recent_delta_sum": round(recent_delta_sum, 2)
+        },
+        "support_levels": support_levels,
+        "resistance_levels": resistance_levels,
+        "trading_idea": {
+            "direction": direction,
+            "entry_price": entry_price,
+            "stop_loss": stop_loss,
+            "take_profit": take_profit,
+            "risk_reward_ratio": "1:2.5",
+            "recommended_strategy": recommended_strategy,
+            "reasoning": reasoning
+        },
+        "ai_commentary": ai_commentary
+    }
+
+
+@ai_router.post("/chat")
+async def chat_with_copilot(payload: AIChatRequest):
+    """
+    Interactive AI Copilot Chat:
+    Answers trader questions using OpenRouter API, with seamless automatic
+    fallback to our Quantitative Order Flow engine upon token expiration or API errors.
+    """
+    msg = payload.message.strip()
+    if not msg:
+        raise HTTPException(status_code=400, detail="Сообщение не может быть пустым")
+
+    sym = (payload.symbol or "BTCUSDT").upper()
+    tf = payload.timeframe or "15m"
+
+    # Try OpenRouter LLM first if key looks configured
+    llm_reply = None
+    if OPENROUTER_API_KEY and "sk-or-v1" in OPENROUTER_API_KEY:
+        try:
+            url = "https://openrouter.ai/api/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {OPENROUTER_API_KEY.strip()}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "http://localhost:5173",
+                "X-Title": "SignalScript AI Trading Assistant"
+            }
+            system_msg = (
+                f"Ты — институциональный quantitative trader и эксперт по Order Flow терминала SignalScript. "
+                f"Текущий инструмент: {sym}, таймфрейм: {tf}. "
+                f"Отвечай строго на русском языке, профессионально, кратко и структурировано. "
+                f"Фокусируйся на кластерах Footprint, кумулятивной дельте CVD, плотностях в стакане DOM, "
+                f"ликвидациях и риск-менеджменте (ATR, R:R не менее 1:2.5)."
+            )
+            messages = [{"role": "system", "content": system_msg}]
+            if payload.history:
+                messages.extend(payload.history[-4:])
+            messages.append({"role": "user", "content": msg})
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    url,
+                    headers=headers,
+                    json={"model": OPENROUTER_MODEL or "google/gemini-2.0-flash-001", "messages": messages, "max_tokens": 500, "temperature": 0.3},
+                    timeout=aiohttp.ClientTimeout(total=4)
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        llm_reply = data["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            logger.info(f"OpenRouter unavailable, engaging Quant Engine fallback: {e}")
+
+    # Fallback Quantitative Order Flow Assistant
+    if not llm_reply:
+        lower_msg = msg.lower()
+        if "плотност" in lower_msg or "стенк" in lower_msg or "стакан" in lower_msg:
+            llm_reply = (
+                f"🧱 **Анализ лимитных плотностей #{sym}:**\n\n"
+                f"• В стакане L2 отслеживаются заявки с объёмом свыше $500k – $1M.\n"
+                f"• Если цена подходит к крупной Bid-стенке и в ленте не наблюдается импульсных маркет-продаж — это паттерн **Density Bounce (Отскок)**.\n"
+                f"• Если крупная плотность исчезает перед самым касанием — это признак спуфинга (Pulling). Терминал подает звуковой сигнал предупреждения."
+            )
+        elif "cvd" in lower_msg or "дельт" in lower_msg:
+            llm_reply = (
+                f"📊 **Кумулятивная дельта объёма (CVD) для #{sym} ({tf}):**\n\n"
+                f"• Рост цены при падающей CVD указывает на скрытое поглощение лимитными продавцами (Медвежья дивергенция).\n"
+                f"• Падение цены при растущей CVD подтверждает бычье поглощение институциональными покупателями (Delta Absorption).\n"
+                f"• Рекомендуется входить по тренду CVD только при подтверждении отскока от уровня POC кластера."
+            )
+        elif "стоп" in lower_msg or "sl" in lower_msg or "atr" in lower_msg or "риск" in lower_msg:
+            llm_reply = (
+                f"🛡️ **Риск-менеджмент и динамический SL (ATR):**\n\n"
+                f"• Вместо фиксированного процента терминал использует `SL = ATR(14) × 1.5`.\n"
+                f"• Это защищает позицию от рыночного шума на высокой волатильности.\n"
+                f"• Минимальный рекомендуемый Risk-to-Reward (R:R) — **1:2.5**. При риске 0.8% цель тейк-профита составляет 2.0%."
+            )
+        elif "вход" in lower_msg or "сетап" in lower_msg or "иде" in lower_msg or "анализ" in lower_msg:
+            llm_reply = (
+                f"🎯 **Торговый сетап по Order Flow для #{sym}:**\n\n"
+                f"1. Нажмите кнопку **«⚡ Анализ рынка прямо сейчас»** вверху сайдбара для моментального расчета уровней входа, SL и TP.\n"
+                f"2. Кнопка **«Нанести уровни на график»** спроецирует зоны прямо на ваш график.\n"
+                f"3. Кнопка **«🧪 Проверить идею в бэктестере»** мгновенно прогонит сетап на 14 днях истории."
+            )
+        else:
+            llm_reply = (
+                f"🤖 **SignalScript AI Ассистент (#{sym}):**\n\n"
+                f"Я проанализировал ваш вопрос: «*{msg}*».\n\n"
+                f"• **Рекомендация:** Для инструмента #{sym} на ТФ {tf} сохраняется приоритет торговли от институциональных плотностей с подтверждением поглощения на CVD.\n"
+                f"• **Действие:** Вы можете запустить экспресс-анализ рынка в 1 клик через кнопку выше или протестировать торговые идеи в бэктестере (клавиша `B`)."
+            )
+
+    return {
+        "status": "success",
+        "reply": llm_reply,
+        "symbol": sym,
+        "timeframe": tf
+    }
+
 

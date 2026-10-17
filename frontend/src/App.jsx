@@ -8,6 +8,11 @@ import SettingsModal, {
   applyUiConfigToDOM
 } from './components/SettingsModal';
 import BacktestPanel from './components/BacktestPanel';
+import AICopilotSidebar from './components/AICopilotSidebar';
+import IndicatorsModal, {
+  loadChartIndicators,
+  saveChartIndicators
+} from './components/IndicatorsModal';
 import { soundManager } from './utils/sound';
 import {
   Settings,
@@ -27,7 +32,9 @@ import {
   Maximize2,
   Minimize2,
   X,
-  Bell
+  Bell,
+  Sparkles,
+  Sliders
 } from 'lucide-react';
 
 const TIMEFRAMES = ['1m', '5m', '15m', '30m', '45m', '1h', '4h', '6h'];
@@ -80,6 +87,13 @@ export default function App() {
       })
       .catch(() => {});
   }, [userId]);
+
+  // AI Copilot Sidebar & Indicators Catalog states
+  const [showAICopilot, setShowAICopilot] = useState(false);
+  const [showIndicatorsModal, setShowIndicatorsModal] = useState(false);
+  const [indicatorsTargetChart, setIndicatorsTargetChart] = useState('primary');
+  const [primaryIndicators, setPrimaryIndicators] = useState(() => loadChartIndicators('primary'));
+  const [secondaryIndicators, setSecondaryIndicators] = useState(() => loadChartIndicators('secondary'));
 
   // Backtest panel state: result (signals/trades/metrics) lives here so both charts can draw markers
   const [showBacktest, setShowBacktest] = useState(false);
@@ -382,6 +396,10 @@ export default function App() {
         setIsDualPane((v) => !v);
       } else if (e.key.toLowerCase() === 'b' || e.key.toLowerCase() === 'и') {
         setShowBacktest((v) => !v);
+      } else if (e.key.toLowerCase() === 'a' || e.key.toLowerCase() === 'ф') {
+        setShowAICopilot((v) => !v);
+      } else if (e.key.toLowerCase() === 'i' || e.key.toLowerCase() === 'ш') {
+        setShowIndicatorsModal((v) => !v);
       } else if (e.key.toLowerCase() === 'f' || e.key.toLowerCase() === 'а') {
         toggleFocusMode();
       } else if (e.key === '?') {
@@ -572,6 +590,20 @@ export default function App() {
             <span>{isFocusMode ? 'Выйти [F]' : 'Фокус [F]'}</span>
           </button>
 
+          {/* AI Copilot Sidebar Toggle */}
+          <button
+            onClick={() => setShowAICopilot((v) => !v)}
+            className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition cursor-pointer ${
+              showAICopilot
+                ? 'bg-[#1e1b4b] text-[#818cf8] border-[#818cf860] font-bold'
+                : 'text-[#60697b] border-transparent hover:bg-[#141720] hover:text-[#818cf8]'
+            }`}
+            title="AI Торговый Ассистент & Order Flow (Клавиша 'A')"
+          >
+            <Sparkles size={11} className={showAICopilot ? 'animate-pulse text-[#818cf8]' : ''} />
+            <span>AI Ассистент [A]</span>
+          </button>
+
           {/* Backtest drawer toggle */}
           <button
             onClick={() => setShowBacktest((v) => !v)}
@@ -687,6 +719,11 @@ export default function App() {
                 showBacktestSignals={showBtSignals}
                 strategyLevels={strategyLevels}
                 uiConfig={uiConfig}
+                chartIndicators={primaryIndicators}
+                onOpenIndicators={(cid) => {
+                  setIndicatorsTargetChart(cid);
+                  setShowIndicatorsModal(true);
+                }}
               />
             </div>
 
@@ -704,6 +741,11 @@ export default function App() {
                   showBacktestSignals={showBtSignals}
                   strategyLevels={strategyLevels}
                   uiConfig={uiConfig}
+                  chartIndicators={secondaryIndicators}
+                  onOpenIndicators={(cid) => {
+                    setIndicatorsTargetChart(cid);
+                    setShowIndicatorsModal(true);
+                  }}
                 />
               </div>
             )}
@@ -884,6 +926,14 @@ export default function App() {
                 <span className="text-white font-bold">B</span>
               </div>
               <div className="flex justify-between py-0.5 border-b border-[#13161f]">
+                <span className="text-[#787f91]">AI Торговый Ассистент:</span>
+                <span className="text-[#818cf8] font-bold">A</span>
+              </div>
+              <div className="flex justify-between py-0.5 border-b border-[#13161f]">
+                <span className="text-[#787f91]">Каталог индикаторов:</span>
+                <span className="text-[#38bdf8] font-bold">I</span>
+              </div>
+              <div className="flex justify-between py-0.5 border-b border-[#13161f]">
                 <span className="text-[#787f91]">Скальперский DOM стакан:</span>
                 <span className="text-white font-bold">O</span>
               </div>
@@ -914,6 +964,42 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* AI Copilot Assistant Sidebar */}
+      <AICopilotSidebar
+        isOpen={showAICopilot}
+        onClose={() => setShowAICopilot(false)}
+        symbol={symbol}
+        timeframe={timeframe}
+        onApplyLevels={(levels) => {
+          setStrategyLevels(levels);
+          pushToast({
+            symbol,
+            direction: 'ALERT',
+            price: levels[0]?.price || 81450,
+            description: `Нанесено ${levels.length} уровней AI Ассистента на график и в стакан`
+          });
+        }}
+      />
+
+      {/* Indicators Catalog Modal */}
+      <IndicatorsModal
+        isOpen={showIndicatorsModal}
+        onClose={() => setShowIndicatorsModal(false)}
+        targetChartId={indicatorsTargetChart}
+        onTargetChartChange={setIndicatorsTargetChart}
+        activeIndicators={indicatorsTargetChart === 'primary' ? primaryIndicators : secondaryIndicators}
+        onIndicatorsChange={(chartId, newConfig) => {
+          if (chartId === 'primary') {
+            setPrimaryIndicators(newConfig);
+            saveChartIndicators('primary', newConfig);
+          } else {
+            setSecondaryIndicators(newConfig);
+            saveChartIndicators('secondary', newConfig);
+          }
+        }}
+        isDualPane={isDualPane}
+      />
     </div>
   );
 }

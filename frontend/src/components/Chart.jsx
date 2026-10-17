@@ -16,7 +16,8 @@ import {
   Check,
   BarChart3,
   Loader2,
-  MousePointer
+  MousePointer,
+  Sliders
 } from 'lucide-react';
 
 const API_BASE = "/api";
@@ -531,6 +532,76 @@ try {
   });
 } catch (_) {}
 
+// 6. Register custom 'DeltaBars' (Pure Delta histogram) indicator
+try {
+  registerIndicator({
+    name: 'DeltaBars',
+    shortName: 'Δ Бары',
+    precision: 1,
+    figures: [
+      {
+        key: 'delta',
+        title: 'Δ: ',
+        type: 'bar',
+        baseValue: 0,
+        styles: (data) => {
+          const d = data.current?.indicatorData?.delta ?? 0;
+          return {
+            color: d >= 0 ? '#26a69a' : '#ef5350'
+          };
+        }
+      }
+    ],
+    calc: (dataList) => {
+      return dataList.map(k => {
+        const rng = Math.max(1e-9, (k.high || 0) - (k.low || 0));
+        const buyRatio = ((k.close || 0) - (k.low || 0)) / rng;
+        const delta = (2 * buyRatio - 1) * (k.volume || 0);
+        return { delta };
+      });
+    }
+  });
+} catch (_) {}
+
+// 7. Register custom 'ATR' indicator
+try {
+  registerIndicator({
+    name: 'ATR',
+    shortName: 'ATR (Волатильность)',
+    precision: 1,
+    calcParams: [14],
+    figures: [
+      {
+        key: 'atr',
+        title: 'ATR(14): ',
+        type: 'line',
+        styles: () => ({ color: '#10b981', size: 1.5, style: 'solid' })
+      }
+    ],
+    calc: (dataList, { calcParams }) => {
+      const period = (calcParams && calcParams[0]) || 14;
+      let trs = [];
+      return dataList.map((k, i) => {
+        if (i === 0) {
+          const tr0 = (k.high || 0) - (k.low || 0);
+          trs.push(tr0);
+          return { atr: tr0 };
+        }
+        const prevClose = dataList[i - 1].close || k.close;
+        const tr = Math.max(
+          (k.high || 0) - (k.low || 0),
+          Math.abs((k.high || 0) - prevClose),
+          Math.abs((k.low || 0) - prevClose)
+        );
+        trs.push(tr);
+        if (trs.length > period) trs.shift();
+        const avg = trs.reduce((a, b) => a + b, 0) / trs.length;
+        return { atr: avg };
+      });
+    }
+  });
+} catch (_) {}
+
 function hexToRgba(hex, alpha = 1) {
   if (!hex || typeof hex !== 'string' || !hex.startsWith('#')) return hex;
   const h = hex.replace('#', '');
@@ -641,7 +712,9 @@ export default function Chart({
   backtestSignals = null,
   showBacktestSignals = true,
   strategyLevels = [],
-  uiConfig = null
+  uiConfig = null,
+  chartIndicators = null,
+  onOpenIndicators = null
 }) {
   const chartContainerRef = useRef(null);
   const chartRef = useRef(null);
@@ -728,6 +801,166 @@ export default function Chart({
       setTimeout(() => setStatusMsg(""), 2500);
     }
   }, [symbol, timeframe]);
+
+  // Synchronize indicators with external IndicatorsModal state
+  useEffect(() => {
+    if (!chartIndicators) return;
+    if (typeof chartIndicators.ema === 'boolean') {
+      setIndicators(prev => {
+        if (prev.ema !== chartIndicators.ema) {
+          if (chartRef.current) {
+            if (chartIndicators.ema) {
+              chartRef.current.createIndicator({
+                name: 'EMA',
+                calcParams: uiConfig?.emaPeriods || [9, 21, 50]
+              }, true, { id: 'candle_pane' });
+            } else {
+              chartRef.current.removeIndicator('candle_pane', 'EMA');
+            }
+          }
+          return { ...prev, ema: chartIndicators.ema };
+        }
+        return prev;
+      });
+    }
+    if (typeof chartIndicators.vol === 'boolean') {
+      setIndicators(prev => {
+        if (prev.vol !== chartIndicators.vol) {
+          if (chartRef.current) {
+            if (chartIndicators.vol) {
+              chartRef.current.createIndicator('VOL', false, { id: 'pane_vol', height: 70 });
+            } else {
+              try { chartRef.current.removeIndicator('pane_vol', 'VOL'); } catch (_) {}
+              try { chartRef.current.removeIndicator({ name: 'VOL' }); } catch (_) {}
+            }
+          }
+          return { ...prev, vol: chartIndicators.vol };
+        }
+        return prev;
+      });
+    }
+    if (typeof chartIndicators.cvd === 'boolean') {
+      setIndicators(prev => {
+        if (prev.cvd !== chartIndicators.cvd) {
+          if (chartRef.current) {
+            if (chartIndicators.cvd) {
+              chartRef.current.createIndicator('CVD', false, { id: 'pane_cvd', height: 75 });
+            } else {
+              try { chartRef.current.removeIndicator('pane_cvd', 'CVD'); } catch (_) {}
+              try { chartRef.current.removeIndicator({ name: 'CVD' }); } catch (_) {}
+            }
+          }
+          return { ...prev, cvd: chartIndicators.cvd };
+        }
+        return prev;
+      });
+    }
+    if (typeof chartIndicators.rsi === 'boolean') {
+      setIndicators(prev => {
+        if (prev.rsi !== chartIndicators.rsi) {
+          if (chartRef.current) {
+            if (chartIndicators.rsi) {
+              chartRef.current.createIndicator('RSI', false, { id: 'pane_rsi', height: 70 });
+            } else {
+              try { chartRef.current.removeIndicator('pane_rsi', 'RSI'); } catch (_) {}
+              try { chartRef.current.removeIndicator({ name: 'RSI' }); } catch (_) {}
+            }
+          }
+          return { ...prev, rsi: chartIndicators.rsi };
+        }
+        return prev;
+      });
+    }
+    if (typeof chartIndicators.macd === 'boolean') {
+      setIndicators(prev => {
+        if (prev.macd !== chartIndicators.macd) {
+          if (chartRef.current) {
+            if (chartIndicators.macd) {
+              chartRef.current.createIndicator('MACD', false, { id: 'pane_macd', height: 75 });
+            } else {
+              try { chartRef.current.removeIndicator('pane_macd', 'MACD'); } catch (_) {}
+              try { chartRef.current.removeIndicator({ name: 'MACD' }); } catch (_) {}
+            }
+          }
+          return { ...prev, macd: chartIndicators.macd };
+        }
+        return prev;
+      });
+    }
+    if (typeof chartIndicators.atr === 'boolean') {
+      if (chartRef.current) {
+        if (chartIndicators.atr) {
+          chartRef.current.createIndicator('ATR', false, { id: 'pane_atr', height: 70 });
+        } else {
+          try { chartRef.current.removeIndicator('pane_atr', 'ATR'); } catch (_) {}
+          try { chartRef.current.removeIndicator({ name: 'ATR' }); } catch (_) {}
+        }
+      }
+    }
+    if (typeof chartIndicators.deltaBars === 'boolean') {
+      if (chartRef.current) {
+        if (chartIndicators.deltaBars) {
+          chartRef.current.createIndicator('DeltaBars', false, { id: 'pane_deltabars', height: 70 });
+        } else {
+          try { chartRef.current.removeIndicator('pane_deltabars', 'DeltaBars'); } catch (_) {}
+          try { chartRef.current.removeIndicator({ name: 'DeltaBars' }); } catch (_) {}
+        }
+      }
+    }
+    if (typeof chartIndicators.vwap === 'boolean') {
+      setShowVwap(chartIndicators.vwap);
+      setIndicators(prev => ({ ...prev, vwap: chartIndicators.vwap }));
+    }
+    if (typeof chartIndicators.walls === 'boolean') {
+      setShowWalls(chartIndicators.walls);
+    }
+    if (typeof chartIndicators.liquidations === 'boolean') {
+      setShowLiquidations(chartIndicators.liquidations);
+    }
+    if (typeof chartIndicators.heatmap === 'boolean') {
+      setShowHeatmap(chartIndicators.heatmap);
+    }
+  }, [chartIndicators, uiConfig]);
+
+  // AI Copilot strategy levels projection listener
+  useEffect(() => {
+    const handleAiLevels = (e) => {
+      const { levels, symbol: targetSym } = e.detail || {};
+      if (targetSym && targetSym !== symbol) return;
+      if (Array.isArray(levels) && chartRef.current) {
+        const klines = currentKlines.current;
+        if (!klines || klines.length === 0) return;
+        const anchorTs = klines[klines.length - 1].timestamp;
+
+        activeStrategyLevelOverlays.current.forEach(id => {
+          try { chartRef.current.removeOverlay({ id }); } catch (_) {}
+        });
+        activeStrategyLevelOverlays.current = [];
+
+        levels.forEach(lvl => {
+          const p = Number(lvl.price);
+          if (!p || !Number.isFinite(p)) return;
+          try {
+            const id = chartRef.current.createOverlay({
+              name: 'strategyLevelZone',
+              lock: true,
+              points: [{ timestamp: anchorTs, value: p }],
+              extendData: {
+                type: lvl.type || 'BUY',
+                label: lvl.label || 'AI Level',
+                price: p
+              }
+            });
+            if (id) activeStrategyLevelOverlays.current.push(id);
+          } catch (_) {}
+        });
+        setStatusMsg("Уровни AI Ассистента нанесены");
+        setTimeout(() => setStatusMsg(""), 2000);
+      }
+    };
+    window.addEventListener('apply-ai-strategy-levels', handleAiLevels);
+    return () => window.removeEventListener('apply-ai-strategy-levels', handleAiLevels);
+  }, [symbol]);
 
   // Initialize KLineChart instance with ResizeObserver (ТАКТ 1)
   useEffect(() => {
@@ -2031,6 +2264,15 @@ export default function Chart({
           {statusMsg && (
             <span className="text-[#f59e0b] text-[10px] font-mono animate-pulse mr-1">{statusMsg}</span>
           )}
+
+          <button 
+            title="Каталог индикаторов & Order Flow (Клавиша 'I')" 
+            onClick={() => onOpenIndicators && onOpenIndicators(chartId)}
+            className="px-1.5 py-0.5 rounded text-[10px] font-mono transition flex items-center space-x-1 bg-[#1e293b] hover:bg-[#2563eb] text-[#38bdf8] hover:text-white border border-[#38bdf850] mr-0.5 cursor-pointer"
+          >
+            <Sliders size={11} />
+            <span>Индикаторы [I]</span>
+          </button>
           
           <button 
             title="Тепловая карта плотностей стакана во времени"
