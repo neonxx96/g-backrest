@@ -28,33 +28,46 @@ try {
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: false,
     needDefaultYAxisFigure: false,
-    createPointFigures: ({ coordinates }) => {
-      if (coordinates && coordinates.length > 1) {
-        const x = Math.min(coordinates[0].x, coordinates[1].x);
-        const y = Math.min(coordinates[0].y, coordinates[1].y);
-        const width = Math.abs(coordinates[0].x - coordinates[1].x);
-        const height = Math.abs(coordinates[0].y - coordinates[1].y);
-        return [
-          {
-            type: 'polygon',
-            attrs: {
-              coordinates: [
-                { x, y },
-                { x: x + width, y },
-                { x: x + width, y: y + height },
-                { x, y: y + height }
-              ]
-            },
-            styles: {
-              style: 'stroke_fill',
-              color: 'rgba(38, 166, 154, 0.12)',
-              borderColor: '#26a69a',
-              borderSize: 1
-            }
-          }
-        ];
+    createPointFigures: ({ coordinates, overlay, yAxis }) => {
+      if (!coordinates || coordinates.length < 2) return [];
+      let c0 = coordinates[0];
+      let c1 = coordinates[1];
+      if (!c0 || !c1) return [];
+
+      let x0 = c0.x;
+      let x1 = c1.x;
+      let y0 = c0.y;
+      let y1 = c1.y;
+
+      if ((!Number.isFinite(y0) || !Number.isFinite(y1)) && yAxis && overlay?.points?.length >= 2) {
+        y0 = yAxis.convertToPixel(Number(overlay.points[0].value));
+        y1 = yAxis.convertToPixel(Number(overlay.points[1].value));
       }
-      return [];
+      if (!Number.isFinite(x0) || !Number.isFinite(x1) || !Number.isFinite(y0) || !Number.isFinite(y1)) return [];
+
+      const x = Math.min(x0, x1);
+      const y = Math.min(y0, y1);
+      const width = Math.abs(x0 - x1);
+      const height = Math.abs(y0 - y1);
+      return [
+        {
+          type: 'polygon',
+          attrs: {
+            coordinates: [
+              { x, y },
+              { x: x + width, y },
+              { x: x + width, y: y + height },
+              { x, y: y + height }
+            ]
+          },
+          styles: {
+            style: 'stroke_fill',
+            color: 'rgba(38, 166, 154, 0.12)',
+            borderColor: '#26a69a',
+            borderSize: 1
+          }
+        }
+      ];
     }
   });
 } catch (_) {}
@@ -67,62 +80,75 @@ try {
     needDefaultPointFigure: true,
     needDefaultXAxisFigure: false,
     needDefaultYAxisFigure: false,
-    createPointFigures: ({ coordinates, overlay }) => {
-      if (coordinates && coordinates.length > 1 && overlay.points && overlay.points.length > 1) {
-        const p1 = overlay.points[0];
-        const p2 = overlay.points[1];
-        const x = Math.min(coordinates[0].x, coordinates[1].x);
-        const y = Math.min(coordinates[0].y, coordinates[1].y);
-        const width = Math.abs(coordinates[0].x - coordinates[1].x);
-        const height = Math.abs(coordinates[0].y - coordinates[1].y);
+    createPointFigures: ({ coordinates, overlay, yAxis }) => {
+      if (!coordinates || coordinates.length < 2 || !overlay.points || overlay.points.length < 2) return [];
+      const p1 = overlay.points[0];
+      const p2 = overlay.points[1];
+      let c0 = coordinates[0];
+      let c1 = coordinates[1];
+      if (!c0 || !c1) return [];
 
-        const v1 = Number(p1.value) || 0;
-        const v2 = Number(p2.value) || 0;
-        const priceDiff = v2 - v1;
-        const pctDiff = v1 !== 0 ? ((priceDiff / v1) * 100) : 0;
-        const isUp = priceDiff >= 0;
-        const fillColor = isUp ? 'rgba(38, 166, 154, 0.16)' : 'rgba(239, 83, 80, 0.16)';
-        const strokeColor = isUp ? '#26a69a' : '#ef5350';
-        const sign = isUp ? '+' : '';
-        const labelText = `${sign}${priceDiff.toFixed(2)} (${sign}${pctDiff.toFixed(2)}%)`;
+      let x0 = c0.x;
+      let x1 = c1.x;
+      let y0 = c0.y;
+      let y1 = c1.y;
 
-        return [
-          {
-            type: 'polygon',
-            attrs: {
-              coordinates: [
-                { x, y },
-                { x: x + width, y },
-                { x: x + width, y: y + height },
-                { x, y: y + height }
-              ]
-            },
-            styles: {
-              style: 'stroke_fill',
-              color: fillColor,
-              borderColor: strokeColor,
-              borderSize: 1,
-              borderStyle: 'dashed'
-            }
-          },
-          {
-            type: 'text',
-            attrs: {
-              x: coordinates[1].x,
-              y: coordinates[1].y - (isUp ? 10 : -16),
-              text: labelText,
-              align: 'center'
-            },
-            styles: {
-              color: '#ffffff',
-              backgroundColor: strokeColor,
-              padding: 4,
-              borderRadius: 2
-            }
-          }
-        ];
+      if ((!Number.isFinite(y0) || !Number.isFinite(y1)) && yAxis) {
+        y0 = yAxis.convertToPixel(Number(p1.value));
+        y1 = yAxis.convertToPixel(Number(p2.value));
       }
-      return [];
+      if (!Number.isFinite(x0) || !Number.isFinite(x1) || !Number.isFinite(y0) || !Number.isFinite(y1)) return [];
+
+      const x = Math.min(x0, x1);
+      const y = Math.min(y0, y1);
+      const width = Math.abs(x0 - x1);
+      const height = Math.abs(y0 - y1);
+
+      const v1 = Number(p1.value) || 0;
+      const v2 = Number(p2.value) || 0;
+      const priceDiff = v2 - v1;
+      const pctDiff = v1 !== 0 ? ((priceDiff / v1) * 100) : 0;
+      const isUp = priceDiff >= 0;
+      const fillColor = isUp ? 'rgba(38, 166, 154, 0.16)' : 'rgba(239, 83, 80, 0.16)';
+      const strokeColor = isUp ? '#26a69a' : '#ef5350';
+      const sign = isUp ? '+' : '';
+      const labelText = `${sign}${priceDiff.toFixed(2)} (${sign}${pctDiff.toFixed(2)}%)`;
+
+      return [
+        {
+          type: 'polygon',
+          attrs: {
+            coordinates: [
+              { x, y },
+              { x: x + width, y },
+              { x: x + width, y: y + height },
+              { x, y: y + height }
+            ]
+          },
+          styles: {
+            style: 'stroke_fill',
+            color: fillColor,
+            borderColor: strokeColor,
+            borderSize: 1,
+            borderStyle: 'dashed'
+          }
+        },
+        {
+          type: 'text',
+          attrs: {
+            x: x1,
+            y: y1 - (isUp ? 10 : -16),
+            text: labelText,
+            align: 'center'
+          },
+          styles: {
+            color: '#ffffff',
+            backgroundColor: strokeColor,
+            padding: 4,
+            borderRadius: 2
+          }
+        }
+      ];
     }
   });
 } catch (_) {}
@@ -136,19 +162,28 @@ try {
     needDefaultPointFigure: false,
     needDefaultXAxisFigure: false,
     needDefaultYAxisFigure: false,
-    createPointFigures: ({ coordinates, overlay }) => {
+    createPointFigures: ({ coordinates, yAxis, overlay }) => {
       if (!coordinates || coordinates.length === 0) return [];
-      const { x, y } = coordinates[0];
+      let { x, y } = coordinates[0];
+      if (!Number.isFinite(x)) return [];
+
       const ext = overlay.extendData || {};
+      const price = Number(ext.price ?? overlay.points?.[0]?.value ?? 0);
+      if (yAxis && typeof yAxis.convertToPixel === 'function' && price > 0) {
+        const calcY = yAxis.convertToPixel(price);
+        if (Number.isFinite(calcY)) {
+          y = calcY;
+        }
+      }
+      if (!Number.isFinite(y)) return [];
+
       const isBuy = ext.type === 'BUY';
       const color = isBuy ? '#26a69a' : '#ef5350';
-      const gap = 5;   // pixels between candle extreme and arrow
+      const gap = 5;
       const h = 11;
       const w = 7;
       const tri = isBuy
-        // arrow pointing up, strictly below the candle low
         ? [{ x, y: y + gap }, { x: x - w, y: y + gap + h }, { x: x + w, y: y + gap + h }]
-        // arrow pointing down, strictly above the candle high
         : [{ x, y: y - gap }, { x: x - w, y: y - gap - h }, { x: x + w, y: y - gap - h }];
       const textY = isBuy ? y + gap + h + 4 : y - gap - h - 4;
       return [
@@ -163,7 +198,7 @@ try {
           attrs: {
             x,
             y: textY,
-            text: Number(ext.price || 0).toFixed(ext.price >= 100 ? 1 : 4),
+            text: Number(ext.price || price).toFixed(price >= 100 ? 1 : 4),
             align: 'center',
             baseline: isBuy ? 'top' : 'bottom'
           },
@@ -184,19 +219,29 @@ try {
     needDefaultPointFigure: false,
     needDefaultXAxisFigure: false,
     needDefaultYAxisFigure: false,
-    createPointFigures: ({ coordinates, overlay }) => {
+    createPointFigures: ({ coordinates, yAxis, overlay }) => {
       if (!coordinates || coordinates.length === 0) return [];
-      const { x, y } = coordinates[0];
+      let { x, y } = coordinates[0];
+      if (!Number.isFinite(x)) return [];
+
+      const price = Number(overlay.points?.[0]?.value ?? 0);
+      if (yAxis && typeof yAxis.convertToPixel === 'function' && price > 0) {
+        const calcY = yAxis.convertToPixel(price);
+        if (Number.isFinite(calcY)) {
+          y = calcY;
+        }
+      }
+      if (!Number.isFinite(y)) return [];
+
       const side = overlay.extendData?.side || 'BUY';
       const usd = Number(overlay.extendData?.usd_amount || 0);
-      const isShortLiq = side === 'BUY'; // Buy liquidation order = short position got liquidated
+      const isShortLiq = side === 'BUY';
       const color = isShortLiq ? '#00e676' : '#ff1744';
       const radius = Math.min(13, Math.max(5, Math.log10(Math.max(1000, usd)) * 2.2));
       const usdFormatted = usd >= 1000000 ? `$${(usd / 1000000).toFixed(2)}M` : `$${Math.round(usd / 1000)}k`;
       const labelText = isShortLiq ? `💀 SHORT ${usdFormatted}` : `💀 LONG ${usdFormatted}`;
 
       const figures = [
-        // Outer glowing halo
         {
           type: 'circle',
           attrs: { x, y, r: radius + 4 },
@@ -207,7 +252,6 @@ try {
             borderSize: 1.5
           }
         },
-        // Inner bright core
         {
           type: 'circle',
           attrs: { x, y, r: radius * 0.55 },
@@ -218,7 +262,6 @@ try {
         }
       ];
 
-      // Pill label for liquidations >= $20k
       if (usd >= 20000) {
         figures.push({
           type: 'text',
@@ -254,9 +297,20 @@ try {
     needDefaultPointFigure: false,
     needDefaultXAxisFigure: false,
     needDefaultYAxisFigure: false,
-    createPointFigures: ({ coordinates, overlay }) => {
+    createPointFigures: ({ coordinates, yAxis, overlay }) => {
       if (!coordinates || coordinates.length === 0) return [];
-      const { x, y } = coordinates[0];
+      let { x, y } = coordinates[0];
+      if (!Number.isFinite(x)) return [];
+
+      const price = Number(overlay.points?.[0]?.value ?? 0);
+      if (yAxis && typeof yAxis.convertToPixel === 'function' && price > 0) {
+        const calcY = yAxis.convertToPixel(price);
+        if (Number.isFinite(calcY)) {
+          y = calcY;
+        }
+      }
+      if (!Number.isFinite(y)) return [];
+
       const side = overlay.extendData?.side || 'bid';
       const volUsd = overlay.extendData?.volume_usd || 0;
       const isBid = side === 'bid';
@@ -288,19 +342,28 @@ try {
   registerOverlay({
     name: 'strategyLevelZone',
     totalStep: 2,
+    lock: true,
     needDefaultPointFigure: false,
     needDefaultXAxisFigure: false,
     needDefaultYAxisFigure: false,
-    createPointFigures: ({ coordinates, bounding, overlay }) => {
-      if (!coordinates || coordinates.length === 0) return [];
-      const { y } = coordinates[0];
+    createPointFigures: ({ coordinates, bounding, yAxis, overlay }) => {
       const ext = overlay.extendData || {};
+      const price = Number(ext.price ?? overlay.points?.[0]?.value ?? 0);
+      let y = null;
+      if (yAxis && typeof yAxis.convertToPixel === 'function' && price > 0) {
+        y = yAxis.convertToPixel(price);
+      } else if (coordinates && coordinates.length > 0 && Number.isFinite(coordinates[0].y)) {
+        y = coordinates[0].y;
+      }
+      if (y == null || !Number.isFinite(y)) return [];
+
+      const width = (bounding && bounding.width) ? bounding.width : 2200;
       const isBuy = ext.type === 'BUY' || ext.side === 'BUY';
       const label = ext.label || (isBuy ? 'BUY ZONE: Wall $1.2M' : 'SHORT: Delta Div');
       const color = isBuy ? '#26a69a' : '#ef5350';
       const fillColor = isBuy ? 'rgba(38, 166, 154, 0.16)' : 'rgba(239, 83, 80, 0.16)';
-      const width = (bounding && bounding.width) ? bounding.width : 2200;
       const zoneHeight = 16;
+
       return [
         {
           type: 'rect',
@@ -360,10 +423,18 @@ try {
     needDefaultPointFigure: false,
     needDefaultXAxisFigure: false,
     needDefaultYAxisFigure: false,
-    createPointFigures: ({ coordinates, bounding, overlay }) => {
-      if (!coordinates || coordinates.length === 0) return [];
-      const { y } = coordinates[0];
+    createPointFigures: ({ coordinates, bounding, yAxis, overlay }) => {
       const ext = overlay.extendData || {};
+      const price = Number(ext.price ?? overlay.points?.[0]?.value ?? 0);
+      let y = null;
+      if (yAxis && typeof yAxis.convertToPixel === 'function' && price > 0) {
+        y = yAxis.convertToPixel(price);
+      } else if (coordinates && coordinates.length > 0 && Number.isFinite(coordinates[0].y)) {
+        y = coordinates[0].y;
+      }
+      if (y == null || !Number.isFinite(y)) return [];
+
+      const width = (bounding && bounding.width) ? bounding.width : 2200;
       const isBuy = ext.side === 'BUY' || ext.side === 'bid';
       const volUsd = ext.volume_usd || 0;
       const volFormatted = volUsd >= 1000000 
@@ -371,7 +442,6 @@ try {
         : `$${Math.round(volUsd / 1000)}k`;
       const badgeText = isBuy ? `[BUY WALL ${volFormatted}]` : `[SELL WALL ${volFormatted}]`;
       const color = isBuy ? '#26a69a' : '#ef5350';
-      const width = (bounding && bounding.width) ? bounding.width : 2200;
 
       return [
         {
@@ -410,6 +480,7 @@ try {
   });
 } catch (_) {}
 
+
 // 5. Register custom 'CVD' (Cumulative Volume Delta) sub-pane indicator
 try {
   registerIndicator({
@@ -434,7 +505,7 @@ try {
         key: 'cvd',
         title: 'CVD: ',
         type: 'line',
-        styles: () => ({ color: '#38bdf8', size: 1.5 })
+        styles: () => ({ color: '#38bdf8', size: 1.5, style: 'solid', dashedValue: [2, 2] })
       }
     ],
     calc: (dataList) => {
@@ -522,9 +593,9 @@ function buildChartStyles(uiConfig = {}) {
         noChangeColor: 'rgba(120, 127, 145, 0.25)'
       }],
       lines: [
-        { style: 'solid', size: emaWidth, color: emaColors[0] || '#38bdf8' },
-        { style: 'solid', size: emaWidth, color: emaColors[1] || '#f59e0b' },
-        { style: 'solid', size: emaWidth, color: emaColors[2] || '#a855f7' }
+        { style: 'solid', smooth: false, size: emaWidth, color: emaColors[0] || '#38bdf8', dashedValue: [2, 2] },
+        { style: 'solid', smooth: false, size: emaWidth, color: emaColors[1] || '#f59e0b', dashedValue: [2, 2] },
+        { style: 'solid', smooth: false, size: emaWidth, color: emaColors[2] || '#a855f7', dashedValue: [2, 2] }
       ]
     },
     xAxis: {
@@ -700,6 +771,23 @@ export default function Chart({
       }));
     });
 
+    // Zoom Clamping: clamp barSpace between 3px (max zoom out) and 60px (max zoom in)
+    // Prevents canvas division by zero and overlay distortion during mouse wheel zoom
+    try {
+      chart.subscribeAction('onZoom', () => {
+        try {
+          const bs = chart.getBarSpace();
+          if (typeof bs === 'number' && Number.isFinite(bs)) {
+            if (bs < 3) {
+              chart.setBarSpace(3);
+            } else if (bs > 60) {
+              chart.setBarSpace(60);
+            }
+          }
+        } catch (_) {}
+      });
+    } catch (_) {}
+
     setChartReady(prev => prev + 1);
 
     let rafId = null;
@@ -757,7 +845,9 @@ export default function Chart({
       const wantEma = uiConfig.emaEnabled !== false;
       const emaLines = (uiConfig.emaColors || ['#38bdf8', '#f59e0b', '#a855f7']).map(color => ({
         style: 'solid',
+        smooth: false,
         size: uiConfig.emaWidth ?? 1.5,
+        dashedValue: [2, 2],
         color
       }));
       if (wantEma) {

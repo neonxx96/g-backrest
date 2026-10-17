@@ -242,16 +242,16 @@ export default function OrderBookDOM({
       setRenderVersion((v) => (v + 1) % 100000);
     };
 
-    // 1. Deep REST orderbook snapshot (500 levels for wide scroll/zoom coverage)
+    // 1. Deep orderbook snapshot (fetch local backend proxy first to avoid 418 rate limits)
     const fetchDeepBook = () => {
-      fetch(`https://fapi.binance.com/fapi/v1/depth?symbol=${upperSym}&limit=500`)
-        .then((r) => r.json())
+      fetch(`${API_BASE}/depth?symbol=${upperSym}&limit=100`)
+        .then((r) => r.ok ? r.json() : Promise.reject(r.status))
         .then((d) => {
           if (d?.bids && d?.asks) applyDepthSnapshot(d.bids, d.asks);
         })
         .catch(() => {
-          fetch(`${API_BASE}/depth?symbol=${upperSym}&limit=20`)
-            .then((r) => r.json())
+          fetch(`https://fapi.binance.com/fapi/v1/depth?symbol=${upperSym}&limit=100`)
+            .then((r) => r.ok ? r.json() : null)
             .then((d) => {
               if (d?.bids && d?.asks) applyDepthSnapshot(d.bids, d.asks);
             })
@@ -262,8 +262,8 @@ export default function OrderBookDOM({
     const deepRefreshTimer = setInterval(fetchDeepBook, 6000);
 
     // 2. Seed initial trades for instant Footprint Cluster & Bubble Ticks population
-    fetch(`https://fapi.binance.com/fapi/v1/aggTrades?symbol=${upperSym}&limit=250`)
-      .then((r) => r.json())
+    fetch(`https://fapi.binance.com/fapi/v1/aggTrades?symbol=${upperSym}&limit=100`)
+      .then((r) => r.ok ? r.json() : [])
       .then((list) => {
         if (isUnmounted || !Array.isArray(list)) return;
         list.forEach((t) => {
@@ -501,10 +501,12 @@ export default function OrderBookDOM({
         fillRatio: 0.5
       });
       if (newEvents.length > 0) {
-        setRecentOrderflowEvents((prev) => [...newEvents, ...prev].slice(0, 3));
-        if (newEvents.some((e) => e.type === 'PULLED')) {
-          soundManager.playSpoofAlert();
-        }
+        setTimeout(() => {
+          setRecentOrderflowEvents((prev) => [...newEvents, ...prev].slice(0, 3));
+          if (newEvents.some((e) => e.type === 'PULLED')) {
+            soundManager.playSpoofAlert();
+          }
+        }, 0);
       }
       prevActiveDensities.current = currentDensities;
 
@@ -519,15 +521,17 @@ export default function OrderBookDOM({
         cooldownMs: 15000
       });
       if (prox && onProximityAlert) {
-        soundManager.playProximityAlert();
-        onProximityAlert({
-          symbol,
-          price: prox.price,
-          usd: prox.usd,
-          side: prox.side,
-          distPct: prox.distPct,
-          distBps: prox.distBps
-        });
+        setTimeout(() => {
+          soundManager.playProximityAlert();
+          onProximityAlert({
+            symbol,
+            price: prox.price,
+            usd: prox.usd,
+            side: prox.side,
+            distPct: prox.distPct,
+            distBps: prox.distBps
+          });
+        }, 0);
       }
     }
 
