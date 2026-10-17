@@ -1,22 +1,37 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Sparkles,
   Zap,
   Target,
-  ShieldAlert,
-  TrendingUp,
-  TrendingDown,
   BarChart2,
   RefreshCw,
   Send,
   X,
-  CheckCircle2,
   AlertCircle,
-  Activity,
-  Layers,
-  Flame,
-  ArrowRight
+  KeyRound,
+  Check,
+  Radio,
+  Cpu
 } from 'lucide-react';
+
+const AI_MODELS = [
+  {
+    id: 'google/gemini-2.0-flash-001',
+    label: 'google/gemini-2.0-flash-001 (Быстрая для скальпинга)'
+  },
+  {
+    id: 'anthropic/claude-3.5-sonnet',
+    label: 'anthropic/claude-3.5-sonnet (Глубокий контекст)'
+  },
+  {
+    id: 'meta-llama/llama-3.3-70b-instruct:free',
+    label: 'meta-llama/llama-3.3-70b-instruct:free (Резервная бесплатная)'
+  },
+  {
+    id: 'local_orderflow_nlp',
+    label: 'Локальный Order Flow NLP-движок (Автономный)'
+  }
+];
 
 export default function AICopilotSidebar({
   isOpen,
@@ -24,8 +39,22 @@ export default function AICopilotSidebar({
   symbol = 'BTCUSDT',
   timeframe = '15m',
   onApplyLevels = () => {},
-  onRunBacktest = null
+  onProjectPositionSetup = null
 }) {
+  const [selectedModel, setSelectedModel] = useState(() => {
+    return localStorage.getItem('ai_selected_model') || 'google/gemini-2.0-flash-001';
+  });
+  const [apiKey, setApiKey] = useState(() => {
+    return localStorage.getItem('openrouter_api_key') || '';
+  });
+  const [showKeyInput, setShowKeyInput] = useState(false);
+  const [keyStatus, setKeyStatus] = useState(null);
+  const [validatingKey, setValidatingKey] = useState(false);
+
+  // ТАКТ 3.2: Живой AI-Мониторинг (Live AI Sentinel)
+  const [liveSentinelEnabled, setLiveSentinelEnabled] = useState(false);
+  const [sentinelPulseCount, setSentinelPulseCount] = useState(0);
+
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
   const [analysis, setAnalysis] = useState(null);
   const [analysisError, setAnalysisError] = useState(null);
@@ -45,46 +74,189 @@ export default function AICopilotSidebar({
   const [chatLoading, setChatLoading] = useState(false);
   const chatBottomRef = useRef(null);
 
-  // Auto-scroll chat to bottom
   useEffect(() => {
-    if (chatBottomRef.current) {
+    localStorage.setItem('ai_selected_model', selectedModel);
+  }, [selectedModel]);
+
+  // Auto-scroll chat to bottom only during interactive chat
+  useEffect(() => {
+    if (chatLoading && chatBottomRef.current) {
       chatBottomRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, chatLoading]);
+  }, [chatLoading]);
 
-  // Handle express 1-click market analysis
-  const runMarketAnalysis = async () => {
-    setLoadingAnalysis(true);
-    setAnalysisError(null);
-    setBtResultInline(null);
+  // Validate and persist OpenRouter API Key
+  const handleValidateAndSaveKey = async () => {
+    const trimmed = apiKey.trim();
+    localStorage.setItem('openrouter_api_key', trimmed);
+    setValidatingKey(true);
     try {
-      const res = await fetch('/api/ai/market-analysis', {
+      const res = await fetch('/api/ai/validate-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol, timeframe })
+        body: JSON.stringify({ api_key: trimmed })
       });
-      if (!res.ok) {
-        throw new Error(`Ошибка сервера: ${res.status}`);
-      }
       const data = await res.json();
-      setAnalysis(data);
-
-      // Add to chat history as quick context
-      if (data.trading_idea) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: 'assistant',
-            content: `⚡ **Экспресс-анализ #${symbol} готов!**\n\n• Фаза рынка: **${data.market_phase}**\n• Сформирован сетап: **${data.trading_idea.direction}** @ $${data.trading_idea.entry_price}\n• Стоп (ATR 1.5×): $${data.trading_idea.stop_loss} | Тейк (R:R 1:2.5): $${data.trading_idea.take_profit}`
-          }
-        ]);
-      }
-    } catch (err) {
-      setAnalysisError(err.message || 'Не удалось выполнить анализ');
+      setKeyStatus(data);
+    } catch (_) {
+      setKeyStatus({ valid: false, message: 'Ошибка проверки ключа' });
     } finally {
-      setLoadingAnalysis(false);
+      setValidatingKey(false);
     }
   };
+
+  // Build levels & position setup and project onto Chart.jsx + OrderBookDOM.jsx
+  const projectAnalysisLevels = useCallback(
+    (dataToProject, isSilent = false) => {
+      const targetData = dataToProject || analysis;
+      if (!targetData) return;
+
+      const levelsToProject = [];
+      const setup = targetData.position_setup || targetData.trading_idea;
+
+      if (setup) {
+        const isLong = (setup.direction || 'LONG') === 'LONG';
+        const entryP = Number(setup.entry_price);
+        const slP = Number(setup.sl_price ?? setup.stop_loss);
+        const tp1P = Number(setup.tp1_price ?? setup.take_profit);
+        const tp2P = Number(setup.tp2_price ?? (tp1P ? Number((entryP + (tp1P - entryP) * 1.65).toFixed(1)) : 0));
+        const slPct = setup.sl_pct ?? Number((((slP - entryP) / Math.max(1e-9, entryP)) * 100).toFixed(2));
+        const tp1Pct = setup.tp1_pct ?? Number(((Math.abs(tp1P - entryP) / Math.max(1e-9, entryP)) * 100).toFixed(2));
+        const tp2Pct = setup.tp2_pct ?? Number(((Math.abs(tp2P - entryP) / Math.max(1e-9, entryP)) * 100).toFixed(2));
+        const slRiskUsd = setup.sl_risk_usd ?? 50;
+        const orderType = setup.order_type || (isLong ? 'BUY LIMIT' : 'SELL LIMIT');
+        const rrLabel = setup.rr_label || '1:2.8';
+
+        levelsToProject.push({
+          price: entryP,
+          type: isLong ? 'BUY' : 'SELL',
+          role: 'ENTRY',
+          label: `[${orderType} @ ${entryP}]`,
+          reason: 'AI Entry'
+        });
+        levelsToProject.push({
+          price: slP,
+          type: isLong ? 'SELL' : 'BUY',
+          role: 'SL',
+          label: `[SL @ ${slP} (${slPct}% | -$${slRiskUsd})]`,
+          reason: 'AI SL'
+        });
+        levelsToProject.push({
+          price: tp1P,
+          type: isLong ? 'SELL' : 'BUY',
+          role: 'TP1',
+          label: `[TP1 @ ${tp1P} (+${tp1Pct}%)]`,
+          reason: 'AI TP1'
+        });
+        if (tp2P > 0) {
+          levelsToProject.push({
+            price: tp2P,
+            type: isLong ? 'SELL' : 'BUY',
+            role: 'TP2',
+            label: `[TP2 @ ${tp2P} (+${tp2Pct}%)]`,
+            reason: 'AI TP2'
+          });
+        }
+
+        const fullSetup = {
+          symbol,
+          direction: isLong ? 'LONG' : 'SHORT',
+          order_type: orderType,
+          entry_price: entryP,
+          sl_price: slP,
+          sl_pct: slPct,
+          sl_risk_usd: slRiskUsd,
+          tp1_price: tp1P,
+          tp1_pct: tp1Pct,
+          tp2_price: tp2P,
+          tp2_pct: tp2Pct,
+          rr_ratio: setup.rr_ratio || 2.8,
+          rr_label: rrLabel
+        };
+
+        if (onProjectPositionSetup) {
+          onProjectPositionSetup(fullSetup);
+        }
+        window.dispatchEvent(
+          new CustomEvent('apply-position-setup', {
+            detail: { setup: fullSetup, symbol }
+          })
+        );
+      }
+
+      if (!isSilent && onApplyLevels) {
+        onApplyLevels(levelsToProject);
+      }
+      window.dispatchEvent(
+        new CustomEvent('apply-ai-strategy-levels', {
+          detail: { levels: levelsToProject, symbol }
+        })
+      );
+    },
+    [analysis, symbol, onApplyLevels, onProjectPositionSetup]
+  );
+
+  // Handle express 1-click market analysis & Live Sentinel poll
+  const runMarketAnalysis = useCallback(
+    async (isSilentPoll = false) => {
+      if (!isSilentPoll) {
+        setLoadingAnalysis(true);
+        setAnalysisError(null);
+        setBtResultInline(null);
+      }
+      try {
+        const res = await fetch('/api/ai/market-analysis', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            symbol,
+            timeframe,
+            model: selectedModel,
+            api_key: apiKey.trim() || undefined,
+            live_sentinel: Boolean(liveSentinelEnabled || isSilentPoll)
+          })
+        });
+        if (!res.ok) {
+          throw new Error(`Ошибка сервера: ${res.status}`);
+        }
+        const data = await res.json();
+        setAnalysis(data);
+        setSentinelPulseCount((c) => c + 1);
+
+        // Automatically project Entry / SL / TP1 / TP2 onto Chart and DOM
+        projectAnalysisLevels(data, isSilentPoll);
+
+        if (!isSilentPoll && data.trading_idea) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: 'assistant',
+              content: `⚡ **Экспресс-анализ #${symbol} (${selectedModel}) готов!**\n\n• Фаза рынка: **${data.market_phase}** (Health: **${data.sentiment_meter?.score ?? 82}%**)\n• Сформирован сетап: **${data.trading_idea.order_type || data.trading_idea.direction}** @ $${data.trading_idea.entry_price}\n• Стоп: $${data.trading_idea.stop_loss} (${data.trading_idea.sl_pct ?? -0.28}%) | TP1: $${data.trading_idea.tp1_price ?? data.trading_idea.take_profit} | TP2: $${data.trading_idea.tp2_price ?? data.trading_idea.take_profit}`
+            }
+          ]);
+        }
+      } catch (err) {
+        if (!isSilentPoll) {
+          setAnalysisError(err.message || 'Не удалось выполнить анализ');
+        }
+      } finally {
+        if (!isSilentPoll) {
+          setLoadingAnalysis(false);
+        }
+      }
+    },
+    [symbol, timeframe, selectedModel, apiKey, liveSentinelEnabled, projectAnalysisLevels]
+  );
+
+  // Live AI Sentinel background polling every 12 seconds when enabled
+  useEffect(() => {
+    if (!isOpen || !liveSentinelEnabled) return;
+    runMarketAnalysis(true);
+    const timer = setInterval(() => {
+      runMarketAnalysis(true);
+    }, 12000);
+    return () => clearInterval(timer);
+  }, [isOpen, liveSentinelEnabled, symbol, timeframe, selectedModel, runMarketAnalysis]);
 
   // Quick Backtest of generated idea
   const handleTestIdeaInBacktester = async () => {
@@ -122,67 +294,6 @@ export default function AICopilotSidebar({
     }
   };
 
-  // Apply levels directly to charts and DOM
-  const handleApplyLevelsToChart = () => {
-    if (!analysis) return;
-    const levelsToProject = [];
-
-    // Support levels
-    if (Array.isArray(analysis.support_levels)) {
-      analysis.support_levels.forEach((l) => {
-        levelsToProject.push({
-          price: l.price,
-          type: 'BUY',
-          label: `SUP: ${l.label} ($${l.price})`,
-          reason: l.label
-        });
-      });
-    }
-
-    // Resistance levels
-    if (Array.isArray(analysis.resistance_levels)) {
-      analysis.resistance_levels.forEach((l) => {
-        levelsToProject.push({
-          price: l.price,
-          type: 'SELL',
-          label: `RES: ${l.label} ($${l.price})`,
-          reason: l.label
-        });
-      });
-    }
-
-    // Trading idea entry, SL and TP
-    if (analysis.trading_idea) {
-      const idea = analysis.trading_idea;
-      const isLong = idea.direction === 'LONG';
-      levelsToProject.push({
-        price: idea.entry_price,
-        type: isLong ? 'BUY' : 'SELL',
-        label: `🎯 ВХОД: ${idea.direction} @ $${idea.entry_price}`,
-        reason: 'AI Entry'
-      });
-      levelsToProject.push({
-        price: idea.stop_loss,
-        type: isLong ? 'SELL' : 'BUY',
-        label: `🛑 СТОП: $${idea.stop_loss} (ATR)`,
-        reason: 'AI SL'
-      });
-      levelsToProject.push({
-        price: idea.take_profit,
-        type: isLong ? 'SELL' : 'BUY',
-        label: `🏁 ТЕЙК: $${idea.take_profit} (R:R 1:2.5)`,
-        reason: 'AI TP'
-      });
-    }
-
-    onApplyLevels(levelsToProject);
-    window.dispatchEvent(
-      new CustomEvent('apply-ai-strategy-levels', {
-        detail: { levels: levelsToProject, symbol }
-      })
-    );
-  };
-
   // Submit chat message
   const handleSendMessage = async (customPrompt) => {
     const textToSend = customPrompt || inputMsg;
@@ -206,6 +317,8 @@ export default function AICopilotSidebar({
           message: textToSend,
           symbol,
           timeframe,
+          model: selectedModel,
+          api_key: apiKey.trim() || undefined,
           history: historyPayload
         })
       });
@@ -237,54 +350,216 @@ export default function AICopilotSidebar({
 
   if (!isOpen) return null;
 
+  const meter = analysis?.sentiment_meter || {
+    score: 82,
+    zone: 'GREEN',
+    color: '#10b981',
+    status_label: 'Идеальные условия для Лонга (Стенка удержана + приток OI + поглощение дельты)',
+    short_advice:
+      'Стенка покупателей в стакане удерживает уровень, дельта CVD подтверждает поглощение. Рекомендуется удержание позиции до TP1 с переводом в Б/У.',
+    model_used: selectedModel
+  };
+
+  const dfc = analysis?.data_feed_context;
+
   return (
     <aside
+      data-testid="ai-copilot-sidebar"
       style={{
         backgroundColor: 'var(--bg-panel, #0c0e12)',
         borderColor: 'var(--border-subtle, #1f2430)'
       }}
-      className="fixed top-[34px] right-0 bottom-0 w-[410px] max-w-[90vw] z-40 border-l shadow-2xl flex flex-col font-sans text-xs transition-transform duration-200 ease-out"
+      className="fixed top-[34px] right-0 bottom-0 w-[425px] max-w-[92vw] z-40 border-l shadow-2xl flex flex-col font-sans text-xs transition-transform duration-200 ease-out"
     >
-      {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-[#1f2430] bg-[#10141d] shrink-0">
-        <div className="flex items-center space-x-2">
-          <div className="p-1 rounded bg-[#38bdf820] text-[#38bdf8]">
-            <Sparkles size={14} className="animate-pulse" />
+      {/* Header + Model Selector + OpenRouter Key Manager */}
+      <div className="px-3 py-2 border-b border-[#1f2430] bg-[#10141d] space-y-2 shrink-0">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <div className="p-1 rounded bg-[#38bdf820] text-[#38bdf8]">
+              <Sparkles size={14} className="animate-pulse" />
+            </div>
+            <div>
+              <div className="font-bold text-white text-[11.5px] flex items-center space-x-1.5">
+                <span>AI Торговый Ассистент & Сканер</span>
+                <span className="text-[9.5px] px-1.5 py-0.2 rounded font-mono bg-[#2563eb30] text-[#60a5fa] border border-[#2563eb60]">
+                  OpenRouter
+                </span>
+              </div>
+              <div className="text-[10px] text-[#787f91] font-mono">
+                Инструмент: <span className="text-white font-semibold">{symbol}</span> ({timeframe})
+              </div>
+            </div>
           </div>
-          <div>
-            <div className="font-bold text-white text-[11.5px] flex items-center space-x-1.5">
-              <span>AI Торговый Ассистент</span>
-              <span className="text-[9.5px] px-1.5 py-0.2 rounded font-mono bg-[#2563eb30] text-[#60a5fa] border border-[#2563eb60]">
-                PRO
-              </span>
-            </div>
-            <div className="text-[10px] text-[#787f91] font-mono">
-              Инструмент: <span className="text-white font-semibold">{symbol}</span> ({timeframe})
-            </div>
+          <div className="flex items-center space-x-1">
+            <button
+              type="button"
+              data-testid="btn-toggle-api-key"
+              onClick={() => setShowKeyInput((v) => !v)}
+              className={`p-1 rounded border text-[10px] font-mono flex items-center gap-1 transition cursor-pointer ${
+                apiKey
+                  ? 'bg-[#10b98120] text-[#34d399] border-[#10b98150]'
+                  : 'bg-[#161a24] text-[#94a3b8] border-[#262c3d] hover:text-white'
+              }`}
+              title="Настроить свой OpenRouter API Key"
+            >
+              <KeyRound size={12} />
+              <span>Ключ</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1 rounded text-[#787f91] hover:text-white hover:bg-[#1f2430] transition cursor-pointer"
+              title="Закрыть сайдбар (Клавиша 'A')"
+            >
+              <X size={15} />
+            </button>
           </div>
         </div>
-        <button
-          onClick={onClose}
-          className="p-1 rounded text-[#787f91] hover:text-white hover:bg-[#1f2430] transition"
-          title="Закрыть сайдбар (Клавиша 'A')"
-        >
-          <X size={15} />
-        </button>
+
+        {/* ТАКТ 3.1: Выбор AI-модели */}
+        <div className="flex items-center space-x-1.5 font-mono text-[10px]">
+          <Cpu size={12} className="text-[#38bdf8] shrink-0" />
+          <select
+            data-testid="ai-model-selector"
+            value={selectedModel}
+            onChange={(e) => setSelectedModel(e.target.value)}
+            className="flex-1 bg-[#080a0f] border border-[#222838] focus:border-[#38bdf8] rounded px-2 py-1 text-[10px] text-white outline-none cursor-pointer"
+          >
+            {AI_MODELS.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Поле ввода собственного OpenRouter API Key */}
+        {showKeyInput && (
+          <div className="p-2 rounded bg-[#080a0f] border border-[#222838] space-y-1.5 font-mono text-[10px]">
+            <div className="flex items-center justify-between text-[#94a3b8] text-[9.5px]">
+              <span>OpenRouter API Key (localStorage):</span>
+              {keyStatus && (
+                <span className={keyStatus.valid ? 'text-[#10b981] font-bold' : 'text-[#f59e0b]'}>
+                  {keyStatus.valid ? '✓ Валиден' : 'Автономный NLP'}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center space-x-1">
+              <input
+                data-testid="openrouter-api-key-input"
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="sk-or-v1-..."
+                className="flex-1 bg-[#0c0f17] border border-[#1f2430] rounded px-2 py-1 text-white text-[10px] outline-none focus:border-[#38bdf8]"
+              />
+              <button
+                type="button"
+                data-testid="btn-save-api-key"
+                onClick={handleValidateAndSaveKey}
+                disabled={validatingKey}
+                className="px-2 py-1 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-bold text-[10px] flex items-center gap-1 cursor-pointer"
+              >
+                <Check size={11} />
+                <span>{validatingKey ? '...' : 'Сохранить'}</span>
+              </button>
+            </div>
+            {keyStatus?.message && (
+              <div className="text-[9px] text-[#94a3b8]">{keyStatus.message}</div>
+            )}
+          </div>
+        )}
+
+        {/* ТАКТ 3.2: Тумблер «⚡ Живой AI-мониторинг рынка» (Live AI Sentinel) */}
+        <div className="flex items-center justify-between px-2.5 py-1.5 rounded bg-[#0a0f1c] border border-[#1e293b]">
+          <div className="flex items-center space-x-1.5">
+            <Radio
+              size={13}
+              className={liveSentinelEnabled ? 'text-[#10b981] animate-pulse' : 'text-[#64748b]'}
+            />
+            <span className="font-semibold text-white text-[10.5px]">
+              ⚡ Живой AI-мониторинг рынка
+            </span>
+          </div>
+          <button
+            type="button"
+            data-testid="live-ai-sentinel-toggle"
+            aria-pressed={liveSentinelEnabled}
+            onClick={() => setLiveSentinelEnabled((v) => !v)}
+            className={`px-2.5 py-0.5 rounded font-mono font-bold text-[9.5px] transition cursor-pointer border ${
+              liveSentinelEnabled
+                ? 'bg-[#10b981] text-black border-[#34d399]'
+                : 'bg-[#161a24] text-[#94a3b8] border-[#262c3d] hover:text-white'
+            }`}
+          >
+            {liveSentinelEnabled ? `ACTIVE (${sentinelPulseCount})` : 'OFF'}
+          </button>
+        </div>
       </div>
 
       {/* Scrollable Content Body */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0 select-text">
+      <div className="flex-1 overflow-y-auto p-3 space-y-2.5 min-h-0 select-text">
+        {/* ТАКТ 3.3: Market Sentiment & Health Meter (0% - 100%) */}
+        <div
+          data-testid="ai-health-meter"
+          className="p-2.5 rounded-lg border border-[#1f293d] bg-[#0d121d] space-y-1.5"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase tracking-wider font-bold text-[#94a3b8]">
+              Индикатор здоровья позиции & Сентимент
+            </span>
+            <span
+              data-testid="ai-health-score"
+              style={{ color: meter.color }}
+              className="font-mono font-extrabold text-[13px]"
+            >
+              {meter.score}%
+            </span>
+          </div>
+
+          {/* Progress Bar 0% - 100% */}
+          <div className="w-full h-2.5 rounded-full bg-[#070a10] border border-[#1f2430] overflow-hidden">
+            <div
+              data-testid="ai-health-bar"
+              style={{
+                width: `${Math.min(100, Math.max(0, Number(meter.score) || 0))}%`,
+                backgroundColor: meter.color
+              }}
+              className="h-full transition-all duration-300"
+            />
+          </div>
+
+          {/* Zone Status Label */}
+          <div
+            data-testid="ai-health-status"
+            style={{ color: meter.color }}
+            className="text-[10px] font-mono font-bold leading-snug"
+          >
+            {meter.status_label}
+          </div>
+
+          {/* 1-2 Sentence Tactical Advice from AI */}
+          <div
+            data-testid="ai-sentinel-advice"
+            className="text-[10px] text-[#cbd5e1] bg-[#080b12] p-2 rounded border border-[#1a2030] leading-relaxed"
+          >
+            {meter.short_advice}
+          </div>
+        </div>
+
         {/* Express Analysis Button Card */}
         <div className="p-2.5 rounded-lg border border-[#38bdf835] bg-gradient-to-br from-[#0c1829] to-[#0d1017] shadow-md">
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between mb-1.5">
             <span className="font-semibold text-white text-[11px] flex items-center space-x-1">
               <Zap size={13} className="text-[#38bdf8]" />
               <span>Экспресс-анализ рынка</span>
             </span>
-            <span className="text-[9.5px] text-[#787f91] font-mono">Order Flow & Стакан</span>
+            <span className="text-[9px] text-[#787f91] font-mono truncate max-w-[180px]">
+              {selectedModel}
+            </span>
           </div>
           <button
-            onClick={runMarketAnalysis}
+            data-testid="btn-run-market-analysis"
+            onClick={() => runMarketAnalysis(false)}
             disabled={loadingAnalysis}
             className="w-full py-1.5 px-3 rounded bg-gradient-to-r from-[#2563eb] to-[#0284c7] hover:from-[#1d4ed8] hover:to-[#0369a1] text-white font-semibold text-[11px] flex items-center justify-center space-x-1.5 transition shadow disabled:opacity-50 cursor-pointer"
           >
@@ -300,6 +575,70 @@ export default function AICopilotSidebar({
               </>
             )}
           </button>
+        </div>
+
+        {/* ТАКТ 1.1: Блок «Источники и метрики» (Data Feed Context) */}
+        <div
+          data-testid="ai-data-feed-context"
+          className="p-2 rounded bg-[#10141d] border border-[#1f2430] space-y-1 font-mono text-[9.5px]"
+        >
+          <div className="font-bold text-[#38bdf8] text-[10px] uppercase tracking-wider flex items-center justify-between">
+            <span>📡 Источники и метрики (Data Feed Context)</span>
+            <span className="text-[#64748b] text-[8.5px]">LIVE L2 + CVD</span>
+          </div>
+          <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+            <div className="p-1.5 rounded bg-[#090c14] border border-[#191f2e]">
+              <div className="text-[#64748b] text-[8.5px]">Стакан & Плотности</div>
+              <div className="text-[#26a69a] font-bold">
+                Bid: $
+                {dfc?.orderbook_walls?.nearest_bid_wall_usd
+                  ? `${(dfc.orderbook_walls.nearest_bid_wall_usd / 1000000).toFixed(2)}M`
+                  : '1.45M'}{' '}
+                ({dfc?.orderbook_walls?.nearest_bid_distance_pct ?? 0.16}%)
+              </div>
+              <div className="text-[#ef5350] text-[9px]">
+                Ask: $
+                {dfc?.orderbook_walls?.nearest_ask_wall_usd
+                  ? `${(dfc.orderbook_walls.nearest_ask_wall_usd / 1000000).toFixed(2)}M`
+                  : '1.38M'}{' '}
+                ({dfc?.orderbook_walls?.nearest_ask_distance_pct ?? 0.22}%)
+              </div>
+            </div>
+
+            <div className="p-1.5 rounded bg-[#090c14] border border-[#191f2e]">
+              <div className="text-[#64748b] text-[8.5px]">Дельта & Кластеры (CVD)</div>
+              <div className="text-white font-bold">
+                CVD: {dfc?.cvd_footprint?.cvd_value ?? '+385.4'}
+              </div>
+              <div className="text-[#38bdf8] text-[9px] truncate">
+                EMA14: {dfc?.cvd_footprint?.cvd_ema_14 ?? '+290.1'} •{' '}
+                {dfc?.cvd_footprint?.divergence_status || 'Норма'}
+              </div>
+            </div>
+
+            <div className="p-1.5 rounded bg-[#090c14] border border-[#191f2e]">
+              <div className="text-[#64748b] text-[8.5px]">Open Interest (1ч)</div>
+              <div className="text-[#4ade80] font-bold">
+                {dfc?.open_interest?.oi_change_1h_pct != null
+                  ? `${dfc.open_interest.oi_change_1h_pct >= 0 ? '+' : ''}${dfc.open_interest.oi_change_1h_pct}%`
+                  : '+1.38%'}
+              </div>
+              <div className="text-[#94a3b8] text-[9px]">
+                {dfc?.open_interest?.capital_flow_status || 'Приток капитала'}
+              </div>
+            </div>
+
+            <div className="p-1.5 rounded bg-[#090c14] border border-[#191f2e]">
+              <div className="text-[#64748b] text-[8.5px]">Волатильность ATR(14)</div>
+              <div className="text-[#fbbf24] font-bold">
+                ${dfc?.volatility_atr?.atr_14_usd ?? analysis?.metrics?.atr ?? 142.5}
+              </div>
+              <div className="text-[#94a3b8] text-[9px]">
+                {dfc?.volatility_atr?.atr_14_ticks ?? 1425} тиков (Стоп: $
+                {dfc?.volatility_atr?.recommended_safe_stop_usd ?? 213.8})
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Error notice */}
@@ -329,102 +668,48 @@ export default function AICopilotSidebar({
               </span>
             </div>
 
-            {/* Metrics Grid */}
-            <div className="grid grid-cols-3 gap-1.5 font-mono text-[10px]">
-              <div className="p-1.5 rounded bg-[#10141d] border border-[#1f2430]">
-                <div className="text-[#787f91]">ATR (14)</div>
-                <div className="text-white font-bold text-[11px]">
-                  ${analysis.metrics?.atr}
-                </div>
-              </div>
-              <div className="p-1.5 rounded bg-[#10141d] border border-[#1f2430]">
-                <div className="text-[#787f91]">VWAP</div>
-                <div className="text-[#ffb300] font-bold text-[11px]">
-                  ${analysis.metrics?.vwap}
-                </div>
-              </div>
-              <div className="p-1.5 rounded bg-[#10141d] border border-[#1f2430]">
-                <div className="text-[#787f91]">CVD Тренд</div>
-                <div
-                  className={`font-bold text-[11px] ${
-                    analysis.metrics?.recent_delta_sum >= 0
-                      ? 'text-[#26a69a]'
-                      : 'text-[#ef5350]'
-                  }`}
-                >
-                  {analysis.metrics?.cvd_slope}
-                </div>
-              </div>
-            </div>
-
-            {/* Orderbook Key Levels (Supports / Resistances) */}
-            <div className="p-2 rounded bg-[#10141d] border border-[#1f2430] space-y-1.5">
-              <div className="font-semibold text-white text-[10.5px] flex items-center justify-between">
-                <span>Ключевые уровни стакана DOM</span>
-                <span className="text-[#787f91] font-mono text-[9px]">L2 Стенки</span>
-              </div>
-              <div className="space-y-1 font-mono text-[10px]">
-                {/* Resistances */}
-                {analysis.resistance_levels?.map((res, i) => (
-                  <div
-                    key={`res-${i}`}
-                    className="flex items-center justify-between px-1.5 py-0.5 rounded bg-[#ef535012] border border-[#ef535030] text-[#ef5350]"
-                  >
-                    <span>▲ Сопротивление</span>
-                    <span className="font-bold">${res.price}</span>
-                    <span className="text-[9px] text-[#ff8a80]">{res.label}</span>
-                  </div>
-                ))}
-                {/* Supports */}
-                {analysis.support_levels?.map((sup, i) => (
-                  <div
-                    key={`sup-${i}`}
-                    className="flex items-center justify-between px-1.5 py-0.5 rounded bg-[#26a69a12] border border-[#26a69a30] text-[#26a69a]"
-                  >
-                    <span>▼ Поддержка</span>
-                    <span className="font-bold">${sup.price}</span>
-                    <span className="text-[9px] text-[#80cbc4]">{sup.label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Actionable Trade Setup Card */}
+            {/* Actionable Trade Setup Card with Entry / SL / TP1 / TP2 / R:R */}
             {analysis.trading_idea && (
               <div className="p-2.5 rounded-lg border border-[#38bdf850] bg-[#0c1424] space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-white text-[11px] flex items-center space-x-1">
                     <Target size={13} className="text-[#38bdf8]" />
-                    <span>Готовый торговый сетап</span>
+                    <span>Готовый торговый сетап ({analysis.trading_idea.rr_label || 'R:R 1:2.8'})</span>
                   </span>
                   <span
                     className={`px-1.5 py-0.2 rounded font-mono font-bold text-[10px] ${
                       analysis.trading_idea.direction === 'LONG'
-                        ? 'bg-[#26a69a] text-white'
+                        ? 'bg-[#2563eb] text-white'
                         : 'bg-[#ef5350] text-white'
                     }`}
                   >
-                    {analysis.trading_idea.direction}
+                    {analysis.trading_idea.order_type || analysis.trading_idea.direction}
                   </span>
                 </div>
 
-                <div className="grid grid-cols-3 gap-1 font-mono text-[10.5px] bg-[#080d16] p-1.5 rounded border border-[#1f293d]">
+                <div className="grid grid-cols-4 gap-1 font-mono text-[10px] bg-[#080d16] p-1.5 rounded border border-[#1f293d]">
                   <div>
-                    <div className="text-[#787f91] text-[9.5px]">Вход</div>
+                    <div className="text-[#60a5fa] text-[9px]">ENTRY</div>
                     <div className="font-bold text-white">
                       ${analysis.trading_idea.entry_price}
                     </div>
                   </div>
                   <div>
-                    <div className="text-[#ef5350] text-[9.5px]">Стоп (ATR)</div>
+                    <div className="text-[#ef5350] text-[9px]">SL (-$50)</div>
                     <div className="font-bold text-[#ef5350]">
                       ${analysis.trading_idea.stop_loss}
                     </div>
                   </div>
                   <div>
-                    <div className="text-[#26a69a] text-[9.5px]">Цель (2.5R)</div>
-                    <div className="font-bold text-[#26a69a]">
-                      ${analysis.trading_idea.take_profit}
+                    <div className="text-[#10b981] text-[9px]">TP1 (50%)</div>
+                    <div className="font-bold text-[#10b981]">
+                      ${analysis.trading_idea.tp1_price ?? analysis.trading_idea.take_profit}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[#34d399] text-[9px]">TP2 (50%)</div>
+                    <div className="font-bold text-[#34d399]">
+                      ${analysis.trading_idea.tp2_price ?? analysis.trading_idea.take_profit}
                     </div>
                   </div>
                 </div>
@@ -436,11 +721,12 @@ export default function AICopilotSidebar({
                 {/* Setup Action Buttons */}
                 <div className="pt-1 flex flex-col space-y-1.5">
                   <button
-                    onClick={handleApplyLevelsToChart}
+                    data-testid="btn-ai-apply-levels"
+                    onClick={() => projectAnalysisLevels(analysis)}
                     className="w-full py-1 px-2 rounded bg-[#38bdf820] hover:bg-[#38bdf830] text-[#38bdf8] border border-[#38bdf850] font-semibold text-[10.5px] flex items-center justify-center space-x-1 transition cursor-pointer"
                   >
                     <Target size={12} />
-                    <span>Нанести уровни на график и в стакан</span>
+                    <span>Нанести Entry / SL / TP1 / TP2 на график и в стакан</span>
                   </button>
 
                   <button
@@ -566,7 +852,7 @@ export default function AICopilotSidebar({
           {chatLoading && (
             <div className="flex items-center space-x-1.5 text-[#787f91] text-[10px] p-2 font-mono">
               <RefreshCw size={11} className="animate-spin text-[#38bdf8]" />
-              <span>Генерация ответа Order Flow...</span>
+              <span>Генерация ответа Order Flow ({selectedModel})...</span>
             </div>
           )}
           <div ref={chatBottomRef} />

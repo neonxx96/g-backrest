@@ -343,7 +343,7 @@ try {
   });
 } catch (_) {}
 
-// 5. Register custom 'strategyLevelZone' (Strategy Entry Zone + Badge)
+// 5. Register custom 'strategyLevelZone' (Strategy Entry/SL/TP Level + Role-Colored Badge)
 try {
   registerOverlay({
     name: 'strategyLevelZone',
@@ -364,11 +364,33 @@ try {
       if (y == null || !Number.isFinite(y)) return [];
 
       const width = (bounding && bounding.width) ? bounding.width : 2200;
+      const role = ext.role || '';
       const isBuy = ext.type === 'BUY' || ext.side === 'BUY';
       const label = ext.label || (isBuy ? 'BUY ZONE: Wall $1.2M' : 'SHORT: Delta Div');
-      const color = isBuy ? '#26a69a' : '#ef5350';
-      const fillColor = isBuy ? 'rgba(38, 166, 154, 0.16)' : 'rgba(239, 83, 80, 0.16)';
-      const zoneHeight = 16;
+
+      let color = isBuy ? '#26a69a' : '#ef5350';
+      let fillColor = isBuy ? 'rgba(38, 166, 154, 0.14)' : 'rgba(239, 83, 80, 0.14)';
+      let lineStyle = 'dashed';
+      let xOffset = 18;
+
+      if (role === 'ENTRY') {
+        color = '#2563eb';
+        fillColor = 'rgba(37, 99, 235, 0.18)';
+        lineStyle = 'dashed';
+        xOffset = 18;
+      } else if (role === 'SL') {
+        color = '#ef4444';
+        fillColor = 'rgba(239, 68, 68, 0.18)';
+        lineStyle = 'solid';
+        xOffset = 22;
+      } else if (role === 'TP1' || role === 'TP2') {
+        color = '#10b981';
+        fillColor = 'rgba(16, 185, 129, 0.16)';
+        lineStyle = 'solid';
+        xOffset = role === 'TP1' ? 22 : 28;
+      }
+
+      const zoneHeight = role ? 12 : 16;
 
       return [
         {
@@ -395,15 +417,15 @@ try {
           },
           styles: {
             color,
-            size: 1.5,
-            style: 'dashed'
+            size: role === 'ENTRY' || role === 'SL' ? 1.8 : 1.5,
+            style: lineStyle
           },
           ignoreEvent: true
         },
         {
           type: 'text',
           attrs: {
-            x: 18,
+            x: xOffset,
             y: y - 8,
             text: ` ${label} `,
             align: 'left',
@@ -412,6 +434,232 @@ try {
           styles: {
             color: '#ffffff',
             backgroundColor: color,
+            size: 9.5,
+            padding: 3,
+            borderRadius: 2
+          },
+          ignoreEvent: true
+        }
+      ];
+    }
+  });
+} catch (_) {}
+
+// 5b. Register custom 'positionSetupBox' (Full Entry / SL / TP1 / TP2 + Risk/Reward Shaded Zones)
+try {
+  registerOverlay({
+    name: 'positionSetupBox',
+    totalStep: 2,
+    lock: true,
+    needDefaultPointFigure: false,
+    needDefaultXAxisFigure: false,
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ bounding, yAxis, overlay }) => {
+      const ext = overlay.extendData || {};
+      if (!yAxis || typeof yAxis.convertToPixel !== 'function') return [];
+
+      const entryP = Number(ext.entry_price || 0);
+      const slP = Number(ext.sl_price || 0);
+      const tp1P = Number(ext.tp1_price || 0);
+      const tp2P = Number(ext.tp2_price || tp1P || 0);
+      if (entryP <= 0 || slP <= 0 || tp1P <= 0) return [];
+
+      const yEntry = yAxis.convertToPixel(entryP);
+      const ySl = yAxis.convertToPixel(slP);
+      const yTp1 = yAxis.convertToPixel(tp1P);
+      const yTp2 = yAxis.convertToPixel(tp2P);
+      if (![yEntry, ySl, yTp1, yTp2].every(Number.isFinite)) return [];
+
+      const width = (bounding && bounding.width) ? bounding.width : 2200;
+      const boxLeft = Math.max(12, Math.round(width * 0.14));
+      const boxWidth = Math.max(240, width - boxLeft - 8);
+
+      const orderType = ext.order_type || (ext.direction === 'SHORT' ? 'SELL LIMIT' : 'BUY LIMIT');
+      const slPct = Number(ext.sl_pct ?? -0.28).toFixed(2);
+      const slRiskUsd = Math.round(Number(ext.sl_risk_usd ?? 50));
+      const tp1Pct = Number(ext.tp1_pct ?? 0.43).toFixed(2);
+      const tp2Pct = Number(ext.tp2_pct ?? 0.92).toFixed(2);
+      const rrLabel = ext.rr_label || `1:${Number(ext.rr_ratio || 2.8).toFixed(1)}`;
+      const dec = entryP >= 1000 ? 1 : entryP >= 1 ? 2 : 4;
+
+      const entryBadge = `[${orderType} @ ${entryP.toFixed(dec)}]`;
+      const slBadge = `[SL @ ${slP.toFixed(dec)} (${slPct}% | -$${slRiskUsd})]`;
+      const tp1Badge = `[TP1 @ ${tp1P.toFixed(dec)} (+${tp1Pct}%)]`;
+      const tp2Badge = `[TP2 @ ${tp2P.toFixed(dec)} (+${tp2Pct}%)]`;
+      const rrBadge = `[R:R ${rrLabel}]`;
+
+      const riskTop = Math.min(yEntry, ySl);
+      const riskHeight = Math.max(2, Math.abs(ySl - yEntry));
+      const rewardTop = Math.min(yEntry, yTp2);
+      const rewardHeight = Math.max(2, Math.abs(yTp2 - yEntry));
+
+      return [
+        // Red Risk Zone between Entry and SL
+        {
+          type: 'rect',
+          attrs: {
+            x: boxLeft,
+            y: riskTop,
+            width: boxWidth,
+            height: riskHeight
+          },
+          styles: {
+            style: 'fill',
+            color: 'rgba(239, 68, 68, 0.15)'
+          },
+          ignoreEvent: true
+        },
+        // Green Reward Zone between Entry and TP2
+        {
+          type: 'rect',
+          attrs: {
+            x: boxLeft,
+            y: rewardTop,
+            width: boxWidth,
+            height: rewardHeight
+          },
+          styles: {
+            style: 'fill',
+            color: 'rgba(16, 185, 129, 0.14)'
+          },
+          ignoreEvent: true
+        },
+        // Entry Line (Blue Dashed)
+        {
+          type: 'line',
+          attrs: {
+            coordinates: [
+              { x: boxLeft, y: yEntry },
+              { x: width, y: yEntry }
+            ]
+          },
+          styles: {
+            color: '#3b82f6',
+            size: 2,
+            style: 'dashed',
+            dashedValue: [5, 4]
+          },
+          ignoreEvent: true
+        },
+        // SL Line (Bright Red Solid)
+        {
+          type: 'line',
+          attrs: {
+            coordinates: [
+              { x: boxLeft, y: ySl },
+              { x: width, y: ySl }
+            ]
+          },
+          styles: {
+            color: '#ef4444',
+            size: 2,
+            style: 'solid'
+          },
+          ignoreEvent: true
+        },
+        // TP1 Line (Emerald Green Dashed)
+        {
+          type: 'line',
+          attrs: {
+            coordinates: [
+              { x: boxLeft, y: yTp1 },
+              { x: width, y: yTp1 }
+            ]
+          },
+          styles: {
+            color: '#10b981',
+            size: 1.5,
+            style: 'dashed',
+            dashedValue: [4, 3]
+          },
+          ignoreEvent: true
+        },
+        // TP2 Line (Emerald Green Solid)
+        {
+          type: 'line',
+          attrs: {
+            coordinates: [
+              { x: boxLeft, y: yTp2 },
+              { x: width, y: yTp2 }
+            ]
+          },
+          styles: {
+            color: '#059669',
+            size: 2,
+            style: 'solid'
+          },
+          ignoreEvent: true
+        },
+        // Entry Badge + R:R Badge
+        {
+          type: 'text',
+          attrs: {
+            x: boxLeft + 8,
+            y: yEntry,
+            text: ` ${entryBadge}  ${rrBadge} `,
+            align: 'left',
+            baseline: 'middle'
+          },
+          styles: {
+            color: '#ffffff',
+            backgroundColor: '#2563eb',
+            size: 10,
+            padding: 3.5,
+            borderRadius: 2
+          },
+          ignoreEvent: true
+        },
+        // SL Badge
+        {
+          type: 'text',
+          attrs: {
+            x: boxLeft + 8,
+            y: ySl,
+            text: ` ${slBadge} `,
+            align: 'left',
+            baseline: 'middle'
+          },
+          styles: {
+            color: '#ffffff',
+            backgroundColor: '#dc2626',
+            size: 9.5,
+            padding: 3,
+            borderRadius: 2
+          },
+          ignoreEvent: true
+        },
+        // TP1 Badge
+        {
+          type: 'text',
+          attrs: {
+            x: boxLeft + 8,
+            y: yTp1,
+            text: ` ${tp1Badge} `,
+            align: 'left',
+            baseline: 'middle'
+          },
+          styles: {
+            color: '#ffffff',
+            backgroundColor: '#059669',
+            size: 9.5,
+            padding: 3,
+            borderRadius: 2
+          },
+          ignoreEvent: true
+        },
+        // TP2 Badge
+        {
+          type: 'text',
+          attrs: {
+            x: boxLeft + 8,
+            y: yTp2,
+            text: ` ${tp2Badge} `,
+            align: 'left',
+            baseline: 'middle'
+          },
+          styles: {
+            color: '#ffffff',
+            backgroundColor: '#047857',
             size: 9.5,
             padding: 3,
             borderRadius: 2
@@ -712,6 +960,7 @@ export default function Chart({
   backtestSignals = null,
   showBacktestSignals = true,
   strategyLevels = [],
+  activePositionSetup = null,
   uiConfig = null,
   chartIndicators = null,
   onOpenIndicators = null,
@@ -725,6 +974,8 @@ export default function Chart({
   const drawingHistory = useRef([]); // history stack of overlay IDs for Ctrl+Z undo
   const btOverlayIds = useRef([]); // backtest signal overlays (never saved as drawings)
   const activeStrategyLevelOverlays = useRef([]); // strategy entry zones (never saved as drawings)
+  const activePositionOverlayId = useRef(null);
+  const [localPositionSetup, setLocalPositionSetup] = useState(null);
   const lastScrolledResult = useRef(null);
   const [klinesVersion, setKlinesVersion] = useState(0);
   const [btTooltip, setBtTooltip] = useState(null);
@@ -1926,6 +2177,51 @@ export default function Chart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [backtestSignals, showBacktestSignals, symbol, timeframe, klinesVersion, chartReady]);
 
+  // Listen for custom position setup projection events
+  useEffect(() => {
+    const onPositionSetup = (ev) => {
+      if (ev.detail?.setup) {
+        setLocalPositionSetup(ev.detail.setup);
+      }
+    };
+    window.addEventListener('apply-position-setup', onPositionSetup);
+    return () => window.removeEventListener('apply-position-setup', onPositionSetup);
+  }, []);
+
+  const effectivePositionSetup = activePositionSetup || localPositionSetup;
+
+  // Render full Position Setup Box (Entry / SL / TP1 / TP2 + Risk/Reward Shaded Zones)
+  useEffect(() => {
+    if (!chartRef.current) return;
+    const chart = chartRef.current;
+    const klines = currentKlines.current;
+
+    if (activePositionOverlayId.current) {
+      try { chart.removeOverlay({ id: activePositionOverlayId.current }); } catch (_) {}
+      activePositionOverlayId.current = null;
+    }
+
+    if (!effectivePositionSetup || !klines || klines.length === 0) {
+      window.__chartActiveSetup = null;
+      return;
+    }
+
+    const anchorTs = klines[klines.length - 1].timestamp;
+    try {
+      const id = chart.createOverlay({
+        name: 'positionSetupBox',
+        lock: true,
+        points: [{ timestamp: anchorTs, value: Number(effectivePositionSetup.entry_price) }],
+        extendData: { ...effectivePositionSetup }
+      });
+      if (id) activePositionOverlayId.current = id;
+      window.__chartActiveSetup = {
+        overlayId: id,
+        ...effectivePositionSetup
+      };
+    } catch (_) {}
+  }, [effectivePositionSetup, symbol, timeframe, klinesVersion, chartReady]);
+
   // Strategy Key Entry Levels (Semi-transparent Zones with Badges: BUY ZONE: Wall $1.2M / SHORT: Delta Div)
   useEffect(() => {
     if (!chartRef.current) return;
@@ -1953,6 +2249,7 @@ export default function Chart({
           points: [{ timestamp: anchorTs, value: p }],
           extendData: {
             type: lvl.type || 'BUY',
+            role: lvl.role || '',
             label: lvl.label || (lvl.type === 'BUY' ? 'BUY ZONE: Wall $1.2M' : 'SHORT: Delta Div'),
             price: p
           }
@@ -2383,6 +2680,63 @@ export default function Chart({
             cursor: activeTool ? 'crosshair' : isMouseDown ? 'grabbing' : 'grab'
           }}
         />
+
+        {/* ТАКТ 2.1: Interactive Position Setup HUD Overlay (Entry / SL / TP1 / TP2 / R:R) */}
+        {effectivePositionSetup && Number(effectivePositionSetup.entry_price) > 0 && (
+          <div
+            data-testid="chart-position-hud"
+            className="absolute top-2.5 left-3 z-20 pointer-events-auto flex flex-wrap items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-[#0a0e17]/90 border border-[#2563eb70] shadow-xl backdrop-blur-xs font-mono text-[10px]"
+          >
+            <span
+              data-testid="chart-badge-entry"
+              className="px-1.5 py-0.5 rounded bg-[#2563eb] text-white font-bold border border-[#60a5fa80]"
+            >
+              [{effectivePositionSetup.order_type || (effectivePositionSetup.direction === 'SHORT' ? 'SELL LIMIT' : 'BUY LIMIT')} @ {Number(effectivePositionSetup.entry_price).toFixed(Number(effectivePositionSetup.entry_price) >= 1000 ? 1 : 2)}]
+            </span>
+
+            <span
+              data-testid="chart-badge-sl"
+              className="px-1.5 py-0.5 rounded bg-[#dc2626] text-white font-bold border border-[#fca5a580]"
+            >
+              [SL @ {Number(effectivePositionSetup.sl_price).toFixed(Number(effectivePositionSetup.sl_price) >= 1000 ? 1 : 2)} ({Number(effectivePositionSetup.sl_pct ?? -0.28).toFixed(2)}% | -${Math.round(Number(effectivePositionSetup.sl_risk_usd ?? 50))})]
+            </span>
+
+            <span
+              data-testid="chart-badge-tp1"
+              className="px-1.5 py-0.5 rounded bg-[#059669] text-white font-bold border border-[#6ee7b780]"
+            >
+              [TP1 @ {Number(effectivePositionSetup.tp1_price).toFixed(Number(effectivePositionSetup.tp1_price) >= 1000 ? 1 : 2)} (+{Number(effectivePositionSetup.tp1_pct ?? 0.43).toFixed(2)}%)]
+            </span>
+
+            {effectivePositionSetup.tp2_price && (
+              <span
+                data-testid="chart-badge-tp2"
+                className="px-1.5 py-0.5 rounded bg-[#047857] text-white font-bold border border-[#34d39980]"
+              >
+                [TP2 @ {Number(effectivePositionSetup.tp2_price).toFixed(Number(effectivePositionSetup.tp2_price) >= 1000 ? 1 : 2)} (+{Number(effectivePositionSetup.tp2_pct ?? 0.92).toFixed(2)}%)]
+              </span>
+            )}
+
+            <span
+              data-testid="chart-badge-rr"
+              className="px-1.5 py-0.5 rounded bg-[#1e293b] text-[#38bdf8] font-bold border border-[#38bdf860]"
+            >
+              R:R {effectivePositionSetup.rr_label || `1:${Number(effectivePositionSetup.rr_ratio || 2.8).toFixed(1)}`}
+            </span>
+
+            <button
+              type="button"
+              onClick={() => {
+                setLocalPositionSetup(null);
+                window.dispatchEvent(new CustomEvent('clear-position-setup'));
+              }}
+              className="ml-0.5 text-[#94a3b8] hover:text-white px-1 cursor-pointer"
+              title="Скрыть разметку позиции"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* Backtest marker tooltip: reason + PnL */}
         {btTooltip && (

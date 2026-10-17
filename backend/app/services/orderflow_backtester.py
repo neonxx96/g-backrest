@@ -161,20 +161,46 @@ class OrderFlowBacktester:
         cvd_ema_period: int = 14,
         compute_monte_carlo: bool = True,
         fast_eval: bool = False,
+        # Ночной спринт ТАКТ 1: Расширенный конфигуратор стратегии
+        entry_mode: Optional[str] = None,          # 'limit_bounce' | 'breakout' | 'cvd_absorption'
+        sl_mode: str = "fixed_pct",                # 'fixed_pct' | 'behind_wall' | 'atr_volatility'
+        wall_sl_offset_ticks: int = 3,             # offset in ticks behind the wall when sl_mode == 'behind_wall'
+        tp1_rr_ratio: float = 1.5,                 # TP1 R:R target (e.g. 1:1.5) for 50% volume + Breakeven
+        tp2_mode: str = "trend_rr",                # 'trend_rr' | 'opposite_wall'
+        tp2_rr_ratio: float = 2.8,                 # TP2 R:R target (e.g. 1:2.8)
+        min_wall_lifetime_sec: int = 30,           # Spoofing filter: min wall hold time (10..60 sec)
     ) -> Dict[str, Any]:
         """
         Executes realistic institutional order-flow backtest with:
         - Maker/Taker fees & tick-based stop slippage
-        - Multi-TP scaling out (TP1 50% + Breakeven SL, TP2 50% remainder)
+        - Entry modes: Limit Bounce, Wall Breakout, CVD Absorption
+        - Dynamic Stop-Loss: Fixed %, Behind Wall (+ tick offset), or Volatility ATR (1.0x-3.0x)
+        - Multi-TP scaling out (TP1 50% at 1:1.5 R:R + Breakeven SL, TP2 50% remainder)
+        - Spoofing & Wall Lifetime filter (10..60 sec)
         - Monte Carlo 500-run bootstrap robustness stress-test
         """
         if df is None or df.empty or len(df) < 60:
             return {"error": "Недостаточно свечей для бэктеста (минимум 60)"}
 
+        # Map entry_mode aliases to canonical strategy_type if specified
+        eff_strategy = strategy_type
+        if entry_mode:
+            em = entry_mode.lower().strip()
+            if em in ("limit_bounce", "density_bounce"):
+                eff_strategy = "density_bounce"
+            elif em in ("breakout", "wall_breakout"):
+                eff_strategy = "wall_breakout"
+            elif em in ("cvd_absorption", "delta_absorption"):
+                eff_strategy = "delta_absorption"
+
+        if use_atr_sl and sl_mode == "fixed_pct":
+            sl_mode = "atr_volatility"
+
         maker_rate = (float(maker_fee_pct) / 100.0) if maker_fee_pct is not None else self.maker_fee_rate
         taker_rate = (float(taker_fee_pct) / 100.0) if taker_fee_pct is not None else self.taker_fee_rate
         slip_ticks = int(slippage_ticks) if slippage_ticks is not None else self.slippage_ticks
         slip_ticks = max(0, min(20, slip_ticks))
+        wall_life_sec = max(10, min(60, int(min_wall_lifetime_sec or 30)))
 
         already_enriched = (
             'low_min10' in df.columns
@@ -216,47 +242,61 @@ class OrderFlowBacktester:
         if effective_min_wall > 0 and median_turnover > 0 and effective_min_wall > median_turnover * 4.5:
             effective_min_wall = median_turnover * min(3.5, 0.8 + (effective_min_wall / 3_000_000.0) * 2.2)
 
+        # Spoofing & Wall Lifetime filter: higher min_wall_lifetime_sec (e.g. 45-60s) requires sustained multi-bar volume
+        lifetime_factor = 1.0 + max(0.0, (wall_life_sec - 30.0) / 150.0)
+
         for i in range(50, len(data)):
             c = float(close_vals[i])
             prev_c = float(close_vals[i - 1])
             ema = float(ema20_vals[i])
             prev_ema = float(ema20_vals[i - 1])
             v_rat = float(vol_ratio_vals[i])
+            prev_v_rat = float(vol_ratio_vals[i - 1])
             rsi = float(rsi_vals[i])
             delta = float(delta_vals[i])
 
             turnover = c * float(volume_vals[i])
             passes_wall = (effective_min_wall <= 0) or (turnover >= effective_min_wall)
+            # Wall hold verification: if min_wall_lifetime_sec > 35s, ensure previous bar was not an isolated spoof flash
+            passes_lifetime = True if wall_life_sec <= 35 else ((v_rat + prev_v_rat) * 0.5 >= volume_multiplier * 0.75 * lifetime_factor)
 
             raw_signal = 0
 
-            if strategy_type == "confluence_ema":
-                if passes_wall and prev_c <= prev_ema and c > ema and v_rat >= volume_multiplier and delta > 0 and 40 <= rsi <= 65:
+            if eff_strategy == "confluence_ema":
+                if passes_wall and passes_lifetime and prev_c <= prev_ema and c > ema and v_rat >= volume_multiplier and delta > 0 and 40 <= rsi <= 65:
                     raw_signal = 1
-                elif passes_wall and prev_c >= prev_ema and c < ema and v_rat >= volume_multiplier and delta < 0 and 35 <= rsi <= 60:
+                elif passes_wall and passes_lifetime and prev_c >= prev_ema and c < ema and v_rat >= volume_multiplier and delta < 0 and 35 <= rsi <= 60:
                     raw_signal = -1
 
-            elif strategy_type == "ema_trend":
+            elif eff_strategy == "ema_trend":
                 cross_up = ema20_vals[i - 1] <= ema50_vals[i - 1] and ema20_vals[i] > ema50_vals[i]
                 cross_dn = ema20_vals[i - 1] >= ema50_vals[i - 1] and ema20_vals[i] < ema50_vals[i]
-                if passes_wall and cross_up and v_rat >= volume_multiplier and delta > 0:
+                if passes_wall and passes_lifetime and cross_up and v_rat >= volume_multiplier and delta > 0:
                     raw_signal = 1
-                elif passes_wall and cross_dn and v_rat >= volume_multiplier and delta < 0:
+                elif passes_wall and passes_lifetime and cross_dn and v_rat >= volume_multiplier and delta < 0:
                     raw_signal = -1
 
-            elif strategy_type == "delta_absorption":
-                if passes_wall and low_vals[i] <= low_min10_vals[i] and cvd_vals[i] > cvd_min10_vals[i] and delta > 0 and rsi < 42 and v_rat >= volume_multiplier:
+            elif eff_strategy in ("delta_absorption", "cvd_absorption"):
+                if passes_wall and passes_lifetime and low_vals[i] <= low_min10_vals[i] and cvd_vals[i] > cvd_min10_vals[i] and delta > 0 and rsi < 42 and v_rat >= volume_multiplier:
                     raw_signal = 1
-                elif passes_wall and high_vals[i] >= high_max10_vals[i] and cvd_vals[i] < cvd_max10_vals[i] and delta < 0 and rsi > 58 and v_rat >= volume_multiplier:
+                elif passes_wall and passes_lifetime and high_vals[i] >= high_max10_vals[i] and cvd_vals[i] < cvd_max10_vals[i] and delta < 0 and rsi > 58 and v_rat >= volume_multiplier:
                     raw_signal = -1
 
-            elif strategy_type == "density_bounce":
-                if passes_wall:
+            elif eff_strategy in ("density_bounce", "limit_bounce"):
+                if passes_wall and passes_lifetime:
                     is_pinbar_bull = (c - low_vals[i]) > 1.8 * (high_vals[i] - c) and delta > 0
                     is_pinbar_bear = (high_vals[i] - c) > 1.8 * (c - low_vals[i]) and delta < 0
                     if is_pinbar_bull and v_rat >= volume_multiplier and rsi < 44:
                         raw_signal = 1
                     elif is_pinbar_bear and v_rat >= volume_multiplier and rsi > 56:
+                        raw_signal = -1
+
+            elif eff_strategy in ("wall_breakout", "breakout"):
+                # Пробой плотности (Wall Breakout): импульсный пробой локального экстремума/стенки на повышенном объёме и дельте
+                if passes_wall and passes_lifetime:
+                    if c > high_max6_vals[i] and delta > 0 and v_rat >= max(1.1, volume_multiplier) and 48 <= rsi <= 74:
+                        raw_signal = 1
+                    elif c < low_min6_vals[i] and delta < 0 and v_rat >= max(1.1, volume_multiplier) and 26 <= rsi <= 52:
                         raw_signal = -1
 
             # CONFLUENCE FILTER SUITE VALIDATION
@@ -558,16 +598,37 @@ class OrderFlowBacktester:
                     }
 
                 cur_atr = float(atr_vals[i]) if not np.isnan(atr_vals[i]) else 0.0
-                if use_atr_sl and cur_atr > 0 and entry_price > 0:
-                    sl_dist = cur_atr * float(atr_multiplier)
+                tick_unit_entry = self._estimate_tick_size(entry_price)
+
+                # Dynamic Stop-Loss Mode: 'fixed_pct' | 'behind_wall' | 'atr_volatility'
+                if (sl_mode == "atr_volatility" or use_atr_sl) and cur_atr > 0 and entry_price > 0:
+                    sl_dist = cur_atr * max(0.5, min(5.0, float(atr_multiplier)))
+                elif sl_mode == "behind_wall" and entry_price > 0:
+                    offset_abs = max(1, int(wall_sl_offset_ticks or 3)) * tick_unit_entry
+                    if pos_dir == 1:
+                        wall_anchor = min(low_p, float(low_min6_vals[i]))
+                        sl_dist = max(entry_price * 0.0015, (entry_price - wall_anchor) + offset_abs)
+                    else:
+                        wall_anchor = max(high_p, float(high_max6_vals[i]))
+                        sl_dist = max(entry_price * 0.0015, (wall_anchor - entry_price) + offset_abs)
+                    sl_dist = min(sl_dist, entry_price * 0.025)
                 else:
                     sl_dist = entry_price * (max(0.05, float(stop_loss_pct)) / 100.0)
 
-                # TP1 distance: +0.6% or 1.5 ATR (capped at 65% of full TP2 so TP1 always precedes TP2)
-                tp2_dist = entry_price * (max(0.1, float(take_profit_pct)) / 100.0)
+                # TP2 distance: either explicit take_profit_pct or opposite_wall / R:R target
+                base_tp2_dist = entry_price * (max(0.1, float(take_profit_pct)) / 100.0)
+                if tp2_mode == "opposite_wall" and i >= 6:
+                    opp_wall = float(high_max10_vals[i]) if pos_dir == 1 else float(low_min10_vals[i])
+                    wall_dist = abs(opp_wall - entry_price) * 0.96
+                    tp2_dist = max(sl_dist * 1.6, wall_dist if wall_dist > sl_dist * 1.2 else base_tp2_dist)
+                else:
+                    tp2_dist = base_tp2_dist
+
+                # TP1 distance: R:R based (e.g. 1:1.5) or +0.6% / 1.5 ATR, capped at 70% of TP2
+                rr_tp1_dist = sl_dist * max(0.8, float(tp1_rr_ratio or 1.5))
                 atr_tp1_dist = (cur_atr * float(tp1_atr_mult)) if cur_atr > 0 else (entry_price * (float(tp1_pct) / 100.0))
                 pct_tp1_dist = entry_price * (max(0.15, float(tp1_pct)) / 100.0)
-                tp1_dist = min(tp2_dist * 0.65, max(pct_tp1_dist, atr_tp1_dist * 0.5))
+                tp1_dist = min(tp2_dist * 0.70, max(pct_tp1_dist, min(rr_tp1_dist, max(pct_tp1_dist, atr_tp1_dist))))
 
                 if pos_dir == 1:
                     tp1_price = entry_price + tp1_dist
@@ -631,8 +692,148 @@ class OrderFlowBacktester:
             else None
         )
 
+        # ТАКТ 1 & ТАКТ 2: Build transparent Data Feed Context & Active Position Setup for visual chart projection
+        data_feed_context = None
+        active_position_setup = None
+        if not fast_eval and len(close_vals) > 10:
+            last_idx = len(close_vals) - 1
+            last_p = float(close_vals[last_idx])
+            price_dec = 1 if last_p >= 100 else 4
+            last_atr = float(atr_vals[last_idx]) if not np.isnan(atr_vals[last_idx]) else (last_p * 0.004)
+            last_cvd = float(cvd_vals[last_idx]) if not np.isnan(cvd_vals[last_idx]) else 0.0
+            last_cvd_ema = float(cvd_ema14_vals[last_idx]) if not np.isnan(cvd_ema14_vals[last_idx]) else 0.0
+
+            if last_p <= float(low_min6_vals[last_idx]) and last_cvd > float(cvd_min6_vals[last_idx]):
+                div_status = "Бычья дивергенция (Поглощение лимитками Bid)"
+            elif last_p >= float(high_max6_vals[last_idx]) and last_cvd < float(cvd_max6_vals[last_idx]):
+                div_status = "Медвежья дивергенция (Скрытые продажи Ask)"
+            elif last_cvd >= last_cvd_ema:
+                div_status = "CVD > EMA(14) (Доминируют покупатели)"
+            else:
+                div_status = "CVD < EMA(14) (Давление продавцов)"
+
+            oi_slice = oi_delta_vals[max(0, last_idx - 12) : last_idx + 1]
+            oi_1h_sum = float(np.nansum(oi_slice))
+            oi_base = float(data['oi'].iloc[last_idx]) if 'oi' in data.columns and float(data['oi'].iloc[last_idx]) > 0 else 10000.0
+            oi_1h_pct = round((oi_1h_sum / max(1.0, oi_base)) * 100.0, 2)
+            if oi_1h_pct > 0.05:
+                oi_label = f"Приток капитала (+{oi_1h_pct}%)"
+            elif oi_1h_pct < -0.05:
+                oi_label = f"Отток / Разгрузка ({oi_1h_pct}%)"
+            else:
+                oi_label = f"Нейтральный баланс ({oi_1h_pct:+.2f}%)"
+
+            bid_wall_p = round(float(low_min10_vals[last_idx]), price_dec)
+            ask_wall_p = round(float(high_max10_vals[last_idx]), price_dec)
+            if bid_wall_p >= last_p:
+                bid_wall_p = round(last_p - 1.1 * last_atr, price_dec)
+            if ask_wall_p <= last_p:
+                ask_wall_p = round(last_p + 1.1 * last_atr, price_dec)
+
+            bid_dist_pct = round(abs(last_p - bid_wall_p) / max(1e-9, last_p) * 100.0, 2)
+            ask_dist_pct = round(abs(ask_wall_p - last_p) / max(1e-9, last_p) * 100.0, 2)
+            est_wall_usd = max(450000.0, round(median_turnover * 2.4, -4))
+
+            tick_sz = self._estimate_tick_size(last_p)
+            bid_wall_vol_usd = round(est_wall_usd * 1.15, 0)
+            ask_wall_vol_usd = round(est_wall_usd * 1.05, 0)
+            atr_usd_val = round(last_atr, price_dec)
+            atr_pct_val = round((last_atr / max(1e-9, last_p)) * 100.0, 2)
+            atr_ticks_val = int(round(last_atr / max(1e-9, tick_sz)))
+            data_feed_context = {
+                "current_price": round(last_p, price_dec),
+                "top_bid_wall_price": bid_wall_p,
+                "top_bid_wall_usd": bid_wall_vol_usd,
+                "top_bid_dist_pct": bid_dist_pct,
+                "top_ask_wall_price": ask_wall_p,
+                "top_ask_wall_usd": ask_wall_vol_usd,
+                "top_ask_dist_pct": ask_dist_pct,
+                "cvd_current": round(last_cvd, 1),
+                "cvd_ema14": round(last_cvd_ema, 1),
+                "cvd_divergence_status": div_status,
+                "oi_1h_delta_pct": oi_1h_pct,
+                "oi_status": oi_label,
+                "atr_14_usd": atr_usd_val,
+                "atr_14_pct": atr_pct_val,
+                "atr_14_ticks": atr_ticks_val,
+                "orderbook_walls": {
+                    "top_bid_wall_price": bid_wall_p,
+                    "top_bid_wall_usd": bid_wall_vol_usd,
+                    "top_bid_dist_pct": bid_dist_pct,
+                    "top_ask_wall_price": ask_wall_p,
+                    "top_ask_wall_usd": ask_wall_vol_usd,
+                    "top_ask_dist_pct": ask_dist_pct,
+                },
+                "cvd_footprint": {
+                    "cvd_current": round(last_cvd, 1),
+                    "cvd_ema14": round(last_cvd_ema, 1),
+                    "divergence_status": div_status,
+                },
+                "open_interest": {
+                    "oi_1h_delta_pct": oi_1h_pct,
+                    "flow_status": oi_label,
+                },
+                "volatility_atr": {
+                    "atr_14_usd": atr_usd_val,
+                    "atr_14_pct": atr_pct_val,
+                    "atr_14_ticks": atr_ticks_val,
+                    "tick_size": tick_sz,
+                },
+            }
+
+            # Build Active Position Setup around current price for immediate Chart & DOM rendering
+            setup_dir = "LONG" if last_cvd >= last_cvd_ema else "SHORT"
+            if trades:
+                setup_dir = trades[-1]["direction"]
+            order_kind = "STOP" if eff_strategy in ("wall_breakout", "breakout") else "LIMIT"
+            entry_lvl = round(last_p * (0.9992 if setup_dir == "LONG" else 1.0008), price_dec)
+
+            if sl_mode == "atr_volatility" or use_atr_sl:
+                setup_sl_dist = max(last_p * 0.002, last_atr * float(atr_multiplier))
+            elif sl_mode == "behind_wall":
+                setup_sl_dist = max(last_p * 0.0025, abs(entry_lvl - (bid_wall_p if setup_dir == "LONG" else ask_wall_p)) + tick_sz * max(1, int(wall_sl_offset_ticks or 3)))
+            else:
+                setup_sl_dist = entry_lvl * (max(0.15, float(stop_loss_pct)) / 100.0)
+
+            setup_tp1_dist = setup_sl_dist * max(1.0, float(tp1_rr_ratio or 1.5))
+            setup_tp2_dist = max(setup_tp1_dist * 1.5, entry_lvl * (max(0.4, float(take_profit_pct)) / 100.0))
+            rr_val = round(setup_tp2_dist / max(1e-9, setup_sl_dist), 2)
+
+            if setup_dir == "LONG":
+                sl_lvl = round(entry_lvl - setup_sl_dist, price_dec)
+                tp1_lvl = round(entry_lvl + setup_tp1_dist, price_dec)
+                tp2_lvl = round(entry_lvl + setup_tp2_dist, price_dec)
+            else:
+                sl_lvl = round(entry_lvl + setup_sl_dist, price_dec)
+                tp1_lvl = round(entry_lvl - setup_tp1_dist, price_dec)
+                tp2_lvl = round(entry_lvl - setup_tp2_dist, price_dec)
+
+            sl_pct_val = round(abs(entry_lvl - sl_lvl) / max(1e-9, entry_lvl) * 100.0, 2)
+            tp1_pct_val = round(abs(tp1_lvl - entry_lvl) / max(1e-9, entry_lvl) * 100.0, 2)
+            tp2_pct_val = round(abs(tp2_lvl - entry_lvl) / max(1e-9, entry_lvl) * 100.0, 2)
+            risk_usd_val = round(self.initial_capital * safe_lev * (sl_pct_val / 100.0), 1)
+
+            active_position_setup = {
+                "direction": setup_dir,
+                "order_type": f"{'BUY' if setup_dir == 'LONG' else 'SELL'} {order_kind}",
+                "entry_price": entry_lvl,
+                "sl_price": sl_lvl,
+                "sl_pct": sl_pct_val,
+                "sl_risk_usd": risk_usd_val,
+                "tp1_price": tp1_lvl,
+                "tp1_pct": tp1_pct_val,
+                "tp1_rr": round(float(tp1_rr_ratio or 1.5), 2),
+                "tp2_price": tp2_lvl,
+                "tp2_pct": tp2_pct_val,
+                "rr_ratio": rr_val,
+                "rr_label": f"1:{rr_val}",
+                "sl_mode": sl_mode,
+                "entry_mode": entry_mode or eff_strategy,
+                "min_wall_lifetime_sec": wall_life_sec,
+            }
+
         return {
-            "strategy": strategy_type,
+            "strategy": eff_strategy,
             "initial_capital": self.initial_capital,
             "final_equity": round(capital, 2),
             "gross_final_equity": round(gross_capital, 2),
@@ -660,7 +861,15 @@ class OrderFlowBacktester:
                 "use_multi_tp": bool(use_multi_tp),
                 "tp1_pct": float(tp1_pct),
                 "tp1_atr_mult": float(tp1_atr_mult),
+                "entry_mode": entry_mode or eff_strategy,
+                "sl_mode": sl_mode,
+                "wall_sl_offset_ticks": int(wall_sl_offset_ticks or 3),
+                "tp1_rr_ratio": float(tp1_rr_ratio or 1.5),
+                "tp2_mode": tp2_mode,
+                "min_wall_lifetime_sec": wall_life_sec,
             },
+            "data_feed_context": data_feed_context,
+            "active_position_setup": active_position_setup,
             "equity_curve": equity_curve,
             "trades": trades[-1000:],
             "confluence_matrix": confluence_matrix,

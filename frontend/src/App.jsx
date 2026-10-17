@@ -129,12 +129,68 @@ export default function App() {
   const [showBtSignals, setShowBtSignals] = useState(true);
   const [activeStrategyProfile, setActiveStrategyProfile] = useState('density_bounce');
   const [strategyLevels, setStrategyLevels] = useState([]);
+  const [activePositionSetup, setActivePositionSetup] = useState(null);
   const [toasts, setToasts] = useState([]);
   const seenSignalIdsRef = useRef(new Set());
 
   useEffect(() => {
     setBtResult(null);
   }, [symbol]);
+
+  useEffect(() => {
+    const onClearSetup = () => setActivePositionSetup(null);
+    window.addEventListener('clear-position-setup', onClearSetup);
+    return () => window.removeEventListener('clear-position-setup', onClearSetup);
+  }, []);
+
+  const handleProjectPositionSetup = useCallback((setup) => {
+    if (!setup || !setup.entry_price) return;
+    setActivePositionSetup(setup);
+    const isLong = (setup.direction || 'LONG') === 'LONG';
+    const entryP = Number(setup.entry_price);
+    const slP = Number(setup.sl_price ?? setup.stop_loss);
+    const tp1P = Number(setup.tp1_price ?? setup.take_profit);
+    const tp2P = Number(setup.tp2_price ?? 0);
+    const slPct = setup.sl_pct ?? -0.28;
+    const slRisk = setup.sl_risk_usd ?? 50;
+    const tp1Pct = setup.tp1_pct ?? 0.43;
+    const tp2Pct = setup.tp2_pct ?? 0.92;
+    const orderType = setup.order_type || (isLong ? 'BUY LIMIT' : 'SELL LIMIT');
+
+    const newLevels = [
+      {
+        price: entryP,
+        type: isLong ? 'BUY' : 'SELL',
+        role: 'ENTRY',
+        label: `[${orderType} @ ${entryP}]`,
+        reason: 'Entry'
+      },
+      {
+        price: slP,
+        type: isLong ? 'SELL' : 'BUY',
+        role: 'SL',
+        label: `[SL @ ${slP} (${slPct}% | -$${slRisk})]`,
+        reason: 'Stop-Loss'
+      },
+      {
+        price: tp1P,
+        type: isLong ? 'SELL' : 'BUY',
+        role: 'TP1',
+        label: `[TP1 @ ${tp1P} (+${tp1Pct}%)]`,
+        reason: 'TP1 (50% + Б/У)'
+      }
+    ];
+    if (tp2P > 0) {
+      newLevels.push({
+        price: tp2P,
+        type: isLong ? 'SELL' : 'BUY',
+        role: 'TP2',
+        label: `[TP2 @ ${tp2P} (+${tp2Pct}%)]`,
+        reason: 'TP2 (50%)'
+      });
+    }
+    setStrategyLevels(newLevels);
+  }, []);
 
   // Push Toast Notification (Top Right)
   const pushToast = useCallback((toastData) => {
@@ -148,7 +204,7 @@ export default function App() {
   }, []);
 
   const removeToast = useCallback((id) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
+    setToasts((prev) => prev.filter((t) => t.filterId !== id && t.id !== id));
   }, []);
 
   // Poll for incoming live signals in real-time and trigger push toast alerts + sound
@@ -188,8 +244,12 @@ export default function App() {
     };
   }, [pushToast]);
 
-  // Project Strategy Entry Levels on DOM-стакан and Chart (ТАКТ 1)
+  // Project Strategy Entry Levels on DOM-стакан and Chart (ТАКТ 1 & ТАКТ 2)
   useEffect(() => {
+    if (btResult?.active_position_setup) {
+      handleProjectPositionSetup(btResult.active_position_setup);
+      return;
+    }
     const levels = [];
     if (btResult?.signals && btResult.signals.length > 0) {
       const seen = new Set();
@@ -214,32 +274,50 @@ export default function App() {
         levels.push({
           price: Number((baseP * 0.9985).toFixed(1)),
           type: 'BUY',
-          label: 'BUY ZONE: Wall $1.2M',
+          role: 'ENTRY',
+          label: `[BUY LIMIT @ ${Number((baseP * 0.9985).toFixed(1))}]`,
           reason: 'Density Bounce'
         });
         levels.push({
-          price: Number((baseP * 1.0025).toFixed(1)),
+          price: Number((baseP * 0.9957).toFixed(1)),
           type: 'SELL',
-          label: 'SHORT: Wall $1.8M',
-          reason: 'Density Bounce'
+          role: 'SL',
+          label: `[SL @ ${Number((baseP * 0.9957).toFixed(1))} (-0.28% | -$50)]`,
+          reason: 'Stop-Loss'
+        });
+        levels.push({
+          price: Number((baseP * 1.0028).toFixed(1)),
+          type: 'SELL',
+          role: 'TP1',
+          label: `[TP1 @ ${Number((baseP * 1.0028).toFixed(1))} (+0.43%)]`,
+          reason: 'TP1'
+        });
+        levels.push({
+          price: Number((baseP * 1.0077).toFixed(1)),
+          type: 'SELL',
+          role: 'TP2',
+          label: `[TP2 @ ${Number((baseP * 1.0077).toFixed(1))} (+0.92%)]`,
+          reason: 'TP2'
         });
       } else {
         levels.push({
           price: Number((baseP * 0.999).toFixed(1)),
           type: 'BUY',
-          label: 'BUY ZONE: Delta Absorb',
+          role: 'ENTRY',
+          label: `[BUY LIMIT @ ${Number((baseP * 0.999).toFixed(1))}]`,
           reason: 'Delta Absorption'
         });
         levels.push({
           price: Number((baseP * 1.0018).toFixed(1)),
           type: 'SELL',
-          label: 'SHORT: Delta Div',
+          role: 'TP1',
+          label: `[TP1 @ ${Number((baseP * 1.0018).toFixed(1))} (+0.43%)]`,
           reason: 'Delta Divergence'
         });
       }
     }
     setStrategyLevels(levels);
-  }, [btResult, activeStrategyProfile, symbol]);
+  }, [btResult, activeStrategyProfile, symbol, handleProjectPositionSetup]);
 
   const handleApplyStrategy = useCallback((params) => {
     if (params.strategy) setActiveStrategyProfile(params.strategy);
@@ -996,6 +1074,7 @@ export default function App() {
                   backtestSignals={btResult}
                   showBacktestSignals={showBtSignals}
                   strategyLevels={strategyLevels}
+                  activePositionSetup={activePositionSetup}
                   uiConfig={uiConfig}
                   chartIndicators={primaryIndicators}
                   onOpenIndicators={(cid) => {
@@ -1035,6 +1114,7 @@ export default function App() {
                   backtestSignals={btResult}
                   showBacktestSignals={showBtSignals}
                   strategyLevels={strategyLevels}
+                  activePositionSetup={activePositionSetup}
                   uiConfig={uiConfig}
                   chartIndicators={secondaryIndicators}
                   onOpenIndicators={(cid) => {
@@ -1078,6 +1158,7 @@ export default function App() {
             onToggleSignals={() => setShowBtSignals((v) => !v)}
             onApplyStrategy={handleApplyStrategy}
             onStrategyChange={setActiveStrategyProfile}
+            onProjectPositionSetup={handleProjectPositionSetup}
           />
         </section>
 
@@ -1132,6 +1213,7 @@ export default function App() {
                       onProximityAlert={handleProximityAlert}
                       uiConfig={uiConfig}
                       strategyLevels={strategyLevels}
+                      activePositionSetup={activePositionSetup}
                       userLimitOrders={userLimitOrders}
                       onMarketSummary={setMarketSummary}
                       onClose={() => setShowOrderBook(false)}
@@ -1346,6 +1428,7 @@ export default function App() {
         onClose={() => setShowAICopilot(false)}
         symbol={symbol}
         timeframe={timeframe}
+        onProjectPositionSetup={handleProjectPositionSetup}
         onApplyLevels={(levels) => {
           setStrategyLevels(levels);
           pushToast({

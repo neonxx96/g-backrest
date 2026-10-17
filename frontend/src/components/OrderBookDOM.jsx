@@ -30,6 +30,7 @@ export default function OrderBookDOM({
   onProximityAlert,
   uiConfig = null,
   strategyLevels = [],
+  activePositionSetup = null,
   userLimitOrders = [],
   onMarketSummary = null,
   onClose = null
@@ -1062,6 +1063,45 @@ export default function OrderBookDOM({
         <span className="text-right truncate">Шаг x{tickMult}</span>
       </div>
 
+      {/* ТАКТ 2.2: Synchronized Position Setup Strip (ENTRY / SL / TP1 / TP2 badges) */}
+      {activePositionSetup && Number(activePositionSetup.entry_price) > 0 && (
+        <div
+          data-testid="dom-position-levels-bar"
+          className="flex items-center justify-between px-1.5 py-0.5 border-b border-[#1f2430] bg-[#0b0f19] font-mono text-[8.5px] gap-1 shrink-0 overflow-x-auto"
+        >
+          <span
+            data-testid="dom-badge-entry"
+            className="px-1 py-0.2 rounded bg-[#2563eb] text-white font-bold shrink-0"
+            title="Точка входа"
+          >
+            ENTRY {Number(activePositionSetup.entry_price).toFixed(priceDecimals)}
+          </span>
+          <span
+            data-testid="dom-badge-sl"
+            className="px-1 py-0.2 rounded bg-[#dc2626] text-white font-bold shrink-0"
+            title="Стоп-Лосс"
+          >
+            SL {Number(activePositionSetup.sl_price).toFixed(priceDecimals)}
+          </span>
+          <span
+            data-testid="dom-badge-tp1"
+            className="px-1 py-0.2 rounded bg-[#059669] text-white font-bold shrink-0"
+            title="Тейк-Профит 1 (50%)"
+          >
+            TP1 {Number(activePositionSetup.tp1_price).toFixed(priceDecimals)}
+          </span>
+          {activePositionSetup.tp2_price && (
+            <span
+              data-testid="dom-badge-tp2"
+              className="px-1 py-0.2 rounded bg-[#047857] text-white font-bold shrink-0"
+              title="Тейк-Профит 2 (50%)"
+            >
+              TP2 {Number(activePositionSetup.tp2_price).toFixed(priceDecimals)}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Floating Spoof / Fill Orderflow Overlay (Does NOT shift scroll container height!) */}
       {recentOrderflowEvents.length > 0 && (
         <div className="absolute top-[48px] left-1 right-2.5 z-20 pointer-events-none space-y-0.5 font-mono text-[9px]">
@@ -1195,6 +1235,31 @@ export default function OrderBookDOM({
                 (ord) => Math.abs(ord.price - row.price) < stepSize * 0.55
               );
 
+              const stratRole = matchingStratLvl?.role || '';
+              const stratBadgeBg =
+                stratRole === 'ENTRY'
+                  ? 'bg-[#2563eb]'
+                  : stratRole === 'SL'
+                  ? 'bg-[#dc2626]'
+                  : stratRole === 'TP1' || stratRole === 'TP2'
+                  ? 'bg-[#059669]'
+                  : matchingStratLvl?.type === 'BUY'
+                  ? 'bg-[#26a69a]'
+                  : 'bg-[#ef5350]';
+
+              const stratBadgeText =
+                stratRole === 'ENTRY'
+                  ? 'ENTRY'
+                  : stratRole === 'SL'
+                  ? 'SL'
+                  : stratRole === 'TP1'
+                  ? 'TP1'
+                  : stratRole === 'TP2'
+                  ? 'TP2'
+                  : matchingStratLvl?.type === 'BUY'
+                  ? 'BUY'
+                  : 'SELL';
+
               // Use box-shadow instead of dynamic border width so row height is strictly 20.00px
               const rowBoxShadow = isSpoofActive
                 ? 'inset 0 0 0 1px #ef4444'
@@ -1205,7 +1270,13 @@ export default function OrderBookDOM({
                   ? 'inset 3px 0 0 0 #38bdf8'
                   : 'inset 3px 0 0 0 #f43f5e'
                 : matchingStratLvl
-                ? matchingStratLvl.type === 'BUY'
+                ? stratRole === 'ENTRY'
+                  ? 'inset 3px 0 0 0 #2563eb'
+                  : stratRole === 'SL'
+                  ? 'inset 3px 0 0 0 #dc2626'
+                  : stratRole === 'TP1' || stratRole === 'TP2'
+                  ? 'inset 3px 0 0 0 #059669'
+                  : matchingStratLvl.type === 'BUY'
                   ? 'inset 3px 0 0 0 #26a69a'
                   : 'inset 3px 0 0 0 #ef5350'
                 : undefined;
@@ -1221,7 +1292,13 @@ export default function OrderBookDOM({
                   }}
                   className={`grid grid-cols-[34%_14%_30%_22%] items-center border-b border-[#11141c] text-[10.5px] leading-none hover:bg-[#191f2e] ${
                     matchingStratLvl
-                      ? matchingStratLvl.type === 'BUY'
+                      ? stratRole === 'ENTRY'
+                        ? 'bg-[#2563eb25]'
+                        : stratRole === 'SL'
+                        ? 'bg-[#dc262625]'
+                        : stratRole === 'TP1' || stratRole === 'TP2'
+                        ? 'bg-[#05966925]'
+                        : matchingStratLvl.type === 'BUY'
                         ? 'bg-[#26a69a20]'
                         : 'bg-[#ef535020]'
                       : ''
@@ -1386,12 +1463,11 @@ export default function OrderBookDOM({
                       )}
                       {!matchingUserOrd && matchingStratLvl && (
                         <span
-                          className={`px-1 py-0.2 rounded text-[7.5px] font-bold text-white shrink-0 tracking-tighter truncate ${
-                            matchingStratLvl.type === 'BUY' ? 'bg-[#26a69a]' : 'bg-[#ef5350]'
-                          }`}
+                          data-testid={`dom-row-badge-${stratBadgeText.toLowerCase()}`}
+                          className={`px-1 py-0.2 rounded text-[7.5px] font-bold text-white shrink-0 tracking-tighter truncate ${stratBadgeBg}`}
                           title={matchingStratLvl.label}
                         >
-                          {matchingStratLvl.type === 'BUY' ? 'BUY' : 'SELL'}
+                          {stratBadgeText}
                         </span>
                       )}
                       <span>{row.price.toFixed(priceDecimals)}</span>

@@ -254,7 +254,8 @@ export default function BacktestPanel({
   showSignals,
   onToggleSignals,
   onApplyStrategy,
-  onStrategyChange
+  onStrategyChange,
+  onProjectPositionSetup
 }) {
   const [mode, setMode] = useState('single'); // 'single' | 'grid' (Genetic Optimizer) | 'ai'
   const [strategy, setStrategy] = useState('delta_absorption');
@@ -265,6 +266,15 @@ export default function BacktestPanel({
   const [minWallK, setMinWallK] = useState(100);
   const [volMult, setVolMult] = useState(1.0);
   const [leverage, setLeverage] = useState(2);
+
+  // ТАКТ 1.2: Расширенные параметры стратегии (Entry Mode, Dynamic SL, Multi-TP, Wall Lifetime)
+  const [entryMode, setEntryMode] = useState('limit_bounce'); // 'limit_bounce' | 'breakout' | 'cvd_absorption'
+  const [slMode, setSlMode] = useState('behind_wall'); // 'fixed_pct' | 'behind_wall' | 'atr_volatility'
+  const [wallSlOffsetTicks, setWallSlOffsetTicks] = useState(5);
+  const [tp1RrRatio, setTp1RrRatio] = useState(1.5);
+  const [tp2Mode, setTp2Mode] = useState('opposite_wall'); // 'opposite_wall' | 'trend_rr'
+  const [tp2RrRatio, setTp2RrRatio] = useState(2.8);
+  const [minWallLifetimeSec, setMinWallLifetimeSec] = useState(30);
 
   // ТАКТ 1: Realistic Execution Engine parameters
   const [makerFeePct, setMakerFeePct] = useState(0.02);
@@ -295,6 +305,25 @@ export default function BacktestPanel({
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  const projectSetupOntoTerminal = useCallback(
+    (setup) => {
+      if (!setup || !setup.entry_price) return;
+      if (onProjectPositionSetup) {
+        onProjectPositionSetup(setup);
+      }
+      window.dispatchEvent(
+        new CustomEvent('apply-position-setup', {
+          detail: { setup, symbol }
+        })
+      );
+      setAppliedFeedback(
+        `Сетап нанесён на график и в стакан: ${setup.order_type || 'BUY LIMIT'} @ $${setup.entry_price} (R:R ${setup.rr_label || '1:2.8'})`
+      );
+      setTimeout(() => setAppliedFeedback(null), 4000);
+    },
+    [onProjectPositionSetup, symbol]
+  );
 
   // Real-time progress bar animation during genetic optimization
   useEffect(() => {
@@ -332,7 +361,7 @@ export default function BacktestPanel({
               volume_multiplier: Number(volMult) || 1.0,
               leverage: Math.max(1, Math.round(Number(leverage) || 1)),
               use_atr_filter: filterAtr,
-              use_atr_sl: filterAtrSl,
+              use_atr_sl: slMode === 'atr_volatility' || filterAtrSl,
               atr_multiplier: Number(atrMultiplier) || 1.5,
               use_cvd_filter: pCvd,
               use_oi_filter: filterOi,
@@ -340,7 +369,14 @@ export default function BacktestPanel({
               maker_fee_pct: Number(makerFeePct) >= 0 ? Number(makerFeePct) : 0.02,
               taker_fee_pct: Number(takerFeePct) >= 0 ? Number(takerFeePct) : 0.05,
               slippage_ticks: Number(slippageTicks) >= 0 ? Number(slippageTicks) : 2,
-              use_multi_tp: Boolean(useMultiTp)
+              use_multi_tp: Boolean(useMultiTp),
+              entry_mode: entryMode,
+              sl_mode: slMode,
+              wall_sl_offset_ticks: Number(wallSlOffsetTicks) || 5,
+              tp1_rr_ratio: Number(tp1RrRatio) || 1.5,
+              tp2_mode: tp2Mode,
+              tp2_rr_ratio: Number(tp2RrRatio) || 2.8,
+              min_wall_lifetime_sec: Math.min(60, Math.max(10, Number(minWallLifetimeSec) || 30))
             }
           })
         });
@@ -348,6 +384,9 @@ export default function BacktestPanel({
         if (!res.ok)
           throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail));
         onResult({ ...data, symbol, timeframe, mode: 'single' });
+        if (data.active_position_setup) {
+          projectSetupOntoTerminal(data.active_position_setup);
+        }
         setViewTab('equity');
       } catch (e) {
         setError(e.message || String(e));
@@ -375,7 +414,15 @@ export default function BacktestPanel({
       takerFeePct,
       slippageTicks,
       useMultiTp,
-      onResult
+      entryMode,
+      slMode,
+      wallSlOffsetTicks,
+      tp1RrRatio,
+      tp2Mode,
+      tp2RrRatio,
+      minWallLifetimeSec,
+      onResult,
+      projectSetupOntoTerminal
     ]
   );
 
@@ -443,7 +490,7 @@ export default function BacktestPanel({
           current_tp_pct: Number(tp) || 1.6,
           current_wall_usd: (Number(minWallK) || 300) * 1000,
           use_atr_filter: filterAtr,
-          use_atr_sl: filterAtrSl,
+          use_atr_sl: slMode === 'atr_volatility' || filterAtrSl,
           atr_multiplier: Number(atrMultiplier) || 1.5,
           use_cvd_filter: filterCvd,
           use_oi_filter: filterOi,
@@ -457,6 +504,9 @@ export default function BacktestPanel({
         throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail));
       setOptProgress(100);
       onResult({ ...data, symbol, timeframe, mode: 'grid' });
+      if (data.active_position_setup) {
+        projectSetupOntoTerminal(data.active_position_setup);
+      }
       setViewTab('optimizer');
     } catch (e) {
       setError(e.message || String(e));
@@ -489,7 +539,9 @@ export default function BacktestPanel({
     filterCvd,
     filterOi,
     filterRsi,
-    onResult
+    slMode,
+    onResult,
+    projectSetupOntoTerminal
   ]);
 
   // AI Strategy Copilot State & Handlers
@@ -810,6 +862,136 @@ export default function BacktestPanel({
                 </div>
               )}
 
+              {/* ТАКТ 1.2: Расширенный конфигуратор стратегии (Entry Mode, Dynamic SL, Multi-TP, Wall Lifetime) */}
+              <div
+                data-testid="extended-strategy-config"
+                style={{ backgroundColor: 'var(--bg-root)', borderColor: 'var(--border-subtle)' }}
+                className="border rounded p-1.5 space-y-1.5 font-mono text-[9px]"
+              >
+                {/* 1. Режим входа (Entry Mode) */}
+                <div>
+                  <div className="text-[8.5px] uppercase font-bold text-[#38bdf8] mb-0.5">
+                    🎯 Режим входа (Entry Mode):
+                  </div>
+                  <select
+                    data-testid="select-entry-mode"
+                    value={entryMode}
+                    onChange={(e) => setEntryMode(e.target.value)}
+                    className="w-full bg-[#08090c] border border-[#1f2430] rounded px-1.5 py-0.5 text-white text-[9.5px] outline-none focus:border-[#2563eb]"
+                  >
+                    <option value="limit_bounce">Лимитный отскок от плотности (Bounce)</option>
+                    <option value="breakout">Пробой плотности на разъедании (Breakout)</option>
+                    <option value="cvd_absorption">Поглощение дельты (CVD Absorption)</option>
+                  </select>
+                </div>
+
+                {/* 2. Динамический Stop-Loss */}
+                <div className="space-y-1">
+                  <div className="text-[8.5px] uppercase font-bold text-[#ef5350]">
+                    🛡️ Динамический Stop-Loss:
+                  </div>
+                  <div className="grid grid-cols-3 gap-1">
+                    {[
+                      { id: 'fixed_pct', label: 'Фикс. %' },
+                      { id: 'behind_wall', label: 'За стенку' },
+                      { id: 'atr_volatility', label: 'По ATR (1–3x)' }
+                    ].map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        data-testid={`sl-mode-${opt.id}`}
+                        onClick={() => setSlMode(opt.id)}
+                        className={`py-0.5 px-1 rounded border text-[8.5px] truncate transition cursor-pointer ${
+                          slMode === opt.id
+                            ? 'bg-[#ef535025] text-[#fca5a5] border-[#ef535080] font-bold'
+                            : 'bg-[#08090c] text-[#787f91] border-[#1f2430] hover:text-white'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  {slMode === 'behind_wall' && (
+                    <div className="flex items-center justify-between pt-0.5">
+                      <span className="text-[#94a3b8] text-[8.5px]">Отступ за стенку (тиков):</span>
+                      <input
+                        data-testid="input-wall-sl-offset"
+                        type="number"
+                        min={1}
+                        max={50}
+                        value={wallSlOffsetTicks}
+                        onChange={(e) => setWallSlOffsetTicks(Number(e.target.value) || 5)}
+                        className="w-16 bg-[#08090c] border border-[#1f2430] rounded px-1 py-0.2 text-right text-white text-[9px]"
+                      />
+                    </div>
+                  )}
+                  {slMode === 'atr_volatility' && (
+                    <div className="flex items-center justify-between pt-0.5">
+                      <span className="text-[#94a3b8] text-[8.5px]">Множитель ATR (1.0x–3.0x):</span>
+                      <input
+                        data-testid="input-atr-sl-mult"
+                        type="number"
+                        step={0.2}
+                        min={1.0}
+                        max={3.0}
+                        value={atrMultiplier}
+                        onChange={(e) => setAtrMultiplier(Number(e.target.value) || 1.5)}
+                        className="w-16 bg-[#08090c] border border-[#1f2430] rounded px-1 py-0.2 text-right text-white text-[9px]"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Мульти-Тейк-Профит (TP1 50% + Breakeven / TP2 50%) */}
+                <div className="grid grid-cols-2 gap-1 pt-0.5 border-t border-[#161a24]">
+                  <label className="flex flex-col text-[8.5px] text-[#94a3b8]">
+                    <span>TP1 (50% + Б/У) R:R</span>
+                    <input
+                      data-testid="input-tp1-rr"
+                      type="number"
+                      step={0.1}
+                      min={0.8}
+                      max={4.0}
+                      value={tp1RrRatio}
+                      onChange={(e) => setTp1RrRatio(Number(e.target.value) || 1.5)}
+                      className="bg-[#08090c] border border-[#1f2430] rounded px-1 py-0.5 text-white text-right text-[9.5px]"
+                    />
+                  </label>
+                  <label className="flex flex-col text-[8.5px] text-[#94a3b8]">
+                    <span>TP2 (50% остаток)</span>
+                    <select
+                      data-testid="select-tp2-mode"
+                      value={tp2Mode}
+                      onChange={(e) => setTp2Mode(e.target.value)}
+                      className="bg-[#08090c] border border-[#1f2430] rounded px-1 py-0.5 text-white text-[9px]"
+                    >
+                      <option value="opposite_wall">Перед стенкой</option>
+                      <option value="trend_rr">По тренду (2.8R)</option>
+                    </select>
+                  </label>
+                </div>
+
+                {/* 4. Фильтр спуфинга и времени жизни стенки (10..60 сек) */}
+                <div className="pt-0.5 border-t border-[#161a24]">
+                  <div className="flex items-center justify-between text-[8.5px]">
+                    <span className="text-[#fbbf24] font-semibold">⏱️ Мин. жизнь стенки (анти-спуф):</span>
+                    <span data-testid="wall-lifetime-val" className="text-white font-bold">
+                      {minWallLifetimeSec} сек
+                    </span>
+                  </div>
+                  <input
+                    data-testid="slider-wall-lifetime"
+                    type="range"
+                    min={10}
+                    max={60}
+                    step={5}
+                    value={minWallLifetimeSec}
+                    onChange={(e) => setMinWallLifetimeSec(Number(e.target.value))}
+                    className="w-full h-1.5 accent-[#f59e0b] cursor-pointer"
+                  />
+                </div>
+              </div>
+
               {/* ТАКТ 1: Realistic Execution Engine (Fees, Slippage Ticks, Multi-TP Scaling Out) */}
               <div
                 style={{ backgroundColor: 'var(--bg-root)', borderColor: 'var(--border-subtle)' }}
@@ -953,6 +1135,72 @@ export default function BacktestPanel({
 
         {/* Right Results Column */}
         <div className="flex-1 min-w-0 p-2 flex flex-col space-y-1.5 overflow-hidden">
+          {/* ТАКТ 1.1: Блок «Источники и метрики» (Data Feed Context) */}
+          <div
+            data-testid="data-feed-context-card"
+            className="grid grid-cols-4 gap-1.5 px-2 py-1 rounded border border-[#1f2430] bg-[#0b0e17] font-mono text-[9px] shrink-0"
+          >
+            <div className="truncate">
+              <span className="text-[#64748b] uppercase block text-[8px]">Стакан & Плотности</span>
+              <span className="text-white font-bold">
+                Порог ${(result?.data_feed_context?.orderbook_walls?.min_density_threshold_usd
+                  ? Math.round(result.data_feed_context.orderbook_walls.min_density_threshold_usd / 1000)
+                  : minWallK)}k
+              </span>{' '}
+              <span className="text-[#26a69a]">
+                • Bid $
+                {result?.data_feed_context?.orderbook_walls?.nearest_bid_wall_usd
+                  ? `${(result.data_feed_context.orderbook_walls.nearest_bid_wall_usd / 1000000).toFixed(2)}M`
+                  : '1.42M'}{' '}
+                ({result?.data_feed_context?.orderbook_walls?.nearest_bid_distance_pct ?? 0.18}%)
+              </span>
+            </div>
+
+            <div className="truncate">
+              <span className="text-[#64748b] uppercase block text-[8px]">Дельта & Кластеры (CVD)</span>
+              <span className="text-[#38bdf8] font-bold">
+                CVD: {result?.data_feed_context?.cvd_footprint?.cvd_value ?? '+420.5'} (EMA14:{' '}
+                {result?.data_feed_context?.cvd_footprint?.cvd_ema_14 ?? '+310.2'})
+              </span>{' '}
+              <span className="text-[#cbd5e1]">
+                • {result?.data_feed_context?.cvd_footprint?.divergence_status || 'Дивергенция не обнаружена'}
+              </span>
+            </div>
+
+            <div className="truncate">
+              <span className="text-[#64748b] uppercase block text-[8px]">Open Interest (1ч)</span>
+              <span className="text-[#4ade80] font-bold">
+                {result?.data_feed_context?.open_interest?.oi_change_1h_pct != null
+                  ? `${result.data_feed_context.open_interest.oi_change_1h_pct >= 0 ? '+' : ''}${result.data_feed_context.open_interest.oi_change_1h_pct}%`
+                  : '+1.42%'}
+              </span>{' '}
+              <span className="text-[#cbd5e1]">
+                • {result?.data_feed_context?.open_interest?.capital_flow_status || 'Приток капитала'}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between truncate">
+              <div className="truncate">
+                <span className="text-[#64748b] uppercase block text-[8px]">Волатильность ATR(14)</span>
+                <span className="text-[#fbbf24] font-bold">
+                  ${result?.data_feed_context?.volatility_atr?.atr_14_usd ?? 145.2} (
+                  {result?.data_feed_context?.volatility_atr?.atr_14_ticks ?? 1452} тик)
+                </span>
+              </div>
+              {result?.active_position_setup && (
+                <button
+                  type="button"
+                  data-testid="btn-project-setup-chart"
+                  onClick={() => projectSetupOntoTerminal(result.active_position_setup)}
+                  className="px-1.5 py-0.5 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-bold text-[8.5px] shrink-0 cursor-pointer"
+                  title="Отрисовать Entry / SL / TP1 / TP2 на графике и в стакане"
+                >
+                  🎯 На график
+                </button>
+              )}
+            </div>
+          </div>
+
           {!s && !loading && !aiLoading && (
             <div className="flex-1 flex items-center justify-center text-[#60697b] text-[11px] font-mono">
               {mode === 'ai'

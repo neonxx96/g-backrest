@@ -24,7 +24,16 @@ backtest_router = APIRouter(prefix="/api/backtest", tags=["backtest"])
 
 TF_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240}
 MAX_CANDLES = 45000  # 30 days of 1m
-STRATEGIES = {"density_bounce", "delta_absorption", "ema_trend", "confluence_ema"}
+STRATEGIES = {
+    "density_bounce",
+    "limit_bounce",
+    "wall_breakout",
+    "breakout",
+    "delta_absorption",
+    "cvd_absorption",
+    "ema_trend",
+    "confluence_ema",
+}
 
 
 class BacktestParams(BaseModel):
@@ -48,6 +57,14 @@ class BacktestParams(BaseModel):
     tp1_pct: float = Field(0.6, gt=0, le=50)
     tp1_atr_mult: float = Field(1.5, gt=0, le=10)
     atr_period: int = Field(14, ge=3, le=100)
+    # Ночной спринт ТАКТ 1: Расширенный конфигуратор стратегии
+    entry_mode: Optional[str] = None
+    sl_mode: str = "fixed_pct"
+    wall_sl_offset_ticks: int = Field(3, ge=1, le=30)
+    tp1_rr_ratio: float = Field(1.5, ge=0.5, le=10.0)
+    tp2_mode: str = "trend_rr"
+    tp2_rr_ratio: float = Field(2.8, ge=1.0, le=15.0)
+    min_wall_lifetime_sec: int = Field(30, ge=10, le=60)
 
 
 class BacktestRequest(BaseModel):
@@ -55,12 +72,15 @@ class BacktestRequest(BaseModel):
     timeframe: str = "15m"
     days: int = Field(7, ge=1, le=30)
     strategy_type: str = "ema_trend"
+    strategy: Optional[str] = None
     params: BacktestParams = BacktestParams()
     initial_capital: float = Field(10000.0, gt=0)
     # Legacy / flat override fields
     leverage: Optional[float] = None
     stop_loss_pct: Optional[float] = None
     take_profit_pct: Optional[float] = None
+    sl_pct: Optional[float] = None
+    tp_pct: Optional[float] = None
     use_atr_filter: Optional[bool] = None
     use_atr_sl: Optional[bool] = None
     atr_multiplier: Optional[float] = None
@@ -71,6 +91,13 @@ class BacktestRequest(BaseModel):
     taker_fee_pct: Optional[float] = None
     slippage_ticks: Optional[int] = None
     use_multi_tp: Optional[bool] = None
+    entry_mode: Optional[str] = None
+    sl_mode: Optional[str] = None
+    wall_sl_offset_ticks: Optional[int] = None
+    tp1_rr_ratio: Optional[float] = None
+    tp2_mode: Optional[str] = None
+    tp2_rr_ratio: Optional[float] = None
+    min_wall_lifetime_sec: Optional[int] = None
 
     model_config = {"extra": "ignore"}
 
@@ -276,16 +303,21 @@ def build_response(raw: Dict[str, Any], initial_capital: float, meta: Dict[str, 
         "confluence_matrix": raw.get("confluence_matrix", []),
         "monte_carlo": raw.get("monte_carlo"),
         "execution_config": raw.get("execution_config"),
+        "data_feed_context": raw.get("data_feed_context"),
+        "active_position_setup": raw.get("active_position_setup"),
         "meta": meta,
-        # legacy keys (test_e2e.py / BacktestModal)
+        # legacy keys (test_e2e.py / BacktestModal / AICopilotSidebar)
         "net_pnl": raw.get("net_pnl", 0.0),
+        "total_pnl_usd": raw.get("net_pnl", 0.0),
         "gross_pnl": raw.get("gross_pnl", 0.0),
         "total_fees_usd": raw.get("total_fees_usd", 0.0),
         "total_slippage_usd": raw.get("total_slippage_usd", 0.0),
         "recovery_factor": raw.get("recovery_factor", 0.0),
         "roi_pct": raw.get("roi_pct", 0.0),
         "win_rate_pct": raw.get("win_rate_pct", 0.0),
+        "win_rate": raw.get("win_rate_pct", 0.0),
         "total_trades": total,
+        "trades_count": total,
         "profit_factor": pf,
         "max_drawdown_pct": raw.get("max_drawdown_pct", 0.0),
     })
@@ -296,13 +328,15 @@ async def run_backtest(req: BacktestRequest):
     symbol = req.symbol.strip().upper()
     if req.timeframe not in TF_MINUTES:
         raise HTTPException(status_code=422, detail=f"timeframe must be one of {list(TF_MINUTES)}")
-    if req.strategy_type not in STRATEGIES:
+
+    eff_strategy = req.strategy or req.strategy_type
+    if eff_strategy not in STRATEGIES:
         raise HTTPException(status_code=422, detail=f"strategy_type must be one of {sorted(STRATEGIES)}")
 
     p = req.params
     leverage = req.leverage if req.leverage is not None else p.leverage
-    sl = req.stop_loss_pct if req.stop_loss_pct is not None else p.stop_loss_pct
-    tp = req.take_profit_pct if req.take_profit_pct is not None else p.take_profit_pct
+    sl = req.stop_loss_pct if req.stop_loss_pct is not None else (req.sl_pct if req.sl_pct is not None else p.stop_loss_pct)
+    tp = req.take_profit_pct if req.take_profit_pct is not None else (req.tp_pct if req.tp_pct is not None else p.take_profit_pct)
     use_atr_filter = req.use_atr_filter if req.use_atr_filter is not None else p.use_atr_filter
     use_atr_sl = req.use_atr_sl if req.use_atr_sl is not None else p.use_atr_sl
     atr_multiplier = req.atr_multiplier if req.atr_multiplier is not None else p.atr_multiplier
@@ -314,6 +348,14 @@ async def run_backtest(req: BacktestRequest):
     taker_fee_pct = req.taker_fee_pct if req.taker_fee_pct is not None else p.taker_fee_pct
     slippage_ticks = req.slippage_ticks if req.slippage_ticks is not None else p.slippage_ticks
     use_multi_tp = req.use_multi_tp if req.use_multi_tp is not None else p.use_multi_tp
+
+    entry_mode = req.entry_mode if req.entry_mode is not None else p.entry_mode
+    sl_mode = req.sl_mode if req.sl_mode is not None else p.sl_mode
+    wall_sl_offset_ticks = req.wall_sl_offset_ticks if req.wall_sl_offset_ticks is not None else p.wall_sl_offset_ticks
+    tp1_rr_ratio = req.tp1_rr_ratio if req.tp1_rr_ratio is not None else p.tp1_rr_ratio
+    tp2_mode = req.tp2_mode if req.tp2_mode is not None else p.tp2_mode
+    tp2_rr_ratio = req.tp2_rr_ratio if req.tp2_rr_ratio is not None else p.tp2_rr_ratio
+    min_wall_lifetime_sec = req.min_wall_lifetime_sec if req.min_wall_lifetime_sec is not None else p.min_wall_lifetime_sec
 
     try:
         df = await fetch_history(symbol, req.timeframe, req.days)
@@ -331,7 +373,7 @@ async def run_backtest(req: BacktestRequest):
     raw = await asyncio.to_thread(
         engine.run_backtest,
         df,
-        req.strategy_type,
+        eff_strategy,
         tp,
         sl,
         False,
@@ -355,6 +397,14 @@ async def run_backtest(req: BacktestRequest):
         p.atr_period,
         14,
         True,
+        False,
+        entry_mode,
+        sl_mode,
+        wall_sl_offset_ticks,
+        tp1_rr_ratio,
+        tp2_mode,
+        tp2_rr_ratio,
+        min_wall_lifetime_sec,
     )
     if "error" in raw:
         raise HTTPException(status_code=400, detail=raw["error"])
