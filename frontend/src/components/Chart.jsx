@@ -83,28 +83,49 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
   const chartRef = useRef(null);
   const wsRef = useRef(null);
   
+  const [chartReady, setChartReady] = useState(0);
   const [activeTool, setActiveTool] = useState(null);
   const [magnetEnabled, setMagnetEnabled] = useState(false);
-  const [indicators, setIndicators] = useState({ ema: true, vol: true, rsi: false, macd: false });
+  const [indicators, setIndicators] = useState({ ema: true, vol: true, rsi: true, macd: true });
   const [statusMsg, setStatusMsg] = useState("");
+  const [errorDetails, setErrorDetails] = useState(null);
 
   // Initialize KLineChart instance
   useEffect(() => {
     if (!chartContainerRef.current) return;
     
+    // Clean up any existing instance in container
+    try {
+      dispose(chartContainerRef.current);
+    } catch (_) {}
+
     const chart = init(chartContainerRef.current);
     chartRef.current = chart;
+    window.__chart = chart;
+
     
     // Apply custom dark theme
     chart.setStyles(THEME_STYLES);
 
-    // Default indicators
+    // Set timezone to Europe/Kyiv
+    try {
+      chart.setTimezone('Europe/Kyiv');
+    } catch (e) {
+      console.warn("Timezone set warning:", e);
+    }
+
+    // Default indicators: EMA on candles, Volume, RSI, MACD sub-panes
     try {
       chart.createIndicator('EMA', true, { id: 'candle_pane' });
       chart.createIndicator('VOL', false);
+      chart.createIndicator('RSI', false);
+      chart.createIndicator('MACD', false);
     } catch (e) {
       console.warn("Indicator init warning:", e);
     }
+
+    // Trigger data loading now that chart is ready
+    setChartReady(prev => prev + 1);
 
     const handleResize = () => {
       if (chartRef.current) chartRef.current.resize();
@@ -113,39 +134,62 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
 
     return () => {
       window.removeEventListener('resize', handleResize);
-      dispose(chartContainerRef.current);
+      try {
+        dispose(chartContainerRef.current);
+      } catch (_) {}
       chartRef.current = null;
     };
   }, []);
 
   // Fetch history candles & subscribe live WebSocket
   useEffect(() => {
-    if (!chartRef.current) return;
+    if (!chartRef.current || chartReady === 0) return;
     const chart = chartRef.current;
+    let isCancelled = false;
 
-    setStatusMsg("Загрузка...");
+    setStatusMsg("Загрузка свечей...");
+    setErrorDetails(null);
 
-    // 1. Load history from REST API
-    fetch(`${API_BASE}/klines?symbol=${symbol}&timeframe=${timeframe}&limit=250`)
-      .then(res => {
-        if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-        return res.json();
-      })
-      .then(data => {
+    const fetchKlines = async () => {
+      try {
+        console.log(`[Chart] Запрос klines: symbol=${symbol}, tf=${timeframe}`);
+        let res;
+        try {
+          res = await fetch(`${API_BASE}/klines?symbol=${symbol}&timeframe=${timeframe}&limit=250`);
+        } catch (proxyErr) {
+          console.warn("[Chart] Ошибка прокси, резервный запрос напрямую к 127.0.0.1:8000:", proxyErr);
+          res = await fetch(`http://127.0.0.1:8000/api/klines?symbol=${symbol}&timeframe=${timeframe}&limit=250`);
+        }
+
+        if (!res.ok) {
+          const errBody = await res.text();
+          throw new Error(`Сервер вернул статус ${res.status}: ${errBody || res.statusText}`);
+        }
+
+        const data = await res.json();
+        console.log(`[Chart] Успешно загружено ${data.length} свечей для ${symbol}`);
+
+        if (isCancelled || !chartRef.current) return;
+
         if (Array.isArray(data) && data.length > 0) {
           chart.applyNewData(data);
           setStatusMsg("");
           loadDrawings();
-          // Adjust view
           chart.resize();
         } else {
           setStatusMsg("Нет данных");
+          setErrorDetails("Binance вернул пустой массив свечей");
         }
-      })
-      .catch(err => {
-        console.error("Error fetching klines:", err);
-        setStatusMsg("Ошибка загрузки");
-      });
+      } catch (err) {
+        if (!isCancelled) {
+          console.error("[Chart] Ошибка загрузки klines:", err);
+          setStatusMsg("Ошибка загрузки");
+          setErrorDetails(err.message || "Не удалось связаться с сервером данных");
+        }
+      }
+    };
+
+    fetchKlines();
 
     // 2. Setup WebSocket live update
     if (wsRef.current) {
@@ -189,12 +233,14 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
     }
 
     return () => {
+      isCancelled = true;
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
       }
     };
-  }, [symbol, timeframe]);
+  }, [chartReady, symbol, timeframe]);
+
 
   // Load drawings from backend
   const loadDrawings = useCallback(() => {
@@ -281,11 +327,25 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
         chart.createIndicator('MACD', false);
       }
       setIndicators(prev => ({ ...prev, macd: !prev.macd }));
+    } else if (name === 'ema') {
+      if (indicators.ema) {
+        chart.removeIndicator('candle_pane', 'EMA');
+      } else {
+        chart.createIndicator('EMA', true, { id: 'candle_pane' });
+      }
+      setIndicators(prev => ({ ...prev, ema: !prev.ema }));
+    } else if (name === 'vol') {
+      if (indicators.vol) {
+        chart.removeIndicator({ name: 'VOL' });
+      } else {
+        chart.createIndicator('VOL', false);
+      }
+      setIndicators(prev => ({ ...prev, vol: !prev.vol }));
     }
   };
 
   return (
-    <div className="flex flex-col h-full w-full bg-[#0e1118] text-[#d1d4dc] select-none border border-[#1b212f] rounded-lg overflow-hidden shadow-2xl">
+    <div className="flex flex-col h-full w-full bg-[#0e1118] text-[#d1d4dc] select-none border border-[#1b212f] rounded-lg overflow-hidden shadow-2xl relative">
       {/* Top Toolbar */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-[#121620] border-b border-[#1b212f] text-xs">
         {/* Drawing Tools */}
@@ -360,11 +420,25 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
         </div>
 
         {/* Indicators and Status */}
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-1.5">
           {statusMsg && (
-            <span className="text-[#f59e0b] text-[11px] font-mono animate-pulse mr-2">{statusMsg}</span>
+            <span className="text-[#f59e0b] text-[11px] font-mono animate-pulse mr-1">{statusMsg}</span>
           )}
           
+          <button 
+            onClick={() => toggleIndicator('ema')}
+            className={`px-2 py-0.5 rounded text-[11px] font-medium transition ${indicators.ema ? 'bg-[#2563eb] text-white' : 'bg-[#1a2130] text-[#848e9c] hover:text-white'}`}
+          >
+            EMA(20)
+          </button>
+
+          <button 
+            onClick={() => toggleIndicator('vol')}
+            className={`px-2 py-0.5 rounded text-[11px] font-medium transition ${indicators.vol ? 'bg-[#2563eb] text-white' : 'bg-[#1a2130] text-[#848e9c] hover:text-white'}`}
+          >
+            VOL
+          </button>
+
           <button 
             onClick={() => toggleIndicator('rsi')}
             className={`px-2 py-0.5 rounded text-[11px] font-medium transition ${indicators.rsi ? 'bg-[#2563eb] text-white' : 'bg-[#1a2130] text-[#848e9c] hover:text-white'}`}
@@ -381,12 +455,29 @@ export default function Chart({ symbol = "BTCUSDT", timeframe = "15m", userId = 
         </div>
       </div>
 
+      {/* Error Alert Overlay */}
+      {errorDetails && (
+        <div className="absolute top-10 left-3 right-3 z-30 p-2.5 rounded-lg bg-rose-950/90 border border-rose-800 text-rose-200 text-xs flex items-center justify-between shadow-2xl backdrop-blur-sm">
+          <div className="flex items-center space-x-2">
+            <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+            <span><strong>Ошибка:</strong> {errorDetails}</span>
+          </div>
+          <button
+            onClick={() => setChartReady(prev => prev + 1)}
+            className="px-2.5 py-1 bg-rose-700 hover:bg-rose-600 rounded text-white font-bold text-[11px] transition shrink-0 ml-3"
+          >
+            Повторить
+          </button>
+        </div>
+      )}
+
       {/* Main Chart Canvas Container */}
       <div 
         ref={chartContainerRef} 
         className="flex-1 w-full h-full relative" 
-        style={{ minHeight: '450px', backgroundColor: '#0e1118' }} 
+        style={{ minHeight: '480px', backgroundColor: '#0e1118' }} 
       />
     </div>
   );
 }
+
