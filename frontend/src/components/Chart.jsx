@@ -351,49 +351,68 @@ try {
       if (!Number.isFinite(y0) || !Number.isFinite(y1)) return [];
 
       const isLong = ext.direction === 'LONG' || ext.type === 'BUY';
-      const pnlUsd = Number(ext.pnl_usd ?? 0);
-      const pnlPct = Number(ext.pnl_pct ?? 0);
-      const isProfit = pnlUsd >= 0;
+      const pnlPct = Number(ext.pnl_pct ?? ext.pnl_percent ?? 0);
+      const isProfit = pnlPct >= 0;
       const pnlColor = isProfit ? '#10b981' : '#ef4444';
-      const pnlBg = isProfit ? 'rgba(16, 185, 129, 0.22)' : 'rgba(239, 68, 68, 0.22)';
-      const entryColor = isLong ? '#26a69a' : '#ef5350';
+      const pnlBg = isProfit ? 'rgba(16, 185, 129, 0.20)' : 'rgba(239, 68, 68, 0.20)';
+      const pnlBorder = isProfit ? 'rgba(16, 185, 129, 0.80)' : 'rgba(239, 68, 68, 0.80)';
+      const entryColor = isLong ? '#10b981' : '#ef4444';
 
       const figures = [];
 
-      // 1. Entry triangle & label
-      const triH = 9;
-      const triW = 6;
-      const entryTri = isLong
-        ? [{ x: x0, y: y0 + 3 }, { x: x0 - triW, y: y0 + 3 + triH }, { x: x0 + triW, y: y0 + 3 + triH }]
-        : [{ x: x0, y: y0 - 3 }, { x: x0 - triW, y: y0 - 3 - triH }, { x: x0 + triW, y: y0 - 3 - triH }];
+      // 1. Minimalist sharp arrow pointing to the candle entry
+      const arrowW = 4.5;
+      const arrowH = 9;
+      const entryArrow = isLong
+        ? [
+            { x: x0, y: y0 + 3 },
+            { x: x0 - arrowW, y: y0 + 3 + arrowH },
+            { x: x0, y: y0 + 3 + arrowH - 2.5 },
+            { x: x0 + arrowW, y: y0 + 3 + arrowH }
+          ]
+        : [
+            { x: x0, y: y0 - 3 },
+            { x: x0 - arrowW, y: y0 - 3 - arrowH },
+            { x: x0, y: y0 - 3 - arrowH + 2.5 },
+            { x: x0 + arrowW, y: y0 - 3 - arrowH }
+          ];
 
       figures.push({
         type: 'polygon',
-        attrs: { coordinates: entryTri },
-        styles: { style: 'stroke_fill', color: entryColor, borderColor: '#ffffff', borderSize: 0.5 },
+        attrs: { coordinates: entryArrow },
+        styles: { style: 'stroke_fill', color: entryColor, borderColor: entryColor, borderSize: 1 },
         ignoreEvent: true
       });
 
-      // 2. Holding connection line (dashed)
+      // 2. Subtle dashed connection line between Entry and Exit
       figures.push({
         type: 'line',
         attrs: { coordinates: [{ x: x0, y: y0 }, { x: x1, y: y1 }] },
-        styles: { style: 'dashed', dashedValue: [4, 3], color: pnlColor, size: 1.5 },
+        styles: {
+          style: 'dashed',
+          dashedValue: [3, 3],
+          color: isProfit ? 'rgba(16, 185, 129, 0.65)' : 'rgba(239, 68, 68, 0.65)',
+          size: 1.2
+        },
         ignoreEvent: true
       });
 
-      // 3. Exit circle
+      // 3. Minimalist Exit dot at exit price
       figures.push({
         type: 'circle',
-        attrs: { x: x1, y: y1, r: 4 },
-        styles: { style: 'stroke_fill', color: pnlBg, borderColor: pnlColor, borderSize: 1.5 },
+        attrs: { x: x1, y: y1, r: 3 },
+        styles: {
+          style: 'stroke_fill',
+          color: pnlColor,
+          borderColor: '#0b0e11',
+          borderSize: 1
+        },
         ignoreEvent: true
       });
 
-      // 4. Exit PnL Badge
-      const reasonLabel = ext.reason || (isProfit ? 'TP' : 'SL');
-      const sign = pnlUsd >= 0 ? '+' : '';
-      const pnlText = ` ${sign}$${pnlUsd.toFixed(1)} (${sign}${pnlPct.toFixed(1)}%) · ${reasonLabel} `;
+      // 4. Minimalist Pill-shaped PnL Badge (80% opacity, tabular font)
+      const sign = pnlPct >= 0 ? '+' : '';
+      const pnlText = ` ${sign}${pnlPct.toFixed(1)}% `;
 
       figures.push({
         type: 'text',
@@ -405,13 +424,15 @@ try {
           baseline: 'middle'
         },
         styles: {
-          color: '#ffffff',
-          backgroundColor: isProfit ? '#065f46' : '#991b1b',
-          borderColor: pnlColor,
-          borderSize: 0.8,
-          size: 9.5,
+          color: isProfit ? '#34d399' : '#f87171',
+          backgroundColor: pnlBg,
+          borderColor: pnlBorder,
+          borderSize: 0.9,
+          size: 9,
+          family: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+          weight: 'bold',
           padding: 2.5,
-          borderRadius: 3
+          borderRadius: 6
         },
         ignoreEvent: false
       });
@@ -984,7 +1005,7 @@ try {
       const rewardHeight = Math.max(2, Math.abs(yTp - yEntry));
 
       return [
-        // 1. Shaded Risk Zone (Red)
+        // 1. Shaded Risk Zone (Red) - 15% transparent with crisp 1px neon border
         {
           type: 'rect',
           attrs: {
@@ -994,12 +1015,14 @@ try {
             height: riskHeight
           },
           styles: {
-            style: 'fill',
-            color: 'rgba(239, 68, 68, 0.18)'
+            style: 'stroke_fill',
+            color: 'rgba(239, 68, 68, 0.12)',
+            borderColor: '#ef4444',
+            borderSize: 1
           },
           ignoreEvent: true
         },
-        // 2. Shaded Reward Zone (Green)
+        // 2. Shaded Reward Zone (Green) - 15% transparent with crisp 1px neon border
         {
           type: 'rect',
           attrs: {
@@ -1009,8 +1032,10 @@ try {
             height: rewardHeight
           },
           styles: {
-            style: 'fill',
-            color: 'rgba(16, 185, 129, 0.18)'
+            style: 'stroke_fill',
+            color: 'rgba(16, 185, 129, 0.12)',
+            borderColor: '#10b981',
+            borderSize: 1
           },
           ignoreEvent: true
         },
@@ -1025,9 +1050,9 @@ try {
           },
           styles: {
             color: '#3b82f6',
-            size: 2,
+            size: 1.5,
             style: 'dashed',
-            dashedValue: [5, 4]
+            dashedValue: [4, 4]
           },
           ignoreEvent: true
         },
@@ -1042,7 +1067,7 @@ try {
           },
           styles: {
             color: '#ef4444',
-            size: 2,
+            size: 1.5,
             style: 'solid'
           },
           ignoreEvent: true
@@ -1058,7 +1083,7 @@ try {
           },
           styles: {
             color: '#10b981',
-            size: 2,
+            size: 1.5,
             style: 'solid'
           },
           ignoreEvent: true
@@ -1066,23 +1091,23 @@ try {
         // 6. Handle circles for dragging
         {
           type: 'circle',
-          attrs: { x: boxRight, y: yEntry, r: 4.5 },
+          attrs: { x: boxRight, y: yEntry, r: 4 },
           styles: { style: 'fill', color: '#3b82f6' },
           ignoreEvent: false
         },
         {
           type: 'circle',
-          attrs: { x: boxRight, y: yTp, r: 4.5 },
+          attrs: { x: boxRight, y: yTp, r: 4 },
           styles: { style: 'fill', color: '#10b981' },
           ignoreEvent: false
         },
         {
           type: 'circle',
-          attrs: { x: boxRight, y: ySl, r: 4.5 },
+          attrs: { x: boxRight, y: ySl, r: 4 },
           styles: { style: 'fill', color: '#ef4444' },
           ignoreEvent: false
         },
-        // 7. Entry + R:R Badge
+        // 7. Entry + R:R Badge (Translucent pill badge)
         {
           type: 'text',
           attrs: {
@@ -1093,15 +1118,17 @@ try {
             baseline: 'middle'
           },
           styles: {
-            color: '#ffffff',
-            backgroundColor: '#2563eb',
-            size: 10,
-            padding: 3.5,
-            borderRadius: 2
+            color: '#93c5fd',
+            backgroundColor: 'rgba(37, 99, 235, 0.25)',
+            borderColor: '#3b82f6',
+            borderSize: 1,
+            size: 9.5,
+            padding: 3,
+            borderRadius: 4
           },
           ignoreEvent: true
         },
-        // 8. SL Badge
+        // 8. SL Badge (Translucent pill badge)
         {
           type: 'text',
           attrs: {
@@ -1112,15 +1139,17 @@ try {
             baseline: 'middle'
           },
           styles: {
-            color: '#ffffff',
-            backgroundColor: '#dc2626',
-            size: 9.5,
-            padding: 3,
-            borderRadius: 2
+            color: '#fca5a5',
+            backgroundColor: 'rgba(220, 38, 38, 0.25)',
+            borderColor: '#ef4444',
+            borderSize: 1,
+            size: 9,
+            padding: 2.5,
+            borderRadius: 4
           },
           ignoreEvent: true
         },
-        // 9. TP Badge
+        // 9. TP Badge (Translucent pill badge)
         {
           type: 'text',
           attrs: {
@@ -1131,11 +1160,13 @@ try {
             baseline: 'middle'
           },
           styles: {
-            color: '#ffffff',
-            backgroundColor: '#059669',
-            size: 9.5,
-            padding: 3,
-            borderRadius: 2
+            color: '#6ee7b7',
+            backgroundColor: 'rgba(5, 150, 105, 0.25)',
+            borderColor: '#10b981',
+            borderSize: 1,
+            size: 9,
+            padding: 2.5,
+            borderRadius: 4
           },
           ignoreEvent: true
         }

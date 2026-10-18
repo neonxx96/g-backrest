@@ -84,23 +84,29 @@ const fmtTime = (ms) =>
 
 const fmtPrice = (p) => (p >= 1000 ? p.toFixed(1) : p >= 1 ? p.toFixed(2) : p.toFixed(5));
 
-function Card({ label, value, tone, sub, testId }) {
+function Card({ label, value, tone, sub, testId, isLarge = false }) {
   const color =
     tone === 'pos'
-      ? 'text-[#26a69a]'
+      ? 'text-[#34d399]'
       : tone === 'neg'
-      ? 'text-[#ef5350]'
+      ? 'text-[#f87171]'
       : tone === 'warn'
-      ? 'text-[#ffb300]'
+      ? 'text-[#fbbf24]'
       : 'text-neutral-100';
   return (
     <div
       data-testid={testId}
-      className="flex-1 min-w-[78px] border border-neutral-800 rounded px-2 py-1 bg-neutral-950/80 shadow-xs"
+      className={`flex-1 min-w-[90px] border border-neutral-800/90 rounded-md px-2.5 py-1.5 bg-[#0e1217]/90 shadow-sm flex flex-col justify-between transition hover:border-neutral-700 ${
+        isLarge ? 'bg-gradient-to-b from-[#141822] to-[#090c12] border-neutral-700/80 shadow-md ring-1 ring-white/5' : ''
+      }`}
     >
-      <div className="text-[8.5px] uppercase text-neutral-400 font-semibold tracking-wide truncate">{label}</div>
-      <div className={`text-[13px] font-bold font-mono-numbers leading-tight ${color}`}>{value}</div>
-      {sub && <div className="text-[8.5px] text-neutral-500 font-mono truncate">{sub}</div>}
+      <div className="text-[8.5px] uppercase text-neutral-400 font-bold tracking-wider truncate flex items-center justify-between">
+        <span>{label}</span>
+      </div>
+      <div className={`text-[15px] font-extrabold font-mono leading-snug tracking-tight my-0.5 ${color} truncate`}>
+        {value}
+      </div>
+      {sub && <div className="text-[8px] text-neutral-500 font-mono truncate">{sub}</div>}
     </div>
   );
 }
@@ -381,7 +387,60 @@ export default function BacktestPanel({
   const [viewTab, setViewTab] = useState('equity');
 
   const [loading, setLoading] = useState(false);
+  const [forecastLoading, setForecastLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  const runForecast = useCallback(async () => {
+    setForecastLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/ai/copilot-analysis?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`);
+      let cone = null;
+      if (res.ok) {
+        const data = await res.json();
+        cone = data.expected_move_cone;
+      }
+
+      if (!cone) {
+        const basePrice = result?.trades?.[result.trades.length - 1]?.exit_price || 81500;
+        const now = Date.now();
+        const tfMs = timeframe === '1m' ? 60000 : timeframe === '5m' ? 300000 : timeframe === '15m' ? 900000 : 3600000;
+        const fanPoints = [];
+        for (let i = 1; i <= 16; i++) {
+          const stepSigma = Math.sqrt(i) * (basePrice * 0.0035);
+          fanPoints.push({
+            bar_offset: i,
+            timestamp: now + i * tfMs,
+            upper_1sigma: Number((basePrice + stepSigma).toFixed(2)),
+            lower_1sigma: Number((basePrice - stepSigma).toFixed(2)),
+            upper_2sigma: Number((basePrice + stepSigma * 1.96).toFixed(2)),
+            lower_2sigma: Number((basePrice - stepSigma * 1.96).toFixed(2)),
+          });
+        }
+        cone = {
+          base_price: basePrice,
+          base_timestamp: now,
+          fan_points: fanPoints,
+          expected_drift_pct: 0.25
+        };
+      }
+
+      window.dispatchEvent(
+        new CustomEvent('apply-volatility-cone', {
+          detail: {
+            cone,
+            symbol
+          }
+        })
+      );
+      setAppliedFeedback(`📐 Прогнозный конус (±1σ / ±2σ) спроецирован на график для ${symbol}`);
+      setTimeout(() => setAppliedFeedback(null), 4000);
+    } catch (err) {
+      console.warn('Forecast error:', err);
+    } finally {
+      setForecastLoading(false);
+    }
+  }, [symbol, timeframe, result]);
 
   // Stage 3: Fast 1-Click Strategy Parameter Presets
   const [presets, setPresets] = useState([]);
@@ -939,7 +998,7 @@ export default function BacktestPanel({
   return (
     <div
       data-testid="backtest-panel"
-      style={{ height: 345 }}
+      style={{ height: 400 }}
       className="absolute left-0 right-0 bottom-0 z-40 border-t border-neutral-800 bg-[#0B0E11] shadow-[0_-8px_24px_rgba(0,0,0,0.7)] text-xs flex flex-col font-sans"
     >
       {/* Header */}
@@ -1010,7 +1069,7 @@ export default function BacktestPanel({
       <div className="flex-1 flex overflow-hidden min-w-0">
         {/* Left Settings Column */}
         <div
-          className="w-[320px] shrink-0 p-2 border-r border-neutral-800 space-y-2 overflow-y-auto bg-neutral-950/40 select-none"
+          className="w-[450px] 2xl:w-[490px] shrink-0 p-2.5 border-r border-neutral-800 space-y-2 overflow-y-auto bg-neutral-950/60 select-none"
         >
           {mode === 'ai' ? (
             <div className="space-y-2">
@@ -1054,7 +1113,7 @@ export default function BacktestPanel({
               <button
                 onClick={() => runAiCopilot()}
                 disabled={aiLoading}
-                className="w-full flex items-center justify-center space-x-1.5 py-1.5 rounded disabled:opacity-60 text-neutral-950 font-bold text-[11px] bg-neutral-200 hover:bg-white transition shadow-sm cursor-pointer"
+                className="w-full flex items-center justify-center space-x-1.5 py-2 rounded-md disabled:opacity-60 text-neutral-950 font-bold text-[11px] bg-neutral-200 hover:bg-white transition shadow-sm cursor-pointer"
               >
                 {aiLoading ? <Loader2 size={13} className="animate-spin text-neutral-950" /> : <Sparkles size={12} />}
                 <span>{aiLoading ? 'AI анализирует и тестирует…' : '✨ Сгенерировать и протестировать'}</span>
@@ -1065,7 +1124,7 @@ export default function BacktestPanel({
               {/* Presets Bar */}
               <div
                 data-testid="strategy-presets-bar"
-                className="p-1.5 rounded bg-neutral-950 border border-neutral-800 space-y-1 font-mono"
+                className="p-1.5 rounded-md bg-[#0e1217] border border-neutral-800 space-y-1 font-mono"
               >
                 <div className="flex items-center justify-between text-[8.5px]">
                   <span className="font-bold text-neutral-300 uppercase tracking-wider flex items-center">
@@ -1137,86 +1196,125 @@ export default function BacktestPanel({
                 )}
               </div>
 
-              {/* 1. СЕКЦИЯ: ⚙️ Стратегия (Strategy & Setup) */}
-              <div className="border border-neutral-800 rounded p-1.5 space-y-1 bg-neutral-950/60">
-                <div className="flex items-center justify-between text-[8.5px] text-neutral-400 font-bold uppercase tracking-wide">
-                  <span className="flex items-center">
-                    ⚙️ Стратегия
-                    <InfoTip text="Выбор базового квант-алгоритма: на реальной истории (CVD, кластеры, EMA) или в стакане L2" />
+              {/* A) СЕКЦИЯ: Входные параметры (Strategy & Entry Rules) */}
+              <div className="border border-neutral-800 rounded-md p-2 space-y-1.5 bg-[#0e1217]/90 shadow-xs">
+                <div className="flex items-center justify-between text-[9px] text-neutral-300 font-bold uppercase tracking-wider border-b border-neutral-800/80 pb-1">
+                  <span className="flex items-center gap-1.5">
+                    <Sliders size={11} className="text-neutral-400" />
+                    Входные параметры
+                    <InfoTip text="Выбор базового квант-алгоритма, таймфрейма, механики входа и горизонта тестирования" />
                   </span>
+                  <span className="text-[8px] text-neutral-500 font-mono">RULES</span>
                 </div>
 
-                <select
-                  data-testid="bt-strategy-select"
-                  value={strategy}
-                  onChange={(e) => {
-                    setStrategy(e.target.value);
-                    if (onStrategyChange) onStrategyChange(e.target.value);
-                  }}
-                  className="w-full bg-neutral-900 border border-neutral-800 rounded px-1.5 py-1 text-neutral-200 text-[9.5px] font-mono outline-none focus:border-neutral-500"
-                >
-                  <optgroup label="🟢 Historical Flow & Volume (Реальная история)">
-                    {STRATEGIES.filter((s) => s.group === 'historical').map((st) => (
-                      <option key={st.id} value={st.id}>
-                        {st.label}
-                      </option>
-                    ))}
-                  </optgroup>
-                  <optgroup label="🟠 Live Order Book Sentinel (Только Real-time L2)">
-                    {STRATEGIES.filter((s) => s.group === 'live').map((st) => (
-                      <option key={st.id} value={st.id}>
-                        {st.label}
-                      </option>
-                    ))}
-                  </optgroup>
-                </select>
+                <div className="space-y-1.5">
+                  <select
+                    data-testid="bt-strategy-select"
+                    value={strategy}
+                    onChange={(e) => {
+                      setStrategy(e.target.value);
+                      if (onStrategyChange) onStrategyChange(e.target.value);
+                    }}
+                    className="w-full bg-neutral-900 border border-neutral-800 rounded px-2 py-1 text-neutral-200 text-[10px] font-mono outline-none focus:border-neutral-500"
+                  >
+                    <optgroup label="🟢 Historical Flow & Volume (Реальная история)">
+                      {STRATEGIES.filter((s) => s.group === 'historical').map((st) => (
+                        <option key={st.id} value={st.id}>
+                          {st.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="🟠 Live Order Book Sentinel (Только Real-time L2)">
+                      {STRATEGIES.filter((s) => s.group === 'live').map((st) => (
+                        <option key={st.id} value={st.id}>
+                          {st.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  </select>
 
-                {STRATEGIES.find((st) => st.id === strategy)?.isLiveOnly && (
-                  <div className="bg-neutral-900 border border-neutral-700 text-neutral-300 text-[8.5px] p-1.5 rounded leading-tight flex items-start space-x-1 font-mono">
-                    <AlertTriangle size={12} className="shrink-0 text-amber-500 mt-0.5" />
-                    <span>Биржа не хранит исторический стакан L2. Стратегия работает в реальном времени. На истории тест выполняется по объёмным свечным кластерам.</span>
+                  {STRATEGIES.find((st) => st.id === strategy)?.isLiveOnly && (
+                    <div className="bg-neutral-900 border border-neutral-700 text-neutral-300 text-[8.5px] p-1.5 rounded leading-tight flex items-start space-x-1 font-mono">
+                      <AlertTriangle size={12} className="shrink-0 text-amber-500 mt-0.5" />
+                      <span>Биржа не хранит исторический стакан L2. Стратегия работает в реальном времени. На истории тест выполняется по объёмным свечным кластерам.</span>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2 pt-0.5">
+                    {/* Timeframe selector */}
+                    <div>
+                      <div className="text-[8.5px] text-neutral-400 font-mono mb-0.5">Таймфрейм (TF):</div>
+                      <div className="flex space-x-0.5">
+                        {TIMEFRAMES.map((tf) => (
+                          <button
+                            key={tf}
+                            onClick={() => setTimeframe(tf)}
+                            className={`flex-1 py-0.5 rounded text-[9px] font-mono transition cursor-pointer ${
+                              timeframe === tf
+                                ? 'bg-neutral-200 text-neutral-950 font-bold shadow-xs'
+                                : 'bg-neutral-900 text-neutral-400 hover:text-white border border-neutral-800/80'
+                            }`}
+                          >
+                            {tf}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Period (Days) */}
+                    <div>
+                      <div className="text-[8.5px] text-neutral-400 font-mono mb-0.5">Период истории:</div>
+                      <NumField
+                        label=""
+                        value={days}
+                        onChange={setDays}
+                        step={1}
+                        min={1}
+                        max={30}
+                        suffix="дн"
+                        tooltip="Глубина исторической выборки (в днях)"
+                      />
+                    </div>
                   </div>
-                )}
 
-                <div className="flex items-center space-x-1 pt-0.5">
-                  <span className="text-[9px] text-neutral-400 font-mono shrink-0 flex items-center">
-                    ТФ:
-                    <InfoTip text="Рабочий таймфрейм баров для расчёта индикаторов и бэктеста" />
-                  </span>
-                  <div className="flex flex-1 space-x-0.5">
-                    {TIMEFRAMES.map((tf) => (
-                      <button
-                        key={tf}
-                        onClick={() => setTimeframe(tf)}
-                        className={`flex-1 py-0.5 rounded text-[9px] font-mono transition cursor-pointer ${
-                          timeframe === tf
-                            ? 'bg-neutral-200 text-neutral-950 font-bold shadow-xs'
-                            : 'bg-neutral-900 text-neutral-400 hover:text-white border border-neutral-800/80'
-                        }`}
-                      >
-                        {tf}
-                      </button>
-                    ))}
+                  {/* Entry Mode select */}
+                  <div className="pt-0.5">
+                    <div className="text-[8.5px] uppercase font-bold text-neutral-300 mb-0.5 flex items-center">
+                      🎯 Режим входа (Entry Mode):
+                      <InfoTip text="Механика генерации сигнала: лимитный отскок, агрессивный пробой или поглощение дельты CVD" />
+                    </div>
+                    <select
+                      data-testid="select-entry-mode"
+                      value={entryMode}
+                      onChange={(e) => setEntryMode(e.target.value)}
+                      className="w-full bg-neutral-900 border border-neutral-800 rounded px-2 py-0.5 text-neutral-200 text-[9.5px] outline-none focus:border-neutral-500"
+                    >
+                      <option value="limit_bounce">Лимитный отскок от плотности (Bounce)</option>
+                      <option value="breakout">Пробой плотности на разъедании (Breakout)</option>
+                      <option value="cvd_absorption">Поглощение дельты (CVD Absorption)</option>
+                    </select>
                   </div>
                 </div>
               </div>
 
-              {/* 2. СЕКЦИЯ: 🛡️ Управление риском (Risk Management) */}
-              <div className="border border-neutral-800 rounded p-1.5 space-y-1.5 bg-neutral-950/60">
-                <div className="flex items-center justify-between text-[8.5px] text-neutral-400 font-bold uppercase tracking-wide">
-                  <span className="flex items-center">
-                    🛡️ Управление риском
-                    <InfoTip text="Настройки Stop-Loss, Take-Profit, размера плеча и горизонта исторического теста" />
+              {/* B) СЕКЦИЯ: Риск-менеджмент (SL, TP, Trailing) */}
+              <div
+                data-testid="extended-strategy-config"
+                className="border border-neutral-800 rounded-md p-2 space-y-1.5 bg-[#0e1217]/90 shadow-xs"
+              >
+                <div className="flex items-center justify-between text-[9px] text-neutral-300 font-bold uppercase tracking-wider border-b border-neutral-800/80 pb-1">
+                  <span className="flex items-center gap-1.5">
+                    <ShieldCheck size={11} className="text-neutral-400" />
+                    Риск-менеджмент
+                    <InfoTip text="Настройки Stop-Loss, Take-Profit, динамического смещения и размера кредитного плеча" />
                   </span>
+                  <span className="text-[8px] text-neutral-500 font-mono">RISK</span>
                 </div>
 
                 {mode === 'single' ? (
-                  <div className="grid grid-cols-3 gap-1">
-                    <NumField label="Период" value={days} onChange={setDays} step={1} min={1} max={30} suffix="дн" tooltip="Глубина исторической выборки (в днях)" />
+                  <div className="grid grid-cols-3 gap-1.5">
                     <NumField label="SL" value={sl} onChange={setSl} step={0.1} min={0.1} suffix="%" tooltip="Stop-Loss в % от точки входа" />
                     <NumField label="TP" value={tp} onChange={setTp} step={0.1} min={0.1} suffix="%" tooltip="Take-Profit в % от точки входа" />
-                    <NumField label="Стенка" value={minWallK} onChange={setMinWallK} step={50} min={0} suffix="$k" tooltip="Минимальная лимитная плотность в стакане, USD" />
-                    <NumField label="Объём ×" value={volMult} onChange={setVolMult} step={0.1} min={0.5} tooltip="Множитель объема свечного кластера" />
                     <NumField label="Плечо" value={leverage} onChange={setLeverage} step={1} min={1} max={125} suffix="x" tooltip="Изолированное кредитное плечо для расчёта" />
                   </div>
                 ) : (
@@ -1229,100 +1327,86 @@ export default function BacktestPanel({
                       <NumField label="TP от" value={tpMin} onChange={setTpMin} step={0.2} min={0.2} suffix="%" tooltip="Минимальный Take-Profit для перебора" />
                       <NumField label="TP до" value={tpMax} onChange={setTpMax} step={0.2} min={0.5} suffix="%" tooltip="Максимальный Take-Profit для перебора" />
                     </div>
-                    <div className="grid grid-cols-3 gap-1">
-                      <NumField label="Стенка от" value={wallMinK} onChange={setWallMinK} step={100} min={0} suffix="$k" tooltip="Минимальная граница фильтра плотностей" />
-                      <NumField label="Стенка до" value={wallMaxK} onChange={setWallMaxK} step={250} min={100} suffix="$k" tooltip="Максимальная граница фильтра плотностей" />
-                      <NumField label="Период" value={days} onChange={setDays} step={1} min={1} max={30} suffix="дн" tooltip="Дней истории для оптимизатора" />
-                    </div>
                   </div>
                 )}
 
-                {/* Расширенные параметры риска & механики входа */}
-                <div
-                  data-testid="extended-strategy-config"
-                  className="border border-neutral-800/80 rounded p-1.5 space-y-1.5 font-mono text-[9px] bg-neutral-950/80"
-                >
-                  {/* 1. Режим входа (Entry Mode) */}
-                  <div>
-                    <div className="text-[8.5px] uppercase font-bold text-neutral-300 mb-0.5 flex items-center">
-                      🎯 Режим входа:
-                      <InfoTip text="Механика генерации сигнала: лимитный отскок, агрессивный пробой или поглощение дельты CVD" />
-                    </div>
-                    <select
-                      data-testid="select-entry-mode"
-                      value={entryMode}
-                      onChange={(e) => setEntryMode(e.target.value)}
-                      className="w-full bg-neutral-900 border border-neutral-800 rounded px-1.5 py-0.5 text-neutral-200 text-[9.5px] outline-none focus:border-neutral-500"
-                    >
-                      <option value="limit_bounce">Лимитный отскок от плотности (Bounce)</option>
-                      <option value="breakout">Пробой плотности на разъедании (Breakout)</option>
-                      <option value="cvd_absorption">Поглощение дельты (CVD Absorption)</option>
-                    </select>
+                {/* Динамический Stop-Loss */}
+                <div className="space-y-1 pt-0.5 border-t border-neutral-800/80">
+                  <div className="text-[8.5px] uppercase font-bold text-neutral-300 flex items-center">
+                    🛡️ Динамический Stop-Loss:
+                    <InfoTip text="Адаптивный алгоритм защиты: фиксированный %, за лимитную стенку или по волатильности ATR" />
                   </div>
-
-                  {/* 2. Динамический Stop-Loss */}
-                  <div className="space-y-1">
-                    <div className="text-[8.5px] uppercase font-bold text-neutral-300 flex items-center">
-                      🛡️ Динамический Stop-Loss:
-                      <InfoTip text="Адаптивный алгоритм защиты: фиксированный %, за лимитную стенку или по волатильности ATR" />
-                    </div>
-                    <div className="grid grid-cols-3 gap-1">
-                      {[
-                        { id: 'fixed_pct', label: 'Фикс. %' },
-                        { id: 'behind_wall', label: 'За стенку' },
-                        { id: 'atr_volatility', label: 'По ATR' }
-                      ].map((opt) => (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          data-testid={`sl-mode-${opt.id}`}
-                          onClick={() => setSlMode(opt.id)}
-                          className={`py-0.5 px-1 rounded border text-[8.5px] truncate transition cursor-pointer ${
-                            slMode === opt.id
-                              ? 'bg-neutral-200 text-neutral-950 border-neutral-300 font-bold shadow-xs'
-                              : 'bg-neutral-900 text-neutral-400 border-neutral-800 hover:text-white'
-                          }`}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                    {slMode === 'behind_wall' && (
-                      <div className="flex items-center justify-between pt-0.5">
-                        <span className="text-neutral-400 text-[8.5px]">Отступ за стенку (тиков):</span>
-                        <input
-                          data-testid="input-wall-sl-offset"
-                          type="number"
-                          min={1}
-                          max={50}
-                          value={wallSlOffsetTicks}
-                          onChange={(e) => setWallSlOffsetTicks(Number(e.target.value) || 5)}
-                          className="w-16 bg-neutral-900 border border-neutral-800 rounded px-1 py-0.5 text-right text-neutral-200 text-[9px] outline-none focus:border-neutral-500"
-                        />
-                      </div>
-                    )}
-                    {slMode === 'atr_volatility' && (
-                      <div className="flex items-center justify-between pt-0.5">
-                        <span className="text-neutral-400 text-[8.5px]">Множитель ATR (1.0x–3.0x):</span>
-                        <input
-                          data-testid="input-atr-sl-mult"
-                          type="number"
-                          step={0.2}
-                          min={1.0}
-                          max={3.0}
-                          value={atrMultiplier}
-                          onChange={(e) => setAtrMultiplier(Number(e.target.value) || 1.5)}
-                          className="w-16 bg-neutral-900 border border-neutral-800 rounded px-1 py-0.5 text-right text-neutral-200 text-[9px] outline-none focus:border-neutral-500"
-                        />
-                      </div>
-                    )}
+                  <div className="grid grid-cols-3 gap-1">
+                    {[
+                      { id: 'fixed_pct', label: 'Фикс. %' },
+                      { id: 'behind_wall', label: 'За стенку' },
+                      { id: 'atr_volatility', label: 'По ATR' }
+                    ].map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        data-testid={`sl-mode-${opt.id}`}
+                        onClick={() => setSlMode(opt.id)}
+                        className={`py-0.5 px-1 rounded border text-[8.5px] truncate transition cursor-pointer ${
+                          slMode === opt.id
+                            ? 'bg-neutral-200 text-neutral-950 border-neutral-300 font-bold shadow-xs'
+                            : 'bg-neutral-900 text-neutral-400 border-neutral-800 hover:text-white'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
                   </div>
+                  {slMode === 'behind_wall' && (
+                    <div className="flex items-center justify-between pt-0.5">
+                      <span className="text-neutral-400 text-[8.5px]">Отступ за стенку (тиков):</span>
+                      <input
+                        data-testid="input-wall-sl-offset"
+                        type="number"
+                        min={1}
+                        max={50}
+                        value={wallSlOffsetTicks}
+                        onChange={(e) => setWallSlOffsetTicks(Number(e.target.value) || 5)}
+                        className="w-16 bg-neutral-900 border border-neutral-800 rounded px-1 py-0.5 text-right text-neutral-200 text-[9px] outline-none focus:border-neutral-500"
+                      />
+                    </div>
+                  )}
+                  {slMode === 'atr_volatility' && (
+                    <div className="flex items-center justify-between pt-0.5">
+                      <span className="text-neutral-400 text-[8.5px]">Множитель ATR (1.0x–3.0x):</span>
+                      <input
+                        data-testid="input-atr-sl-mult"
+                        type="number"
+                        step={0.2}
+                        min={1.0}
+                        max={3.0}
+                        value={atrMultiplier}
+                        onChange={(e) => setAtrMultiplier(Number(e.target.value) || 1.5)}
+                        className="w-16 bg-neutral-900 border border-neutral-800 rounded px-1 py-0.5 text-right text-neutral-200 text-[9px] outline-none focus:border-neutral-500"
+                      />
+                    </div>
+                  )}
+                </div>
 
-                  {/* 3. Мульти-Тейк-Профит (TP1 50% + Breakeven / TP2 50%) */}
-                  <div className="grid grid-cols-2 gap-1 pt-0.5 border-t border-neutral-800/80">
+                {/* Мульти-Тейк-Профит & Trailing */}
+                <div className="pt-0.5 border-t border-neutral-800/80 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[8.5px] uppercase font-bold text-neutral-300">🎯 Multi-TP & Trailing</span>
+                    <label className="flex items-center space-x-1 text-[8.5px] font-mono text-neutral-300 cursor-pointer">
+                      <input
+                        data-testid="toggle-multi-tp"
+                        type="checkbox"
+                        checked={useMultiTp}
+                        onChange={(e) => setUseMultiTp(e.target.checked)}
+                        className="w-3 h-3 rounded accent-neutral-200 cursor-pointer"
+                      />
+                      <span>Включить (50% + Б/У)</span>
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
                     <label className="flex flex-col text-[8.5px] text-neutral-400">
                       <span className="flex items-center truncate">
-                        TP1 (50%+Б/У) R:R
+                        TP1 R:R
                         <InfoTip text="Коэффициент Risk/Reward для закрытия первых 50% и перевода стопа в Б/У" />
                       </span>
                       <input
@@ -1333,119 +1417,94 @@ export default function BacktestPanel({
                         max={4.0}
                         value={tp1RrRatio}
                         onChange={(e) => setTp1RrRatio(Number(e.target.value) || 1.5)}
-                        className="bg-neutral-900 border border-neutral-800 rounded px-1 py-0.5 text-neutral-200 text-right text-[9.5px] outline-none focus:border-neutral-500"
+                        className="bg-neutral-900 border border-neutral-800 rounded px-1.5 py-0.5 text-neutral-200 text-right text-[9.5px] outline-none focus:border-neutral-500"
                       />
                     </label>
                     <label className="flex flex-col text-[8.5px] text-neutral-400">
                       <span className="flex items-center truncate">
-                        TP2 (остаток)
+                        TP2 режим
                         <InfoTip text="Стратегия закрытия оставшихся 50%: перед противоположной плотностью или трендовый R:R" />
                       </span>
                       <select
                         data-testid="select-tp2-mode"
                         value={tp2Mode}
                         onChange={(e) => setTp2Mode(e.target.value)}
-                        className="bg-neutral-900 border border-neutral-800 rounded px-1 py-0.5 text-neutral-200 text-[9px] outline-none focus:border-neutral-500"
+                        className="bg-neutral-900 border border-neutral-800 rounded px-1.5 py-0.5 text-neutral-200 text-[9px] outline-none focus:border-neutral-500"
                       >
                         <option value="opposite_wall">Перед стенкой</option>
                         <option value="trend_rr">По тренду (2.8R)</option>
                       </select>
                     </label>
                   </div>
-
-                  {/* 4. Фильтр спуфинга и времени жизни стенки */}
-                  <div className="pt-0.5 border-t border-neutral-800/80">
-                    <div className="flex items-center justify-between text-[8.5px]">
-                      <span className="text-neutral-400 font-semibold flex items-center">
-                        ⏱️ Мин. жизнь стенки:
-                        <InfoTip text="Защита от спуфинга: плотность учитывается только если удерживается в стакане не менее указанного времени" />
-                      </span>
-                      <span data-testid="wall-lifetime-val" className="text-neutral-200 font-bold">
-                        {minWallLifetimeSec} сек
-                      </span>
-                    </div>
-                    <input
-                      data-testid="slider-wall-lifetime"
-                      type="range"
-                      min={10}
-                      max={60}
-                      step={5}
-                      value={minWallLifetimeSec}
-                      onChange={(e) => setMinWallLifetimeSec(Number(e.target.value))}
-                      className="w-full h-1.5 accent-neutral-300 bg-neutral-800 rounded cursor-pointer mt-0.5"
-                    />
-                  </div>
                 </div>
               </div>
 
-              {/* 3. СЕКЦИЯ: ⚡ Фильтры исполнения (Execution Filters) */}
-              <div className="border border-neutral-800 rounded p-1.5 space-y-1.5 bg-neutral-950/60">
-                <div className="flex items-center justify-between text-[8.5px] text-neutral-400 font-bold uppercase tracking-wide">
-                  <span className="flex items-center">
-                    ⚡ Фильтры исполнения
-                    <InfoTip text="Реализм исполнения ордеров (комиссии, скольжение) и мультифакторные фильтры Confluence" />
+              {/* C) СЕКЦИЯ: Фильтры (Volume, Time, Confluence) */}
+              <div className="border border-neutral-800 rounded-md p-2 space-y-1.5 bg-[#0e1217]/90 shadow-xs">
+                <div className="flex items-center justify-between text-[9px] text-neutral-300 font-bold uppercase tracking-wider border-b border-neutral-800/80 pb-1">
+                  <span className="flex items-center gap-1.5">
+                    <Grid size={11} className="text-neutral-400" />
+                    Фильтры
+                    <InfoTip text="Порог стакана, защита от спуфинга, Confluence фильтры и реализм биржевых комиссий" />
                   </span>
-                  <label className="flex items-center space-x-1 text-[8.5px] font-mono text-neutral-300 cursor-pointer">
-                    <input
-                      data-testid="toggle-multi-tp"
-                      type="checkbox"
-                      checked={useMultiTp}
-                      onChange={(e) => setUseMultiTp(e.target.checked)}
-                      className="w-3 h-3 rounded accent-neutral-200 cursor-pointer"
-                    />
-                    <span>Multi-TP (50% + Б/У)</span>
-                  </label>
+                  <span className="text-[8px] text-neutral-500 font-mono">FILTERS</span>
                 </div>
 
-                {/* Fees and Slippage */}
-                <div className="grid grid-cols-3 gap-1">
+                {/* Wall & Volume */}
+                <div className="grid grid-cols-2 gap-1.5">
                   <NumField
-                    testId="input-maker-fee"
-                    label="Maker Fee"
-                    value={makerFeePct}
-                    onChange={setMakerFeePct}
-                    step={0.01}
+                    label="Стенка стакана"
+                    value={minWallK}
+                    onChange={setMinWallK}
+                    step={50}
                     min={0}
-                    max={0.5}
-                    suffix="%"
-                    tooltip="Биржевая комиссия при лимитном входе"
+                    suffix="$k"
+                    tooltip="Минимальная лимитная плотность в стакане, USD"
                   />
                   <NumField
-                    testId="input-taker-fee"
-                    label="Taker Fee"
-                    value={takerFeePct}
-                    onChange={setTakerFeePct}
-                    step={0.01}
-                    min={0}
-                    max={0.5}
-                    suffix="%"
-                    tooltip="Биржевая комиссия при маркет-входе или срабатывании стопа"
-                  />
-                  <NumField
-                    testId="input-slippage-ticks"
-                    label="Скольжение"
-                    value={slippageTicks}
-                    onChange={setSlippageTicks}
-                    step={1}
-                    min={0}
-                    max={10}
-                    suffix="тик"
-                    tooltip="Проскальзывание стоп-лосса в тиках цены"
+                    label="Объём свечи ×"
+                    value={volMult}
+                    onChange={setVolMult}
+                    step={0.1}
+                    min={0.5}
+                    tooltip="Множитель объема свечного кластера"
                   />
                 </div>
 
-                {/* Confluence Filter Suite */}
+                {/* Wall lifetime slider */}
+                <div className="pt-0.5 border-t border-neutral-800/80">
+                  <div className="flex items-center justify-between text-[8.5px]">
+                    <span className="text-neutral-400 font-semibold flex items-center">
+                      ⏱️ Мин. жизнь стенки:
+                      <InfoTip text="Защита от спуфинга: плотность учитывается только если удерживается в стакане не менее указанного времени" />
+                    </span>
+                    <span data-testid="wall-lifetime-val" className="text-neutral-200 font-bold">
+                      {minWallLifetimeSec} сек
+                    </span>
+                  </div>
+                  <input
+                    data-testid="slider-wall-lifetime"
+                    type="range"
+                    min={10}
+                    max={60}
+                    step={5}
+                    value={minWallLifetimeSec}
+                    onChange={(e) => setMinWallLifetimeSec(Number(e.target.value))}
+                    className="w-full h-1.5 accent-neutral-300 bg-neutral-800 rounded cursor-pointer mt-0.5"
+                  />
+                </div>
+
+                {/* Confluence Suite */}
                 <div className="pt-1 border-t border-neutral-800/80 space-y-1">
                   <div className="flex items-center justify-between text-[8.5px] font-mono">
                     <span className="text-neutral-400 font-bold uppercase tracking-wider flex items-center gap-1">
-                      <Sliders size={10} /> Confluence фильтры
+                      Confluence сигналы
                       <InfoTip text="Дополнительные условия подтверждения сигналов для отсеивания ложных входов" />
                     </span>
                     <span className="text-neutral-500 font-mono">
-                      {[filterCvd, filterOi, filterAtr, filterRsi].filter(Boolean).length}/4
+                      {[filterCvd, filterOi, filterAtr, filterRsi].filter(Boolean).length}/4 ON
                     </span>
                   </div>
-
                   <div className="grid grid-cols-4 gap-1 text-[8.5px] font-mono">
                     {[
                       { label: 'CVD', active: filterCvd, toggle: () => setFilterCvd(!filterCvd) },
@@ -1468,49 +1527,109 @@ export default function BacktestPanel({
                     ))}
                   </div>
                 </div>
+
+                {/* Fees and Slippage */}
+                <div className="pt-1 border-t border-neutral-800/80">
+                  <div className="text-[8.5px] font-mono text-neutral-400 font-bold uppercase tracking-wider mb-0.5">
+                    Биржевые комиссии & Скольжение:
+                  </div>
+                  <div className="grid grid-cols-3 gap-1">
+                    <NumField
+                      testId="input-maker-fee"
+                      label="Maker"
+                      value={makerFeePct}
+                      onChange={setMakerFeePct}
+                      step={0.01}
+                      min={0}
+                      max={0.5}
+                      suffix="%"
+                      tooltip="Биржевая комиссия при лимитном входе"
+                    />
+                    <NumField
+                      testId="input-taker-fee"
+                      label="Taker"
+                      value={takerFeePct}
+                      onChange={setTakerFeePct}
+                      step={0.01}
+                      min={0}
+                      max={0.5}
+                      suffix="%"
+                      tooltip="Биржевая комиссия при маркет-входе или срабатывании стопа"
+                    />
+                    <NumField
+                      testId="input-slippage-ticks"
+                      label="Скольжение"
+                      value={slippageTicks}
+                      onChange={setSlippageTicks}
+                      step={1}
+                      min={0}
+                      max={10}
+                      suffix="тик"
+                      tooltip="Проскальзывание стоп-лосса в тиках цены"
+                    />
+                  </div>
+                </div>
               </div>
 
-              {/* Run Button + Real-Time Genetic Progress Bar */}
-              {mode === 'grid' ? (
-                <div className="space-y-1 pt-1">
-                  <button
-                    data-testid="btn-run-genetic"
-                    onClick={runGeneticOptimizer}
-                    disabled={loading}
-                    className="w-full flex items-center justify-center space-x-1.5 py-2 rounded disabled:opacity-60 text-neutral-950 font-bold text-[11px] bg-neutral-200 hover:bg-white transition shadow-sm cursor-pointer"
-                  >
-                    {loading ? <Loader2 size={13} className="animate-spin text-neutral-950" /> : <Dna size={12} />}
-                    <span>
-                      {loading
-                        ? `Генетический отбор (${optProgress}%)…`
-                        : '🧬 Запустить генетический подбор лучшего сетапа'}
-                    </span>
-                  </button>
-                  {(loading || optProgress === 100) && (
-                    <div
-                      data-testid="genetic-progress-bar"
-                      className="w-full h-1.5 bg-neutral-900 rounded overflow-hidden border border-neutral-800"
+              {/* ACTION AREA: Prominent Run Backtest & Forecast Buttons */}
+              <div className="pt-1">
+                {mode === 'grid' ? (
+                  <div className="space-y-1">
+                    <button
+                      data-testid="btn-run-genetic"
+                      onClick={runGeneticOptimizer}
+                      disabled={loading}
+                      className="w-full flex items-center justify-center space-x-2 py-2.5 rounded-md disabled:opacity-60 text-neutral-950 font-extrabold text-[12px] bg-white hover:bg-neutral-200 transition shadow-md cursor-pointer border border-neutral-200"
                     >
+                      {loading ? <Loader2 size={14} className="animate-spin text-neutral-950" /> : <Dna size={14} />}
+                      <span>
+                        {loading
+                          ? `Генетический отбор (${optProgress}%)…`
+                          : '🧬 Запустить генетический подбор лучшего сетапа'}
+                      </span>
+                    </button>
+                    {(loading || optProgress === 100) && (
                       <div
-                        style={{ width: `${optProgress}%` }}
-                        className="h-full bg-neutral-200 transition-all duration-150"
-                      />
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="pt-1">
-                  <button
-                    data-testid="btn-run-single"
-                    onClick={() => runSingle()}
-                    disabled={loading}
-                    className="w-full flex items-center justify-center space-x-1.5 py-2 rounded disabled:opacity-60 text-neutral-950 font-bold text-[11px] bg-neutral-200 hover:bg-white transition shadow-sm cursor-pointer"
-                  >
-                    {loading ? <Loader2 size={13} className="animate-spin text-neutral-950" /> : <Play size={12} />}
-                    <span>{loading ? 'Расчёт бэктеста и Монте-Карло…' : 'Запустить тест'}</span>
-                  </button>
-                </div>
-              )}
+                        data-testid="genetic-progress-bar"
+                        className="w-full h-1.5 bg-neutral-900 rounded overflow-hidden border border-neutral-800"
+                      >
+                        <div
+                          style={{ width: `${optProgress}%` }}
+                          className="h-full bg-neutral-200 transition-all duration-150"
+                        />
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      data-testid="btn-run-single"
+                      onClick={() => runSingle()}
+                      disabled={loading}
+                      className="flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-md disabled:opacity-60 text-neutral-950 font-extrabold text-[11.5px] bg-white hover:bg-neutral-200 transition shadow-md cursor-pointer border border-neutral-200"
+                      title="Запустить квант-тест стратегии на истории"
+                    >
+                      {loading ? <Loader2 size={14} className="animate-spin text-neutral-950" /> : <Play size={13} className="fill-current" />}
+                      <span>{loading ? 'Расчёт…' : 'Запустить бэктест'}</span>
+                    </button>
+                    <button
+                      data-testid="btn-run-forecast"
+                      type="button"
+                      onClick={runForecast}
+                      disabled={forecastLoading}
+                      className="flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-md disabled:opacity-60 text-neutral-100 font-bold text-[11.5px] bg-neutral-800 hover:bg-neutral-700 hover:text-white transition shadow-sm cursor-pointer border border-neutral-700"
+                      title="Спроецировать интрадей прогнозный конус волатильности (±1σ / ±2σ) на график"
+                    >
+                      {forecastLoading ? (
+                        <Loader2 size={14} className="animate-spin text-neutral-300" />
+                      ) : (
+                        <TrendingUp size={14} className="text-emerald-400" />
+                      )}
+                      <span>{forecastLoading ? 'Проекция…' : 'Прогноз (Forecast)'}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             </>
           )}
 
@@ -1617,16 +1736,18 @@ export default function BacktestPanel({
 
           {s && !loading && !aiLoading && (
             <>
-              {/* Top Summary Metrics Row: Чистый PnL, WinRate, Profit Factor, Recovery Factor, Комиссии биржи */}
-              <div className="flex space-x-1.5 min-w-0 shrink-0">
+              {/* Top Summary Metrics Row: Large Stat Cards for Top 4 Metrics */}
+              <div className="flex space-x-2 min-w-0 shrink-0">
                 <Card
+                  isLarge={true}
                   testId="metric-net-pnl"
-                  label="Чистый PnL (с уч. ком.)"
+                  label="Чистый PnL (Net)"
                   value={`${s.total_pnl_pct > 0 ? '+' : ''}${s.total_pnl_pct}% ($${s.net_pnl_usd ?? result?.net_pnl ?? 0})`}
                   tone={pnlTone}
-                  sub={`До комиссий: $${s.gross_pnl_usd ?? s.net_pnl_usd ?? 0} (${s.gross_pnl_pct ?? s.total_pnl_pct}%)`}
+                  sub={`До ком.: $${s.gross_pnl_usd ?? s.net_pnl_usd ?? 0} (${s.gross_pnl_pct ?? s.total_pnl_pct}%)`}
                 />
                 <Card
+                  isLarge={true}
                   testId="metric-winrate"
                   label="Win Rate"
                   value={`${s.win_rate_pct}%`}
@@ -1634,6 +1755,7 @@ export default function BacktestPanel({
                   sub={`${s.winning_trades}W / ${s.losing_trades}L (${s.total_trades} сд.)`}
                 />
                 <Card
+                  isLarge={true}
                   testId="metric-pf"
                   label="Profit Factor"
                   value={s.profit_factor >= 999 ? '∞' : s.profit_factor}
@@ -1641,22 +1763,23 @@ export default function BacktestPanel({
                   sub={`Sharpe ${s.sharpe_ratio} • Sortino ${s.sortino_ratio ?? 0}`}
                 />
                 <Card
+                  isLarge={true}
                   testId="metric-recovery-factor"
-                  label="Recovery Factor"
-                  value={s.recovery_factor ?? result?.recovery_factor ?? 0}
-                  tone={(s.recovery_factor ?? 0) >= 1.0 ? 'pos' : null}
-                  sub={`Max DD: -${s.max_drawdown_pct}%`}
+                  label="Max Drawdown"
+                  value={`-${s.max_drawdown_pct}%`}
+                  tone={s.max_drawdown_pct <= 5 ? 'pos' : 'neg'}
+                  sub={`Recovery: ${s.recovery_factor ?? result?.recovery_factor ?? 0}`}
                 />
                 <Card
                   testId="metric-fees-paid"
-                  label="Уплачено бирже ($)"
+                  label="Уплачено бирже"
                   value={`$${(s.total_exchange_cost_usd ?? s.total_fees_usd ?? 0).toFixed(2)}`}
                   tone="warn"
-                  sub={`Комиссии: $${(s.total_fees_usd ?? 0).toFixed(2)} • Слип: $${(s.total_slippage_usd ?? 0).toFixed(2)}`}
+                  sub={`Ком.: $${(s.total_fees_usd ?? 0).toFixed(2)} • Слип: $${(s.total_slippage_usd ?? 0).toFixed(2)}`}
                 />
                 <button
                   onClick={onToggleSignals}
-                  className={`flex flex-col items-center justify-center px-2 rounded border text-[10px] font-mono shrink-0 transition cursor-pointer ${
+                  className={`flex flex-col items-center justify-center px-2.5 rounded-md border text-[10px] font-mono shrink-0 transition cursor-pointer ${
                     showSignals
                       ? 'bg-neutral-800 text-neutral-200 border-neutral-600'
                       : 'text-neutral-500 border-neutral-800 hover:text-white'
