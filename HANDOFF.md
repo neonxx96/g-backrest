@@ -16,16 +16,16 @@
 
 ## 🚦 Текущий статус передачи смены
 
-- **ACTIVE_AGENT:** `Antigravity`
-- **Текущая ветка:** `agent/cline/footprint-history` — коммит `6cd78bc`
-- **Последний коммит:** `feat(screener): active monitoring toggles, multi-exchange badges, and parallel background worker`
-- **Время последнего обновления:** `2026-10-19 01:34 (сессия Antigravity: Фокусный мониторинг, мульти-биржа и фоновый воркер)`
+- **ACTIVE_AGENT:** `none`
+- **Текущая ветка:** `agent/cline/footprint-history` — коммит `fc0ece3`
+- **Последний коммит:** `feat(ui): institutional Velo/Bookmap interface upgrade with alerts and whale markers`
+- **Время последнего обновления:** `2026-10-19 01:46 (сессия Antigravity: Velo/Bookmap UI, Price Alerts, Whale Markers)`
 
 ### 🌿 Карта веток
 
 | Ветка | Вершина | Статус |
 |---|---|---|
-| `agent/cline/footprint-history` ← **текущая** | `6cd78bc` | Исторический конвейер, KLineCharts разметка, монохром UI, фокусный мониторинг монет |
+| `agent/cline/footprint-history` ← **текущая** | `fc0ece3` | Исторический конвейер, KLineCharts разметка, монохром UI, фокусный мониторинг, Velo UI + Alerts |
 | `main` | `fb64666` | Базовая стабильная ветка |
 
 Все ветки — предки `main` (`main..<branch> = 0`), поэтому удаление любой из них не потеряет ни одного коммита. Слияние выполнено цепочкой FF: `main 09a0c1d` → `ui-docking-refactor 7114a26` → `agent/cline/update-models-docs 7659b3d` → `agent/cline/token-economy-rules fb64666` → `main fb64666`.
@@ -83,7 +83,11 @@
   2. Визуализация сделок бэктеста и алгоритмических сигналов прямо на полотне KLineCharts (`chartAnnotations.js`).
   3. Рефакторинг UI/UX панели квант-бэктеста в монохромный институциональный стиль.
   4. Фокусный мониторинг монет (`BTCUSDT`, `SOLUSDT`, `LINKUSDT`, `ADAUSDT`, `SUIUSDT`, `UNIUSDT`, `ZECUSDT`), мульти-биржевые бейджи, фоновый воркер (`background_worker.py` с семафором 3) и стриминг статуса по WebSockets.
-  5. Полный набор автотестов (25 pytest passed), `check.ps1` на 100% зеленый.
+  5. Институциональный UI/UX в стиле Velo/Bookmap:
+     - Верхний тулбар: компактный переключатель таймфреймов (`1m, 5m, 15m, 1h, 4h, 1D`), переключатель деноминации (`COIN / USDT / USDC`), выпадающее меню `+ Add Widget` с горячими клавишами (`Shift+C`, `Shift+P`, `Shift+O`, `Shift+D`, `Shift+T`, `Shift+S`, `Shift+A`).
+     - Модальное окно ценовых алертов (`AlertsModal.jsx` + `alertsStore.js`) с 4 секциями (What, Where, Trigger, Expires) и кнопкой отправки тестового уведомления.
+     - Визуализация крупных "Whale" сделок (> $500k): контрастные бейджи `[B]` и `[S]` в ленте сделок (`TradesWidget.jsx`) и парящие маркеры на полотне KLineCharts (`Chart.jsx`).
+  6. Полный набор автотестов (25 pytest passed), `check.ps1` на 100% зеленый.
 - **Следующее:**
   - Интеграция кластерного (Footprint) анализа реального времени для скальпинга (сигналы дельты, имбалансы покупок/продаж на уровнях).
   - Модели прогнозирования внутри дня (интрадей прогнозный конус с доверительными интервалами).
