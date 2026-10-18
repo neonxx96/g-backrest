@@ -11,7 +11,7 @@
 
 ## 🛠️ Стек технологий
 - **Backend:** Python 3.11+, FastAPI, asyncio, aiogram 3, SQLite (SQLAlchemy + aiosqlite), pandas/numpy
-- **Frontend:** React + Vite, KLineChart (v10), Tailwind CSS, Lucide Icons
+- **Frontend:** React + Vite, KLineChart (v9.8.12), Tailwind CSS, Lucide Icons
 - **Данные:** Публичный Binance Futures API (REST + WebSocket), CoinGecko API (с кэшированием)
 - **Деплой:** Docker, Docker Compose, Proxmox VE, Cloudflare Tunnel
 
