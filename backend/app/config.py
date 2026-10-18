@@ -43,6 +43,12 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
 # OpenRouter LLM Configuration
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash-free")
+OPENROUTER_FREE_MODELS = [
+    m.strip() for m in os.getenv(
+        "OPENROUTER_FREE_MODELS",
+        "google/gemini-2.5-flash-free,meta-llama/llama-3-8b-instruct:free,mistralai/mistral-7b-instruct:free,google/gemini-2.0-flash-exp:free,qwen/qwen-2.5-72b-instruct:free"
+    ).split(",") if m.strip()
+]
 
 

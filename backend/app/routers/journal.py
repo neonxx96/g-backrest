@@ -507,6 +507,8 @@ async def ask_openrouter_second_opinion(
             "reason": "AI недоступен, принимай решение сам"
         }
 
+    from backend.app.services.ai_service import ai_service
+
     system_prompt = (
         "Ты — консультативный риск-менеджер торгового терминала SignalScript. "
         "Дай короткую рекомендацию: за / против / нейтрально, и одна причина почему. "
@@ -521,65 +523,56 @@ async def ask_openrouter_second_opinion(
         "Не придумывай цифры, используй только переданные данные."
     )
 
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {eff_key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "http://127.0.0.1:5173",
-        "X-Title": "SignalScript Second Opinion"
-    }
-    payload = {
-        "model": OPENROUTER_MODEL or "google/gemini-2.0-flash-001",
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message}
-        ],
-        "temperature": 0.1,
-        "max_tokens": 220
-    }
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message}
+    ]
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=6)) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    raw_text = data["choices"][0]["message"]["content"].strip()
-                    clean_text = raw_text
-                    if clean_text.startswith("```"):
-                        clean_text = clean_text.strip("`").replace("json", "", 1).strip()
-                    try:
-                        parsed = json.loads(clean_text)
-                        verdict = str(parsed.get("verdict", "НЕЙТРАЛЬНО")).upper()
-                        if "ЗА" in verdict and "ПРОТИВ" not in verdict:
-                            verdict = "ЗА"
-                        elif "ПРОТИВ" in verdict:
-                            verdict = "ПРОТИВ"
-                        else:
-                            verdict = "НЕЙТРАЛЬНО"
-                        reason = str(parsed.get("reason", raw_text)).strip()
-                        return {
-                            "ai_available": True,
-                            "verdict": verdict,
-                            "reason": reason
-                        }
-                    except Exception:
-                        # Plain text fallback if LLM didn't wrap in JSON
-                        upper = raw_text.upper()
-                        verdict = "ЗА" if "ЗА" in upper[:25] else ("ПРОТИВ" if "ПРОТИВ" in upper[:25] else "НЕЙТРАЛЬНО")
-                        return {
-                            "ai_available": True,
-                            "verdict": verdict,
-                            "reason": raw_text[:280]
-                        }
+        raw_text, used_model = await ai_service.query_with_fallback(
+            messages=messages,
+            preferred_model=OPENROUTER_MODEL,
+            api_key_override=eff_key,
+            temperature=0.1,
+            max_tokens=220,
+            timeout_sec=6.0
+        )
+        if raw_text:
+            clean_text = raw_text
+            if clean_text.startswith("```"):
+                clean_text = clean_text.strip("`").replace("json", "", 1).strip()
+            try:
+                parsed = json.loads(clean_text)
+                verdict = str(parsed.get("verdict", "НЕЙТРАЛЬНО")).upper()
+                if "ЗА" in verdict and "ПРОТИВ" not in verdict:
+                    verdict = "ЗА"
+                elif "ПРОТИВ" in verdict:
+                    verdict = "ПРОТИВ"
                 else:
-                    logger.warning(f"OpenRouter Second Opinion HTTP {resp.status}")
+                    verdict = "НЕЙТРАЛЬНО"
+                reason = str(parsed.get("reason", raw_text)).strip()
+                return {
+                    "ai_available": True,
+                    "verdict": verdict,
+                    "reason": reason,
+                    "model_used": used_model
+                }
+            except Exception:
+                upper = raw_text.upper()
+                verdict = "ЗА" if "ЗА" in upper[:25] else ("ПРОТИВ" if "ПРОТИВ" in upper[:25] else "НЕЙТРАЛЬНО")
+                return {
+                    "ai_available": True,
+                    "verdict": verdict,
+                    "reason": raw_text[:280],
+                    "model_used": used_model
+                }
     except Exception as e:
-        logger.warning(f"OpenRouter Second Opinion error/timeout: {e}")
+        logger.warning(f"OpenRouter Second Opinion error: {e}")
 
     return {
         "ai_available": False,
         "verdict": "AI НЕДОСТУПЕН",
-        "reason": "AI недоступен, принимай решение сам"
+        "reason": "AI недоступен (бесплатные модели OpenRouter исчерпаны), принимай решение сам"
     }
 
 

@@ -18,7 +18,8 @@ import {
   X,
   Plus,
   Sparkles,
-  Check
+  Check,
+  History
 } from 'lucide-react';
 import { useLayoutStore } from '../../stores/layoutStore';
 
@@ -76,6 +77,17 @@ const MODULES = [
     icon: ShieldCheck,
     iconColor: 'text-[#10b981]',
     description: 'Симуляция исполнения скальпинг-сделок в реальном времени с виртуальным балансом, контролем риска и PnL без риска для депозита.',
+    defaultLocation: 'Нижняя вкладка'
+  },
+  {
+    id: 'tradehistory',
+    type: 'tradehistory',
+    title: 'История сделок и Прогнозы',
+    badge: 'Paper Trades $100',
+    badgeColor: 'text-[#10b981] bg-[#10b98115] border-[#10b98130]',
+    icon: History,
+    iconColor: 'text-[#10b981]',
+    description: 'Журнал исполненных paper-сделок, баланс $100.00, PnL, причины входов (EMA/CVD), открытые позиции и фокус-лист авто-оптимизированных квант-стратегий.',
     defaultLocation: 'Нижняя вкладка'
   },
   {

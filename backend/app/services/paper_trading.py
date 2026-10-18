@@ -53,8 +53,10 @@ class PaperPosition:
     avg_entry_price: float = 0.0
     entry_ts: int = 0
     stop_price: float = 0.0
+    target_price: float = 0.0
     fees_paid: float = 0.0
     closed: bool = False
+    reason: str = "Technical Signal"
 
     @property
     def risk_amount(self) -> float:
@@ -82,6 +84,9 @@ class PaperOrder:
     sim: ExecutionSimulator
     created_ts: int
     last_fill_idx: int = 0  # how many sim.state.fills already accounted
+    reason: str = "Technical Signal"
+    stop_price: float = 0.0
+    target_price: float = 0.0
 
 
 @dataclass
@@ -98,6 +103,7 @@ class PaperSessionState:
     active_orders: List[dict] = field(default_factory=list)
     closed_trades: List[dict] = field(default_factory=list)
     total_fees_paid: float = 0.0
+    uptime_seconds: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -112,6 +118,7 @@ class PaperSessionState:
             "active_orders": self.active_orders,
             "closed_trades": self.closed_trades,
             "total_fees_paid": self.total_fees_paid,
+            "uptime_seconds": self.uptime_seconds,
         }
 
 
@@ -135,6 +142,7 @@ class PaperTradingSession:
         session_id: Optional[str] = None,
     ):
         self.session_id = session_id or f"paper_{int(time.time() * 1000)}"
+        self.start_time = time.time()
         self.initial_balance = float(initial_balance)
         self.risk_per_trade_pct = float(risk_per_trade_pct)
         self.maker_fee = maker_fee
@@ -198,6 +206,8 @@ class PaperTradingSession:
         quantity: float,
         role: str = PaperOrderRole.ENTRY.value,
         stop_price: float = 0.0,
+        target_price: float = 0.0,
+        reason: str = "Technical Signal",
         signal_ts: Optional[int] = None,
     ) -> dict:
         """
@@ -226,13 +236,21 @@ class PaperTradingSession:
             role=PaperOrderRole(role),
             sim=sim,
             created_ts=int(ts),
+            reason=reason,
+            stop_price=float(stop_price),
+            target_price=float(target_price),
         )
-        # Persist stop for R-based metrics on the eventual position.
-        po.stop_price = float(stop_price)
         self.orders[order_id] = po
+
+        # Prune old completed orders if orders buffer exceeds 2000
+        if len(self.orders) > 2000:
+            active = {k: v for k, v in self.orders.items() if v.sim.state.status in (OrderStatus.PENDING, OrderStatus.ACTIVE, OrderStatus.PARTIALLY_FILLED)}
+            completed = [(k, v) for k, v in self.orders.items() if k not in active][-500:]
+            self.orders = {**dict(completed), **active}
+
         logger.info(
             f"[TRADE] ORDER PLACED [{self.session_id}] {role.upper()} order {order_id}: "
-            f"{side} {order_type} {quantity:.6f} {symbol} @ {price:.4f} "
+            f"{side} {order_type} {quantity:.6f} {symbol} @ {price:.4f} | reason='{reason}' "
             f"(active_ts={cfg.order_active_ts})"
         )
         return self._order_info(po)
@@ -253,6 +271,9 @@ class PaperTradingSession:
             "queue_ahead": st.queue_ahead,
             "active_ts": po.sim.cfg.order_active_ts,
             "created_ts": po.created_ts,
+            "reason": po.reason,
+            "stop_price": po.stop_price,
+            "target_price": po.target_price,
         }
 
     # ------------------------------------------------------------------ #
@@ -323,8 +344,16 @@ class PaperTradingSession:
                 avg_entry_price=0.0,
                 entry_ts=po.created_ts,
                 stop_price=getattr(po, "stop_price", 0.0),
+                target_price=getattr(po, "target_price", 0.0),
+                reason=getattr(po, "reason", "Technical Signal"),
             )
             self.positions[symbol] = pos
+        else:
+            pos.reason = getattr(po, "reason", pos.reason)
+            if getattr(po, "stop_price", 0.0) > 0:
+                pos.stop_price = po.stop_price
+            if getattr(po, "target_price", 0.0) > 0:
+                pos.target_price = po.target_price
 
         if pos.side != pos_side:
             logger.warning(f"[PaperSession] conflicting side for {symbol}: {pos.side} vs {pos_side}")
@@ -345,7 +374,7 @@ class PaperTradingSession:
 
         logger.info(
             f"[TRADE] ENTRY fill [{self.session_id}] {symbol}: "
-            f"+{qty:.6f} @ {price:.4f} fee={fee:.6f} -> pos_qty={pos.qty:.6f} avg={pos.avg_entry_price:.4f}"
+            f"+{qty:.6f} @ {price:.4f} fee={fee:.6f} -> pos_qty={pos.qty:.6f} avg={pos.avg_entry_price:.4f} | reason='{pos.reason}'"
         )
 
         # Register/Update position in the Early Exit Engine
@@ -382,6 +411,9 @@ class PaperTradingSession:
         self.total_fees_paid += fee
         pos.qty -= close_qty
 
+        pnl_pct = ((price - pos.avg_entry_price) / pos.avg_entry_price * 100.0) if pos.side == "LONG" else ((pos.avg_entry_price - price) / pos.avg_entry_price * 100.0)
+        exit_reason = getattr(po, "reason", "Exit Target/Stop")
+
         # Record closed trade
         self.closed_trades.append({
             "symbol": symbol,
@@ -389,12 +421,21 @@ class PaperTradingSession:
             "qty": close_qty,
             "entry_price": pos.avg_entry_price,
             "exit_price": price,
+            "target_price": getattr(pos, "target_price", price),
+            "stop_price": pos.stop_price,
             "gross_pnl": gross,
             "net_pnl": net,
+            "pnl_percent": round(pnl_pct, 2),
             "fee": fee,
+            "reason": exit_reason,
+            "entry_reason": getattr(pos, "reason", "Technical Signal"),
             "entry_ts": pos.entry_ts,
             "exit_ts": self._last_event_ts,
         })
+
+        # Cap closed trades buffer to prevent memory leakage
+        if len(self.closed_trades) > 1000:
+            self.closed_trades = self.closed_trades[-1000:]
 
         # Release margin
         margin_released = pos.avg_entry_price * close_qty
@@ -403,7 +444,7 @@ class PaperTradingSession:
 
         logger.info(
             f"[TRADE] EXIT fill [{self.session_id}] {symbol}: "
-            f"-{close_qty:.6f} @ {price:.4f} fee={fee:.6f} net={net:.4f} -> realized={self.realized_pnl:.4f}"
+            f"-{close_qty:.6f} @ {price:.4f} fee={fee:.6f} net={net:.4f} ({pnl_pct:+.2f}%) -> realized={self.realized_pnl:.4f} | reason='{exit_reason}'"
         )
 
         if pos.qty <= 1e-9:
@@ -411,7 +452,7 @@ class PaperTradingSession:
             pos.closed = True
             # Remove from Early Exit Engine
             self.early_exit_engine.remove_position(symbol)
-            logger.info(f"[TRADE] POSITION CLOSED [{self.session_id}] {symbol}: fees={pos.fees_paid:.6f} total_realized={self.realized_pnl:+.4f}")
+            logger.info(f"[TRADE] POSITION CLOSED [{self.session_id}] {symbol}: fees={pos.fees_paid:.6f} total_realized={self.realized_pnl:+.4f} | reason='{exit_reason}'")
 
 
     # ------------------------------------------------------------------ #
@@ -423,18 +464,20 @@ class PaperTradingSession:
         side: str,
         price: float,
         stop_price: float = 0.0,
+        target_price: float = 0.0,
         quantity: Optional[float] = None,
         order_type: str = "LIMIT",
+        reason: str = "Algorithm Signal",
         signal_ts: Optional[int] = None,
     ) -> dict:
         """
-        Executes a trade signal applying risk position sizing and wallet margin rules.
+        Executes a trade signal applying risk position sizing, stop/target, reason, and margin rules.
         """
         if quantity is None or quantity <= 0:
             quantity = self.calculate_position_size(symbol, price, stop_price)
 
         if quantity <= 0:
-            logger.warning(f"[TRADE] Rejected signal for {symbol}: insufficient margin or zero size.")
+            logger.warning(f"[TRADE] Rejected signal for {symbol}: insufficient margin or zero size | reason='{reason}'")
             return {"status": "REJECTED", "reason": "insufficient_margin"}
 
         return self.place_order(
@@ -445,6 +488,8 @@ class PaperTradingSession:
             quantity=quantity,
             role=PaperOrderRole.ENTRY.value,
             stop_price=stop_price,
+            target_price=target_price,
+            reason=reason,
             signal_ts=signal_ts,
         )
 
@@ -453,6 +498,7 @@ class PaperTradingSession:
         symbol: str,
         price: float,
         order_type: str = "LIMIT",
+        reason: str = "Position Exit",
         signal_ts: Optional[int] = None,
     ) -> Optional[dict]:
         """
@@ -469,8 +515,23 @@ class PaperTradingSession:
             price=price,
             quantity=pos.qty,
             role=PaperOrderRole.EXIT.value,
+            reason=reason,
             signal_ts=signal_ts,
         )
+
+    def reset_wallet(self, initial_balance: float = 100.0) -> None:
+        """Strictly resets the paper trading virtual wallet to initial_balance ($100.00 USD)."""
+        self.initial_balance = float(initial_balance)
+        self.available_margin = float(initial_balance)
+        self.locked_margin = 0.0
+        self.realized_pnl = 0.0
+        self.total_fees_paid = 0.0
+        self.start_time = time.time()
+        self.positions.clear()
+        self.orders.clear()
+        self.closed_trades.clear()
+        self.early_exit_engine.tracks.clear()
+        logger.info(f"[TRADE] Virtual wallet reset strictly to ${self.initial_balance:.2f} USD | reason='Admin Reset'")
 
     def unrealized_pnl_for(self, symbol: str) -> float:
         pos = self.positions.get(symbol)
@@ -496,6 +557,8 @@ class PaperTradingSession:
                 "avg_entry_price": pos.avg_entry_price,
                 "entry_ts": pos.entry_ts,
                 "stop_price": pos.stop_price,
+                "target_price": getattr(pos, "target_price", 0.0),
+                "reason": getattr(pos, "reason", "Technical Signal"),
                 "fees_paid": pos.fees_paid,
                 "risk_amount": pos.risk_amount,
                 "unrealized_pnl": self.unrealized_pnl_for(sym),
@@ -506,6 +569,7 @@ class PaperTradingSession:
             if po.sim.state.status in (OrderStatus.FILLED, OrderStatus.REJECTED, OrderStatus.CANCELLED):
                 continue
             active_orders.append(self._order_info(po))
+        uptime = int(time.time() - getattr(self, "start_time", time.time()))
         return PaperSessionState(
             session_id=self.session_id,
             initial_balance=self.initial_balance,
@@ -518,6 +582,7 @@ class PaperTradingSession:
             active_orders=active_orders,
             closed_trades=list(self.closed_trades),
             total_fees_paid=self.total_fees_paid,
+            uptime_seconds=uptime,
         )
 
 

@@ -77,33 +77,29 @@ async def query_openrouter_llm(prompt: str, base_symbol: str = "BTCUSDT", base_t
         "Верни ТОЛЬКО JSON без markdown-тегов и пояснений."
     )
 
-    payload = {
-        "model": OPENROUTER_MODEL or "google/gemini-2.0-flash-001",
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Базовый тикер: {base_symbol}, таймфрейм: {base_tf}. Запрос: {prompt}"}
-        ],
-        "temperature": 0.2,
-        "max_tokens": 800
-    }
+    from backend.app.services.ai_service import ai_service
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"Базовый тикер: {base_symbol}, таймфрейм: {base_tf}. Запрос: {prompt}"}
+    ]
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=8)) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    content = data["choices"][0]["message"]["content"].strip()
-                    # Clean markdown if present
-                    if content.startswith("```"):
-                        content = re.sub(r"^```(?:json)?", "", content)
-                        content = re.sub(r"```$", "", content).strip()
-                    parsed = json.loads(content)
-                    if "params" in parsed and "strategy_type" in parsed:
-                        logger.info("Successfully received strategy configuration from OpenRouter LLM")
-                        return parsed
-                else:
-                    err_text = await resp.text()
-                    logger.warning(f"OpenRouter returned status {resp.status}: {err_text[:120]}")
+        content, used_model = await ai_service.query_with_fallback(
+            messages=messages,
+            preferred_model=OPENROUTER_MODEL,
+            temperature=0.2,
+            max_tokens=800,
+            timeout_sec=8.0
+        )
+        if content:
+            if content.startswith("```"):
+                content = re.sub(r"^```(?:json)?", "", content)
+                content = re.sub(r"```$", "", content).strip()
+            parsed = json.loads(content)
+            if "params" in parsed and "strategy_type" in parsed:
+                logger.info(f"Successfully received strategy configuration from OpenRouter LLM ({used_model})")
+                return parsed
     except Exception as e:
         logger.warning(f"OpenRouter query failed or timed out: {e}")
 

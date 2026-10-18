@@ -11,6 +11,7 @@ import WatchlistWidget from './WatchlistWidget';
 import ScreenerWidget from './ScreenerWidget';
 import TradesWidget from './TradesWidget';
 import WidgetHubModal from './WidgetHubModal';
+import TradeHistoryWidget from './TradeHistoryWidget';
 import PaperTradePanel from '../PaperTradePanel';
 import { FootprintPlaceholderWidget, CvdPlaceholderWidget } from './Placeholders';
 import ChannelSelector from './ChannelSelector';
@@ -340,7 +341,8 @@ export default function TerminalDockview({
       trades: TradesWidget,
       footprint_placeholder: FootprintPlaceholderWidget,
       cvd_placeholder: CvdPlaceholderWidget,
-      papertrade: PaperTradeDockPanel
+      papertrade: TradeHistoryWidget,
+      tradehistory: TradeHistoryWidget
     }),
     []
   );
@@ -611,6 +613,13 @@ export default function TerminalDockview({
         const ref = domPanels[0] || panels[0];
         if (ref) {
           position = { referencePanel: ref, direction: 'below' };
+        }
+      } else if (type === 'tradehistory' || type === 'trades_history') {
+        title = 'История сделок & Прогнозы';
+        component = 'tradehistory';
+        const ref = signalsPanels[0] || tradesPanels[0] || domPanels[0] || panels[0];
+        if (ref) {
+          position = { referencePanel: ref, direction: 'within' };
         }
       } else if (type === 'papertrade' || type === 'paper_trading') {
         title = 'Бумажная торговля (Paper Trade)';
