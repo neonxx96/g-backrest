@@ -16,6 +16,7 @@ import {
   Check,
   BarChart3,
   Loader2,
+  MousePointer,
   Sliders,
   Bookmark,
   Palette,
@@ -888,7 +889,7 @@ try {
         key: 'atr',
         title: 'ATR(14): ',
         type: 'line',
-        styles: () => ({ color: '#10b981', size: 1.5, style: 'solid' })
+        styles: () => ({ color: '#10b981', size: 1.5, style: 'solid', dashedValue: [2, 2], smooth: false })
       }
     ],
     calc: (dataList, { calcParams }) => {
@@ -932,7 +933,9 @@ try {
           return {
             color: dir === 1 ? '#10b981' : '#ef4444',
             size: 2,
-            style: 'solid'
+            style: 'solid',
+            dashedValue: [2, 2],
+            smooth: false
           };
         }
       }

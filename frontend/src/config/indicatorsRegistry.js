@@ -59,9 +59,9 @@ export const INDICATORS_REGISTRY = {
     toCalcParams: (inputs) => [Number(inputs.period1) || 9, Number(inputs.period2) || 21, Number(inputs.period3) || 50],
     toKlineStyles: (styles) => ({
       lines: [
-        { color: styles.color1 || '#38bdf8', size: Number(styles.size) || 1.5, style: 'solid' },
-        { color: styles.color2 || '#f59e0b', size: Number(styles.size) || 1.5, style: 'solid' },
-        { color: styles.color3 || '#a855f7', size: Number(styles.size) || 1.5, style: 'solid' }
+        { color: styles.color1 || '#38bdf8', size: Number(styles.size) || 1.5, style: 'solid', dashedValue: [2, 2], smooth: false },
+        { color: styles.color2 || '#f59e0b', size: Number(styles.size) || 1.5, style: 'solid', dashedValue: [2, 2], smooth: false },
+        { color: styles.color3 || '#a855f7', size: Number(styles.size) || 1.5, style: 'solid', dashedValue: [2, 2], smooth: false }
       ]
     })
   },
@@ -97,9 +97,9 @@ export const INDICATORS_REGISTRY = {
     toCalcParams: (inputs) => [Number(inputs.period) || 20, Number(inputs.stdDev) || 2.0],
     toKlineStyles: (styles) => ({
       lines: [
-        { color: styles.upColor || '#ef4444', size: Number(styles.size) || 1.2, style: 'solid' },
-        { color: styles.midColor || '#eab308', size: Number(styles.size) || 1.2, style: 'solid' },
-        { color: styles.dnColor || '#10b981', size: Number(styles.size) || 1.2, style: 'solid' }
+        { color: styles.upColor || '#ef4444', size: Number(styles.size) || 1.2, style: 'solid', dashedValue: [2, 2], smooth: false },
+        { color: styles.midColor || '#eab308', size: Number(styles.size) || 1.2, style: 'solid', dashedValue: [2, 2], smooth: false },
+        { color: styles.dnColor || '#10b981', size: Number(styles.size) || 1.2, style: 'solid', dashedValue: [2, 2], smooth: false }
       ]
     })
   },
@@ -133,7 +133,7 @@ export const INDICATORS_REGISTRY = {
     toCalcParams: (inputs) => [Number(inputs.atrPeriod) || 10, Number(inputs.multiplier) || 3.0],
     toKlineStyles: (styles) => ({
       lines: [
-        { color: styles.upColor || '#10b981', size: Number(styles.size) || 2.0, style: 'solid' }
+        { color: styles.upColor || '#10b981', size: Number(styles.size) || 2.0, style: 'solid', dashedValue: [2, 2], smooth: false }
       ]
     })
   },
@@ -164,7 +164,7 @@ export const INDICATORS_REGISTRY = {
     toCalcParams: (inputs) => [Number(inputs.period) || 14],
     toKlineStyles: (styles) => ({
       lines: [
-        { color: styles.color || '#a855f7', size: Number(styles.size) || 1.5, style: 'solid' }
+        { color: styles.color || '#a855f7', size: Number(styles.size) || 1.5, style: 'solid', dashedValue: [2, 2], smooth: false }
       ]
     })
   },
@@ -205,8 +205,8 @@ export const INDICATORS_REGISTRY = {
     toCalcParams: (inputs) => [Number(inputs.fast) || 12, Number(inputs.slow) || 26, Number(inputs.signal) || 9],
     toKlineStyles: (styles) => ({
       lines: [
-        { color: styles.difColor || '#38bdf8', size: Number(styles.size) || 1.2, style: 'solid' },
-        { color: styles.deaColor || '#f59e0b', size: Number(styles.size) || 1.2, style: 'solid' }
+        { color: styles.difColor || '#38bdf8', size: Number(styles.size) || 1.2, style: 'solid', dashedValue: [2, 2], smooth: false },
+        { color: styles.deaColor || '#f59e0b', size: Number(styles.size) || 1.2, style: 'solid', dashedValue: [2, 2], smooth: false }
       ]
     })
   },
@@ -237,7 +237,7 @@ export const INDICATORS_REGISTRY = {
     toCalcParams: (inputs) => [Number(inputs.period) || 14],
     toKlineStyles: (styles) => ({
       lines: [
-        { color: styles.color || '#10b981', size: Number(styles.size) || 1.5, style: 'solid' }
+        { color: styles.color || '#10b981', size: Number(styles.size) || 1.5, style: 'solid', dashedValue: [2, 2], smooth: false }
       ]
     })
   },
@@ -305,7 +305,7 @@ export const INDICATORS_REGISTRY = {
     toCalcParams: (inputs) => [Number(inputs.smoothPeriod) || 14],
     toKlineStyles: (styles) => ({
       lines: [
-        { color: styles.lineColor || '#38bdf8', size: Number(styles.size) || 1.5, style: 'solid' }
+        { color: styles.lineColor || '#38bdf8', size: Number(styles.size) || 1.5, style: 'solid', dashedValue: [2, 2], smooth: false }
       ]
     })
   }
