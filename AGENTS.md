@@ -101,7 +101,7 @@ npm run dev -- --host 127.0.0.1 --port 5173
 powershell -ExecutionPolicy Bypass -File scripts/check.ps1
 ```
 *Скрипт последовательно выполняет: `pytest backend/tests` $\rightarrow$ `npm run build` $\rightarrow$ `python scripts/smoke_critical_parts.py`. Коммит разрешён только при получении строки:*
-`[OK] ALL QUALITY CHECKS PASSED. READY TO COMMIT.`
+`🎉 ALL QUALITY CHECKS PASSED. READY TO COMMIT.` (EXIT_CODE=0)
 
 ---
 
