@@ -16,8 +16,11 @@ import {
   Check,
   BarChart3,
   Loader2,
-  MousePointer,
-  Sliders
+  Sliders,
+  Bookmark,
+  Palette,
+  Layers,
+  ChevronDown
 } from 'lucide-react';
 import { INDICATORS_REGISTRY, DEFAULT_ACTIVE_INDICATORS } from '../config/indicatorsRegistry';
 import IndicatorsModal from './indicators/IndicatorsModal';
@@ -27,6 +30,7 @@ import { useLayoutStore } from '../stores/layoutStore';
 import { useColorLinksStore } from '../stores/colorLinksStore';
 import { fetchKlinesDualSource } from '../services/marketDataFetcher';
 import { useTradeOverlayStore, calculatePositionMetrics } from '../stores/tradeOverlayStore';
+import { getAllTemplates, saveCustomTemplate, getStyleMemory, saveStyleMemory } from '../config/drawingTemplates';
 
 const API_BASE = "/api";
 
@@ -1088,7 +1092,7 @@ function buildChartStyles(uiConfig = {}) {
 
 const USER_DRAWING_TYPES = new Set([
   'segment', 'straightLine', 'horizontalStraightLine', 'verticalStraightLine',
-  'rayLine', 'arrow', 'priceLine', 'priceCoordinate', 'rect', 'fibonacciLine', 'measure'
+  'rayLine', 'arrow', 'priceLine', 'priceCoordinate', 'rect', 'fibonacciLine', 'measure', 'positionSetupBox'
 ]);
 
 export default function Chart({ 
@@ -1132,6 +1136,13 @@ export default function Chart({
   const activeDrawingOverlayId = useRef(null);
   const [isMouseDown, setIsMouseDown] = useState(false);
   const [magnetEnabled, setMagnetEnabled] = useState(false);
+
+  // SMC Drawing Templates & Style Memory
+  const [drawingTemplates, setDrawingTemplates] = useState(() => getAllTemplates());
+  const [isTemplateMenuOpen, setIsTemplateMenuOpen] = useState(false);
+  const [activeDrawingStyle, setActiveDrawingStyle] = useState(() => getStyleMemory('default'));
+  const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState('');
   const savedIndicators = useLayoutStore((s) => s.getPanelIndicators(chartId));
   const setPanelIndicators = useLayoutStore((s) => s.setPanelIndicators);
 
@@ -2503,10 +2514,10 @@ export default function Chart({
     });
   }, [strategyLevels, symbol, timeframe, klinesVersion, chartReady]);
 
-  // Drawing tool selection
-  const handleSelectTool = (toolName) => {
+  // Drawing tool selection with style memory and SMC templates
+  const handleSelectTool = (toolName, customStyles = null) => {
     if (!chartRef.current) return;
-    if (activeTool === toolName) {
+    if (activeTool === toolName && !customStyles) {
       cancelActiveDrawing();
       return;
     }
@@ -2521,10 +2532,26 @@ export default function Chart({
     }
 
     setActiveTool(toolName);
+
+    const remembered = getStyleMemory(toolName);
+    const effectiveStyles = customStyles || {
+      line: {
+        color: remembered.strokeColor || activeDrawingStyle.strokeColor || '#38bdf8',
+        size: remembered.lineWidth || activeDrawingStyle.lineWidth || 2,
+        style: remembered.lineStyle || 'solid'
+      },
+      polygon: {
+        color: remembered.fillColor || activeDrawingStyle.fillColor || 'rgba(56, 189, 248, 0.18)',
+        borderColor: remembered.strokeColor || activeDrawingStyle.strokeColor || '#38bdf8',
+        borderSize: remembered.lineWidth || activeDrawingStyle.lineWidth || 2
+      }
+    };
+
     const overlayId = chartRef.current.createOverlay({
       name: toolName,
       lock: false,
       mode: magnetEnabled ? 'strong_magnet' : 'normal',
+      styles: effectiveStyles,
       onDrawEnd: (e) => {
         setActiveTool(null);
         activeDrawingOverlayId.current = null;
@@ -2564,6 +2591,73 @@ export default function Chart({
       }
     });
     activeDrawingOverlayId.current = overlayId;
+  };
+
+  const applyTemplate = (tmpl) => {
+    if (!tmpl || !chartRef.current) return;
+    setIsTemplateMenuOpen(false);
+    if (tmpl.styles?.line?.color || tmpl.styles?.polygon?.borderColor) {
+      const color = tmpl.styles?.line?.color || tmpl.styles?.polygon?.borderColor;
+      const size = tmpl.styles?.line?.size || tmpl.styles?.polygon?.borderSize || 2;
+      const fill = tmpl.styles?.polygon?.color || `${color}25`;
+      const nextStyle = { strokeColor: color, lineWidth: size, fillColor: fill };
+      setActiveDrawingStyle(nextStyle);
+      saveStyleMemory(tmpl.tool, nextStyle);
+    }
+    handleSelectTool(tmpl.tool, tmpl.styles);
+  };
+
+  const updateStyle = (changes) => {
+    const next = { ...activeDrawingStyle, ...changes };
+    setActiveDrawingStyle(next);
+    saveStyleMemory(activeTool || 'default', next);
+    if (selectedOverlayId.current && chartRef.current) {
+      try {
+        const overlayData = trackedOverlays.current.get(selectedOverlayId.current);
+        const newOverlayStyles = {
+          line: {
+            color: next.strokeColor,
+            size: next.lineWidth
+          },
+          polygon: {
+            color: next.fillColor || `${next.strokeColor}25`,
+            borderColor: next.strokeColor,
+            borderSize: next.lineWidth
+          }
+        };
+        chartRef.current.overrideOverlay({
+          id: selectedOverlayId.current,
+          styles: newOverlayStyles
+        });
+        if (overlayData) {
+          overlayData.styles = newOverlayStyles;
+        }
+      } catch (_) {}
+    }
+  };
+
+  const handleSaveCurrentAsTemplate = () => {
+    if (!newTemplateName.trim()) return;
+    const tool = activeTool || 'straightLine';
+    const styles = {
+      line: {
+        color: activeDrawingStyle.strokeColor,
+        size: activeDrawingStyle.lineWidth
+      },
+      polygon: {
+        color: activeDrawingStyle.fillColor,
+        borderColor: activeDrawingStyle.strokeColor,
+        borderSize: activeDrawingStyle.lineWidth
+      }
+    };
+    const created = saveCustomTemplate({ name: newTemplateName.trim(), tool, styles });
+    if (created) {
+      setDrawingTemplates(getAllTemplates());
+      setStatusMsg(`Шаблон "${newTemplateName}" сохранен`);
+      setTimeout(() => setStatusMsg(""), 1500);
+    }
+    setShowSaveTemplateModal(false);
+    setNewTemplateName('');
   };
 
   const handleClearDrawings = () => {
@@ -2786,6 +2880,108 @@ export default function Chart({
             className="p-1 rounded text-[#787f91] hover:text-[#26a69a] hover:bg-[#26a69a18] transition"
           >
             <Save size={12} />
+          </button>
+
+          <div className="h-3.5 w-px bg-[#1f2430] mx-0.5" />
+
+          {/* SMC Templates Dropdown */}
+          <div className="relative inline-block">
+            <button
+              data-testid="btn-smc-templates"
+              type="button"
+              onClick={() => setIsTemplateMenuOpen(!isTemplateMenuOpen)}
+              className="px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 bg-[#161d2e] hover:bg-[#2563eb] text-[#38bdf8] hover:text-white border border-[#38bdf840] transition cursor-pointer"
+              title="Готовые шаблоны Smart Money Concepts (BOS, OB, FVG, Ликвидность)"
+            >
+              <Layers size={11} />
+              <span>Шаблоны SMC</span>
+              <ChevronDown size={10} />
+            </button>
+
+            {isTemplateMenuOpen && (
+              <div 
+                data-testid="smc-templates-dropdown"
+                className="absolute top-full left-0 mt-1 w-64 bg-[#0f1420] border border-[#2a3449] rounded shadow-2xl z-50 py-1 divide-y divide-[#1b2333]"
+              >
+                <div className="px-2 py-1 text-[9.5px] font-bold text-[#64748b] uppercase tracking-wider flex items-center justify-between">
+                  <span>Шаблоны SMC</span>
+                  <button 
+                    type="button"
+                    onClick={() => { setIsTemplateMenuOpen(false); setShowSaveTemplateModal(true); }}
+                    className="text-[#38bdf8] hover:underline normal-case font-normal text-[9px] cursor-pointer"
+                  >
+                    + Сохранить текущий
+                  </button>
+                </div>
+                <div className="py-0.5 max-h-56 overflow-y-auto">
+                  {drawingTemplates.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => applyTemplate(t)}
+                      className="w-full text-left px-2.5 py-1.5 hover:bg-[#182236] transition flex items-center justify-between group cursor-pointer"
+                    >
+                      <div className="flex flex-col min-w-0 pr-1">
+                        <span className="text-[10.5px] text-white font-medium group-hover:text-[#38bdf8] truncate">
+                          {t.name}
+                        </span>
+                        <span className="text-[9px] text-[#64748b] leading-tight truncate">
+                          {t.description}
+                        </span>
+                      </div>
+                      {t.badge && (
+                        <span 
+                          className="px-1 py-0.2 rounded text-[8.5px] font-bold shrink-0 ml-1"
+                          style={{ backgroundColor: `${t.badgeColor || '#38bdf8'}25`, color: t.badgeColor || '#38bdf8' }}
+                        >
+                          {t.badge}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Quick Style Palette & Thickness */}
+          <div className="flex items-center space-x-1 px-1 bg-[#0c1017] rounded border border-[#1e2536] py-0.5">
+            <Palette size={10} className="text-[#64748b] ml-0.5" />
+            {['#38bdf8', '#10b981', '#ef4444', '#f59e0b', '#a855f7'].map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => updateStyle({ strokeColor: c, fillColor: `${c}25` })}
+                className={`w-2.5 h-2.5 rounded-full transition cursor-pointer ${
+                  activeDrawingStyle.strokeColor === c ? 'ring-1 ring-white scale-125' : 'opacity-70 hover:opacity-100'
+                }`}
+                style={{ backgroundColor: c }}
+                title={`Цвет ${c}`}
+              />
+            ))}
+            <div className="h-2.5 w-px bg-[#1f2430] mx-0.5" />
+            {[1, 2, 3].map((w) => (
+              <button
+                key={w}
+                type="button"
+                onClick={() => updateStyle({ lineWidth: w })}
+                className={`px-0.5 text-[9px] font-mono rounded cursor-pointer ${
+                  activeDrawingStyle.lineWidth === w ? 'bg-[#2563eb] text-white font-bold' : 'text-[#64748b] hover:text-white'
+                }`}
+                title={`Толщина ${w}px`}
+              >
+                {w}p
+              </button>
+            ))}
+          </div>
+
+          <button
+            data-testid="btn-save-as-template"
+            title="Сохранить текущий стиль как шаблон SMC"
+            onClick={() => setShowSaveTemplateModal(true)}
+            className="p-1 rounded text-[#787f91] hover:text-[#38bdf8] hover:bg-[#38bdf818] transition cursor-pointer"
+          >
+            <Bookmark size={11} />
           </button>
         </div>
 
@@ -3137,6 +3333,65 @@ export default function Chart({
               </button>
             </div>
             <div className="font-mono text-[10px] break-words opacity-90">{errorDetails}</div>
+          </div>
+        )}
+
+        {/* Save Custom Template Modal */}
+        {showSaveTemplateModal && (
+          <div 
+            data-testid="modal-save-template"
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 font-sans"
+          >
+            <div className="bg-[#0f1420] border border-[#253248] rounded-lg p-4 w-80 shadow-2xl font-mono text-xs text-[#d1d4dc]">
+              <div className="flex items-center justify-between mb-3 border-b border-[#1f2738] pb-2">
+                <span className="font-bold text-white text-sm">Сохранить как шаблон SMC</span>
+                <button 
+                  type="button"
+                  onClick={() => setShowSaveTemplateModal(false)} 
+                  className="text-[#64748b] hover:text-white cursor-pointer"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="mb-3">
+                <label className="text-[10px] text-[#94a3b8] block mb-1">Название шаблона:</label>
+                <input
+                  data-testid="input-template-name"
+                  type="text"
+                  value={newTemplateName}
+                  onChange={(e) => setNewTemplateName(e.target.value)}
+                  placeholder="например, Мой FVG H1"
+                  className="w-full bg-[#070a10] border border-[#2a364f] rounded px-2 py-1 text-white text-xs outline-none focus:border-[#38bdf8]"
+                  autoFocus
+                />
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-[#64748b] mb-4">
+                <span>Инструмент: {activeTool || 'Линия'}</span>
+                <div className="flex items-center space-x-1">
+                  <span>Цвет:</span>
+                  <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: activeDrawingStyle.strokeColor }} />
+                  <span>({activeDrawingStyle.lineWidth}px)</span>
+                </div>
+              </div>
+              <div className="flex justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setShowSaveTemplateModal(false)}
+                  className="px-2.5 py-1 rounded bg-[#1e2536] hover:bg-[#2a3449] text-[#94a3b8] text-xs cursor-pointer"
+                >
+                  Отмена
+                </button>
+                <button
+                  data-testid="btn-confirm-save-template"
+                  type="button"
+                  onClick={handleSaveCurrentAsTemplate}
+                  disabled={!newTemplateName.trim()}
+                  className="px-3 py-1 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-bold text-xs disabled:opacity-40 cursor-pointer"
+                >
+                  Сохранить
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
