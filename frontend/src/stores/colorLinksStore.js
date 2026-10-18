@@ -48,6 +48,7 @@ export const useColorLinksStore = create((set, get) => ({
     orderbook_main: 'c1',
     watchlist_main: 'c1',
     signals_main: 'c1',
+    trades_main: 'c1',
     chart_ltf: 'c1'
   },
 
