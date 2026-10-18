@@ -37,6 +37,25 @@ export const useMarketDataStore = create((set, get) => {
     isConnected: false,
     lastUpdateTs: Date.now(),
 
+    // Real-time signals state (Requirement 3)
+    liveSignals: [],
+    showLiveSignals: true,
+
+    addLiveSignal: (signal) => {
+      set((state) => {
+        const id = signal.id || `${signal.symbol}_${signal.timestamp || Date.now()}_${Math.random()}`;
+        const newSig = { ...signal, id, receivedAt: Date.now() };
+        // Maintain last 50 signals
+        const updated = [newSig, ...state.liveSignals.filter((s) => s.id !== id)].slice(0, 50);
+        return { liveSignals: updated };
+      });
+    },
+
+    setLiveSignals: (signals) => set({ liveSignals: Array.isArray(signals) ? signals : [] }),
+    clearLiveSignals: () => set({ liveSignals: [] }),
+    toggleLiveSignals: () => set((state) => ({ showLiveSignals: !state.showLiveSignals })),
+    setShowLiveSignals: (show) => set({ showLiveSignals: Boolean(show) }),
+
     initMiniTickerStream: () => {
       if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
         return;

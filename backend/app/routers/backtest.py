@@ -340,21 +340,26 @@ def build_response(raw: Dict[str, Any], initial_capital: float, meta: Dict[str, 
     trades, signals = [], []
     for idx, t in enumerate(raw_trades, start=1):
         side = "BUY" if t["direction"] == "LONG" else "SELL"
+        is_long = t["direction"] == "LONG" or side == "BUY"
+        pnl_val = float(t.get("pnl_pct", 0.0))
         ctx = t.get("context_snapshot") or {}
         trades.append({
             "id": idx,
             "entry_time": t["entry_time"],
             "exit_time": t["exit_time"],
             "type": side,
-            "entry_price": t["entry_price"],
-            "exit_price": t["exit_price"],
-            "gross_pnl_usd": t.get("gross_pnl_usd", t["pnl_usd"]),
-            "gross_pnl_pct": t.get("gross_pnl_pct", t["pnl_pct"]),
-            "fee_paid_usd": t.get("fee_paid_usd", 0.0),
-            "slippage_cost_usd": t.get("slippage_cost_usd", 0.0),
+            "side": "Long" if is_long else "Short",
+            "direction": "LONG" if is_long else "SHORT",
+            "entry_price": float(t["entry_price"]),
+            "exit_price": float(t["exit_price"]),
+            "gross_pnl_usd": float(t.get("gross_pnl_usd", t["pnl_usd"])),
+            "gross_pnl_pct": float(t.get("gross_pnl_pct", t["pnl_pct"])),
+            "fee_paid_usd": float(t.get("fee_paid_usd", 0.0)),
+            "slippage_cost_usd": float(t.get("slippage_cost_usd", 0.0)),
             "tp1_hit": t.get("tp1_hit", False),
-            "pnl_pct": t["pnl_pct"],
-            "pnl_usd": t["pnl_usd"],
+            "pnl_pct": pnl_val,
+            "pnl_percent": pnl_val,
+            "pnl_usd": float(t["pnl_usd"]),
             "reason": t["exit_reason"],
             "context_snapshot": ctx
         })

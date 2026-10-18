@@ -30,10 +30,12 @@ import IndicatorSettingsDialog from './indicators/IndicatorSettingsDialog';
 import ActiveIndicatorStack from './indicators/ActiveIndicatorStack';
 import { useLayoutStore } from '../stores/layoutStore';
 import { useColorLinksStore } from '../stores/colorLinksStore';
+import { useMarketDataStore } from '../stores/marketDataStore';
 import { fetchKlinesDualSource, TF_MS } from '../services/marketDataFetcher';
 import { useTradeOverlayStore, calculatePositionMetrics } from '../stores/tradeOverlayStore';
 import { useBacktestStore } from '../stores/backtestStore';
 import { getAllTemplates, saveCustomTemplate, getStyleMemory, saveStyleMemory } from '../config/drawingTemplates';
+import { renderBacktestTrades, clearBacktestTrades, renderLiveSignals, clearLiveSignals } from '../utils/chartAnnotations';
 
 const API_BASE = "/api";
 
@@ -1466,6 +1468,12 @@ export default function Chart({
 
   const effectiveBacktestSignals = backtestSignals || (activeBtResult?.symbol === symbol.toUpperCase() ? activeBtResult : null);
   const effectiveShowBtSignals = showBacktestSignals && showTradesOnChart;
+
+  // Real-time signal overlay state from marketDataStore (Requirement 3)
+  const liveSignals = useMarketDataStore((s) => s.liveSignals);
+  const showLiveSignals = useMarketDataStore((s) => s.showLiveSignals);
+  const toggleLiveSignals = useMarketDataStore((s) => s.toggleLiveSignals);
+  const liveSignalOverlayIds = useRef([]);
 
   const handleQuickBacktestCurrentSetup = useCallback(async () => {
     try {
@@ -3035,6 +3043,29 @@ export default function Chart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveBacktestSignals, effectiveShowBtSignals, symbol, timeframe, klinesVersion, chartReady]);
 
+  // Real-time algorithmic signal overlay at the live edge of the chart (Requirement 3)
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || chartReady === 0) return;
+
+    clearLiveSignals(chart, liveSignalOverlayIds.current);
+    liveSignalOverlayIds.current = [];
+
+    if (!showLiveSignals || !Array.isArray(liveSignals) || liveSignals.length === 0) {
+      return;
+    }
+
+    const ids = renderLiveSignals(chart, liveSignals, symbol);
+    liveSignalOverlayIds.current = ids;
+
+    return () => {
+      if (chartRef.current) {
+        clearLiveSignals(chartRef.current, liveSignalOverlayIds.current);
+        liveSignalOverlayIds.current = [];
+      }
+    };
+  }, [liveSignals, showLiveSignals, symbol, chartReady]);
+
   // Listen for custom position setup projection events
   useEffect(() => {
     const onPositionSetup = (ev) => {
@@ -3636,6 +3667,22 @@ export default function Chart({
           >
             <Sliders size={11} />
             <span>Индикаторы [I] ({activeIndicators.filter(i => i.enabled !== false).length})</span>
+          </button>
+
+          {/* Real-time Signals & Backtest Markers Toggle (Requirement 3) */}
+          <button
+            type="button"
+            data-testid="btn-toggle-signals"
+            title="Отображение сигналов стратегий и трейдов на графике"
+            onClick={toggleLiveSignals}
+            className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition flex items-center space-x-1 cursor-pointer mr-0.5 ${
+              showLiveSignals
+                ? 'bg-[#10b98122] text-[#10b981] border border-[#10b98160]'
+                : 'text-[#60697b] hover:text-white border border-transparent'
+            }`}
+          >
+            <Eye size={11} className={showLiveSignals ? 'text-[#10b981]' : 'text-[#60697b]'} />
+            <span>Сигналы</span>
           </button>
           
           <button 
