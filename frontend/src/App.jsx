@@ -31,6 +31,12 @@ import {
   AlertTriangle,
   Columns,
   BarChart3,
+  BarChart2,
+  LineChart,
+  BookOpen,
+  Activity,
+  ChevronDown,
+  ExternalLink,
   Zap,
   PanelRightClose,
   PanelRightOpen,
@@ -46,8 +52,10 @@ import {
   LayoutGrid
 } from 'lucide-react';
 import { useLayoutStore } from './stores/layoutStore';
+import { useAlertsStore } from './stores/alertsStore';
+import AlertsModal from './components/docking/AlertsModal';
 
-const TIMEFRAMES = ['1m', '5m', '15m', '30m', '45m', '1h', '4h', '6h'];
+const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1D'];
 const POPULAR_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'DOGEUSDT', 'XRPUSDT', 'BNBUSDT', 'SUIUSDT', 'NEARUSDT'];
 const THEME_CYCLE = ['tealstreet', 'tiger', 'bloomberg'];
 const THEME_BADGE = {
@@ -88,6 +96,8 @@ export default function App() {
   const [symbol, setSymbol] = useState(initialSymbol);
   const [timeframe, setTimeframe] = useState(initialTf);
   const [userId] = useState(initialUserId);
+  const [denomination, setDenomination] = useState('USDT');
+  const [isAddWidgetDropdownOpen, setIsAddWidgetDropdownOpen] = useState(false);
 
   // Synchronize App symbol with Channel 1 (c1) of Color Links
   const c1Symbol = useColorLinksStore((s) => s.channels.c1);
@@ -602,14 +612,47 @@ export default function App() {
         return;
       }
 
-      // Timeframe via numbers
+      // Shift + Key shortcuts for modules and alerts
+      if (e.shiftKey) {
+        const k = e.key.toUpperCase();
+        if (k === 'A' || k === 'Ф') {
+          e.preventDefault();
+          useAlertsStore.getState().openAlertsModal({ symbol });
+          return;
+        } else if (k === 'C' || k === 'С') {
+          e.preventDefault();
+          useLayoutStore.getState().addWidgetPanel('chart');
+          return;
+        } else if (k === 'P' || k === 'З') {
+          e.preventDefault();
+          useLayoutStore.getState().addWidgetPanel('footprint');
+          return;
+        } else if (k === 'O' || k === 'Щ') {
+          e.preventDefault();
+          useLayoutStore.getState().addWidgetPanel('orderbook');
+          return;
+        } else if (k === 'D' || k === 'В') {
+          e.preventDefault();
+          useLayoutStore.getState().addWidgetPanel('dom');
+          return;
+        } else if (k === 'T' || k === 'Е') {
+          e.preventDefault();
+          useLayoutStore.getState().addWidgetPanel('trades');
+          return;
+        } else if (k === 'S' || k === 'Ы') {
+          e.preventDefault();
+          useLayoutStore.getState().addWidgetPanel('screener');
+          return;
+        }
+      }
+
+      // Timeframe via numbers (1m, 5m, 15m, 1h, 4h, 1D)
       if (e.key === '1') setTimeframe('1m');
       else if (e.key === '2') setTimeframe('5m');
       else if (e.key === '3') setTimeframe('15m');
-      else if (e.key === '4') setTimeframe('30m');
-      else if (e.key === '5') setTimeframe('1h');
-      else if (e.key === '6') setTimeframe('4h');
-      else if (e.key === '7') setTimeframe('6h');
+      else if (e.key === '4') setTimeframe('1h');
+      else if (e.key === '5') setTimeframe('4h');
+      else if (e.key === '6') setTimeframe('1D');
       // Next / Previous symbol via Arrow keys
       else if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -714,12 +757,13 @@ export default function App() {
       className="flex flex-col h-screen w-screen font-sans overflow-hidden select-none"
     >
       {/* Top Header Bar (Responsive, no horizontal overflow on 1366x768..4K) */}
+      {/* Top Header Bar (Velo / Bookmap High-End Institutional Style) */}
       <header
-        style={{ backgroundColor: 'var(--bg-panel-header)', borderColor: 'var(--border-subtle)' }}
-        className="flex items-center justify-between px-2 h-[34px] border-b z-20 text-xs gap-1.5 min-w-0 shrink-0"
+        style={{ backgroundColor: '#0b0e11', borderColor: 'rgba(255, 255, 255, 0.07)' }}
+        className="flex items-center justify-between px-2.5 h-[34px] border-b z-20 text-xs gap-2 min-w-0 shrink-0"
       >
-        {/* Left: Brand, Active Coin, Watchlist pills */}
-        <div className="flex items-center space-x-1.5 min-w-0 shrink-0">
+        {/* Left: Brand, Active Coin, Watchlist pills, Denomination switch */}
+        <div className="flex items-center space-x-2 min-w-0 shrink-0">
           <div className="flex items-center space-x-1 font-bold text-white tracking-wider text-[11px] shrink-0">
             <TrendingUp size={13} className="text-[#38bdf8]" />
             <span>
@@ -727,11 +771,11 @@ export default function App() {
             </span>
           </div>
 
-          <div className="h-3 w-px bg-[#1f2430] mx-0.5 shrink-0" />
+          <div className="h-3 w-px bg-neutral-800 mx-0.5 shrink-0" />
 
           {/* Active Symbol & Search */}
           <div className="flex items-center space-x-1 font-mono min-w-0">
-            <span className="text-[11px] font-bold text-white bg-[#14171f] px-1.5 py-0.5 rounded border border-[#1f2430] shrink-0">
+            <span className="text-[11px] font-bold text-white bg-[#12161f] px-1.5 py-0.5 rounded border border-neutral-800 shrink-0">
               {symbol}
             </span>
 
@@ -741,9 +785,9 @@ export default function App() {
                 placeholder="Поиск..."
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
-                className="w-16 xl:w-20 focus:w-24 transition-all duration-150 bg-[#0c0e12] border border-[#161820] rounded px-1.5 py-0.5 text-[10.5px] text-white placeholder-[#4b5563] outline-none font-mono"
+                className="w-16 xl:w-20 focus:w-24 transition-all duration-150 bg-[#07090b] border border-neutral-800 rounded px-1.5 py-0.5 text-[10px] text-white placeholder-neutral-500 outline-none font-mono focus:border-blue-500"
               />
-              <Search size={10} className="absolute right-1.5 top-1.5 text-[#4b5563] pointer-events-none" />
+              <Search size={10} className="absolute right-1.5 top-1.5 text-neutral-500 pointer-events-none" />
             </form>
 
             {/* Quick Watchlist pills */}
@@ -755,7 +799,7 @@ export default function App() {
                   className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition ${
                     symbol === sym
                       ? 'bg-[#2563eb] text-white font-bold'
-                      : 'text-[#787f91] hover:bg-[#161820] hover:text-white'
+                      : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'
                   }`}
                 >
                   {sym.replace('USDT', '')}
@@ -763,20 +807,42 @@ export default function App() {
               ))}
             </div>
           </div>
+
+          <div className="h-3 w-px bg-neutral-800 mx-0.5 shrink-0" />
+
+          {/* Asset Denomination Toggle: COIN / USDT / USDC */}
+          <div className="flex items-center bg-[#07090b] rounded p-0.5 border border-neutral-800 text-[9.5px] font-mono shrink-0">
+            {['COIN', 'USDT', 'USDC'].map((d) => (
+              <button
+                key={d}
+                type="button"
+                data-testid={`denomination-${d}`}
+                onClick={() => setDenomination(d)}
+                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                  denomination === d
+                    ? 'bg-neutral-800 text-white font-bold shadow-sm'
+                    : 'text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Center: Timeframe Selector (HTF Senior Chart) */}
-        <div className="flex items-center space-x-0.5 bg-[#0c0e12] p-0.5 rounded border border-[#161820] font-mono shrink-0">
-          <span className="hidden sm:inline text-[9.5px] text-[#787f91] px-1 font-semibold uppercase">HTF:</span>
+        {/* Center: Sleek Institutional Timeframe Switcher */}
+        <div className="flex items-center space-x-0.5 bg-[#07090b] p-0.5 rounded border border-neutral-800 font-mono shrink-0">
+          <span className="hidden sm:inline text-[9px] text-neutral-400 px-1 font-semibold uppercase tracking-wider">TF:</span>
           {TIMEFRAMES.map((tf, idx) => (
             <button
               key={tf}
+              data-testid={`timeframe-btn-${tf}`}
               onClick={() => setTimeframe(tf)}
               title={`Клавиша ${idx + 1}`}
-              className={`px-1.5 py-0.2 rounded text-[10px] transition ${
+              className={`px-1.5 py-0.5 rounded text-[10px] transition cursor-pointer ${
                 timeframe === tf
-                  ? 'bg-[#2563eb] text-white font-bold'
-                  : 'text-[#787f91] hover:text-white hover:bg-[#161820]'
+                  ? 'bg-[#2563eb] text-white font-semibold shadow-sm'
+                  : 'text-neutral-400 hover:text-white hover:bg-neutral-800/60'
               }`}
             >
               {tf}
@@ -784,7 +850,7 @@ export default function App() {
           ))}
         </div>
 
-        {/* Right: Proximity Banner, Panel Toggles, Theme, Settings */}
+        {/* Right: Proximity Banner, Alerts Button, Sound, Hotkeys, + Add Widget Dropdown */}
         <div className="flex items-center space-x-1 shrink-0">
           {activeProximityAlert && (
             <div className="hidden 2xl:flex items-center space-x-1 px-1.5 py-0.5 rounded bg-[#ffb30018] border border-[#ffb30060] text-[#ffb300] text-[10px] font-mono animate-pulse">
@@ -794,6 +860,17 @@ export default function App() {
               </span>
             </div>
           )}
+
+          {/* Quick Price Alert Trigger Button */}
+          <button
+            type="button"
+            data-testid="alerts-toolbar-button"
+            onClick={() => useAlertsStore.getState().openAlertsModal({ symbol })}
+            className="p-1 rounded text-neutral-400 hover:text-white hover:bg-neutral-800/60 transition cursor-pointer"
+            title="Ценовые алерты (Shift+A)"
+          >
+            <Bell size={13} />
+          </button>
 
           <button
             onClick={toggleSound}
@@ -807,130 +884,143 @@ export default function App() {
 
           <button
             onClick={() => setShowHotkeyHelp(!showHotkeyHelp)}
-            className="p-1 rounded text-[#787f91] hover:text-white hover:bg-[#161820] transition"
+            className="p-1 rounded text-neutral-400 hover:text-white hover:bg-neutral-800/60 transition"
             title="Горячие клавиши ('?')"
           >
             <Keyboard size={13} />
           </button>
 
-          {/* Widget Hub Modal Trigger ('+ Виджеты') */}
+          {/* "+ Add Widget" Institutional Dropdown Menu */}
           <div className="relative">
             <button
               data-testid="widgets-menu-button"
-              onClick={() => useLayoutStore.getState().openWidgetHub()}
-              className="px-2 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition cursor-pointer bg-[#141720] text-[#38bdf8] border-[#38bdf850] hover:bg-[#1e293b] hover:border-[#38bdf8]"
-              title="Каталог модулей: добавить График, DOM, Ленту, Скринер"
+              onClick={() => setIsAddWidgetDropdownOpen(!isAddWidgetDropdownOpen)}
+              className="px-2 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1.5 border transition cursor-pointer bg-[#0e1217] text-neutral-200 border-neutral-700/60 hover:bg-neutral-800 hover:text-white hover:border-neutral-600"
+              title="Добавить модуль в рабочую область (+ Add Widget)"
             >
-              <Plus size={11} />
-              <span>Виджеты</span>
+              <Plus size={11} className="text-blue-400" />
+              <span className="font-medium">+ Add Widget</span>
+              <ChevronDown size={10} className="text-neutral-400" />
             </button>
 
-            {showWidgetsMenu && (
-              <div
-                data-testid="widgets-dropdown"
-                onClick={(e) => e.stopPropagation()}
-                style={{ backgroundColor: 'var(--bg-panel, #10131b)', borderColor: 'var(--border-subtle, #1f2430)' }}
-                className="absolute right-0 top-7 z-50 w-64 rounded-lg border shadow-2xl p-2 space-y-1 font-sans text-xs animate-fadeIn"
-              >
-                <div className="flex items-center justify-between px-1.5 py-1 border-b border-[#1f2430] text-[10.5px] font-bold text-white">
-                  <span className="flex items-center space-x-1.5">
-                    <LayoutGrid size={12} className="text-[#38bdf8]" />
-                    <span>Управление виджетами</span>
-                  </span>
-                  <button
-                    onClick={() => setShowWidgetsMenu(false)}
-                    className="text-[#60697b] hover:text-white p-0.5 cursor-pointer"
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
+            {isAddWidgetDropdownOpen && (
+              <>
+                {/* Backdrop closer */}
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setIsAddWidgetDropdownOpen(false)}
+                />
 
-                {[
-                  {
-                    id: 'htf',
-                    label: 'График HTF (Старший ТФ)',
-                    active: showHtfChart,
-                    toggle: () => setShowHtfChart((v) => !v)
-                  },
-                  {
-                    id: 'ltf',
-                    label: 'График LTF (Младший ТФ)',
-                    active: showLtfChart,
-                    toggle: () => setShowLtfChart((v) => !v)
-                  },
-                  {
-                    id: 'trade_desk',
-                    label: 'Scalper Trade Desk (Риск / Ввод)',
-                    active: showTradeDesk,
-                    toggle: () => setShowTradeDesk((v) => !v)
-                  },
-                  {
-                    id: 'dom',
-                    label: 'Биржевой стакан (DOM)',
-                    active: showOrderBook,
-                    toggle: () => setShowOrderBook((v) => !v)
-                  },
-                  {
-                    id: 'tape',
-                    label: 'Лента сделок (Time & Sales)',
-                    active: showTape,
-                    toggle: () => setShowTape((v) => !v)
-                  },
-                  {
-                    id: 'signals',
-                    label: 'Лента сигналов',
-                    active: showSignals,
-                    toggle: () => setShowSignals((v) => !v)
-                  },
-                  {
-                    id: 'backtest_ai',
-                    label: 'Панель бэктеста / AI',
-                    active: showBacktest || showAICopilot,
-                    toggle: () => {
-                      if (showBacktest || showAICopilot) {
-                        setShowBacktest(false);
-                        setShowAICopilot(false);
-                      } else {
-                        setShowBacktest(true);
-                        setShowAICopilot(true);
+                <div
+                  data-testid="widgets-dropdown"
+                  onClick={(e) => e.stopPropagation()}
+                  className="absolute right-0 top-7 z-50 w-56 rounded-lg border border-neutral-800 bg-[#0b0e11] shadow-2xl p-1.5 space-y-0.5 font-sans text-xs animate-fadeIn text-[#d1d5db]"
+                >
+                  <div className="px-2 py-1 text-[9px] font-mono font-bold uppercase tracking-wider text-neutral-400 border-b border-neutral-800/80 mb-1">
+                    Modules & Widgets
+                  </div>
+
+                  {[
+                    {
+                      id: 'chart',
+                      label: 'Chart (График)',
+                      hint: 'Shift+C',
+                      icon: LineChart,
+                      action: () => {
+                        setShowHtfChart(true);
+                        useLayoutStore.getState().addWidgetPanel('chart');
                       }
+                    },
+                    {
+                      id: 'tpo',
+                      label: 'TPO / Footprint',
+                      hint: 'Shift+P',
+                      icon: Layers,
+                      action: () => useLayoutStore.getState().addWidgetPanel('footprint')
+                    },
+                    {
+                      id: 'orderbook',
+                      label: 'Order Book (Стакан)',
+                      hint: 'Shift+O',
+                      icon: BookOpen,
+                      action: () => {
+                        setShowOrderBook(true);
+                        useLayoutStore.getState().addWidgetPanel('orderbook');
+                      }
+                    },
+                    {
+                      id: 'dom',
+                      label: 'DOM Ladder',
+                      hint: 'Shift+D',
+                      icon: Activity,
+                      action: () => {
+                        setShowOrderBook(true);
+                        useLayoutStore.getState().addWidgetPanel('dom');
+                      }
+                    },
+                    {
+                      id: 'trades',
+                      label: 'Trades (Лента)',
+                      hint: 'Shift+T',
+                      icon: Zap,
+                      action: () => {
+                        setShowTape(true);
+                        useLayoutStore.getState().addWidgetPanel('trades');
+                      }
+                    },
+                    {
+                      id: 'screener',
+                      label: 'Screener (Скринер)',
+                      hint: 'Shift+S',
+                      icon: BarChart2,
+                      action: () => useLayoutStore.getState().addWidgetPanel('screener')
+                    },
+                    {
+                      id: 'alerts',
+                      label: 'Alerts (Алерты)',
+                      hint: 'Shift+A',
+                      icon: Bell,
+                      action: () => useAlertsStore.getState().openAlertsModal({ symbol })
                     }
-                  }
-                ].map((item) => (
-                  <button
-                    key={item.id}
-                    data-testid={`widget-toggle-${item.id}`}
-                    onClick={item.toggle}
-                    className="w-full flex items-center justify-between px-2 py-1.5 rounded hover:bg-[#191f2e] transition cursor-pointer text-left"
-                  >
-                    <span className={item.active ? 'text-white font-medium text-[11px]' : 'text-[#787f91] text-[11px]'}>
-                      {item.label}
-                    </span>
-                    <span
-                      className={`w-4 h-4 rounded flex items-center justify-center border ${
-                        item.active
-                          ? 'bg-[#2563eb] border-[#38bdf8] text-white'
-                          : 'border-[#333d52] bg-[#090b10]'
-                      }`}
-                    >
-                      {item.active && <Check size={11} strokeWidth={3} />}
-                    </span>
-                  </button>
-                ))}
+                  ].map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        data-testid={`widget-toggle-${item.id}`}
+                        onClick={() => {
+                          item.action();
+                          setIsAddWidgetDropdownOpen(false);
+                        }}
+                        className="w-full flex items-center justify-between px-2 py-1.5 rounded hover:bg-neutral-800/80 hover:text-white transition cursor-pointer text-left group"
+                      >
+                        <span className="flex items-center space-x-2 text-[11px] text-neutral-300 group-hover:text-white">
+                          <Icon size={12} className="text-neutral-400 group-hover:text-blue-400" />
+                          <span>{item.label}</span>
+                        </span>
+                        <span className="text-[9.5px] font-mono text-neutral-400 group-hover:text-neutral-300">
+                          {item.hint}
+                        </span>
+                      </button>
+                    );
+                  })}
 
-                <div className="pt-1 border-t border-[#1f2430]">
-                  <button
-                    onClick={() => {
-                      resetLayoutToDefaults();
-                      setShowWidgetsMenu(false);
-                    }}
-                    className="w-full py-1 px-2 rounded bg-[#161a26] hover:bg-[#2563eb] text-[#94a3b8] hover:text-white text-[10.5px] font-mono flex items-center justify-center space-x-1 transition cursor-pointer"
-                  >
-                    <RotateCcw size={11} />
-                    <span>Восстановить раскладку</span>
-                  </button>
+                  <div className="pt-1 border-t border-neutral-800/80 mt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        useLayoutStore.getState().openWidgetHub();
+                        setIsAddWidgetDropdownOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between px-2 py-1.5 rounded hover:bg-neutral-800/80 hover:text-white text-[10.5px] font-mono text-blue-400 transition cursor-pointer"
+                    >
+                      <span>Каталог виджетов...</span>
+                      <ExternalLink size={10} />
+                    </button>
+                  </div>
                 </div>
-              </div>
+              </>
             )}
           </div>
 
@@ -1312,6 +1402,9 @@ export default function App() {
         }}
         isDualPane={isDualPane}
       />
+
+      {/* Institutional Price Alerts Modal (Velo / Bookmap Style) */}
+      <AlertsModal currentSymbol={symbol} currentPrice={81300} />
     </div>
   );
 }

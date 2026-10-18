@@ -191,3 +191,56 @@ export function clearLiveSignals(chart, overlayIds = []) {
     safeRemoveOverlay(chart, id);
   });
 }
+
+/**
+ * Renders large "Whale" trade badges (> $500k) floating on the chart at execution price.
+ */
+export function renderWhaleTrades(chart, whaleTrades = [], symbol = '') {
+  if (!chart || !Array.isArray(whaleTrades) || whaleTrades.length === 0) {
+    return [];
+  }
+
+  const createdIds = [];
+  const targetSymbol = symbol ? symbol.toUpperCase() : null;
+
+  whaleTrades.forEach((trade) => {
+    if (targetSymbol && trade.symbol && trade.symbol.toUpperCase() !== targetSymbol) {
+      return;
+    }
+
+    const ts = Number(trade.time || trade.timestamp || Date.now());
+    const price = Number(trade.price || 0);
+    const usd = Number(trade.usd || 0);
+    const side = String(trade.side || trade.type || 'BUY').toUpperCase();
+    const isBuy = side === 'BUY';
+    const sizeText = usd >= 1e6 ? `$${(usd / 1e6).toFixed(1)}M` : `$${Math.round(usd / 1e3)}k`;
+
+    try {
+      const id = safeCreateOverlay(chart, {
+        name: 'whaleTradeMarker',
+        lock: true,
+        points: [{ timestamp: ts, value: price }],
+        extendData: {
+          side,
+          price,
+          usd,
+          sizeText
+        }
+      });
+      if (id) createdIds.push(id);
+    } catch (_) {}
+  });
+
+  return createdIds;
+}
+
+/**
+ * Clears whale trade overlays.
+ */
+export function clearWhaleTrades(chart, overlayIds = []) {
+  if (!chart || !Array.isArray(overlayIds)) return;
+  overlayIds.forEach((id) => {
+    safeRemoveOverlay(chart, id);
+  });
+}
+

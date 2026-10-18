@@ -333,6 +333,7 @@ export default function TerminalDockview({
     () => ({
       chart: ChartDockPanel,
       orderbook: OrderBookDockPanel,
+      dom: OrderBookDockPanel,
       watchlist: ScreenerWidget,
       screener: ScreenerWidget,
       signals: SignalsDockPanel,
@@ -566,7 +567,7 @@ export default function TerminalDockview({
         if (ref) {
           position = { referencePanel: ref, direction: 'within' };
         }
-      } else if (type === 'orderbook') {
+      } else if (type === 'orderbook' || type === 'dom') {
         title = `Стакан DOM #${domPanels.length + 1}`;
         component = 'orderbook';
         const ref = domPanels[0] || chartPanels[0] || panels[0];

@@ -34,8 +34,9 @@ import { useMarketDataStore } from '../stores/marketDataStore';
 import { fetchKlinesDualSource, TF_MS } from '../services/marketDataFetcher';
 import { useTradeOverlayStore, calculatePositionMetrics } from '../stores/tradeOverlayStore';
 import { useBacktestStore } from '../stores/backtestStore';
+import { useTradesStore } from '../stores/tradesStore';
 import { getAllTemplates, saveCustomTemplate, getStyleMemory, saveStyleMemory } from '../config/drawingTemplates';
-import { renderBacktestTrades, clearBacktestTrades, renderLiveSignals, clearLiveSignals } from '../utils/chartAnnotations';
+import { renderBacktestTrades, clearBacktestTrades, renderLiveSignals, clearLiveSignals, renderWhaleTrades, clearWhaleTrades } from '../utils/chartAnnotations';
 
 const API_BASE = "/api";
 
@@ -233,6 +234,84 @@ try {
             baseline: isBuy ? 'top' : 'bottom'
           },
           styles: { color, size: 9, backgroundColor: 'transparent' },
+          ignoreEvent: true
+        }
+      ];
+    }
+  });
+} catch (_) {}
+
+// 2b-2. Register custom 'whaleTradeMarker' (Floating B/S Whale Orders > $500k on Chart)
+try {
+  registerOverlay({
+    name: 'whaleTradeMarker',
+    totalStep: 2,
+    lock: true,
+    needDefaultPointFigure: false,
+    needDefaultXAxisFigure: false,
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ coordinates, yAxis, overlay }) => {
+      if (!coordinates || coordinates.length === 0) return [];
+      let { x, y } = coordinates[0];
+      if (!Number.isFinite(x)) return [];
+
+      const ext = overlay.extendData || {};
+      const price = Number(ext.price ?? overlay.points?.[0]?.value ?? 0);
+      if (yAxis && typeof yAxis.convertToPixel === 'function' && price > 0) {
+        const calcY = yAxis.convertToPixel(price);
+        if (Number.isFinite(calcY)) {
+          y = calcY;
+        }
+      }
+      if (!Number.isFinite(y)) return [];
+
+      const isBuy = String(ext.side || ext.type || 'BUY').toUpperCase() === 'BUY';
+      const color = isBuy ? '#10b981' : '#ef4444';
+      const sizeText = ext.sizeText || (ext.usd ? `$${Math.round(ext.usd / 1e3)}k` : '');
+      const badgeText = isBuy ? `[B] ${sizeText}` : `[S] ${sizeText}`;
+      const badgeW = 54;
+      const badgeH = 15;
+      const badgeY = isBuy ? y - badgeH - 5 : y + 5;
+
+      return [
+        {
+          type: 'circle',
+          attrs: { x, y, r: 3 },
+          styles: { style: 'fill', color },
+          ignoreEvent: true
+        },
+        {
+          type: 'rect',
+          attrs: {
+            x: x - badgeW / 2,
+            y: badgeY,
+            width: badgeW,
+            height: badgeH
+          },
+          styles: {
+            style: 'stroke_fill',
+            color: isBuy ? 'rgba(16, 185, 129, 0.95)' : 'rgba(239, 68, 68, 0.95)',
+            borderColor: '#ffffff',
+            borderSize: 0.8,
+            borderRadius: 3
+          },
+          ignoreEvent: true
+        },
+        {
+          type: 'text',
+          attrs: {
+            x,
+            y: badgeY + badgeH / 2,
+            text: badgeText,
+            align: 'center',
+            baseline: 'middle'
+          },
+          styles: {
+            color: '#ffffff',
+            size: 8.5,
+            weight: 'bold',
+            backgroundColor: 'transparent'
+          },
           ignoreEvent: true
         }
       ];
@@ -3065,6 +3144,39 @@ export default function Chart({
       }
     };
   }, [liveSignals, showLiveSignals, symbol, chartReady]);
+
+  // Real-time Whale Trade (large orders >= $500k) floating annotations on chart
+  const whaleOverlayIds = useRef([]);
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || chartReady === 0) return;
+
+    clearWhaleTrades(chart, whaleOverlayIds.current);
+    whaleOverlayIds.current = [];
+
+    const unsub = useTradesStore.getState().addTradeListener((trade) => {
+      if (trade.symbol === symbol.toUpperCase() && trade.usd >= 500000) {
+        try {
+          const ids = renderWhaleTrades(chart, [trade], symbol);
+          if (ids && ids.length > 0) {
+            whaleOverlayIds.current.push(...ids);
+            if (whaleOverlayIds.current.length > 40) {
+              const oldId = whaleOverlayIds.current.shift();
+              clearWhaleTrades(chart, [oldId]);
+            }
+          }
+        } catch (_) {}
+      }
+    });
+
+    return () => {
+      unsub();
+      if (chartRef.current) {
+        clearWhaleTrades(chartRef.current, whaleOverlayIds.current);
+        whaleOverlayIds.current = [];
+      }
+    };
+  }, [symbol, chartReady]);
 
   // Listen for custom position setup projection events
   useEffect(() => {
