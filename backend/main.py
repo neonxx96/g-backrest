@@ -97,10 +97,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from backend.app.routers.workspaces import router as workspaces_router
+
 app.include_router(api_router)
 app.include_router(data_router)
 app.include_router(backtest_router)
 app.include_router(ai_router)
+app.include_router(workspaces_router)
 
 if __name__ == "__main__":
 

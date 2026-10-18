@@ -117,3 +117,20 @@ class DrawingData(Base):
     timeframe = Column(String)
     elements_json = Column(Text, default="[]")
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class Workspace(Base):
+    """
+    User Workspaces & Dockview Layouts.
+    Stores layout JSON (dockview geometry & tab placement) and color links.
+    Strictly NO market data (ticks, candles, depth) is stored here.
+    """
+    __tablename__ = "workspaces"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, default="0", index=True)
+    name = Column(String, nullable=False)
+    layout_data = Column(Text, nullable=False)
+    color_links = Column(Text, default="{}")
+    is_default = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
