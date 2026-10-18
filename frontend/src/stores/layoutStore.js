@@ -42,10 +42,12 @@ export const useLayoutStore = create((set, get) => {
           [panelId]: indicators
         }
       }));
-      const state = get();
-      if (state.currentLayoutData?.dockview) {
-        state.scheduleAutosave(state.currentLayoutData.dockview);
-      }
+      setTimeout(() => {
+        const state = get();
+        if (state.isLayoutLoaded && state.currentLayoutData?.dockview) {
+          state.scheduleAutosave(state.currentLayoutData.dockview);
+        }
+      }, 50);
     },
 
     // Fetch all presets from backend

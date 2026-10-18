@@ -1072,6 +1072,7 @@ export default function Chart({
   const [activeTool, setActiveTool] = useState(null);
   const activeDrawingOverlayId = useRef(null);
   const [isMouseDown, setIsMouseDown] = useState(false);
+  const [magnetEnabled, setMagnetEnabled] = useState(false);
   const savedIndicators = useLayoutStore((s) => s.getPanelIndicators(chartId));
   const setPanelIndicators = useLayoutStore((s) => s.setPanelIndicators);
 
@@ -1478,75 +1479,80 @@ export default function Chart({
     });
   }, []);
 
+  const activeIndicatorsRef = useRef(activeIndicators);
+  useEffect(() => {
+    activeIndicatorsRef.current = activeIndicators;
+  }, [activeIndicators]);
+
   const handleAddIndicator = useCallback((indId) => {
     const def = INDICATORS_REGISTRY[indId];
     if (!def) return;
-    setActiveIndicators((prev) => {
-      if (prev.some((i) => i.id === indId)) return prev;
-      const next = [
-        ...prev,
-        {
-          id: indId,
-          enabled: true,
-          inputs: { ...def.defaultInputs },
-          styles: { ...def.defaultStyles }
-        }
-      ];
-      setPanelIndicators(chartId, next);
-      if (chartRef.current) {
-        syncIndicatorsWithChart(chartRef.current, next);
+    const prev = activeIndicatorsRef.current || [];
+    if (prev.some((i) => i.id === indId)) return;
+    const next = [
+      ...prev,
+      {
+        id: indId,
+        enabled: true,
+        inputs: { ...def.defaultInputs },
+        styles: { ...def.defaultStyles }
       }
-      return next;
-    });
+    ];
+    activeIndicatorsRef.current = next;
+    setActiveIndicators(next);
+    setPanelIndicators(chartId, next);
+    if (chartRef.current) {
+      syncIndicatorsWithChart(chartRef.current, next);
+    }
     setStatusMsg(`Добавлен: ${def.shortName}`);
     setTimeout(() => setStatusMsg(''), 1500);
   }, [chartId, setPanelIndicators, syncIndicatorsWithChart]);
 
   const handleRemoveIndicator = useCallback((indId) => {
     const def = INDICATORS_REGISTRY[indId];
-    setActiveIndicators((prev) => {
-      const next = prev.filter((i) => i.id !== indId);
-      setPanelIndicators(chartId, next);
-      if (chartRef.current) {
-        const isMain = def?.pane === 'main';
-        const paneId = isMain ? 'candle_pane' : `pane_${indId}`;
-        const klineName = def ? def.klineName : indId.toUpperCase();
-        try {
-          chartRef.current.removeIndicator(paneId, klineName);
-          if (!isMain) chartRef.current.removeIndicator({ name: klineName });
-        } catch (_) {}
-        syncIndicatorsWithChart(chartRef.current, next);
-      }
-      return next;
-    });
+    const prev = activeIndicatorsRef.current || [];
+    const next = prev.filter((i) => i.id !== indId);
+    activeIndicatorsRef.current = next;
+    setActiveIndicators(next);
+    setPanelIndicators(chartId, next);
+    if (chartRef.current) {
+      const isMain = def?.pane === 'main';
+      const paneId = isMain ? 'candle_pane' : `pane_${indId}`;
+      const klineName = def ? def.klineName : indId.toUpperCase();
+      try {
+        chartRef.current.removeIndicator(paneId, klineName);
+        if (!isMain) chartRef.current.removeIndicator({ name: klineName });
+      } catch (_) {}
+      syncIndicatorsWithChart(chartRef.current, next);
+    }
   }, [chartId, setPanelIndicators, syncIndicatorsWithChart]);
 
   const handleToggleVisibility = useCallback((indId) => {
-    setActiveIndicators((prev) => {
-      const next = prev.map((item) =>
-        item.id === indId ? { ...item, enabled: !item.enabled } : item
-      );
-      setPanelIndicators(chartId, next);
-      if (chartRef.current) {
-        syncIndicatorsWithChart(chartRef.current, next);
-      }
-      return next;
-    });
+    const prev = activeIndicatorsRef.current || [];
+    const next = prev.map((item) =>
+      item.id === indId ? { ...item, enabled: !item.enabled } : item
+    );
+    activeIndicatorsRef.current = next;
+    setActiveIndicators(next);
+    setPanelIndicators(chartId, next);
+    if (chartRef.current) {
+      syncIndicatorsWithChart(chartRef.current, next);
+    }
   }, [chartId, setPanelIndicators, syncIndicatorsWithChart]);
 
   const handleSaveSettings = useCallback((indId, newInputs, newStyles) => {
-    setActiveIndicators((prev) => {
-      const next = prev.map((item) =>
-        item.id === indId
-          ? { ...item, inputs: { ...newInputs }, styles: { ...newStyles } }
-          : item
-      );
-      setPanelIndicators(chartId, next);
-      if (chartRef.current) {
-        syncIndicatorsWithChart(chartRef.current, next);
-      }
-      return next;
-    });
+    const prev = activeIndicatorsRef.current || [];
+    const next = prev.map((item) =>
+      item.id === indId
+        ? { ...item, inputs: { ...newInputs }, styles: { ...newStyles } }
+        : item
+    );
+    activeIndicatorsRef.current = next;
+    setActiveIndicators(next);
+    setPanelIndicators(chartId, next);
+    if (chartRef.current) {
+      syncIndicatorsWithChart(chartRef.current, next);
+    }
     setStatusMsg(`Настройки ${indId.toUpperCase()} сохранены`);
     setTimeout(() => setStatusMsg(''), 1500);
   }, [chartId, setPanelIndicators, syncIndicatorsWithChart]);
