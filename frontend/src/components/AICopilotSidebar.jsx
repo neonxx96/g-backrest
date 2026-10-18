@@ -11,7 +11,10 @@ import {
   KeyRound,
   Check,
   Radio,
-  Cpu
+  Cpu,
+  Magnet,
+  Scale,
+  TrendingUp
 } from 'lucide-react';
 
 const AI_MODELS = [
@@ -58,6 +61,7 @@ export default function AICopilotSidebar({
   const [loadingAnalysis, setLoadingAnalysis] = useState(false);
   const [analysis, setAnalysis] = useState(null);
   const [analysisError, setAnalysisError] = useState(null);
+  const [coneProjected, setConeProjected] = useState(false);
 
   // Backtest quick runner state
   const [btLoading, setBtLoading] = useState(false);
@@ -194,6 +198,33 @@ export default function AICopilotSidebar({
       );
     },
     [analysis, symbol, onApplyLevels, onProjectPositionSetup]
+  );
+
+  const toggleVolatilityCone = useCallback(
+    (customCone) => {
+      const coneToUse = customCone || analysis?.expected_move_cone;
+      if (!coneToUse) return;
+      if (coneProjected && !customCone) {
+        window.dispatchEvent(new CustomEvent('clear-volatility-cone'));
+        setConeProjected(false);
+      } else {
+        window.dispatchEvent(
+          new CustomEvent('apply-volatility-cone', {
+            detail: {
+              cone: {
+                ...coneToUse,
+                ev_display: analysis?.expected_value
+                  ? `${analysis.expected_value.ev_per_trade_usd >= 0 ? '+' : ''}${analysis.expected_value.ev_per_trade_usd}$ (${analysis.expected_value.ev_r_multiple})`
+                  : ''
+              },
+              symbol
+            }
+          })
+        );
+        setConeProjected(true);
+      }
+    },
+    [analysis, coneProjected, symbol]
   );
 
   // Handle express 1-click market analysis & Live Sentinel poll
@@ -791,6 +822,188 @@ export default function AICopilotSidebar({
                     )}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Stage 3.1: Математическое ожидание (Expected Value) */}
+            {analysis.expected_value && (
+              <div
+                data-testid="ai-expected-value-card"
+                className="p-2.5 rounded-lg border border-[#10b98140] bg-[#091515] space-y-2 font-mono text-[10px]"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white text-[10.5px] flex items-center space-x-1">
+                    <Scale size={13} className="text-[#10b981]" />
+                    <span>Математическое ожидание (EV)</span>
+                  </span>
+                  <span
+                    data-testid="ai-ev-verdict"
+                    className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold ${
+                      analysis.expected_value.is_positive_expectancy
+                        ? 'bg-[#10b98125] text-[#10b981] border border-[#10b98150]'
+                        : 'bg-[#ef444425] text-[#ef4444] border border-[#ef444450]'
+                    }`}
+                  >
+                    {analysis.expected_value.verdict}
+                  </span>
+                </div>
+
+                <div className="flex items-baseline justify-between bg-[#040c0c] p-2 rounded border border-[#132a28]">
+                  <span className="text-[#94a3b8] text-[9.5px]">Мат. ожидание на сделку:</span>
+                  <div className="flex items-baseline space-x-1.5">
+                    <span
+                      data-testid="ai-ev-value"
+                      className={`text-[14px] font-extrabold ${
+                        analysis.expected_value.ev_per_trade_usd >= 0 ? 'text-[#10b981]' : 'text-[#ef4444]'
+                      }`}
+                    >
+                      {analysis.expected_value.ev_per_trade_usd >= 0 ? '+' : ''}
+                      ${analysis.expected_value.ev_per_trade_usd}
+                    </span>
+                    <span className="text-[#38bdf8] font-bold text-[11px]">
+                      ({analysis.expected_value.ev_r_multiple})
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-4 gap-1 text-[9px] text-center">
+                  <div className="p-1 rounded bg-[#0b1b1a]">
+                    <div className="text-[#64748b]">WinRate</div>
+                    <div className="font-bold text-[#10b981]">{analysis.expected_value.p_win_pct}%</div>
+                  </div>
+                  <div className="p-1 rounded bg-[#0b1b1a]">
+                    <div className="text-[#64748b]">Ср. Win</div>
+                    <div className="font-bold text-[#34d399]">+${analysis.expected_value.avg_win_usd}</div>
+                  </div>
+                  <div className="p-1 rounded bg-[#0b1b1a]">
+                    <div className="text-[#64748b]">Ср. Loss</div>
+                    <div className="font-bold text-[#ef4444]">-${analysis.expected_value.avg_loss_usd}</div>
+                  </div>
+                  <div className="p-1 rounded bg-[#0b1b1a]">
+                    <div className="text-[#64748b]">Комис+Слип</div>
+                    <div className="font-bold text-[#f59e0b]">-${analysis.expected_value.avg_fees_and_slippage_usd}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Stage 3.2: Liquidity Magnet & Depth Ratio (±1.5% Corridor) */}
+            {analysis.liquidity_magnet && (
+              <div
+                data-testid="ai-liquidity-magnet-card"
+                className="p-2.5 rounded-lg border border-[#38bdf830] bg-[#0c1322] space-y-2 font-mono text-[10px]"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white text-[10.5px] flex items-center space-x-1">
+                    <Magnet size={13} className="text-[#38bdf8]" />
+                    <span>Магнит ликвидности (Liquidity Magnet)</span>
+                  </span>
+                  <span
+                    className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold ${
+                      analysis.liquidity_magnet.magnet_vector === 'BID_MAGNET'
+                        ? 'bg-[#10b98125] text-[#10b981] border border-[#10b98150]'
+                        : analysis.liquidity_magnet.magnet_vector === 'ASK_MAGNET'
+                        ? 'bg-[#ef444425] text-[#ef4444] border border-[#ef444450]'
+                        : 'bg-[#64748b25] text-[#94a3b8]'
+                    }`}
+                  >
+                    {analysis.liquidity_magnet.magnet_vector || 'NEUTRAL'}
+                  </span>
+                </div>
+
+                <div className="text-[10px] text-[#cbd5e1] leading-snug">
+                  {analysis.liquidity_magnet.magnet_description}
+                </div>
+
+                <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+                  <div className="p-1.5 rounded bg-[#080d18] border border-[#172238]">
+                    <div className="text-[#64748b] text-[8.5px]">Глубина Bids (±1.5%)</div>
+                    <div className="text-[#10b981] font-bold text-[11px]">
+                      ${(analysis.liquidity_magnet.bids_volume_usd / 1000000).toFixed(2)}M
+                    </div>
+                    {analysis.liquidity_magnet.nearest_major_bid_wall && (
+                      <div className="text-[#94a3b8] text-[8.5px]">
+                        Стенка: ${analysis.liquidity_magnet.nearest_major_bid_wall.price} ({analysis.liquidity_magnet.nearest_major_bid_wall.dist_pct}%)
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-1.5 rounded bg-[#080d18] border border-[#172238]">
+                    <div className="text-[#64748b] text-[8.5px]">Глубина Asks (±1.5%)</div>
+                    <div className="text-[#ef4444] font-bold text-[11px]">
+                      ${(analysis.liquidity_magnet.asks_volume_usd / 1000000).toFixed(2)}M
+                    </div>
+                    {analysis.liquidity_magnet.nearest_major_ask_wall && (
+                      <div className="text-[#94a3b8] text-[8.5px]">
+                        Стенка: ${analysis.liquidity_magnet.nearest_major_ask_wall.price} ({analysis.liquidity_magnet.nearest_major_ask_wall.dist_pct}%)
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between bg-[#080d18] p-1.5 rounded border border-[#172238]">
+                  <span className="text-[#94a3b8] text-[9.5px]">Соотношение глубин (Bid/Ask):</span>
+                  <span data-testid="ai-magnet-ratio" className="text-[#38bdf8] font-bold text-[11px]">
+                    {analysis.liquidity_magnet.bid_ask_depth_ratio}x
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Stage 3.3: Конус волатильности (Expected Move Cone) */}
+            {analysis.expected_move_cone && (
+              <div
+                data-testid="ai-volatility-cone-card"
+                className="p-2.5 rounded-lg border border-[#38bdf840] bg-[#0a1426] space-y-2 font-mono text-[10px]"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white text-[10.5px] flex items-center space-x-1">
+                    <TrendingUp size={13} className="text-[#38bdf8]" />
+                    <span>Конус ожидаемого движения (Expected Move)</span>
+                  </span>
+                  <span className="text-[#7dd3fc] text-[9px] bg-[#38bdf818] px-1.5 py-0.5 rounded border border-[#38bdf830]">
+                    16 баров ({analysis.expected_move_cone.timeframe})
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-1.5">
+                  <div className="p-1.5 rounded bg-[#070e1b] border border-[#182642]">
+                    <div className="text-[#7dd3fc] text-[9px] font-bold">±1σ Диапазон (68.2%)</div>
+                    <div className="text-white font-extrabold text-[10.5px]">
+                      ±{analysis.expected_move_cone.sigma_1s_pct}%
+                    </div>
+                    <div className="text-[#64748b] text-[8.5px]">
+                      ${analysis.expected_move_cone.fan_points?.[15]?.lower_1s?.toFixed(1)} — ${analysis.expected_move_cone.fan_points?.[15]?.upper_1s?.toFixed(1)}
+                    </div>
+                  </div>
+
+                  <div className="p-1.5 rounded bg-[#070e1b] border border-[#182642]">
+                    <div className="text-[#38bdf8] text-[9px] font-bold">±2σ Диапазон (95.4%)</div>
+                    <div className="text-white font-extrabold text-[10.5px]">
+                      ±{analysis.expected_move_cone.sigma_2s_pct}%
+                    </div>
+                    <div className="text-[#64748b] text-[8.5px]">
+                      ${analysis.expected_move_cone.fan_points?.[15]?.lower_2s?.toFixed(1)} — ${analysis.expected_move_cone.fan_points?.[15]?.upper_2s?.toFixed(1)}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  data-testid="btn-toggle-volatility-cone"
+                  onClick={() => toggleVolatilityCone()}
+                  className={`w-full py-1.5 px-2 rounded font-semibold text-[10.5px] flex items-center justify-center space-x-1.5 transition cursor-pointer ${
+                    coneProjected
+                      ? 'bg-[#ef444425] hover:bg-[#ef444435] text-[#ef4444] border border-[#ef444450]'
+                      : 'bg-[#38bdf825] hover:bg-[#38bdf835] text-[#38bdf8] border border-[#38bdf850]'
+                  }`}
+                >
+                  <TrendingUp size={12} />
+                  <span>
+                    {coneProjected
+                      ? 'Скрыть конус с графика'
+                      : '📐 Нанести конус волатильности (±1σ / ±2σ) на график'}
+                  </span>
+                </button>
               </div>
             )}
           </div>

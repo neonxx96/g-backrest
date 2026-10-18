@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   BarChart3,
   Play,
@@ -13,7 +13,11 @@ import {
   Check,
   TrendingUp,
   ShieldCheck,
-  Dna
+  Dna,
+  Download,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 
 const API_BASE = '/api';
@@ -21,14 +25,49 @@ const API_BASE = '/api';
 const PRESET_CHIPS = [
   { label: '🛡️ Консервативный BTC (5m)', text: 'Сделай консервативный сетап для скальпинга BTC на 5m с низким риском' },
   { label: '⚡ Агрессивный импульс CVD', text: 'Агрессивный лонг по поглощению дельты CVD с коротким стопом и плечом 5х' },
-  { label: '🧱 Отскок от плотностей (1m)', text: 'Скальпинг отскока от плотностей стакана на 1m со стопом 0.4% и тейком 1.2%' },
+  { label: '🧱 Отскок от объёмного кластера (1m)', text: 'Скальпинг отскока от объёмного кластера на 1m со стопом 0.4% и тейком 1.2%' },
   { label: '🎯 Сбалансированный ETH (15m)', text: 'Сбалансированная стратегия на ETH 15m с ATR фильтром и RSI' }
 ];
 
 const STRATEGIES = [
-  { id: 'delta_absorption', label: 'Delta Absorption' },
-  { id: 'density_bounce', label: 'Density Bounce' },
-  { id: 'ema_trend', label: 'EMA Trend' }
+  // Historical Flow & Volume Engine (100% реальные исторические данные)
+  { 
+    id: 'confluence_ema', 
+    label: '🟢 Confluence EMA (CVD+RSI)',
+    group: 'historical',
+    badge: 'Реальная история',
+    description: 'Мультифакторный трендовый сетап с подтверждением по дельте'
+  },
+  { 
+    id: 'cvd_absorption', 
+    label: '🟢 CVD Absorption (Поглощение)',
+    group: 'historical',
+    badge: 'Реальная история',
+    description: 'Дивергенция кумулятивной дельты и цены на экстремумах'
+  },
+  { 
+    id: 'cluster_volume_bounce', 
+    label: '🟢 Cluster Volume Bounce (Отскок)',
+    group: 'historical',
+    badge: 'Реальная история',
+    description: 'Пинбар с кульминацией кластерного объема свечи (Volume Climax)'
+  },
+  { 
+    id: 'ema_trend', 
+    label: '🟢 EMA Trend Momentum',
+    group: 'historical',
+    badge: 'Реальная история',
+    description: 'Пересечение EMA(20/50) с подтверждением покупок по дельте'
+  },
+  // Live Order Book Sentinel (Только Real-time L2)
+  { 
+    id: 'live_density_bounce', 
+    label: '🟠 Плотность стакана L2 [Live]',
+    group: 'live',
+    badge: 'Только Live L2',
+    isLiveOnly: true,
+    description: 'Работает только в реальном времени. Биржа не хранит исторический стакан.'
+  }
 ];
 const TIMEFRAMES = ['1m', '5m', '15m', '1h'];
 
@@ -658,16 +697,77 @@ export default function BacktestPanel({
     [strategy, sl, tp, minWallK, volMult, leverage, onApplyStrategy, runSingle]
   );
 
-  if (!isOpen) return null;
-
   const s = result?.summary;
   const mc = result?.monte_carlo;
   const beforeOpt = result?.before_optimization;
   const afterOpt = result?.after_optimization;
   const pnlTone = s ? (s.total_pnl_pct > 0 ? 'pos' : s.total_pnl_pct < 0 ? 'neg' : null) : null;
-  const lastTrades = result?.trades ? [...result.trades].slice(-20).reverse() : [];
   const gridRows = result?.grid_results || [];
   const confluenceMatrix = result?.confluence_matrix || [];
+
+  // Stage 2: Full Trades Log with Multi-column Sorting and CSV Export
+  const [tradeSortField, setTradeSortField] = useState('id');
+  const [tradeSortAsc, setTradeSortAsc] = useState(false);
+
+  const allTrades = useMemo(() => {
+    if (!result?.trades || !Array.isArray(result.trades)) return [];
+    const list = [...result.trades];
+    list.sort((a, b) => {
+      let va = a[tradeSortField];
+      let vb = b[tradeSortField];
+      if (va == null) va = 0;
+      if (vb == null) vb = 0;
+      if (typeof va === 'string') va = va.toLowerCase();
+      if (typeof vb === 'string') vb = vb.toLowerCase();
+      if (va < vb) return tradeSortAsc ? -1 : 1;
+      if (va > vb) return tradeSortAsc ? 1 : -1;
+      return 0;
+    });
+    return list;
+  }, [result?.trades, tradeSortField, tradeSortAsc]);
+
+  const toggleSort = (field) => {
+    if (tradeSortField === field) {
+      setTradeSortAsc(!tradeSortAsc);
+    } else {
+      setTradeSortField(field);
+      setTradeSortAsc(true);
+    }
+  };
+
+  const handleExportCSV = useCallback(() => {
+    if (!allTrades || allTrades.length === 0) return;
+    const headers = [
+      'ID', 'Type', 'Entry Time', 'Exit Time',
+      'Entry Price', 'Exit Price', 'Gross PnL ($)',
+      'Fees ($)', 'Slippage ($)', 'Net PnL ($)',
+      'Net PnL (%)', 'Exit Reason'
+    ];
+    const rows = allTrades.map((t) => [
+      t.id,
+      t.type,
+      new Date(t.entry_time).toISOString(),
+      new Date(t.exit_time).toISOString(),
+      t.entry_price,
+      t.exit_price,
+      t.gross_pnl_usd ?? t.pnl_usd,
+      t.fee_paid_usd ?? 0,
+      t.slippage_cost_usd ?? 0,
+      t.pnl_usd,
+      t.pnl_pct,
+      `"${(t.reason || '').replace(/"/g, '""')}"`
+    ]);
+    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `backtest_trades_${symbol}_${timeframe}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [allTrades, symbol, timeframe]);
+
+  if (!isOpen) return null;
 
   return (
     <div
@@ -797,23 +897,42 @@ export default function BacktestPanel({
             </div>
           ) : (
             <>
-              <div className="flex space-x-1">
-                {STRATEGIES.map((st) => (
-                  <button
-                    key={st.id}
-                    onClick={() => {
-                      setStrategy(st.id);
-                      if (onStrategyChange) onStrategyChange(st.id);
+              <div className="space-y-1">
+                <label className="flex flex-col text-[8.5px] text-[#787f91] font-mono">
+                  <span className="mb-0.5 text-[#cbd5e1] font-bold uppercase tracking-wide">Стратегия:</span>
+                  <select
+                    data-testid="bt-strategy-select"
+                    value={strategy}
+                    onChange={(e) => {
+                      setStrategy(e.target.value);
+                      if (onStrategyChange) onStrategyChange(e.target.value);
                     }}
-                    className={`flex-1 px-1 py-1 rounded text-[9px] font-mono truncate transition cursor-pointer ${
-                      strategy === st.id
-                        ? 'bg-[#2563eb] text-white font-bold'
-                        : 'bg-[#08090c] text-[#787f91] hover:text-white'
-                    }`}
+                    style={{ backgroundColor: 'var(--bg-root)', borderColor: 'var(--border-subtle)' }}
+                    className="w-full border rounded px-1.5 py-1 text-white text-[9.5px] font-mono outline-none focus:border-[#2563eb]"
                   >
-                    {st.label}
-                  </button>
-                ))}
+                    <optgroup label="🟢 Historical Flow & Volume (Реальная история)">
+                      {STRATEGIES.filter(s => s.group === 'historical').map(st => (
+                        <option key={st.id} value={st.id}>
+                          {st.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="🟠 Live Order Book Sentinel (Только Real-time L2)">
+                      {STRATEGIES.filter(s => s.group === 'live').map(st => (
+                        <option key={st.id} value={st.id}>
+                          {st.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  </select>
+                </label>
+
+                {STRATEGIES.find(st => st.id === strategy)?.isLiveOnly && (
+                  <div className="bg-[#451a03] border border-[#f59e0b80] text-[#fde68a] text-[8.5px] p-1.5 rounded leading-tight flex items-start space-x-1">
+                    <AlertTriangle size={12} className="shrink-0 text-[#f59e0b] mt-0.5" />
+                    <span>Биржа не хранит исторический стакан L2. Стратегия работает в реальном времени. На истории тест выполняется по объёмным свечным кластерам.</span>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center space-x-1">
@@ -1319,7 +1438,7 @@ export default function BacktestPanel({
                         : 'text-[#787f91] hover:text-white bg-[#08090c]'
                     }`}
                   >
-                    📋 Сделки ({lastTrades.length})
+                    📋 Сделки ({allTrades.length})
                   </button>
 
                   <button
@@ -1585,56 +1704,104 @@ export default function BacktestPanel({
                 )}
 
                 {viewTab === 'trades' && (
-                  <table className="w-full text-[10px] font-mono-numbers">
-                    <thead
-                      style={{ backgroundColor: 'var(--bg-panel)' }}
-                      className="sticky top-0 text-[#60697b] text-[8.5px] uppercase"
-                    >
-                      <tr>
-                        <th className="text-left px-2 py-1">#</th>
-                        <th className="text-left px-2">Тип</th>
-                        <th className="text-left px-2">Вход</th>
-                        <th className="text-right px-2">Цена вх.</th>
-                        <th className="text-right px-2">Цена вых.</th>
-                        <th className="text-right px-2">Gross $</th>
-                        <th className="text-right px-2">Комиссия+Слип</th>
-                        <th className="text-right px-2">Чистый PnL</th>
-                        <th className="text-left px-2">Выход</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#13161f]">
-                      {lastTrades.map((t) => (
-                        <tr key={t.id} className="hover:bg-[#161922]">
-                          <td className="px-2 py-0.5 text-[#60697b]">{t.id}</td>
-                          <td
-                            className={`px-2 font-bold ${
-                              t.type === 'BUY' ? 'text-[#26a69a]' : 'text-[#ef5350]'
-                            }`}
-                          >
-                            {t.type}
-                          </td>
-                          <td className="px-2 text-[#787f91]">{fmtTime(t.entry_time)}</td>
-                          <td className="px-2 text-right text-white">{fmtPrice(t.entry_price)}</td>
-                          <td className="px-2 text-right text-[#787f91]">{fmtPrice(t.exit_price)}</td>
-                          <td className="px-2 text-right text-[#cbd5e1]">
-                            ${(t.gross_pnl_usd ?? t.pnl_usd).toFixed(2)}
-                          </td>
-                          <td className="px-2 text-right text-[#ffb300]">
-                            -${((t.fee_paid_usd || 0) + (t.slippage_cost_usd || 0)).toFixed(2)}
-                          </td>
-                          <td
-                            className={`px-2 text-right font-bold ${
-                              t.pnl_usd >= 0 ? 'text-[#26a69a]' : 'text-[#ef5350]'
-                            }`}
-                          >
-                            {t.pnl_usd >= 0 ? '+' : ''}${t.pnl_usd} ({t.pnl_pct >= 0 ? '+' : ''}
-                            {t.pnl_pct}%)
-                          </td>
-                          <td className="px-2 text-[#94a3b8]">{t.reason}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <div className="flex flex-col h-full">
+                    {/* Action Toolbar for Trades Log */}
+                    <div className="flex items-center justify-between px-2 py-1 bg-[#0b0e14] border-b border-[#1b2230] text-[9px] shrink-0 font-mono">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-[#34d399] font-bold flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />
+                          Historical Flow & Volume Engine
+                        </span>
+                        <span className="text-[#64748b]">|</span>
+                        <span className="text-[#94a3b8]">Сделок: {allTrades.length}</span>
+                        <span className="text-[#64748b]">|</span>
+                        <span className="text-[#787f91]">Maker 0.02% / Taker 0.05%</span>
+                      </div>
+
+                      <button
+                        type="button"
+                        data-testid="btn-export-csv"
+                        onClick={handleExportCSV}
+                        disabled={allTrades.length === 0}
+                        className="px-2 py-0.5 rounded bg-[#1e293b] hover:bg-[#2563eb] text-white flex items-center gap-1 transition cursor-pointer text-[9px]"
+                        title="Экспортировать весь журнал сделок в CSV"
+                      >
+                        <Download size={10} />
+                        <span>Экспорт CSV</span>
+                      </button>
+                    </div>
+
+                    <div className="flex-1 overflow-auto">
+                      <table className="w-full text-[10px] font-mono-numbers">
+                        <thead
+                          style={{ backgroundColor: 'var(--bg-panel)' }}
+                          className="sticky top-0 text-[#60697b] text-[8.5px] uppercase select-none z-10"
+                        >
+                          <tr>
+                            <th onClick={() => toggleSort('id')} className="text-left px-2 py-1 cursor-pointer hover:text-white">
+                              <span className="flex items-center gap-0.5"># {tradeSortField === 'id' && (tradeSortAsc ? <ArrowUp size={8} /> : <ArrowDown size={8} />)}</span>
+                            </th>
+                            <th onClick={() => toggleSort('type')} className="text-left px-2 cursor-pointer hover:text-white">
+                              <span className="flex items-center gap-0.5">Тип {tradeSortField === 'type' && (tradeSortAsc ? <ArrowUp size={8} /> : <ArrowDown size={8} />)}</span>
+                            </th>
+                            <th onClick={() => toggleSort('entry_time')} className="text-left px-2 cursor-pointer hover:text-white">
+                              <span className="flex items-center gap-0.5">Вход {tradeSortField === 'entry_time' && (tradeSortAsc ? <ArrowUp size={8} /> : <ArrowDown size={8} />)}</span>
+                            </th>
+                            <th onClick={() => toggleSort('entry_price')} className="text-right px-2 cursor-pointer hover:text-white">
+                              <span className="flex items-center justify-end gap-0.5">Цена вх. {tradeSortField === 'entry_price' && (tradeSortAsc ? <ArrowUp size={8} /> : <ArrowDown size={8} />)}</span>
+                            </th>
+                            <th onClick={() => toggleSort('exit_price')} className="text-right px-2 cursor-pointer hover:text-white">
+                              <span className="flex items-center justify-end gap-0.5">Цена вых. {tradeSortField === 'exit_price' && (tradeSortAsc ? <ArrowUp size={8} /> : <ArrowDown size={8} />)}</span>
+                            </th>
+                            <th onClick={() => toggleSort('gross_pnl_usd')} className="text-right px-2 cursor-pointer hover:text-white">
+                              <span className="flex items-center justify-end gap-0.5">Gross $ {tradeSortField === 'gross_pnl_usd' && (tradeSortAsc ? <ArrowUp size={8} /> : <ArrowDown size={8} />)}</span>
+                            </th>
+                            <th onClick={() => toggleSort('fee_paid_usd')} className="text-right px-2 cursor-pointer hover:text-white">
+                              <span className="flex items-center justify-end gap-0.5">Комиссия+Слип {tradeSortField === 'fee_paid_usd' && (tradeSortAsc ? <ArrowUp size={8} /> : <ArrowDown size={8} />)}</span>
+                            </th>
+                            <th onClick={() => toggleSort('pnl_usd')} className="text-right px-2 cursor-pointer hover:text-white">
+                              <span className="flex items-center justify-end gap-0.5">Чистый PnL {tradeSortField === 'pnl_usd' && (tradeSortAsc ? <ArrowUp size={8} /> : <ArrowDown size={8} />)}</span>
+                            </th>
+                            <th onClick={() => toggleSort('reason')} className="text-left px-2 cursor-pointer hover:text-white">
+                              <span className="flex items-center gap-0.5">Выход {tradeSortField === 'reason' && (tradeSortAsc ? <ArrowUp size={8} /> : <ArrowDown size={8} />)}</span>
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#13161f]">
+                          {allTrades.map((t) => (
+                            <tr key={t.id} className="hover:bg-[#161922] transition-colors">
+                              <td className="px-2 py-0.5 text-[#60697b]">{t.id}</td>
+                              <td
+                                className={`px-2 font-bold ${
+                                  t.type === 'BUY' ? 'text-[#26a69a]' : 'text-[#ef5350]'
+                                }`}
+                              >
+                                {t.type}
+                              </td>
+                              <td className="px-2 text-[#787f91]">{fmtTime(t.entry_time)}</td>
+                              <td className="px-2 text-right text-white">{fmtPrice(t.entry_price)}</td>
+                              <td className="px-2 text-right text-[#787f91]">{fmtPrice(t.exit_price)}</td>
+                              <td className="px-2 text-right text-[#cbd5e1]">
+                                ${(t.gross_pnl_usd ?? t.pnl_usd).toFixed(2)}
+                              </td>
+                              <td className="px-2 text-right text-[#ffb300]">
+                                -${((t.fee_paid_usd || 0) + (t.slippage_cost_usd || 0)).toFixed(2)}
+                              </td>
+                              <td
+                                className={`px-2 text-right font-bold ${
+                                  t.pnl_usd >= 0 ? 'text-[#26a69a]' : 'text-[#ef5350]'
+                                }`}
+                              >
+                                {t.pnl_usd >= 0 ? '+' : ''}${t.pnl_usd} ({t.pnl_pct >= 0 ? '+' : ''}
+                                {t.pnl_pct}%)
+                              </td>
+                              <td className="px-2 text-[#94a3b8]">{t.reason}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 )}
 
                 {viewTab === 'matrix' && (

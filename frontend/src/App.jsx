@@ -943,6 +943,7 @@ export default function App() {
 
           {/* AI Copilot Sidebar Toggle */}
           <button
+            data-testid="btn-toggle-ai-copilot"
             onClick={() => setShowAICopilot((v) => !v)}
             className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition cursor-pointer ${
               showAICopilot
@@ -957,6 +958,7 @@ export default function App() {
 
           {/* Backtest drawer toggle */}
           <button
+            data-testid="btn-toggle-backtest-drawer"
             onClick={() => setShowBacktest((v) => !v)}
             className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition ${
               showBacktest

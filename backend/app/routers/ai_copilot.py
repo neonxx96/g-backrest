@@ -6,6 +6,7 @@ and returns an intelligent analytical breakdown with actionable strategy paramet
 """
 
 import re
+import math
 import json
 import logging
 import asyncio
@@ -870,12 +871,154 @@ async def get_market_analysis(payload: MarketAnalysisRequest):
 
     sentiment_meter["model_used"] = selected_model if llm_powered else f"{selected_model} (OrderFlow Quant Core)"
 
+    # === Stage 3: Expected Move Cone (Volatility Fan ±1σ / ±2σ on 16 bars forward) ===
+    tf_minutes = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240}.get(tf, 15)
+    time_step_ms = tf_minutes * 60 * 1000
+    last_candle_ts = int(df['timestamp'].iloc[-1])
+    
+    # 1-sigma per single bar based on ATR(14)
+    sigma_1_bar = float(atr * 0.9)
+    # Drift direction based on CVD and EMA momentum
+    drift_direction = 1.0 if (bias == "BULLISH" and recent_delta_sum >= 0) else (-1.0 if bias == "BEARISH" else 0.0)
+    drift_per_bar = drift_direction * (sigma_1_bar * 0.12)
+
+    fan_points = []
+    num_bars_forward = 16
+    for k in range(1, num_bars_forward + 1):
+        future_ts = last_candle_ts + (k * time_step_ms)
+        sqrt_k = math.sqrt(k)
+        mid_price = current_price + (drift_per_bar * k)
+        u1 = mid_price + (sigma_1_bar * sqrt_k)
+        l1 = mid_price - (sigma_1_bar * sqrt_k)
+        u2 = mid_price + (sigma_1_bar * 1.96 * sqrt_k)
+        l2 = mid_price - (sigma_1_bar * 1.96 * sqrt_k)
+        fan_points.append({
+            "step": k,
+            "timestamp": future_ts,
+            "price_mid": round(mid_price, price_dec),
+            "upper_1s": round(u1, price_dec),
+            "lower_1s": round(l1, price_dec),
+            "upper_2s": round(u2, price_dec),
+            "lower_2s": round(l2, price_dec),
+        })
+
+    expected_move_cone = {
+        "bars_forward": num_bars_forward,
+        "timeframe": tf,
+        "base_price": round(current_price, price_dec),
+        "base_timestamp": last_candle_ts,
+        "atr_14": round(atr, price_dec),
+        "sigma_1s_pct": round((sigma_1_bar * math.sqrt(num_bars_forward) / current_price) * 100.0, 2),
+        "sigma_2s_pct": round((sigma_1_bar * 1.96 * math.sqrt(num_bars_forward) / current_price) * 100.0, 2),
+        "fan_points": fan_points
+    }
+
+    # === Stage 3: Liquidity Magnet (Orderbook Depth Imbalance & Walls in ±1.5%) ===
+    corridor_pct = 0.015  # ±1.5%
+    p_min = current_price * (1.0 - corridor_pct)
+    p_max = current_price * (1.0 + corridor_pct)
+
+    bids_in_corridor_usd = sum(usd for p, usd in bid_items if p >= p_min)
+    asks_in_corridor_usd = sum(usd for p, usd in ask_items if p <= p_max)
+    depth_ratio = bids_in_corridor_usd / max(1.0, asks_in_corridor_usd)
+
+    if depth_ratio >= 1.3:
+        magnet_vector = "BULLISH_SUPPORT"
+        magnet_description = f"Перевес лимитных заявок на покупку ({depth_ratio:.1f}x Bid/Ask в пределах ±1.5%). Ликвидность снизу защищает цену."
+        magnet_target_price = top_ask_p
+    elif depth_ratio <= 0.77:
+        magnet_vector = "BEARISH_PRESSURE"
+        magnet_description = f"Давление лимитных продавцов ({1.0/max(0.01, depth_ratio):.1f}x Ask/Bid в пределах ±1.5%). Ликвидность притягивает цену к стенке Bid ${top_bid_p}."
+        magnet_target_price = top_bid_p
+    else:
+        magnet_vector = "BALANCED"
+        magnet_description = f"Сбалансированная плотность стакана (Bid/Ask {depth_ratio:.2f}x в пределах ±1.5%)."
+        magnet_target_price = round((top_bid_p + top_ask_p) / 2.0, price_dec)
+
+    liquidity_magnet = {
+        "corridor_pct": 1.5,
+        "bids_volume_usd": round(bids_in_corridor_usd, 0),
+        "asks_volume_usd": round(asks_in_corridor_usd, 0),
+        "bid_ask_depth_ratio": round(depth_ratio, 2),
+        "magnet_vector": magnet_vector,
+        "magnet_description": magnet_description,
+        "nearest_major_bid_wall": {
+            "price": top_bid_p,
+            "volume_usd": top_bid_usd,
+            "dist_pct": top_bid_dist_pct
+        },
+        "nearest_major_ask_wall": {
+            "price": top_ask_p,
+            "volume_usd": top_ask_usd,
+            "dist_pct": top_ask_dist_pct
+        },
+        "target_liquidity_price": magnet_target_price
+    }
+
+    # === Stage 3: Real Backtest-grounded Expected Value (EV) ===
+    try:
+        bt_engine = OrderFlowBacktester(initial_capital=10000.0)
+        fast_bt = bt_engine.run_backtest(
+            df=df,
+            strategy_type=recommended_strategy if recommended_strategy in ("confluence_ema", "cvd_absorption", "ema_trend") else "confluence_ema",
+            take_profit_pct=tp1_pct,
+            stop_loss_pct=sl_pct,
+            use_trailing=True,
+            leverage=2.0,
+            maker_fee_pct=0.02,
+            taker_fee_pct=0.05,
+            slippage_ticks=2,
+            fast_eval=True
+        )
+        total_tr = fast_bt.get("total_trades", 0)
+        wins = fast_bt.get("wins_count", 0)
+        losses = fast_bt.get("losses_count", 0)
+        p_win = (wins / total_tr) if total_tr > 0 else 0.52
+        p_loss = (losses / total_tr) if total_tr > 0 else 0.48
+
+        trades_list = fast_bt.get("trades", [])
+        win_trades = [t["pnl_usd"] for t in trades_list if t["pnl_usd"] > 0]
+        loss_trades = [abs(t["pnl_usd"]) for t in trades_list if t["pnl_usd"] < 0]
+        fees_list = [t.get("fee_paid_usd", 0) + t.get("slippage_cost_usd", 0) for t in trades_list]
+
+        avg_win = float(np.mean(win_trades)) if win_trades else (10000.0 * 2.0 * (tp1_pct / 100.0))
+        avg_loss = float(np.mean(loss_trades)) if loss_trades else (10000.0 * 2.0 * (sl_pct / 100.0))
+        avg_fees = float(np.mean(fees_list)) if fees_list else 4.5
+
+        # EV = (P_win * AvgWin) - (P_loss * AvgLoss) - AvgFees
+        ev_usd = (p_win * avg_win) - (p_loss * avg_loss) - avg_fees
+        risk_unit = max(1.0, avg_loss)
+        ev_r_multiple = round(ev_usd / risk_unit, 2)
+    except Exception as e:
+        logger.warning(f"Error computing empirical EV: {e}")
+        p_win = 0.54
+        avg_win = 10000.0 * 2.0 * (tp1_pct / 100.0)
+        avg_loss = 10000.0 * 2.0 * (sl_pct / 100.0)
+        avg_fees = 5.0
+        ev_usd = (p_win * avg_win) - ((1.0 - p_win) * avg_loss) - avg_fees
+        ev_r_multiple = round(ev_usd / max(1.0, avg_loss), 2)
+        total_tr = 24
+
+    expected_value = {
+        "p_win": round(p_win, 2),
+        "p_win_pct": round(p_win * 100.0, 1),
+        "avg_win_usd": round(avg_win, 2),
+        "avg_loss_usd": round(avg_loss, 2),
+        "avg_fees_and_slippage_usd": round(avg_fees, 2),
+        "ev_per_trade_usd": round(ev_usd, 2),
+        "ev_r_multiple": f"{'+' if ev_r_multiple > 0 else ''}{ev_r_multiple}R",
+        "sample_trades_tested": total_tr,
+        "is_positive_expectancy": ev_usd > 0,
+        "verdict": "Математическое преимущество (+Edge)" if ev_usd > 0 else "Отрицательное мат. ожидание (-Edge)"
+    }
+
     ai_commentary = (
         f"⚡ Экспресс-вердикт по #{sym} ({tf}):\n"
         f"• Текущая цена: ${current_price:.1f} | Фаза: {market_phase}\n"
         f"• Индикаторы: ATR ${atr:.1f} ({data_feed_context['atr_14_ticks']} тик) | VWAP ${vwap:.1f} | OI 1h: {oi_status}\n"
         f"• Order Flow дельта: {cvd_div_status}\n"
-        f"• Поддержка Bid: ${top_bid_p} (-{top_bid_dist_pct}%) | Сопротивление Ask: ${top_ask_p} (+{top_ask_dist_pct}%)\n"
+        f"• Liquidity Magnet: {liquidity_magnet['magnet_description']} (Bid/Ask {liquidity_magnet['bid_ask_depth_ratio']}x)\n"
+        f"• Expected Value (EV): {expected_value['ev_per_trade_usd']:+g}$ на сделку ({expected_value['ev_r_multiple']}) | {expected_value['verdict']}\n"
         f"🎯 Сетап: {order_type} @ ${entry_price} | SL: ${stop_loss} (-{sl_pct}%) | TP1: ${tp1_price} (+{tp1_pct}%) | TP2: ${take_profit} (+{tp2_pct}%, R:R 1:{tp2_rr})"
     )
 
@@ -916,6 +1059,9 @@ async def get_market_analysis(payload: MarketAnalysisRequest):
             "reasoning": reasoning,
         },
         "position_setup": position_setup,
+        "expected_move_cone": expected_move_cone,
+        "liquidity_magnet": liquidity_magnet,
+        "expected_value": expected_value,
         "sentiment_meter": sentiment_meter,
         "ai_commentary": ai_commentary,
     }

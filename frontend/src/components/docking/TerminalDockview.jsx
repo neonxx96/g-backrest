@@ -14,7 +14,9 @@ import WidgetHubModal from './WidgetHubModal';
 import { FootprintPlaceholderWidget, CvdPlaceholderWidget } from './Placeholders';
 import ChannelSelector from './ChannelSelector';
 import PresetBar from './PresetBar';
-import { Radio, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { Radio, SlidersHorizontal, Sparkles, Zap, Loader2, Eye, EyeOff } from 'lucide-react';
+import { useBacktestStore } from '../../stores/backtestStore';
+import { useTradeOverlayStore } from '../../stores/tradeOverlayStore';
 
 /**
  * Chart Panel Component for Dockview
@@ -32,6 +34,23 @@ function ChartDockPanel(props) {
     showBtSignals,
     onOpenIndicators
   } = props.containerApi.chartSharedProps || {};
+
+  const activeBtResult = useBacktestStore((s) => s.activeResult);
+  const isBacktesting = useBacktestStore((s) => s.isRunning);
+  const showTradesOnChart = useBacktestStore((s) => s.showTradesOnChart);
+  const setShowTradesOnChart = useBacktestStore((s) => s.setShowTradesOnChart);
+  const runQuickBacktest = useBacktestStore((s) => s.runQuickBacktest);
+  const activeSetup = useTradeOverlayStore((s) => s.activeSetup);
+
+  const isCurrentSymbolResult = activeBtResult && activeBtResult.symbol === currentSymbol.toUpperCase();
+
+  const handleQuickBt = async () => {
+    try {
+      await runQuickBacktest({ symbol: currentSymbol, timeframe });
+    } catch (err) {
+      console.error("Backtest failed:", err);
+    }
+  };
 
   return (
     <div className="h-full w-full flex flex-col overflow-hidden bg-[#0c0e12]">
@@ -52,6 +71,53 @@ function ChartDockPanel(props) {
                 {tf}
               </button>
             ))}
+          </div>
+
+          {/* Quick Backtest 1-Click Trigger */}
+          <div className="flex items-center space-x-1 pl-1">
+            <button
+              type="button"
+              data-testid={`btn-quick-backtest-${panelId}`}
+              onClick={handleQuickBt}
+              disabled={isBacktesting}
+              className={`px-1.5 py-0.5 rounded border transition cursor-pointer flex items-center gap-1 text-[9px] font-mono ${
+                isCurrentSymbolResult
+                  ? 'bg-[#0f2e22] text-[#34d399] border-[#10b98150] hover:bg-[#134431]'
+                  : 'bg-[#161d2e] hover:bg-[#2563eb] text-[#38bdf8] hover:text-white border-[#2563eb40]'
+              }`}
+              title={`Запустить 1-click бэктест на истории ${currentSymbol} (${timeframe})`}
+            >
+              {isBacktesting ? (
+                <Loader2 size={10} className="animate-spin" />
+              ) : (
+                <Zap size={10} className={isCurrentSymbolResult ? 'text-[#34d399]' : 'text-yellow-400'} />
+              )}
+              <span>
+                {isBacktesting
+                  ? 'Счет...'
+                  : activeSetup?.entry_price > 0
+                  ? `⚡ Бэктест R:R (1:${activeSetup.rr_ratio || '?'})`
+                  : '⚡ Бэктест'}
+              </span>
+            </button>
+
+            {isCurrentSymbolResult && (
+              <div className="flex items-center space-x-1 bg-[#10141e] border border-[#1e293b] px-1 py-0.5 rounded text-[8.5px]">
+                <span className="text-[#34d399] font-bold">Win {activeBtResult.win_rate}%</span>
+                <span className="text-[#64748b]">|</span>
+                <span className={(activeBtResult.net_profit_usd ?? 0) >= 0 ? 'text-[#34d399]' : 'text-[#f87171]'}>
+                  {(activeBtResult.net_profit_usd ?? 0) >= 0 ? '+' : ''}${activeBtResult.net_profit_usd}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowTradesOnChart(!showTradesOnChart)}
+                  className="text-[#94a3b8] hover:text-white ml-0.5 cursor-pointer"
+                  title={showTradesOnChart ? 'Скрыть сделки с графика' : 'Показать сделки на графике'}
+                >
+                  {showTradesOnChart ? <Eye size={10} className="text-[#38bdf8]" /> : <EyeOff size={10} />}
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

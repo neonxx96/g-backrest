@@ -21,7 +21,8 @@ import {
   Bookmark,
   Palette,
   Layers,
-  ChevronDown
+  ChevronDown,
+  Zap
 } from 'lucide-react';
 import { INDICATORS_REGISTRY, DEFAULT_ACTIVE_INDICATORS } from '../config/indicatorsRegistry';
 import IndicatorsModal from './indicators/IndicatorsModal';
@@ -31,6 +32,7 @@ import { useLayoutStore } from '../stores/layoutStore';
 import { useColorLinksStore } from '../stores/colorLinksStore';
 import { fetchKlinesDualSource } from '../services/marketDataFetcher';
 import { useTradeOverlayStore, calculatePositionMetrics } from '../stores/tradeOverlayStore';
+import { useBacktestStore } from '../stores/backtestStore';
 import { getAllTemplates, saveCustomTemplate, getStyleMemory, saveStyleMemory } from '../config/drawingTemplates';
 
 const API_BASE = "/api";
@@ -221,6 +223,319 @@ try {
           ignoreEvent: true
         }
       ];
+    }
+  });
+} catch (_) {}
+
+// 2c. Register custom 'backtestTradeLine' (Realistic Trade with Entry, Exit, dashed holding line & PnL badge)
+try {
+  registerOverlay({
+    name: 'backtestTradeLine',
+    totalStep: 3,
+    lock: true,
+    needDefaultPointFigure: false,
+    needDefaultXAxisFigure: false,
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ coordinates, yAxis, overlay }) => {
+      if (!coordinates || coordinates.length < 2) return [];
+      let { x: x0, y: y0 } = coordinates[0];
+      let { x: x1, y: y1 } = coordinates[1];
+      if (!Number.isFinite(x0) || !Number.isFinite(x1)) return [];
+
+      const ext = overlay.extendData || {};
+      const entryP = Number(ext.entry_price ?? overlay.points?.[0]?.value ?? 0);
+      const exitP = Number(ext.exit_price ?? overlay.points?.[1]?.value ?? 0);
+
+      if (yAxis && typeof yAxis.convertToPixel === 'function') {
+        if (entryP > 0) {
+          const calcY0 = yAxis.convertToPixel(entryP);
+          if (Number.isFinite(calcY0)) y0 = calcY0;
+        }
+        if (exitP > 0) {
+          const calcY1 = yAxis.convertToPixel(exitP);
+          if (Number.isFinite(calcY1)) y1 = calcY1;
+        }
+      }
+      if (!Number.isFinite(y0) || !Number.isFinite(y1)) return [];
+
+      const isLong = ext.direction === 'LONG' || ext.type === 'BUY';
+      const pnlUsd = Number(ext.pnl_usd ?? 0);
+      const pnlPct = Number(ext.pnl_pct ?? 0);
+      const isProfit = pnlUsd >= 0;
+      const pnlColor = isProfit ? '#10b981' : '#ef4444';
+      const pnlBg = isProfit ? 'rgba(16, 185, 129, 0.22)' : 'rgba(239, 68, 68, 0.22)';
+      const entryColor = isLong ? '#26a69a' : '#ef5350';
+
+      const figures = [];
+
+      // 1. Entry triangle & label
+      const triH = 9;
+      const triW = 6;
+      const entryTri = isLong
+        ? [{ x: x0, y: y0 + 3 }, { x: x0 - triW, y: y0 + 3 + triH }, { x: x0 + triW, y: y0 + 3 + triH }]
+        : [{ x: x0, y: y0 - 3 }, { x: x0 - triW, y: y0 - 3 - triH }, { x: x0 + triW, y: y0 - 3 - triH }];
+
+      figures.push({
+        type: 'polygon',
+        attrs: { coordinates: entryTri },
+        styles: { style: 'stroke_fill', color: entryColor, borderColor: '#ffffff', borderSize: 0.5 },
+        ignoreEvent: true
+      });
+
+      // 2. Holding connection line (dashed)
+      figures.push({
+        type: 'line',
+        attrs: { coordinates: [{ x: x0, y: y0 }, { x: x1, y: y1 }] },
+        styles: { style: 'dashed', dashedValue: [4, 3], color: pnlColor, size: 1.5 },
+        ignoreEvent: true
+      });
+
+      // 3. Exit circle
+      figures.push({
+        type: 'circle',
+        attrs: { x: x1, y: y1, r: 4 },
+        styles: { style: 'stroke_fill', color: pnlBg, borderColor: pnlColor, borderSize: 1.5 },
+        ignoreEvent: true
+      });
+
+      // 4. Exit PnL Badge
+      const reasonLabel = ext.reason || (isProfit ? 'TP' : 'SL');
+      const sign = pnlUsd >= 0 ? '+' : '';
+      const pnlText = ` ${sign}$${pnlUsd.toFixed(1)} (${sign}${pnlPct.toFixed(1)}%) · ${reasonLabel} `;
+
+      figures.push({
+        type: 'text',
+        attrs: {
+          x: x1 + 6,
+          y: y1,
+          text: pnlText,
+          align: 'left',
+          baseline: 'middle'
+        },
+        styles: {
+          color: '#ffffff',
+          backgroundColor: isProfit ? '#065f46' : '#991b1b',
+          borderColor: pnlColor,
+          borderSize: 0.8,
+          size: 9.5,
+          padding: 2.5,
+          borderRadius: 3
+        },
+        ignoreEvent: false
+      });
+
+      return figures;
+    }
+  });
+} catch (_) {}
+
+// 2d. Register custom 'volatilityCone' (Expected Move Fan ±1σ / ±2σ on forward bars)
+try {
+  registerOverlay({
+    name: 'volatilityCone',
+    totalStep: 2,
+    lock: true,
+    needDefaultPointFigure: false,
+    needDefaultXAxisFigure: false,
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ coordinates, yAxis, overlay }) => {
+      if (!coordinates || coordinates.length === 0) return [];
+      const x0 = coordinates[0]?.x;
+      const y0 = coordinates[0]?.y;
+      if (!Number.isFinite(x0) || !Number.isFinite(y0)) return [];
+
+      const x1 = coordinates[1]?.x;
+      const cone = overlay.extendData || {};
+      const fanPoints = cone.fan_points || [];
+      if (!fanPoints.length || !yAxis || typeof yAxis.convertToPixel !== 'function') return [];
+
+      const totalSteps = fanPoints.length;
+      const stepX = (Number.isFinite(x1) && x1 > x0) ? (x1 - x0) / totalSteps : 16;
+
+      const upper2Coords = [{ x: x0, y: y0 }];
+      const lower2Coords = [{ x: x0, y: y0 }];
+      const upper1Coords = [{ x: x0, y: y0 }];
+      const lower1Coords = [{ x: x0, y: y0 }];
+      const midCoords = [{ x: x0, y: y0 }];
+
+      fanPoints.forEach((pt, idx) => {
+        const x = x0 + stepX * (idx + 1);
+        const yU2 = yAxis.convertToPixel(Number(pt.upper_2s));
+        const yL2 = yAxis.convertToPixel(Number(pt.lower_2s));
+        const yU1 = yAxis.convertToPixel(Number(pt.upper_1s));
+        const yL1 = yAxis.convertToPixel(Number(pt.lower_1s));
+        const yMid = yAxis.convertToPixel(Number(pt.price_mid));
+
+        if (Number.isFinite(yU2) && Number.isFinite(yL2)) {
+          upper2Coords.push({ x, y: yU2 });
+          lower2Coords.push({ x, y: yL2 });
+        }
+        if (Number.isFinite(yU1) && Number.isFinite(yL1)) {
+          upper1Coords.push({ x, y: yU1 });
+          lower1Coords.push({ x, y: yL1 });
+        }
+        if (Number.isFinite(yMid)) {
+          midCoords.push({ x, y: yMid });
+        }
+      });
+
+      const poly2Coords = [...upper2Coords, ...lower2Coords.slice().reverse()];
+      const poly1Coords = [...upper1Coords, ...lower1Coords.slice().reverse()];
+
+      const lastPt = fanPoints[fanPoints.length - 1];
+      const lastX = x0 + stepX * totalSteps;
+      const lastYMid = midCoords[midCoords.length - 1]?.y ?? y0;
+      const lastYU1 = upper1Coords[upper1Coords.length - 1]?.y ?? y0;
+      const lastYU2 = upper2Coords[upper2Coords.length - 1]?.y ?? y0;
+      const lastYL1 = lower1Coords[lower1Coords.length - 1]?.y ?? y0;
+      const lastYL2 = lower2Coords[lower2Coords.length - 1]?.y ?? y0;
+
+      const figures = [
+        // ±2σ shaded fan (95.4% probability)
+        {
+          type: 'polygon',
+          attrs: { coordinates: poly2Coords },
+          styles: {
+            style: 'stroke_fill',
+            color: 'rgba(56, 189, 248, 0.08)',
+            borderColor: 'rgba(56, 189, 248, 0.4)',
+            borderSize: 1,
+            borderStyle: 'dashed'
+          },
+          ignoreEvent: true
+        },
+        // ±1σ shaded fan (68.2% probability)
+        {
+          type: 'polygon',
+          attrs: { coordinates: poly1Coords },
+          styles: {
+            style: 'stroke_fill',
+            color: 'rgba(56, 189, 248, 0.18)',
+            borderColor: 'rgba(56, 189, 248, 0.75)',
+            borderSize: 1.2
+          },
+          ignoreEvent: true
+        },
+        // Midline trajectory
+        {
+          type: 'line',
+          attrs: { coordinates: midCoords },
+          styles: {
+            style: 'dashed',
+            dashedValue: [4, 4],
+            color: '#38bdf8',
+            size: 1.5
+          },
+          ignoreEvent: true
+        },
+        // Upper +2σ Badge
+        {
+          type: 'text',
+          attrs: {
+            x: lastX + 6,
+            y: lastYU2,
+            text: ` +2σ ($${Number(lastPt.upper_2s).toFixed(1)}) · 95.4% `,
+            align: 'left',
+            baseline: 'middle'
+          },
+          styles: {
+            color: '#38bdf8',
+            backgroundColor: 'rgba(15, 23, 42, 0.88)',
+            borderColor: 'rgba(56, 189, 248, 0.5)',
+            borderSize: 0.8,
+            size: 9,
+            padding: 2,
+            borderRadius: 2
+          },
+          ignoreEvent: true
+        },
+        // Upper +1σ Badge
+        {
+          type: 'text',
+          attrs: {
+            x: lastX + 6,
+            y: lastYU1,
+            text: ` +1σ ($${Number(lastPt.upper_1s).toFixed(1)}) · 68.2% `,
+            align: 'left',
+            baseline: 'middle'
+          },
+          styles: {
+            color: '#7dd3fc',
+            backgroundColor: 'rgba(15, 23, 42, 0.88)',
+            borderColor: 'rgba(56, 189, 248, 0.7)',
+            borderSize: 0.8,
+            size: 9,
+            padding: 2,
+            borderRadius: 2
+          },
+          ignoreEvent: true
+        },
+        // Midline summary badge with Expected Move & EV
+        {
+          type: 'text',
+          attrs: {
+            x: lastX + 6,
+            y: lastYMid,
+            text: ` 📐 Exp. Move: ±$${Math.abs(Number(lastPt.upper_1s) - Number(lastPt.price_mid)).toFixed(1)} (±${cone.sigma_1s_pct}%) ${cone.ev_display ? '· EV: ' + cone.ev_display : ''} `,
+            align: 'left',
+            baseline: 'middle'
+          },
+          styles: {
+            color: '#ffffff',
+            backgroundColor: '#0284c7',
+            borderColor: '#38bdf8',
+            borderSize: 1,
+            size: 9.5,
+            padding: 2.5,
+            borderRadius: 3
+          },
+          ignoreEvent: false
+        },
+        // Lower -1σ Badge
+        {
+          type: 'text',
+          attrs: {
+            x: lastX + 6,
+            y: lastYL1,
+            text: ` -1σ ($${Number(lastPt.lower_1s).toFixed(1)}) `,
+            align: 'left',
+            baseline: 'middle'
+          },
+          styles: {
+            color: '#7dd3fc',
+            backgroundColor: 'rgba(15, 23, 42, 0.88)',
+            borderColor: 'rgba(56, 189, 248, 0.7)',
+            borderSize: 0.8,
+            size: 9,
+            padding: 2,
+            borderRadius: 2
+          },
+          ignoreEvent: true
+        },
+        // Lower -2σ Badge
+        {
+          type: 'text',
+          attrs: {
+            x: lastX + 6,
+            y: lastYL2,
+            text: ` -2σ ($${Number(lastPt.lower_2s).toFixed(1)}) `,
+            align: 'left',
+            baseline: 'middle'
+          },
+          styles: {
+            color: '#38bdf8',
+            backgroundColor: 'rgba(15, 23, 42, 0.88)',
+            borderColor: 'rgba(56, 189, 248, 0.5)',
+            borderSize: 0.8,
+            size: 9,
+            padding: 2,
+            borderRadius: 2
+          },
+          ignoreEvent: true
+        }
+      ];
+
+      return figures;
     }
   });
 } catch (_) {}
@@ -1125,11 +1440,29 @@ export default function Chart({
   const drawingHistory = useRef([]); // history stack of overlay IDs for Ctrl+Z undo
   const btOverlayIds = useRef([]); // backtest signal overlays (never saved as drawings)
   const activeStrategyLevelOverlays = useRef([]); // strategy entry zones (never saved as drawings)
+  const activeVolatilityConeOverlayId = useRef(null); // volatility cone overlay
   const activePositionOverlayId = useRef(null);
   const [localPositionSetup, setLocalPositionSetup] = useState(null);
   const lastScrolledResult = useRef(null);
   const [klinesVersion, setKlinesVersion] = useState(0);
   const [btTooltip, setBtTooltip] = useState(null);
+
+  // Synchronize with quantitative Backtest Store
+  const activeBtResult = useBacktestStore((s) => s.activeResult);
+  const showTradesOnChart = useBacktestStore((s) => s.showTradesOnChart);
+  const isBacktesting = useBacktestStore((s) => s.isRunning);
+  const runQuickBacktest = useBacktestStore((s) => s.runQuickBacktest);
+
+  const effectiveBacktestSignals = backtestSignals || (activeBtResult?.symbol === symbol.toUpperCase() ? activeBtResult : null);
+  const effectiveShowBtSignals = showBacktestSignals && showTradesOnChart;
+
+  const handleQuickBacktestCurrentSetup = useCallback(async () => {
+    try {
+      await runQuickBacktest({ symbol, timeframe });
+    } catch (err) {
+      console.error("Quick backtest failed:", err);
+    }
+  }, [runQuickBacktest, symbol, timeframe]);
   
   const prevSymbolRef = useRef(symbol);
   const prevTimeframeRef = useRef(timeframe);
@@ -1374,6 +1707,71 @@ export default function Chart({
     };
     window.addEventListener('apply-ai-strategy-levels', handleAiLevels);
     return () => window.removeEventListener('apply-ai-strategy-levels', handleAiLevels);
+  }, [symbol]);
+
+  // Listen for Volatility Cone projection (Stage 3)
+  useEffect(() => {
+    const handleVolatilityCone = (ev) => {
+      const cone = ev.detail?.cone;
+      const sym = ev.detail?.symbol;
+      if (!chartRef.current) return;
+      if (sym && sym.toUpperCase() !== symbol.toUpperCase()) return;
+
+      if (activeVolatilityConeOverlayId.current) {
+        try { chartRef.current.removeOverlay({ id: activeVolatilityConeOverlayId.current }); } catch (_) {}
+        activeVolatilityConeOverlayId.current = null;
+      }
+
+      if (!cone || !cone.fan_points || cone.fan_points.length === 0) {
+        setStatusMsg("Конус волатильности скрыт");
+        setTimeout(() => setStatusMsg(""), 1200);
+        return;
+      }
+
+      const klines = currentKlines.current;
+      const anchorTs = cone.base_timestamp || (klines && klines.length ? klines[klines.length - 1].timestamp : Date.now());
+      const endTs = cone.fan_points[cone.fan_points.length - 1].timestamp;
+
+      try {
+        const id = chartRef.current.createOverlay({
+          name: 'volatilityCone',
+          lock: true,
+          points: [
+            { timestamp: anchorTs, value: cone.base_price },
+            { timestamp: endTs, value: cone.base_price }
+          ],
+          extendData: {
+            ...cone,
+            symbol: sym || symbol
+          }
+        });
+        if (id) {
+          activeVolatilityConeOverlayId.current = id;
+          setStatusMsg("📐 Конус волатильности (±1σ / ±2σ) спроецирован на 16 баров");
+          setTimeout(() => setStatusMsg(""), 2000);
+          try {
+            chartRef.current.scrollToTimestamp(endTs + 4 * 60000, 200);
+          } catch (_) {}
+        }
+      } catch (err) {
+        console.warn("Failed to create volatilityCone overlay:", err);
+      }
+    };
+
+    const handleClearVolatilityCone = () => {
+      if (activeVolatilityConeOverlayId.current && chartRef.current) {
+        try { chartRef.current.removeOverlay({ id: activeVolatilityConeOverlayId.current }); } catch (_) {}
+        activeVolatilityConeOverlayId.current = null;
+      }
+    };
+
+    window.addEventListener('apply-volatility-cone', handleVolatilityCone);
+    window.addEventListener('clear-volatility-cone', handleClearVolatilityCone);
+    return () => {
+      window.removeEventListener('apply-volatility-cone', handleVolatilityCone);
+      window.removeEventListener('clear-volatility-cone', handleClearVolatilityCone);
+      handleClearVolatilityCone();
+    };
   }, [symbol]);
 
   // Initialize KLineChart instance with ResizeObserver (ТАКТ 1)
@@ -2358,8 +2756,8 @@ export default function Chart({
     clearBacktestSignals();
     const chart = chartRef.current;
     const klines = currentKlines.current;
-    if (!chart || !showBacktestSignals || !backtestSignals || !Array.isArray(backtestSignals.signals)) return;
-    if (backtestSignals.symbol && backtestSignals.symbol !== symbol.toUpperCase()) return;
+    if (!chart || !effectiveShowBtSignals || !effectiveBacktestSignals) return;
+    if (effectiveBacktestSignals.symbol && effectiveBacktestSignals.symbol !== symbol.toUpperCase()) return;
     if (!klines || klines.length === 0) return;
 
     const firstTs = klines[0].timestamp;
@@ -2368,7 +2766,7 @@ export default function Chart({
 
     // Snap signal time to the candle that contains it (binary search for last bar <= time)
     const findBar = (t) => {
-      if (t < firstTs || t > lastTs + barMs) return null;
+      if (!t || t < firstTs || t > lastTs + barMs) return null;
       let lo = 0, hi = klines.length - 1;
       while (lo < hi) {
         const mid = (lo + hi + 1) >> 1;
@@ -2378,41 +2776,86 @@ export default function Chart({
     };
 
     const container = chartContainerRef.current;
-    const showTip = (sig) => (e) => {
-      const rect = container ? container.getBoundingClientRect() : { left: 0, top: 0 };
-      const px = (e && e.pageX != null) ? e.pageX - rect.left - window.scrollX : (e?.x || 0);
-      const py = (e && e.pageY != null) ? e.pageY - rect.top - window.scrollY : (e?.y || 0);
-      setBtTooltip({ x: px, y: py, sig });
-      return true;
-    };
-
     let lastBarTs = null;
-    backtestSignals.signals.forEach(sig => {
-      const bar = findBar(sig.time);
-      if (!bar) return;
-      lastBarTs = bar.timestamp;
-      const isBuy = sig.type === 'BUY';
-      try {
-        const id = chart.createOverlay({
-          name: 'btSignal',
-          lock: true,
-          points: [{ timestamp: bar.timestamp, value: isBuy ? bar.low : bar.high }],
-          extendData: { type: sig.type, price: sig.price },
-          onMouseEnter: showTip(sig),
-          onClick: showTip(sig),
-          onMouseLeave: () => { setBtTooltip(null); return true; }
-        });
-        if (id) btOverlayIds.current.push(id);
-      } catch (_) {}
-    });
+
+    const tradesList = Array.isArray(effectiveBacktestSignals.trades) ? effectiveBacktestSignals.trades : [];
+    const signalsList = Array.isArray(effectiveBacktestSignals.signals) ? effectiveBacktestSignals.signals : [];
+
+    if (tradesList.length > 0) {
+      tradesList.forEach((trade) => {
+        const entryBar = findBar(trade.entry_time);
+        const exitBar = findBar(trade.exit_time) || entryBar;
+        if (!entryBar) return;
+        lastBarTs = exitBar ? exitBar.timestamp : entryBar.timestamp;
+
+        try {
+          const id = chart.createOverlay({
+            name: 'backtestTradeLine',
+            lock: true,
+            points: [
+              { timestamp: entryBar.timestamp, value: Number(trade.entry_price) },
+              { timestamp: exitBar.timestamp, value: Number(trade.exit_price) }
+            ],
+            extendData: trade,
+            onMouseEnter: (e) => {
+              const rect = container ? container.getBoundingClientRect() : { left: 0, top: 0 };
+              const px = (e && e.pageX != null) ? e.pageX - rect.left - window.scrollX : (e?.x || 0);
+              const py = (e && e.pageY != null) ? e.pageY - rect.top - window.scrollY : (e?.y || 0);
+              setBtTooltip({ x: px, y: py, trade, isTrade: true });
+              return true;
+            },
+            onClick: (e) => {
+              const rect = container ? container.getBoundingClientRect() : { left: 0, top: 0 };
+              const px = (e && e.pageX != null) ? e.pageX - rect.left - window.scrollX : (e?.x || 0);
+              const py = (e && e.pageY != null) ? e.pageY - rect.top - window.scrollY : (e?.y || 0);
+              setBtTooltip({ x: px, y: py, trade, isTrade: true });
+              return true;
+            },
+            onMouseLeave: () => { setBtTooltip(null); return true; }
+          });
+          if (id) btOverlayIds.current.push(id);
+        } catch (_) {}
+      });
+    } else if (signalsList.length > 0) {
+      signalsList.forEach((sig) => {
+        const bar = findBar(sig.time);
+        if (!bar) return;
+        lastBarTs = bar.timestamp;
+        const isBuy = sig.type === 'BUY';
+        try {
+          const id = chart.createOverlay({
+            name: 'btSignal',
+            lock: true,
+            points: [{ timestamp: bar.timestamp, value: isBuy ? bar.low : bar.high }],
+            extendData: { type: sig.type, price: sig.price },
+            onMouseEnter: (e) => {
+              const rect = container ? container.getBoundingClientRect() : { left: 0, top: 0 };
+              const px = (e && e.pageX != null) ? e.pageX - rect.left - window.scrollX : (e?.x || 0);
+              const py = (e && e.pageY != null) ? e.pageY - rect.top - window.scrollY : (e?.y || 0);
+              setBtTooltip({ x: px, y: py, sig, isTrade: false });
+              return true;
+            },
+            onClick: (e) => {
+              const rect = container ? container.getBoundingClientRect() : { left: 0, top: 0 };
+              const px = (e && e.pageX != null) ? e.pageX - rect.left - window.scrollX : (e?.x || 0);
+              const py = (e && e.pageY != null) ? e.pageY - rect.top - window.scrollY : (e?.y || 0);
+              setBtTooltip({ x: px, y: py, sig, isTrade: false });
+              return true;
+            },
+            onMouseLeave: () => { setBtTooltip(null); return true; }
+          });
+          if (id) btOverlayIds.current.push(id);
+        } catch (_) {}
+      });
+    }
 
     // Reveal the newest marker once per new result (not on every redraw)
-    if (lastBarTs && lastScrolledResult.current !== backtestSignals) {
-      lastScrolledResult.current = backtestSignals;
+    if (lastBarTs && lastScrolledResult.current !== effectiveBacktestSignals) {
+      lastScrolledResult.current = effectiveBacktestSignals;
       try { chart.scrollToTimestamp(Math.min(lastBarTs + 14 * barMs, lastTs), 200); } catch (_) {}
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [backtestSignals, showBacktestSignals, symbol, timeframe, klinesVersion, chartReady]);
+  }, [effectiveBacktestSignals, effectiveShowBtSignals, symbol, timeframe, klinesVersion, chartReady]);
 
   // Listen for custom position setup projection events
   useEffect(() => {
@@ -3152,6 +3595,19 @@ export default function Chart({
               R:R {effectivePositionSetup.rr_label || `1:${Number(effectivePositionSetup.rr_ratio || 2.8).toFixed(1)}`}
             </span>
 
+            {/* Quick 1-Click Backtest Button for current setup */}
+            <button
+              type="button"
+              data-testid="btn-quick-backtest-setup"
+              onClick={handleQuickBacktestCurrentSetup}
+              disabled={isBacktesting}
+              className="px-2 py-0.5 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-bold flex items-center space-x-1 transition cursor-pointer shadow-sm text-[9.5px]"
+              title="Проверить этот сетап (Entry / TP / SL) на реальной истории Binance с комиссиями"
+            >
+              {isBacktesting ? <Loader2 size={10} className="animate-spin" /> : <Zap size={10} className="text-yellow-300" />}
+              <span>{isBacktesting ? 'Расчет...' : 'Тест сетапа'}</span>
+            </button>
+
             <button
               type="button"
               onClick={() => {
@@ -3166,23 +3622,46 @@ export default function Chart({
           </div>
         )}
 
-        {/* Backtest marker tooltip: reason + PnL */}
+        {/* Backtest marker & trade tooltip: detailed financial metrics */}
         {btTooltip && (
           <div
-            className="absolute z-30 pointer-events-none px-2 py-1 rounded border text-[10px] font-mono bg-[#101217] shadow-xl"
+            className="absolute z-30 pointer-events-none px-2.5 py-1.5 rounded border text-[10px] font-mono bg-[#0c1017f0] backdrop-blur-md shadow-2xl min-w-[190px]"
             style={{
-              left: Math.min(btTooltip.x + 12, (chartContainerRef.current?.clientWidth || 600) - 170),
-              top: Math.max(btTooltip.y - 54, 4),
-              borderColor: btTooltip.sig.type === 'BUY' ? '#26a69a' : '#ef5350'
+              left: Math.min(btTooltip.x + 12, (chartContainerRef.current?.clientWidth || 600) - 210),
+              top: Math.max(btTooltip.y - 70, 8),
+              borderColor: (btTooltip.isTrade ? (btTooltip.trade.pnl_usd >= 0) : ((btTooltip.sig?.pnl_pct ?? 0) >= 0)) ? '#10b981' : '#ef4444'
             }}
           >
-            <div className={btTooltip.sig.type === 'BUY' ? 'text-[#26a69a] font-bold' : 'text-[#ef5350] font-bold'}>
-              {btTooltip.sig.label} @ {btTooltip.sig.price}
-            </div>
-            <div className="text-[#d1d4dc]">Причина: {btTooltip.sig.reason || '—'}</div>
-            <div className={(btTooltip.sig.pnl_pct ?? 0) >= 0 ? 'text-[#26a69a]' : 'text-[#ef5350]'}>
-              PnL: {(btTooltip.sig.pnl_pct ?? 0) >= 0 ? '+' : ''}{btTooltip.sig.pnl_pct}% (${btTooltip.sig.pnl_usd})
-            </div>
+            {btTooltip.isTrade ? (
+              <>
+                <div className="flex items-center justify-between border-b border-[#1f293d] pb-1 mb-1">
+                  <span className={btTooltip.trade.direction === 'LONG' || btTooltip.trade.type === 'BUY' ? 'text-[#34d399] font-bold' : 'text-[#f87171] font-bold'}>
+                    #{btTooltip.trade.id} · {btTooltip.trade.direction || btTooltip.trade.type}
+                  </span>
+                  <span className="text-[#94a3b8] text-[9px]">{btTooltip.trade.reason || 'Exit'}</span>
+                </div>
+                <div className="text-[#cbd5e1] text-[9.5px] leading-tight">
+                  <div>Вход: <span className="text-white">${btTooltip.trade.entry_price}</span> → Выход: <span className="text-white">${btTooltip.trade.exit_price}</span></div>
+                </div>
+                <div className={`font-bold mt-1 text-[11px] ${(btTooltip.trade.pnl_usd ?? 0) >= 0 ? 'text-[#34d399]' : 'text-[#f87171]'}`}>
+                  Чистый PnL: {(btTooltip.trade.pnl_usd ?? 0) >= 0 ? '+' : ''}${btTooltip.trade.pnl_usd} ({(btTooltip.trade.pnl_pct ?? 0) >= 0 ? '+' : ''}{btTooltip.trade.pnl_pct}%)
+                </div>
+                <div className="text-[8.5px] text-[#64748b] mt-0.5 flex justify-between">
+                  <span>Комиссия: -${Number(btTooltip.trade.fee_paid_usd || 0).toFixed(2)}</span>
+                  <span>Слиппейдж: -${Number(btTooltip.trade.slippage_cost_usd || 0).toFixed(2)}</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className={btTooltip.sig.type === 'BUY' ? 'text-[#26a69a] font-bold' : 'text-[#ef5350] font-bold'}>
+                  {btTooltip.sig.label} @ {btTooltip.sig.price}
+                </div>
+                <div className="text-[#d1d4dc]">Причина: {btTooltip.sig.reason || '—'}</div>
+                <div className={(btTooltip.sig.pnl_pct ?? 0) >= 0 ? 'text-[#26a69a]' : 'text-[#ef5350]'}>
+                  PnL: {(btTooltip.sig.pnl_pct ?? 0) >= 0 ? '+' : ''}{btTooltip.sig.pnl_pct}% (${btTooltip.sig.pnl_usd})
+                </div>
+              </>
+            )}
           </div>
         )}
 

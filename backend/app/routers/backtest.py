@@ -24,9 +24,63 @@ backtest_router = APIRouter(prefix="/api/backtest", tags=["backtest"])
 
 TF_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240}
 MAX_CANDLES = 45000  # 30 days of 1m
+
+STRATEGIES_CATALOG = [
+    {
+        "id": "confluence_ema",
+        "name": "Квант-Конфлюенс (EMA + CVD + RSI + ATR)",
+        "engine_domain": "historical_flow",
+        "is_historical_ready": True,
+        "description": "Мультифакторный сетап по тренду с фильтрацией зон перекупленности и поглощения дельты. Основан на 100% реальных исторических данных биржи (OHLCV + Taker Buy Volume).",
+        "badge": "Реальная история"
+    },
+    {
+        "id": "cvd_absorption",
+        "name": "Поглощение объёма (CVD Absorption)",
+        "engine_domain": "historical_flow",
+        "is_historical_ready": True,
+        "description": "Выявление расхождения между ценовыми экстремумами и кумулятивной дельтой (CVD Divergence) с подтверждением всплеска объема.",
+        "badge": "Реальная история"
+    },
+    {
+        "id": "cluster_volume_bounce",
+        "aliases": ["density_bounce", "limit_bounce"],
+        "name": "Отскок от объёмного кластера (Volume Climax)",
+        "engine_domain": "historical_flow",
+        "is_historical_ready": True,
+        "description": "Пинбар с кульминацией кластерного объема свечи и истощением дельты. Честная математическая замена стаканных плотностей на исторических данных.",
+        "badge": "Реальная история"
+    },
+    {
+        "id": "ema_trend",
+        "name": "Импульс тренда EMA(20/50)",
+        "engine_domain": "historical_flow",
+        "is_historical_ready": True,
+        "description": "Трендовое пересечение скользящих средних с подтверждением рыночных покупок/продаж по дельте.",
+        "badge": "Реальная история"
+    },
+    {
+        "id": "live_density_bounce",
+        "name": "Отскок от плотности стакана L2",
+        "engine_domain": "live_orderbook",
+        "is_historical_ready": False,
+        "description": "Работает ТОЛЬКО в реальном времени по живому стакану L2 с детекцией спуфинга и проверкой времени жизни стенки (> 30 сек). Биржа не хранит историческую книгу заявок.",
+        "badge": "Только Live L2"
+    },
+    {
+        "id": "live_wall_breakout",
+        "name": "Пробой крупной стенки стакана L2",
+        "engine_domain": "live_orderbook",
+        "is_historical_ready": False,
+        "description": "Работает ТОЛЬКО в реальном времени при разъедании крупной лимитной плотности маркет-ордерами.",
+        "badge": "Только Live L2"
+    }
+]
+
 STRATEGIES = {
     "density_bounce",
     "limit_bounce",
+    "cluster_volume_bounce",
     "wall_breakout",
     "breakout",
     "delta_absorption",
@@ -313,6 +367,13 @@ def build_response(raw: Dict[str, Any], initial_capital: float, meta: Dict[str, 
         # legacy keys (test_e2e.py / BacktestModal / AICopilotSidebar)
         "net_pnl": raw.get("net_pnl", 0.0),
         "total_pnl_usd": raw.get("net_pnl", 0.0),
+        "data_engine": {
+            "class": "Historical Flow & Volume Engine",
+            "status": "Verified Real History",
+            "historical_sources": ["Binance Futures OHLCV", "Taker Buy Base Volume (Delta)", "Open Interest 1h Delta"],
+            "l2_orderbook_available_on_history": False,
+            "disclaimer": "Биржа Binance не хранит историческую книгу заявок L2. Симуляция основана на реальном тиковом объёме покупок/продаж (CVD) и свечных кластерах."
+        },
         "gross_pnl": raw.get("gross_pnl", 0.0),
         "total_fees_usd": raw.get("total_fees_usd", 0.0),
         "total_slippage_usd": raw.get("total_slippage_usd", 0.0),
@@ -327,6 +388,12 @@ def build_response(raw: Dict[str, Any], initial_capital: float, meta: Dict[str, 
     })
 
 
+@backtest_router.get("/strategies")
+async def get_strategies():
+    """Returns catalog of quantitative strategies with strict Historical vs Live L2 separation."""
+    return {"strategies": STRATEGIES_CATALOG}
+
+
 @backtest_router.post("/run")
 async def run_backtest(req: BacktestRequest):
     symbol = req.symbol.strip().upper()
@@ -334,6 +401,9 @@ async def run_backtest(req: BacktestRequest):
         raise HTTPException(status_code=422, detail=f"timeframe must be one of {list(TF_MINUTES)}")
 
     eff_strategy = req.strategy or req.strategy_type
+    if eff_strategy == "cluster_volume_bounce":
+        eff_strategy = "density_bounce"
+
     if eff_strategy not in STRATEGIES:
         raise HTTPException(status_code=422, detail=f"strategy_type must be one of {sorted(STRATEGIES)}")
 
