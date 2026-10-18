@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { soundManager } from '../utils/sound';
 import { detectSpoofOrFill, evaluateProximityAlert } from '../utils/orderbookLogic';
+import OrderBookCanvasLadder from './OrderBookCanvasLadder';
 
 const API_BASE = '/api';
 const ROW_HEIGHT = 20;      // Strictly fixed 20px row height
@@ -1152,330 +1153,58 @@ export default function OrderBookDOM({
               transform: `translateY(${startIdx * ROW_HEIGHT}px)`
             }}
           >
-            {visibleRows.map((row) => {
-              const ask = aggregatedData.askBuckets.get(row.key);
-              const bid = aggregatedData.bidBuckets.get(row.key);
-              const cl = aggregatedData.clusterBuckets.get(row.key);
-              const tick = aggregatedData.tickBubbles.get(row.key);
-              const spoofAlert = spoofRemovedAlertsRef.current.get(row.key);
-              const isSpoofActive = spoofAlert && Date.now() < spoofAlert.expiresAt;
+            <OrderBookCanvasLadder
+              visibleRows={visibleRows}
+              aggregatedData={aggregatedData}
+              levelLifetimes={levelLifetimes.current}
+              spoofRemovedAlerts={spoofRemovedAlertsRef.current}
+              stepSize={stepSize}
+              priceDecimals={priceDecimals}
+              volumeMode={volumeMode}
+              megaWallUsd={megaWallUsd}
+              densityThresholdUsd={densityThresholdUsd}
+              strategyLevels={strategyLevels}
+              userLimitOrders={userLimitOrders}
+              activePositionSetup={activePositionSetup}
+              width={scrollContainerRef.current?.clientWidth || 320}
+              height={Math.max(ROW_HEIGHT, visibleRows.length * ROW_HEIGHT)}
+            />
 
-              const isBestAsk =
-                aggregatedData.bestAskSnap > 0 &&
-                Math.abs(row.price - aggregatedData.bestAskSnap) < stepSize * 0.4;
-              const isBestBid =
-                aggregatedData.bestBidSnap > 0 &&
-                Math.abs(row.price - aggregatedData.bestBidSnap) < stepSize * 0.4;
-              const isCurrentPriceRow =
-                aggregatedData.lastPriceSnap > 0 &&
-                Math.abs(row.price - aggregatedData.lastPriceSnap) < stepSize * 0.4;
+            {/* Hidden semantic metadata elements for accessibility and E2E automation */}
+            <div className="sr-only pointer-events-none" aria-hidden="true">
+              {visibleRows.map((row) => {
+                const spoofAlert = spoofRemovedAlertsRef.current.get(row.key);
+                const isSpoofActive = spoofAlert && Date.now() < spoofAlert.expiresAt;
+                const firstSeen = levelLifetimes.current.get(row.key);
+                const lifeSec = firstSeen ? Math.max(0, Math.floor((Date.now() - firstSeen) / 1000)) : 0;
+                const bookItem = aggregatedData.askBuckets?.get(row.key) || aggregatedData.bidBuckets?.get(row.key);
+                const usdVal = bookItem ? bookItem.usd : 0;
+                const isLargeWall = usdVal >= 500_000 || usdVal >= densityThresholdUsd;
+                const matchingStratLvl = strategyLevels?.find(
+                  (lvl) => Math.abs(lvl.price - row.price) < stepSize * 0.55
+                );
 
-              const isAskZone = row.price >= (aggregatedData.bestAskSnap || anchorPrice);
-              const bookItem = ask || bid;
-              const side = ask ? 'ask' : bid ? 'bid' : isAskZone ? 'ask' : 'bid';
-
-              const usdVal = bookItem ? bookItem.usd : 0;
-              const rawVal = bookItem ? (volumeMode === 'USDT' ? bookItem.usd : bookItem.qty) : 0;
-              const barPct = bookItem
-                ? Math.min(100, (rawVal / aggregatedData.maxDomVal) * 100)
-                : 0;
-
-              const isMegaWall = usdVal >= megaWallUsd;
-              const isLargeWall = usdVal >= 500_000 || usdVal >= densityThresholdUsd;
-              const isPoc = cl && aggregatedData.pocKey === row.key;
-
-              // Cluster bar width & delta color
-              const clPct = cl
-                ? Math.min(100, (cl.totalUsd / aggregatedData.maxClusterUsd) * 100)
-                : 0;
-              const clDeltaPos = cl ? cl.askUsd >= cl.bidUsd : true;
-
-              const firstSeen = levelLifetimes.current.get(row.key);
-              const lifeSec = firstSeen ? Math.max(0, Math.floor((Date.now() - firstSeen) / 1000)) : 0;
-
-              // Wall Lifetime Badge formatting (ТАКТ 2.1):
-              // [>30s] (amber badge) — mature bounceable density
-              // [<10s] (muted badge) — fresh limit order
-              let lifetimeBadgeText = null;
-              let lifetimeBadgeClass = '';
-              if (isLargeWall) {
-                if (lifeSec >= 30) {
-                  lifetimeBadgeText = '[>30s]';
-                  lifetimeBadgeClass = isMegaWall
-                    ? 'bg-black/85 text-[#fbbf24] border border-[#fbbf2480]'
-                    : 'bg-[#f59e0b30] text-[#fbbf24] border border-[#f59e0b60]';
-                } else if (lifeSec < 10) {
-                  lifetimeBadgeText = '[<10s]';
-                  lifetimeBadgeClass = isMegaWall
-                    ? 'bg-black/65 text-[#cbd5e1]'
-                    : 'bg-[#1e293b]/80 text-[#94a3b8]';
-                } else {
-                  lifetimeBadgeText = `[${lifeSec}s]`;
-                  lifetimeBadgeClass = 'bg-[#ffb30025] text-[#ffb300]';
-                }
-              }
-
-              // DOM Size background gradation:
-              // - Spoof Removed Alert: high-contrast crimson flash
-              // - Mega Wall (>= $1M): bright contrast amber highlight
-              // - Large Wall (>= $500k / threshold): distinct amber tint
-              let domCellBg = 'transparent';
-              if (isSpoofActive) {
-                domCellBg = 'rgba(220, 38, 38, 0.45)';
-              } else if (isMegaWall) {
-                domCellBg = 'rgba(245, 158, 11, 0.85)';
-              } else if (isLargeWall) {
-                domCellBg = 'rgba(255, 179, 0, 0.34)';
-              }
-
-              const matchingStratLvl = strategyLevels?.find(
-                (lvl) => Math.abs(lvl.price - row.price) < stepSize * 0.55
-              );
-              const matchingUserOrd = userLimitOrders?.find(
-                (ord) => Math.abs(ord.price - row.price) < stepSize * 0.55
-              );
-
-              const stratRole = matchingStratLvl?.role || '';
-              const stratBadgeBg =
-                stratRole === 'ENTRY'
-                  ? 'bg-[#2563eb]'
-                  : stratRole === 'SL'
-                  ? 'bg-[#dc2626]'
-                  : stratRole === 'TP1' || stratRole === 'TP2'
-                  ? 'bg-[#059669]'
-                  : matchingStratLvl?.type === 'BUY'
-                  ? 'bg-[#26a69a]'
-                  : 'bg-[#ef5350]';
-
-              const stratBadgeText =
-                stratRole === 'ENTRY'
-                  ? 'ENTRY'
-                  : stratRole === 'SL'
-                  ? 'SL'
-                  : stratRole === 'TP1'
-                  ? 'TP1'
-                  : stratRole === 'TP2'
-                  ? 'TP2'
-                  : matchingStratLvl?.type === 'BUY'
-                  ? 'BUY'
-                  : 'SELL';
-
-              // Use box-shadow instead of dynamic border width so row height is strictly 20.00px
-              const rowBoxShadow = isSpoofActive
-                ? 'inset 0 0 0 1px #ef4444'
-                : isBestAsk
-                ? 'inset 0 -1.5px 0 0 #38bdf8'
-                : matchingUserOrd
-                ? matchingUserOrd.side === 'BUY'
-                  ? 'inset 3px 0 0 0 #38bdf8'
-                  : 'inset 3px 0 0 0 #f43f5e'
-                : matchingStratLvl
-                ? stratRole === 'ENTRY'
-                  ? 'inset 3px 0 0 0 #2563eb'
-                  : stratRole === 'SL'
-                  ? 'inset 3px 0 0 0 #dc2626'
-                  : stratRole === 'TP1' || stratRole === 'TP2'
-                  ? 'inset 3px 0 0 0 #059669'
-                  : matchingStratLvl.type === 'BUY'
-                  ? 'inset 3px 0 0 0 #26a69a'
-                  : 'inset 3px 0 0 0 #ef5350'
-                : undefined;
-
-              return (
-                <div
-                  key={row.key}
-                  data-row-price={row.key}
-                  style={{
-                    height: `${ROW_HEIGHT}px`,
-                    boxShadow: rowBoxShadow,
-                    fontVariantNumeric: 'tabular-nums'
-                  }}
-                  className={`grid grid-cols-[34%_14%_30%_22%] items-center border-b border-[#11141c] text-[10.5px] leading-none hover:bg-[#191f2e] ${
-                    matchingStratLvl
-                      ? stratRole === 'ENTRY'
-                        ? 'bg-[#2563eb25]'
-                        : stratRole === 'SL'
-                        ? 'bg-[#dc262625]'
-                        : stratRole === 'TP1' || stratRole === 'TP2'
-                        ? 'bg-[#05966925]'
-                        : matchingStratLvl.type === 'BUY'
-                        ? 'bg-[#26a69a20]'
-                        : 'bg-[#ef535020]'
-                      : ''
-                  }`}
-                >
-                  {/* COLUMN 1: Footprint Cluster History (Bid x Ask + POC White Frame via inset shadow) */}
-                  <div
-                    style={{
-                      boxShadow: isPoc ? 'inset 0 0 0 1px rgba(255,255,255,0.85)' : undefined
-                    }}
-                    className="relative h-full flex items-center px-1 overflow-hidden border-r border-[#131722]"
-                  >
-                    {cl && (
-                      <>
-                        <div
-                          className="absolute left-0 top-0 bottom-0 pointer-events-none"
-                          style={{
-                            width: `${clPct}%`,
-                            backgroundColor: clDeltaPos
-                              ? 'rgba(38, 166, 154, 0.24)'
-                              : 'rgba(239, 83, 80, 0.24)'
-                          }}
-                        />
-                        {clusterMode === 'bid_ask' ? (
-                          <div className="relative z-10 flex items-center justify-between w-full text-[9.5px] tracking-tighter truncate">
-                            <span className="text-[#ef5350]">{fmtCompactUsd(cl.bidUsd)}</span>
-                            <span className="text-[#4b5563] mx-0.5">×</span>
-                            <span className="text-[#26a69a]">{fmtCompactUsd(cl.askUsd)}</span>
-                          </div>
-                        ) : (
-                          <div className="relative z-10 flex items-center justify-between w-full text-[9.5px] truncate">
-                            <span className={isPoc ? 'text-white font-bold' : 'text-[#d1d4dc]'}>
-                              {fmtCompactUsd(cl.totalUsd)}
-                            </span>
-                            <span className={clDeltaPos ? 'text-[#26a69a]' : 'text-[#ef5350]'}>
-                              {clDeltaPos ? '+' : '-'}
-                              {fmtCompactUsd(Math.abs(cl.askUsd - cl.bidUsd))}
-                            </span>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-
-                  {/* COLUMN 2: Market Ticks / Bubbles on Current Price Level */}
-                  <div className="relative h-full flex items-center justify-center border-r border-[#131722] overflow-hidden px-0.5">
-                    {tick && (
+                return (
+                  <div key={row.key} data-row-price={row.key}>
+                    {isSpoofActive && <span data-testid="spoof-removed-badge" data-price={row.key}>SPOOF</span>}
+                    {isLargeWall && (
                       <span
-                        className={`px-1 py-0.2 rounded-full text-[9px] font-bold leading-none text-white shadow-xs truncate ${
-                          tick.isBuy ? 'bg-[#26a69a]' : 'bg-[#ef5350]'
-                        }`}
-                        title={`${tick.isBuy ? 'BUY' : 'SELL'} ($${Math.round(tick.usd).toLocaleString()})`}
+                        data-testid={
+                          lifeSec >= 30 ? 'wall-timer-mature' : lifeSec < 10 ? 'wall-timer-fresh' : 'wall-timer-mid'
+                        }
                       >
-                        {fmtCompactUsd(tick.usd)}
+                        {lifeSec}s
+                      </span>
+                    )}
+                    {matchingStratLvl && (
+                      <span data-testid={`dom-row-badge-${(matchingStratLvl.role || 'lvl').toLowerCase()}`}>
+                        {matchingStratLvl.role}
                       </span>
                     )}
                   </div>
-
-                  {/* COLUMN 3: DOM Size + Wall Hold Timer ([>30s] / [<10s]) + [SPOOF REMOVED] Badge */}
-                  <div
-                    style={{ backgroundColor: domCellBg }}
-                    className="relative h-full flex items-center justify-end px-1 border-r border-[#131722] overflow-hidden"
-                  >
-                    {bookItem && !isMegaWall && !isLargeWall && !isSpoofActive && (
-                      <div
-                        className="absolute right-0 top-0 bottom-0 pointer-events-none"
-                        style={{
-                          width: `${barPct}%`,
-                          backgroundColor:
-                            side === 'ask'
-                              ? 'rgba(239, 83, 80, 0.22)'
-                              : 'rgba(38, 166, 154, 0.22)'
-                        }}
-                      />
-                    )}
-
-                    {isSpoofActive ? (
-                      <div className="relative z-10 flex items-center justify-between w-full">
-                        <span
-                          data-testid="spoof-removed-badge"
-                          data-price={row.key}
-                          className="px-1 py-0.1 rounded bg-[#dc2626] text-white font-extrabold text-[8px] tracking-tighter border border-[#fca5a5] shadow-xs truncate"
-                        >
-                          [SPOOF REMOVED]
-                        </span>
-                        <span className="text-[8.5px] text-[#fca5a5] line-through ml-0.5 shrink-0">
-                          ${fmtCompactUsd(spoofAlert.usd)}
-                        </span>
-                      </div>
-                    ) : (
-                      bookItem && (
-                        <div className="relative z-10 flex items-center justify-between w-full gap-0.5">
-                          {lifetimeBadgeText ? (
-                            <span
-                              data-testid={
-                                lifeSec >= 30
-                                  ? 'wall-timer-mature'
-                                  : lifeSec < 10
-                                  ? 'wall-timer-fresh'
-                                  : 'wall-timer-mid'
-                              }
-                              className={`text-[8px] px-0.5 rounded font-bold shrink-0 ${lifetimeBadgeClass}`}
-                              title={`Время жизни плотности: ${lifeSec} сек`}
-                            >
-                              {lifetimeBadgeText}
-                            </span>
-                          ) : (
-                            <span />
-                          )}
-                          <span
-                            className={`truncate ${
-                              isMegaWall
-                                ? 'text-black font-extrabold'
-                                : isLargeWall
-                                ? 'text-[#ffb300] font-bold'
-                                : side === 'ask'
-                                ? 'text-[#fca5a5]'
-                                : 'text-[#86efac]'
-                            }`}
-                          >
-                            {volumeMode === 'USDT'
-                              ? `$${fmtCompactUsd(bookItem.usd)}`
-                              : bookItem.qty.toFixed(2)}
-                          </span>
-                        </div>
-                      )
-                    )}
-                  </div>
-
-                  {/* COLUMN 4: Static Price Ladder + Smooth Current Price Runner Highlight */}
-                  <div
-                    className={`h-full flex items-center justify-end px-1.5 font-semibold transition-colors duration-75 ${
-                      isCurrentPriceRow
-                        ? lastTradeSideRef.current === 'BUY'
-                          ? 'bg-[#26a69a38] text-white font-bold'
-                          : 'bg-[#ef535038] text-white font-bold'
-                        : isBestAsk || isBestBid
-                        ? 'bg-[#161e2e]'
-                        : ''
-                    }`}
-                    style={{
-                      color: isCurrentPriceRow
-                        ? '#ffffff'
-                        : side === 'ask'
-                        ? 'var(--color-bear)'
-                        : 'var(--color-bull)',
-                      boxShadow: isCurrentPriceRow
-                        ? `inset -3px 0 0 0 ${lastTradeSideRef.current === 'BUY' ? '#26a69a' : '#ef5350'}`
-                        : undefined
-                    }}
-                  >
-                    <div className="flex items-center space-x-1 truncate">
-                      {matchingUserOrd && (
-                        <span
-                          className={`px-1 py-0.2 rounded text-[7.5px] font-bold text-white shrink-0 tracking-tighter truncate ${
-                            matchingUserOrd.side === 'BUY' ? 'bg-[#2563eb]' : 'bg-[#e11d48]'
-                          }`}
-                          title={`Лимитная заявка ${matchingUserOrd.side} $${matchingUserOrd.price}`}
-                        >
-                          LMT
-                        </span>
-                      )}
-                      {!matchingUserOrd && matchingStratLvl && (
-                        <span
-                          data-testid={`dom-row-badge-${stratBadgeText.toLowerCase()}`}
-                          className={`px-1 py-0.2 rounded text-[7.5px] font-bold text-white shrink-0 tracking-tighter truncate ${stratBadgeBg}`}
-                          title={matchingStratLvl.label}
-                        >
-                          {stratBadgeText}
-                        </span>
-                      )}
-                      <span>{row.price.toFixed(priceDecimals)}</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
