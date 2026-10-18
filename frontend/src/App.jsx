@@ -4,6 +4,7 @@ import OrderBookDOM from './components/OrderBookDOM';
 import ScalperTradeDesk from './components/ScalperTradeDesk';
 import Tape from './components/Tape';
 import SignalsFeed from './components/SignalsFeed';
+import TerminalDockview from './components/docking/TerminalDockview';
 import SettingsModal, {
   loadLocalUiConfig,
   applyUiConfigToDOM
@@ -1048,238 +1049,47 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Responsive Workspace Layout with Drag-to-Resize Splitters */}
+      {/* Main Responsive Workspace Layout with Dockview (dockview-react) */}
       <main className="flex-1 flex overflow-hidden relative min-w-0">
-        {/* Central Workspace: Resizable Dual-Pane KLineCharts */}
-        <section
-          style={{ backgroundColor: 'var(--bg-root)' }}
-          className="flex-1 h-full min-w-0 p-1 overflow-hidden relative flex flex-col"
-        >
-          <div
-            ref={chartsContainerRef}
-            className="flex-1 min-h-0 min-w-0 flex overflow-hidden"
-          >
-            {/* Left Chart (HTF Senior Timeframe) */}
-            {showHtfChart && (
-              <div
-                style={{ width: showLtfChart ? `${chartSplitPct}%` : '100%' }}
-                className="h-full min-w-[200px] min-h-0 overflow-hidden shrink-0"
-              >
-                <Chart
-                  chartId="primary"
-                  symbol={symbol}
-                  timeframe={timeframe}
-                  userId={userId}
-                  titlePrefix="HTF"
-                  backtestSignals={btResult}
-                  showBacktestSignals={showBtSignals}
-                  strategyLevels={strategyLevels}
-                  activePositionSetup={activePositionSetup}
-                  uiConfig={uiConfig}
-                  chartIndicators={primaryIndicators}
-                  onOpenIndicators={(cid) => {
-                    setIndicatorsTargetChart(cid);
-                    setShowIndicatorsModal(true);
-                  }}
-                  onCloseWidget={() => setShowHtfChart(false)}
-                />
-              </div>
-            )}
-
-            {/* Interactive Vertical Splitter between HTF and LTF charts */}
-            {showHtfChart && showLtfChart && (
-              <div
-                data-testid="splitter-charts"
-                onMouseDown={handleChartSplitterMouseDown}
-                className="w-1.5 hover:bg-[#38bdf880] active:bg-[#38bdf8] cursor-col-resize transition-colors flex items-center justify-center relative group z-10 shrink-0"
-                title="Потяните для изменения пропорции графиков HTF / LTF"
-              >
-                <div
-                  style={{ backgroundColor: 'var(--border-subtle)' }}
-                  className="w-[1px] h-full group-hover:bg-[#38bdf8]"
-                />
-              </div>
-            )}
-
-            {/* Right Chart (LTF Junior Microstructure Timeframe) */}
-            {showLtfChart && (
-              <div className="flex-1 h-full min-w-[200px] min-h-0 overflow-hidden">
-                <Chart
-                  chartId="secondary"
-                  symbol={symbol}
-                  timeframe={secondaryTimeframe}
-                  onTimeframeChange={setSecondaryTimeframe}
-                  userId={userId}
-                  titlePrefix="LTF"
-                  backtestSignals={btResult}
-                  showBacktestSignals={showBtSignals}
-                  strategyLevels={strategyLevels}
-                  activePositionSetup={activePositionSetup}
-                  uiConfig={uiConfig}
-                  chartIndicators={secondaryIndicators}
-                  onOpenIndicators={(cid) => {
-                    setIndicatorsTargetChart(cid);
-                    setShowIndicatorsModal(true);
-                  }}
-                  onCloseWidget={() => setShowLtfChart(false)}
-                />
-              </div>
-            )}
-
-            {/* Empty state if both charts were closed */}
-            {!showHtfChart && !showLtfChart && (
-              <div className="flex-1 h-full flex flex-col items-center justify-center border border-[#1f2430] rounded bg-[#0c0e12] space-y-2 text-xs text-[#787f91]">
-                <span>Окна графиков скрыты</span>
-                <div className="flex space-x-2">
-                  <button
-                    onClick={() => setShowHtfChart(true)}
-                    className="px-3 py-1 rounded bg-[#2563eb] text-white font-semibold cursor-pointer"
-                  >
-                    + Открыть График HTF
-                  </button>
-                  <button
-                    onClick={() => setShowLtfChart(true)}
-                    className="px-3 py-1 rounded bg-[#1e293b] text-[#38bdf8] border border-[#38bdf850] font-semibold cursor-pointer"
-                  >
-                    + Открыть График LTF
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <BacktestPanel
-            isOpen={showBacktest}
-            onClose={() => setShowBacktest(false)}
-            symbol={symbol}
-            result={btResult}
-            onResult={setBtResult}
-            showSignals={showBtSignals}
-            onToggleSignals={() => setShowBtSignals((v) => !v)}
-            onApplyStrategy={handleApplyStrategy}
-            onStrategyChange={setActiveStrategyProfile}
-            onProjectPositionSetup={handleProjectPositionSetup}
-          />
-        </section>
-
-        {/* Interactive Splitter Handle between Charts and Right Dock */}
-        {anyRightPanelOpen && (
-          <div
-            data-testid="splitter-main-dock"
-            onMouseDown={handleMouseDown}
-            style={{ backgroundColor: 'var(--bg-root)' }}
-            className="w-1.5 hover:bg-[#38bdf880] active:bg-[#38bdf8] cursor-col-resize transition-colors flex items-center justify-center relative group z-10 shrink-0"
-            title="Потяните для изменения ширины бокового дока (Стакан / Лента)"
-          >
-            <div
-              style={{ backgroundColor: 'var(--border-subtle)' }}
-              className="w-[1px] h-full group-hover:bg-[#38bdf8]"
-            />
-          </div>
-        )}
-
-        {/* Right Pane: Responsive Resizable Sidebar (Scalper Trade Desk, DOM OrderBook, Tape, Signals) */}
-        {anyRightPanelOpen && (
-          <aside
-            ref={rightDockRef}
-            style={{
-              width: `${sidebarWidth}px`,
-              maxWidth: '56vw'
+        <div className="flex-1 h-full min-w-0 overflow-hidden relative flex flex-col">
+          <TerminalDockview
+            chartSharedProps={{
+              uiConfig,
+              strategyLevels,
+              activePositionSetup,
+              btResult,
+              showBtSignals,
+              onOpenIndicators: (cid) => {
+                setIndicatorsTargetChart(cid);
+                setShowIndicatorsModal(true);
+              }
             }}
-            className="h-full flex flex-col p-1 pl-0 overflow-hidden shrink-0 min-w-[290px]"
-          >
-            {/* ТАКТ 1: Scalper Trade Desk directly above DOM OrderBook */}
-            {showTradeDesk && (
-              <ScalperTradeDesk
-                symbol={symbol}
-                marketSummary={marketSummary}
-                onOrdersChange={setUserLimitOrders}
-                onClose={() => setShowTradeDesk(false)}
-              />
-            )}
+            domSharedProps={{
+              uiConfig,
+              strategyLevels,
+              activePositionSetup,
+              userLimitOrders,
+              onMarketSummary: setMarketSummary,
+              onProximityAlert: handleProximityAlert
+            }}
+            signalsSharedProps={{
+              signals: []
+            }}
+          />
+        </div>
 
-            {(showOrderBook || showTape) && (
-              <div
-                ref={domTapeRowRef}
-                className="w-full flex-1 flex min-h-0 overflow-hidden"
-              >
-                {showOrderBook && (
-                  <div
-                    style={{ width: showTape ? `${domWidthPct}%` : '100%' }}
-                    className="h-full min-w-[160px] overflow-hidden shrink-0"
-                  >
-                    <OrderBookDOM
-                      symbol={symbol}
-                      onProximityAlert={handleProximityAlert}
-                      uiConfig={uiConfig}
-                      strategyLevels={strategyLevels}
-                      activePositionSetup={activePositionSetup}
-                      userLimitOrders={userLimitOrders}
-                      onMarketSummary={setMarketSummary}
-                      onClose={() => setShowOrderBook(false)}
-                    />
-                  </div>
-                )}
-
-                {/* Interactive Splitter between DOM OrderBook and Tape */}
-                {showOrderBook && showTape && (
-                  <div
-                    data-testid="splitter-dom-tape"
-                    onMouseDown={handleDomTapeSplitterMouseDown}
-                    className="w-1.5 hover:bg-[#38bdf880] active:bg-[#38bdf8] cursor-col-resize transition-colors flex items-center justify-center relative group z-10 shrink-0"
-                    title="Потяните для изменения ширины Стакана DOM и Ленты сделок"
-                  >
-                    <div
-                      style={{ backgroundColor: 'var(--border-subtle)' }}
-                      className="w-[1px] h-full group-hover:bg-[#38bdf8]"
-                    />
-                  </div>
-                )}
-
-                {showTape && (
-                  <div className="flex-1 h-full min-w-[110px] overflow-hidden">
-                    <Tape
-                      symbol={symbol}
-                      uiConfig={uiConfig}
-                      onClose={() => setShowTape(false)}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Interactive Horizontal Splitter between (DOM+Tape) and SignalsFeed */}
-            {(showOrderBook || showTape) && showSignals && (
-              <div
-                data-testid="splitter-signals"
-                onMouseDown={handleSignalsSplitterMouseDown}
-                className="h-1.5 hover:bg-[#38bdf880] active:bg-[#38bdf8] cursor-row-resize transition-colors flex items-center justify-center relative group z-10 shrink-0"
-                title="Потяните для изменения высоты панели сигналов"
-              >
-                <div
-                  style={{ backgroundColor: 'var(--border-subtle)' }}
-                  className="h-[1px] w-full group-hover:bg-[#38bdf8]"
-                />
-              </div>
-            )}
-
-            {showSignals && (
-              <div
-                style={{
-                  height: showOrderBook || showTape ? `${signalsHeightPct}%` : undefined
-                }}
-                className={`w-full min-h-[90px] overflow-hidden ${
-                  showOrderBook || showTape ? 'shrink-0' : 'flex-1'
-                }`}
-              >
-                <SignalsFeed
-                  onSelectSignal={handleSelectSignal}
-                  onClose={() => setShowSignals(false)}
-                />
-              </div>
-            )}
-          </aside>
-        )}
+        <BacktestPanel
+          isOpen={showBacktest}
+          onClose={() => setShowBacktest(false)}
+          symbol={symbol}
+          result={btResult}
+          onResult={setBtResult}
+          showSignals={showBtSignals}
+          onToggleSignals={() => setShowBtSignals((v) => !v)}
+          onApplyStrategy={handleApplyStrategy}
+          onStrategyChange={setActiveStrategyProfile}
+          onProjectPositionSetup={handleProjectPositionSetup}
+        />
       </main>
 
       {/* Real-time Push Toast Notifications (Top Right) */}
