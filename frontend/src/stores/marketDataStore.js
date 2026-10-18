@@ -10,6 +10,7 @@
  */
 
 import { create } from 'zustand';
+import { DEFAULT_FOCUS_LIST } from '../config/coinLibrary';
 
 const WS_MINI_TICKER_URL = 'wss://fstream.binance.com/ws/!miniTicker@arr';
 
@@ -17,11 +18,26 @@ const INITIAL_TICKERS = {
   BTCUSDT: { symbol: 'BTCUSDT', price: 81300.0, open24h: 80100.0, high24h: 82500.0, low24h: 79800.0, change24hPct: 1.5, volumeUsd: 15400000000, ts: Date.now() },
   ETHUSDT: { symbol: 'ETHUSDT', price: 2610.0, open24h: 2580.0, high24h: 2650.0, low24h: 2540.0, change24hPct: 1.16, volumeUsd: 6800000000, ts: Date.now() },
   SOLUSDT: { symbol: 'SOLUSDT', price: 162.5, open24h: 158.0, high24h: 165.0, low24h: 155.0, change24hPct: 2.85, volumeUsd: 3200000000, ts: Date.now() },
+  LINKUSDT: { symbol: 'LINKUSDT', price: 18.45, open24h: 17.80, high24h: 18.90, low24h: 17.50, change24hPct: 3.65, volumeUsd: 850000000, ts: Date.now() },
+  ADAUSDT: { symbol: 'ADAUSDT', price: 0.655, open24h: 0.640, high24h: 0.670, low24h: 0.630, change24hPct: 2.34, volumeUsd: 620000000, ts: Date.now() },
+  SUIUSDT: { symbol: 'SUIUSDT', price: 2.15, open24h: 2.05, high24h: 2.25, low24h: 2.00, change24hPct: 4.88, volumeUsd: 610000000, ts: Date.now() },
+  UNIUSDT: { symbol: 'UNIUSDT', price: 9.85, open24h: 9.40, high24h: 10.10, low24h: 9.20, change24hPct: 4.78, volumeUsd: 480000000, ts: Date.now() },
+  ZECUSDT: { symbol: 'ZECUSDT', price: 34.20, open24h: 33.10, high24h: 35.50, low24h: 32.80, change24hPct: 3.32, volumeUsd: 290000000, ts: Date.now() },
   BNBUSDT: { symbol: 'BNBUSDT', price: 595.0, open24h: 602.0, high24h: 610.0, low24h: 590.0, change24hPct: -1.16, volumeUsd: 850000000, ts: Date.now() },
   DOGEUSDT: { symbol: 'DOGEUSDT', price: 0.142, open24h: 0.148, high24h: 0.155, low24h: 0.138, change24hPct: -4.05, volumeUsd: 920000000, ts: Date.now() },
   XRPUSDT: { symbol: 'XRPUSDT', price: 0.548, open24h: 0.540, high24h: 0.560, low24h: 0.535, change24hPct: 1.48, volumeUsd: 740000000, ts: Date.now() },
-  SUIUSDT: { symbol: 'SUIUSDT', price: 2.15, open24h: 2.05, high24h: 2.25, low24h: 2.00, change24hPct: 4.88, volumeUsd: 610000000, ts: Date.now() },
   NEARUSDT: { symbol: 'NEARUSDT', price: 4.85, open24h: 4.70, high24h: 5.10, low24h: 4.60, change24hPct: 3.19, volumeUsd: 350000000, ts: Date.now() }
+};
+
+const getInitialMonitored = () => {
+  try {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('ss_monitored_tickers') : null;
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch (_) {}
+  return [...DEFAULT_FOCUS_LIST];
 };
 
 export const useMarketDataStore = create((set, get) => {
@@ -30,12 +46,136 @@ export const useMarketDataStore = create((set, get) => {
   let batchBuffer = new Map();
   let flushTimer = null;
 
+  let monitoringWs = null;
+  let monitoringReconnectTimer = null;
+
   return {
     // Map of symbol -> { symbol, price, open24h, high24h, low24h, change24hPct, volumeUsd, ts }
     tickers: { ...INITIAL_TICKERS },
     tickersList: Object.values(INITIAL_TICKERS),
     isConnected: false,
     lastUpdateTs: Date.now(),
+
+    // Monitored Focus Tickers & Background Telemetry
+    monitoredTickers: getInitialMonitored(),
+    monitoringStatuses: {}, // ticker -> { state, step, pnl_pct, signal, timestamp }
+
+    isTickerMonitored: (symbol) => {
+      if (!symbol) return false;
+      return get().monitoredTickers.includes(symbol.toUpperCase().trim());
+    },
+
+    toggleMonitorTicker: async (symbol) => {
+      const sym = symbol.toUpperCase().trim();
+      const current = get().monitoredTickers;
+      const isMonitored = current.includes(sym);
+      const next = isMonitored ? current.filter((s) => s !== sym) : [...current, sym];
+
+      set({ monitoredTickers: next });
+      try {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('ss_monitored_tickers', JSON.stringify(next));
+        }
+      } catch (_) {}
+
+      // Inform backend background worker
+      try {
+        await fetch('/api/screener/monitoring/toggle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticker: sym, monitored: !isMonitored })
+        });
+      } catch (err) {
+        console.debug('Failed to sync monitor toggle to backend:', err);
+      }
+    },
+
+    setMonitoredTickers: async (tickers) => {
+      const clean = Array.isArray(tickers) ? tickers.map((s) => s.toUpperCase().trim()) : [];
+      set({ monitoredTickers: clean });
+      try {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('ss_monitored_tickers', JSON.stringify(clean));
+        }
+      } catch (_) {}
+
+      try {
+        await fetch('/api/screener/monitoring', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tickers: clean })
+        });
+      } catch (err) {
+        console.debug('Failed to sync monitored tickers to backend:', err);
+      }
+    },
+
+    setMonitoringStatus: (ticker, statusObj) => {
+      set((state) => ({
+        monitoringStatuses: {
+          ...state.monitoringStatuses,
+          [ticker.toUpperCase()]: {
+            ...state.monitoringStatuses[ticker.toUpperCase()],
+            ...statusObj,
+            updatedAt: Date.now()
+          }
+        }
+      }));
+    },
+
+    connectMonitoringStream: () => {
+      if (typeof window === 'undefined') return;
+      if (monitoringWs && (monitoringWs.readyState === WebSocket.OPEN || monitoringWs.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+
+      // Initial HTTP fetch of current statuses
+      fetch('/api/screener/monitoring')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data && data.statuses) {
+            set({ monitoringStatuses: data.statuses });
+          }
+          if (data && Array.isArray(data.monitored_tickers) && data.monitored_tickers.length > 0) {
+            // Merge with local storage if needed
+          }
+        })
+        .catch(() => {});
+
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/api/screener/monitoring/ws`;
+
+      try {
+        monitoringWs = new WebSocket(wsUrl);
+
+        monitoringWs.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'init' && data.statuses) {
+              set({ monitoringStatuses: data.statuses });
+            } else if (data.type === 'status_update' && data.ticker) {
+              get().setMonitoringStatus(data.ticker, data);
+            }
+          } catch (_) {}
+        };
+
+        monitoringWs.onclose = () => {
+          monitoringWs = null;
+          if (!monitoringReconnectTimer) {
+            monitoringReconnectTimer = setTimeout(() => {
+              monitoringReconnectTimer = null;
+              get().connectMonitoringStream();
+            }, 3000);
+          }
+        };
+
+        monitoringWs.onerror = () => {
+          try { monitoringWs.close(); } catch (_) {}
+        };
+      } catch (err) {
+        console.debug('Monitoring WS init error:', err);
+      }
+    },
 
     // Real-time signals state (Requirement 3)
     liveSignals: [],

@@ -76,12 +76,18 @@ async def lifespan(app: FastAPI):
     # 4. Start OrderFlow Recorder (100GB storage manager)
     await recorder.start()
 
+    # 5. Start Parallel Background Processing Worker for Monitored Coins
+    from backend.app.engine.background_worker import background_worker
+    worker_task = background_worker.start()
+    background_tasks.append(worker_task)
+
     yield
 
     # Shutdown
     logger.info("Shutting down Signal Script Backend...")
     binance_service.is_ws_running = False
     await recorder.stop()
+    await background_worker.stop()
     for task in background_tasks:
         task.cancel()
     await binance_service.close()
@@ -99,6 +105,7 @@ app.add_middleware(
 
 from backend.app.routers.workspaces import router as workspaces_router
 from backend.app.routers.journal import journal_router
+from backend.app.routers.monitoring import router as monitoring_router
 
 app.include_router(api_router)
 app.include_router(data_router)
@@ -106,6 +113,7 @@ app.include_router(backtest_router)
 app.include_router(ai_router)
 app.include_router(workspaces_router)
 app.include_router(journal_router)
+app.include_router(monitoring_router)
 
 if __name__ == "__main__":
 
