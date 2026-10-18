@@ -1,14 +1,21 @@
-# Cline Rules for SignalScript Repository
+# Cline Project Workflow & Constraints
 
-ВНИМАНИЕ АГЕНТУ CLINE:
-1. Перед началом любой работы ОБЯЗАТЕЛЬНО прочитай файлы `AGENTS.md` и `HANDOFF.md`.
-2. Проверь статус передачи смены: убедись, что `ACTIVE_AGENT` свободен, или переведи его на себя (`ACTIVE_AGENT: Cline`).
-3. Создавай рабочую ветку по формату: `git checkout -b agent/cline/<задача>`.
-4. Сверяйся с разделом «Какие модели для каких задач» в `AGENTS.md`:
-   - Если работаешь на легкой модели (Haiku / Flash / mini) — бери ТОЛЬКО задачи по UI, стилям, текстам, документации. НЕ трогай математику бэктеста, расчет рисков, WebSocket пайплайны и миграции базы данных!
-5. ПЕРЕД КАЖДЫМ КОММИТОМ запусти проверку качества:
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File scripts/check.ps1
-   ```
-   Если скрипт упал — коммитить ЗАПРЕЩЕНО. Сначала исправь ошибку.
-6. По завершении обнови `HANDOFF.md` (укажи свой статус, что сделано, что передаешь следующему агенту) и составь отчет по стандарту из Раздела 7 в `AGENTS.md`.
+1. Context Verification:
+   - Before writing, modifying, or deleting any code, always read context/CURRENT_TASK.md.
+   - Strictly follow the "Quant Constraints", target file paths, and Acceptance Criteria defined there.
+
+2. Engineering Invariants for Backtesting Engine:
+   - Zero Look-Ahead Bias: Bar t calculations must never access data at index > t.
+   - Timestamps: Strictly UTC UNIX millisecond timestamps (ms).
+   - Sizing & Execution: Include slippage, maker/taker fees, and latency models in execution logic.
+
+3. Task Completion:
+   - Run unit tests and linters in terminal to verify implementation.
+   - Once completed, append the execution summary, list of changed files, and test output to the "### Execution Log" section in context/CURRENT_TASK.md.
+
+4. Automatic Model Routing:
+   - Start Cline tasks through `powershell -ExecutionPolicy Bypass -File scripts/cline-auto.ps1 -TaskFile <task-file>`.
+   - The router classifies the task as routine, standard, expert, or review and launches Cline with the configured model.
+   - Do not change the model during one task. If the task becomes materially harder, stop and report `ESCALATE_MODEL`.
+   - Use `-DryRun` to inspect the selected route without starting Cline.
+   - Never place API keys or secrets in routing files, task files, or logs.

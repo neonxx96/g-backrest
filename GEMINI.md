@@ -1,17 +1,15 @@
-# Antigravity Rules for SignalScript Repository
+# Antigravity Trading Terminal Engineering Rules
 
-ВНИМАНИЕ АГЕНТУ ANTIGRAVITY:
-1. Перед началом любой работы ОБЯЗАТЕЛЬНО прочитай файлы `AGENTS.md` и `HANDOFF.md`.
-2. Строго соблюдай протокол поочередной работы с агентом Cline:
-   - Проверь `HANDOFF.md`: если `ACTIVE_AGENT: Cline`, не трогай рабочую область до завершения смены или разрешения пользователя.
-   - Зафиксируй свой статус: `ACTIVE_AGENT: Antigravity`.
-3. Создавай рабочую ветку по формату: `git checkout -b agent/antigravity/<задача>`.
-4. Сверяйся с матрицей моделей в `AGENTS.md`:
-   - Для математики индикаторов, бэктеста, расчета рисков и сетевых сокетов используй сильные модели.
-   - Для правок UI, верстки и документации допустимы быстрые/дешевые модели.
-5. ПЕРЕД КАЖДЫМ КОММИТОМ запусти обязательный шлюз качества:
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File scripts/check.ps1
-   ```
-   Никаких коммитов без успешного (`[OK] ALL QUALITY CHECKS PASSED`) завершения!
-6. По завершении обнови `HANDOFF.md` и составь отчет по стандарту из Раздела 7 в `AGENTS.md`.
+## 1. Master Context Source
+- The current blueprint, architectural constraints, and task definitions are located in context/CURRENT_TASK.md.
+- Read context/CURRENT_TASK.md before planning actions or launching subagents.
+
+## 2. Quantitative & Architecture Standards
+- Zero Look-Ahead Bias: Strategies must only consume data available strictly at or before execution timestamp t.
+- Performance: Prioritize vectorization (NumPy/Polars) or zero-copy event-driven structures.
+- Precision: Round prices and lot sizes according to exchange tick-size/lot-size filters.
+
+## 3. Artifact & Log Protocol
+- Reflect all completed checklist items directly in context/CURRENT_TASK.md.
+- Run terminal test verification (pytest, benchmarks) before concluding the task.
+- Update "### Execution Log" with diff summaries and test results.

@@ -1,0 +1,9 @@
+{
+  "status": "READY",
+  "activeAgent": "none",
+  "currentTask": null,
+  "nextAction": "LibreChat creates the next isolated task in tasks/.",
+  "updatedAtUtc": null,
+  "requiresUserDecision": false,
+  "decisionQuestion": null
+}

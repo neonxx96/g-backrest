@@ -1,0 +1,30 @@
+{
+  "defaultRoute": "standard",
+  "routes": {
+    "routine": {
+      "model": "deepseek/deepseek-v4.1-flash",
+      "provider": "openrouter",
+      "reason": "Small documentation, text, styling, or isolated UI change."
+    },
+    "standard": {
+      "model": "google/gemini-2.5-flash",
+      "provider": "openrouter",
+      "reason": "Normal implementation with limited scope and no financial-core changes."
+    },
+    "expert": {
+      "model": "z-ai/glm-5.3",
+      "provider": "openrouter",
+      "reason": "Risk, backtesting, order book, database, WebSocket, architecture, or multi-file change."
+    },
+    "review": {
+      "model": "anthropic/claude-sonnet-4-6",
+      "provider": "openrouter",
+      "reason": "Final review of sensitive financial, execution, or security-related changes."
+    }
+  },
+  "keywords": {
+    "review": ["review", "ревью", "audit", "аудит", "приемка", "приёмка", "финальная проверка"],
+    "expert": ["backtest", "бэктест", "pnl", "profit", "risk", "риск", "commission", "комисс", "slippage", "проскальзыван", "order book", "orderbook", "стакан", "orderflow", "websocket", "websocket", "database", "база данных", "migration", "миграц", "architecture", "архитектур", "security", "безопас", "latency", "задержк", "execution", "исполнен", "look-ahead", "multi-file", "несколько файлов"],
+    "routine": ["readme", "documentation", "документац", "copy", "текст", "css", "tailwind", "style", "стиль", "color", "цвет", "spacing", "отступ", "typo", "опечат", "small ui", "мелкая ui"]
+  }
+}

@@ -102,6 +102,8 @@
 ---
 
 ## ⏭️ Следующий шаг (Next Steps)
+> 📘 **Полное архитектурное ревью и контекст для нового чата:** См. подробный разбор целей, достижений, ограничений и пошаговый план в [docs/PROJECT_TRANSFER_AND_REVIEW.md](file:///d:/AI_agent_space/gemini/docs/PROJECT_TRANSFER_AND_REVIEW.md).
+
 1. **Слить ветки в одну ветку** — порядок и ожидаемые конфликты описаны в отчёте сессии Cline (ожидаемо fast-forward без конфликтов): `git fetch` → `main` (`09a0c1d`) → `ui-docking-refactor` (`7114a26`) → `agent/cline/update-models-docs` (`7659b3d`) → `agent/cline/token-economy-rules`. После слияния прогнать `scripts/check.ps1` на итоговой ветке и поставить тег `stable-YYYYMMDD`.
 2. Перед началом сессии запустить проект:
    - Терминал 1: `.\.venv\Scripts\python.exe backend/main.py`
