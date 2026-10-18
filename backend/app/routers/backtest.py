@@ -65,6 +65,8 @@ class BacktestParams(BaseModel):
     tp2_mode: str = "trend_rr"
     tp2_rr_ratio: float = Field(2.8, ge=1.0, le=15.0)
     min_wall_lifetime_sec: int = Field(30, ge=10, le=60)
+    # Unified Indicators Configuration { "indicator_id": { "params": {...} } }
+    indicators: Optional[Dict[str, Dict[str, Any]]] = None
 
 
 class BacktestRequest(BaseModel):
@@ -75,6 +77,8 @@ class BacktestRequest(BaseModel):
     strategy: Optional[str] = None
     params: BacktestParams = BacktestParams()
     initial_capital: float = Field(10000.0, gt=0)
+    # Unified Indicators Configuration
+    indicators: Optional[Dict[str, Dict[str, Any]]] = None
     # Legacy / flat override fields
     leverage: Optional[float] = None
     stop_loss_pct: Optional[float] = None
@@ -364,6 +368,19 @@ async def run_backtest(req: BacktestRequest):
     if df.empty:
         raise HTTPException(status_code=400, detail=f"No candles for {symbol}")
 
+    custom_indicators = req.indicators or p.indicators
+    if custom_indicators:
+        from backend.app.engine.indicators import compute_indicators
+        df = compute_indicators(df, custom_indicators)
+        if "atr" in custom_indicators:
+            atr_param = custom_indicators["atr"].get("params", {}).get("period")
+            if atr_param:
+                p.atr_period = int(atr_param)
+        if "rsi" in custom_indicators:
+            use_rsi_filter = True
+        if "cvd" in custom_indicators:
+            use_cvd_filter = True
+
     engine = OrderFlowBacktester(
         initial_capital=req.initial_capital,
         maker_fee_pct=maker_fee_pct,
@@ -416,6 +433,7 @@ async def run_backtest(req: BacktestRequest):
         "candles": int(len(df)),
         "from_time": int(df["timestamp"].iloc[0]),
         "to_time": int(df["timestamp"].iloc[-1]),
+        "custom_indicators": list(custom_indicators.keys()) if custom_indicators else [],
         "requested_days": req.days,
         "execution": {
             "maker_fee_pct": maker_fee_pct,
