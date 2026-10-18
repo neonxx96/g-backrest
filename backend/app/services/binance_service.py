@@ -122,10 +122,12 @@ class BinanceService:
         self.is_ws_running = True
         logger.info(f"Connecting to Binance liquidation WS: {ws_url}")
 
+        reconnect_attempts = 0
         while self.is_ws_running:
             try:
                 async with websockets.connect(ws_url, ping_interval=20, ping_timeout=10) as ws:
                     logger.info("Connected to Binance Liquidation WebSocket.")
+                    reconnect_attempts = 0  # Reset on successful connection
                     while self.is_ws_running:
                         msg = await ws.recv()
                         data = json.loads(msg)
@@ -149,8 +151,16 @@ class BinanceService:
                                 )
                                 db.add(evt)
                                 await db.commit()
+            except asyncio.CancelledError:
+                break
             except Exception as e:
-                logger.warning(f"Liquidation WebSocket disconnected: {e}. Reconnecting in 5s...")
-                await asyncio.sleep(5)
+                delay = min(60.0, 2.0 * (2 ** reconnect_attempts))
+                logger.warning(
+                    f"[WARNING] Liquidation WebSocket disconnected: {e}. "
+                    f"Reconnecting in {delay:.1f}s (retry={reconnect_attempts + 1})...",
+                    exc_info=True
+                )
+                reconnect_attempts += 1
+                await asyncio.sleep(delay)
 
 binance_service = BinanceService()

@@ -187,6 +187,86 @@ class TestPaperTradingSessionLifecycle(unittest.TestCase):
             })
         self.assertEqual(results[0], results[1])
 
+    def test_wallet_initialization_and_risk_sizing(self):
+        """Virtual wallet initializes with $100.00 and calculates 2% risk sizing."""
+        session = PaperTradingSession()
+        self.assertEqual(session.initial_balance, 100.0)
+        self.assertEqual(session.available_margin, 100.0)
+        self.assertEqual(session.risk_per_trade_pct, 0.02)
+        self.assertEqual(session.taker_fee, 0.0004)
+
+        # Risk budget = 100.0 * 0.02 = $2.00
+        # Entry = 100.0, Stop = 98.0 -> SL dist = 2.0 -> qty = 2.00 / 2.0 = 1.0
+        qty = session.calculate_position_size("BTCUSDT", entry_price=100.0, stop_price=98.0)
+        self.assertAlmostEqual(qty, 1.0, places=6)
+
+        # Entry = 100.0, Stop = 99.0 -> SL dist = 1.0 -> qty = 2.00 / 1.0 = 2.0
+        # Max margin allowed: 100.0 / 100.0 = 1.0 -> bounded to 1.0
+        qty_clamped = session.calculate_position_size("BTCUSDT", entry_price=100.0, stop_price=99.0)
+        self.assertAlmostEqual(qty_clamped, 1.0, places=6)
+
+    def test_taker_fee_deduction_and_closed_trade_tracking(self):
+        """0.04% taker fee deduction and closed trades tracking in state."""
+        session = PaperTradingSession(
+            initial_balance=100.0,
+            risk_per_trade_pct=0.02,
+            maker_fee=0.0002,
+            taker_fee=0.0004,
+            signal_lag_ms=0,
+            order_rtt_ms=0,
+            session_id="fee_test"
+        )
+        # Entry MARKET order at price 100.0, qty 0.5 (notional $50.00)
+        session.place_order(
+            symbol="ETHUSDT",
+            side="BUY",
+            order_type="MARKET",
+            price=100.0,
+            quantity=0.5,
+            role=PaperOrderRole.ENTRY.value,
+            signal_ts=1000
+        )
+        # Provide ask liquidity
+        session.process_event(MockEvent(1000, "depth", {
+            "bids": [(99.9, 5.0)],
+            "asks": [(100.0, 5.0)]
+        }))
+        session.process_event(MockEvent(1000, "trade", {"price": 100.0, "quantity": 1.0}, symbol="ETHUSDT"))
+        
+        # Verify taker fee paid: 50.0 * 0.0004 = 0.02 USDT
+        state = session.get_state()
+        self.assertEqual(len(state.positions), 1)
+        self.assertAlmostEqual(state.positions[0]["fees_paid"], 0.02, places=6)
+        self.assertAlmostEqual(state.locked_margin, 50.0, places=6)
+        self.assertAlmostEqual(state.available_margin, 50.0, places=6)
+
+        # Exit MARKET order at price 104.0, qty 0.5 (notional $52.00)
+        session.place_order(
+            symbol="ETHUSDT",
+            side="SELL",
+            order_type="MARKET",
+            price=104.0,
+            quantity=0.5,
+            role=PaperOrderRole.EXIT.value,
+            signal_ts=2000
+        )
+        session.process_event(MockEvent(2000, "depth", {
+            "bids": [(104.0, 5.0)],
+            "asks": [(104.1, 5.0)]
+        }))
+        session.process_event(MockEvent(2000, "trade", {"price": 104.0, "quantity": 1.0}, symbol="ETHUSDT"))
+
+        # Gross PnL = (104 - 100) * 0.5 = +2.00 USDT
+        # Exit fee = 52.0 * 0.0004 = 0.0208 USDT
+        # Net realized PnL = 2.00 - 0.0208 = 1.9792 USDT
+        final_state = session.get_state()
+        self.assertEqual(len(final_state.positions), 0)
+        self.assertEqual(len(final_state.closed_trades), 1)
+        self.assertAlmostEqual(final_state.realized_pnl, 1.9792, places=4)
+        self.assertAlmostEqual(final_state.balance, 100.0 + 1.9792, places=4)
+        self.assertAlmostEqual(final_state.total_fees_paid, 0.02 + 0.0208, places=4)
+
 
 if __name__ == "__main__":
     unittest.main()
+

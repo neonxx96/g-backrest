@@ -96,6 +96,8 @@ class PaperSessionState:
     balance: float
     positions: List[dict] = field(default_factory=list)
     active_orders: List[dict] = field(default_factory=list)
+    closed_trades: List[dict] = field(default_factory=list)
+    total_fees_paid: float = 0.0
 
     def to_dict(self) -> dict:
         return {
@@ -108,6 +110,8 @@ class PaperSessionState:
             "balance": self.balance,
             "positions": self.positions,
             "active_orders": self.active_orders,
+            "closed_trades": self.closed_trades,
+            "total_fees_paid": self.total_fees_paid,
         }
 
 
@@ -122,10 +126,10 @@ class PaperTradingSession:
 
     def __init__(
         self,
-        initial_balance: float = 10000.0,
-        risk_per_trade_pct: float = 0.01,
+        initial_balance: float = 100.0,
+        risk_per_trade_pct: float = 0.02,
         maker_fee: float = DEFAULT_MAKER_FEE,
-        taker_fee: float = DEFAULT_TAKER_FEE,
+        taker_fee: float = 0.0004,
         signal_lag_ms: int = DEFAULT_SIGNAL_LAG_MS,
         order_rtt_ms: int = DEFAULT_ORDER_RTT_MS,
         session_id: Optional[str] = None,
@@ -142,16 +146,45 @@ class PaperTradingSession:
         self.realized_pnl = 0.0
         self.available_margin = float(initial_balance)
         self.locked_margin = 0.0
+        self.total_fees_paid = 0.0
 
         # Live state
         self.orders: Dict[str, PaperOrder] = {}
         self.positions: Dict[str, PaperPosition] = {}  # key: symbol
+        self.closed_trades: List[dict] = []
         self.last_prices: Dict[str, float] = {}
         self._last_event_ts = 0
 
         # Early Exit Engine (MFE/MAE tracker + alert rule engine)
         self.early_exit_engine = EarlyExitEngine()
 
+    def calculate_position_size(
+        self,
+        symbol: str,
+        entry_price: float,
+        stop_price: float = 0.0,
+        risk_pct: Optional[float] = None,
+    ) -> float:
+        """
+        Calculate trade position size using institutional risk management:
+        Risk budget = available_margin * risk_per_trade_pct (default: 2% -> $2.00 on $100.00 wallet).
+        If stop_price > 0: quantity = risk_budget / abs(entry_price - stop_price).
+        If stop_price is not provided: uses a conservative 1.5% stop distance.
+        Max order quantity is bounded so notional cost never exceeds available margin.
+        """
+        if entry_price <= 0:
+            return 0.0
+        pct = risk_pct if risk_pct is not None else self.risk_per_trade_pct
+        risk_budget = self.available_margin * pct
+
+        if stop_price > 0 and abs(entry_price - stop_price) > 1e-9:
+            sl_distance = abs(entry_price - stop_price)
+        else:
+            sl_distance = entry_price * 0.015
+
+        qty = risk_budget / sl_distance
+        max_qty = max(0.0, self.available_margin / entry_price)
+        return min(qty, max_qty)
 
     # ------------------------------------------------------------------ #
     #  Order placement (proxy into ExecutionSimulator)
@@ -198,8 +231,8 @@ class PaperTradingSession:
         po.stop_price = float(stop_price)
         self.orders[order_id] = po
         logger.info(
-            f"[PaperSession {self.session_id}] {role.upper()} order {order_id} "
-            f"placed: {side} {order_type} {quantity} {symbol} @ {price} "
+            f"[TRADE] ORDER PLACED [{self.session_id}] {role.upper()} order {order_id}: "
+            f"{side} {order_type} {quantity:.6f} {symbol} @ {price:.4f} "
             f"(active_ts={cfg.order_active_ts})"
         )
         return self._order_info(po)
@@ -308,10 +341,11 @@ class PaperTradingSession:
         margin_used = price * qty
         self.locked_margin += margin_used
         self.available_margin -= margin_used
+        self.total_fees_paid += fee
 
         logger.info(
-            f"[PaperSession {self.session_id}] ENTRY fill {symbol}: "
-            f"+{qty} @ {price} fee={fee:.6f} -> pos_qty={pos.qty:.6f} avg={pos.avg_entry_price:.2f}"
+            f"[TRADE] ENTRY fill [{self.session_id}] {symbol}: "
+            f"+{qty:.6f} @ {price:.4f} fee={fee:.6f} -> pos_qty={pos.qty:.6f} avg={pos.avg_entry_price:.4f}"
         )
 
         # Register/Update position in the Early Exit Engine
@@ -345,7 +379,22 @@ class PaperTradingSession:
         net = gross - fee
         self.realized_pnl += net
         pos.fees_paid += fee
+        self.total_fees_paid += fee
         pos.qty -= close_qty
+
+        # Record closed trade
+        self.closed_trades.append({
+            "symbol": symbol,
+            "side": pos.side,
+            "qty": close_qty,
+            "entry_price": pos.avg_entry_price,
+            "exit_price": price,
+            "gross_pnl": gross,
+            "net_pnl": net,
+            "fee": fee,
+            "entry_ts": pos.entry_ts,
+            "exit_ts": self._last_event_ts,
+        })
 
         # Release margin
         margin_released = pos.avg_entry_price * close_qty
@@ -353,8 +402,8 @@ class PaperTradingSession:
         self.available_margin += margin_released + net
 
         logger.info(
-            f"[PaperSession {self.session_id}] EXIT fill {symbol}: "
-            f"-{close_qty} @ {price} fee={fee:.6f} net={net:.4f} -> realized={self.realized_pnl:.4f}"
+            f"[TRADE] EXIT fill [{self.session_id}] {symbol}: "
+            f"-{close_qty:.6f} @ {price:.4f} fee={fee:.6f} net={net:.4f} -> realized={self.realized_pnl:.4f}"
         )
 
         if pos.qty <= 1e-9:
@@ -362,12 +411,67 @@ class PaperTradingSession:
             pos.closed = True
             # Remove from Early Exit Engine
             self.early_exit_engine.remove_position(symbol)
-            logger.info(f"[PaperSession {self.session_id}] POSITION CLOSED {symbol}: fees={pos.fees_paid:.6f}")
+            logger.info(f"[TRADE] POSITION CLOSED [{self.session_id}] {symbol}: fees={pos.fees_paid:.6f} total_realized={self.realized_pnl:+.4f}")
 
 
     # ------------------------------------------------------------------ #
-    #  State snapshot
+    #  State snapshot & High-Level Trade Execution
     # ------------------------------------------------------------------ #
+    def execute_trade_signal(
+        self,
+        symbol: str,
+        side: str,
+        price: float,
+        stop_price: float = 0.0,
+        quantity: Optional[float] = None,
+        order_type: str = "LIMIT",
+        signal_ts: Optional[int] = None,
+    ) -> dict:
+        """
+        Executes a trade signal applying risk position sizing and wallet margin rules.
+        """
+        if quantity is None or quantity <= 0:
+            quantity = self.calculate_position_size(symbol, price, stop_price)
+
+        if quantity <= 0:
+            logger.warning(f"[TRADE] Rejected signal for {symbol}: insufficient margin or zero size.")
+            return {"status": "REJECTED", "reason": "insufficient_margin"}
+
+        return self.place_order(
+            symbol=symbol,
+            side=side,
+            order_type=order_type,
+            price=price,
+            quantity=quantity,
+            role=PaperOrderRole.ENTRY.value,
+            stop_price=stop_price,
+            signal_ts=signal_ts,
+        )
+
+    def close_position(
+        self,
+        symbol: str,
+        price: float,
+        order_type: str = "LIMIT",
+        signal_ts: Optional[int] = None,
+    ) -> Optional[dict]:
+        """
+        Closes an existing virtual position for a given symbol.
+        """
+        pos = self.positions.get(symbol)
+        if not pos or pos.closed or pos.qty <= 0:
+            return None
+        exit_side = "SELL" if pos.side == "LONG" else "BUY"
+        return self.place_order(
+            symbol=symbol,
+            side=exit_side,
+            order_type=order_type,
+            price=price,
+            quantity=pos.qty,
+            role=PaperOrderRole.EXIT.value,
+            signal_ts=signal_ts,
+        )
+
     def unrealized_pnl_for(self, symbol: str) -> float:
         pos = self.positions.get(symbol)
         if pos is None or pos.closed:
@@ -412,7 +516,13 @@ class PaperTradingSession:
             balance=balance,
             positions=positions,
             active_orders=active_orders,
+            closed_trades=list(self.closed_trades),
+            total_fees_paid=self.total_fees_paid,
         )
+
+
+paper_trading_session = PaperTradingSession()
+
 
 
 

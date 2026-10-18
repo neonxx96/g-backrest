@@ -272,10 +272,11 @@ class BackgroundWorker:
             self.active_tasks.pop(ticker, None)
 
     async def _run_periodic_loop(self):
-        """Master background loop running every cycle_interval_sec."""
+        """Master background loop running every cycle_interval_sec with exponential backoff resilience."""
         logger.info(f"Parallel Background Worker running (interval={self.cycle_interval_sec}s, max_concurrency={self.max_concurrency}).")
         await asyncio.sleep(3)  # Initial grace period after server boot
 
+        reconnect_attempts = 0
         while self._running:
             try:
                 current_monitored = list(self.monitored_tickers)
@@ -292,13 +293,21 @@ class BackgroundWorker:
                 if tasks:
                     await asyncio.gather(*tasks, return_exceptions=True)
 
+                reconnect_attempts = 0  # Reset on successful cycle
+                # Wait for next cycle
+                await asyncio.sleep(self.cycle_interval_sec)
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error in master background worker loop: {e}", exc_info=True)
-
-            # Wait for next cycle
-            await asyncio.sleep(self.cycle_interval_sec)
+                delay = min(60.0, 2.0 * (2 ** reconnect_attempts))
+                logger.error(
+                    f"[ERROR] Error in master background worker loop: {e}. "
+                    f"Applying backoff of {delay:.1f}s (retry={reconnect_attempts + 1})...",
+                    exc_info=True
+                )
+                reconnect_attempts += 1
+                await asyncio.sleep(delay)
 
     def start(self) -> asyncio.Task:
         """Starts the background processing daemon."""
