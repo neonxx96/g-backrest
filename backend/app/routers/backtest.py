@@ -202,6 +202,21 @@ async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
     fetch_interval = custom_tf["base"] if custom_tf else timeframe
     resample_rule = custom_tf["rule"] if custom_tf else None
     base_mult = custom_tf["mult"] if custom_tf else 1
+
+    # Fast path: Read from institutional Parquet cache
+    if not custom_tf:
+        try:
+            from backend.app.services.historical_data_loader import historical_loader
+            df_parquet = await historical_loader.load_dataset_async(symbol, timeframe, days=days)
+            if df_parquet is not None and len(df_parquet) >= 50:
+                df = df_parquet.copy()
+                if "delta" not in df.columns and "volume_delta" in df.columns:
+                    df["delta"] = df["volume_delta"]
+                _HISTORY_CACHE[cache_key] = (now_ts, df.copy())
+                return df
+        except Exception as e:
+            logger.debug(f"historical_loader fast path skipped: {e}")
+
     # Ensure at least 100 candles are fetched for indicator warm-up (EMA20/50, ATR14, CVD)
     need = min(max(100, int(days * 1440 / tf_min)), MAX_CANDLES)
     need_base = need * base_mult
