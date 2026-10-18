@@ -25,6 +25,13 @@ backtest_router = APIRouter(prefix="/api/backtest", tags=["backtest"])
 TF_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240}
 MAX_CANDLES = 45000  # 30 days of 1m
 
+# Non-native intervals (45m, 6h) are assembled from a Binance-native base
+# timeframe and resampled, so paginated deep history works for them too.
+CUSTOM_TF_MAP_BT = {
+    "45m": {"base": "15m", "rule": "45min", "mult": 3},
+    "6h": {"base": "1h", "rule": "6h", "mult": 6},
+}
+
 STRATEGIES_CATALOG = [
     {
         "id": "confluence_ema",
@@ -190,8 +197,14 @@ async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
         return cached[1].copy()
 
     tf_min = TF_MINUTES.get(timeframe, 5)
+    # Non-native intervals (45m, 6h) fetch a native base timeframe and resample.
+    custom_tf = CUSTOM_TF_MAP_BT.get(timeframe)
+    fetch_interval = custom_tf["base"] if custom_tf else timeframe
+    resample_rule = custom_tf["rule"] if custom_tf else None
+    base_mult = custom_tf["mult"] if custom_tf else 1
     # Ensure at least 100 candles are fetched for indicator warm-up (EMA20/50, ATR14, CVD)
     need = min(max(100, int(days * 1440 / tf_min)), MAX_CANDLES)
+    need_base = need * base_mult
     session = await binance_service.adapter.get_session()
 
     headers = {
@@ -212,9 +225,9 @@ async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
         max_chunk = ep["max_limit"]
         endpoint_ok = True
 
-        while len(rows) < need:
-            limit = min(max_chunk, need - len(rows))
-            params = {"symbol": symbol, "interval": timeframe, "limit": limit, "endTime": end_ms}
+        while len(rows) < need_base:
+            limit = min(max_chunk, need_base - len(rows))
+            params = {"symbol": symbol, "interval": fetch_interval, "limit": limit, "endTime": end_ms}
             try:
                 async with session.get(ep["url"], params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=8)) as resp:
                     if resp.status == 200:
@@ -249,6 +262,22 @@ async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
     })
     df["delta"] = 2.0 * df["taker_buy_base_volume"] - df["volume"]
     df = df.drop_duplicates(subset="timestamp").sort_values("timestamp").reset_index(drop=True)
+
+    # Resample non-native intervals (45m <- 15m, 6h <- 1h) to the target timeframe.
+    if resample_rule:
+        df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms")
+        df.set_index("datetime", inplace=True)
+        df = df.resample(resample_rule, closed="left", label="left").agg({
+            "timestamp": "first",
+            "open": "first",
+            "high": "max",
+            "low": "min",
+            "close": "last",
+            "volume": "sum",
+            "taker_buy_base_volume": "sum",
+            "delta": "sum",
+        }).dropna().reset_index(drop=True)
+        df = df.tail(need).reset_index(drop=True)
 
     # Attempt to enrich with real Open Interest from Binance Futures
     if timeframe in {"5m", "15m", "30m", "1h", "4h"}:

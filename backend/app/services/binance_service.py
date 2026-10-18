@@ -99,9 +99,17 @@ class BinanceService:
         return await self.adapter.fetch_order_book(symbol=symbol, limit=limit)
 
     # --- 4. Klines & Custom Timeframes (with CVD) ---
-    async def fetch_klines(self, symbol: str, timeframe: str = "15m", limit: int = 100) -> pd.DataFrame:
-        """Fetches OHLCV klines with CVD and resampled timeframes via adapter."""
-        return await self.adapter.fetch_klines(symbol=symbol, timeframe=timeframe, limit=limit)
+    async def fetch_klines(self, symbol: str, timeframe: str = "15m", limit: int = 100,
+                           start_time: Optional[int] = None,
+                           end_time: Optional[int] = None) -> pd.DataFrame:
+        """
+        Fetches OHLCV klines with CVD and resampled timeframes via adapter.
+        With start_time set -> paginated deep history over [start_time, end_time].
+        """
+        return await self.adapter.fetch_klines(
+            symbol=symbol, timeframe=timeframe, limit=limit,
+            start_time=start_time, end_time=end_time,
+        )
 
 
     # --- 5. WebSocket Liquidations Listener ---

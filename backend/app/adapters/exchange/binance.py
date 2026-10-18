@@ -12,6 +12,35 @@ from backend.app.config import BINANCE_API_KEY
 BINANCE_FUTURES_REST = "https://fapi.binance.com"
 BINANCE_FUTURES_WS = "wss://fstream.binance.com/ws"
 
+# --- Deep-history klines support ---------------------------------------------
+# Binance REST maximum bars per request differs per endpoint.
+KLINE_ENDPOINTS = [
+    {"url": f"{BINANCE_FUTURES_REST}/fapi/v1/klines", "max_limit": 1500},
+    {"url": "https://api.binance.com/api/v3/klines", "max_limit": 1000},
+    {"url": "https://data-api.binance.vision/api/v3/klines", "max_limit": 1000},
+]
+
+# Non-native intervals (45m, 6h) are assembled from a Binance-native base
+# timeframe and resampled, so paginated deep history works for them too.
+CUSTOM_TF_MAP = {
+    "45m": {"base": "15m", "rule": "45min", "mult": 3},
+    "6h": {"base": "1h", "rule": "6h", "mult": 6},
+}
+
+BASE_TF_MS = {
+    "1m": 60_000, "3m": 180_000, "5m": 300_000, "15m": 900_000,
+    "30m": 1_800_000, "1h": 3_600_000, "2h": 7_200_000, "4h": 14_400_000,
+    "12h": 43_200_000, "1d": 86_400_000, "1w": 604_800_000,
+}
+
+# Safety cap for paginated deep fetches (base-timeframe bars).
+MAX_HISTORY_BASE_CANDLES = 100_000
+
+KLINE_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+}
+
+
 class BinanceAdapter(BaseExchangeAdapter):
     """Adapter for Binance USDT-M Futures."""
 
@@ -81,72 +110,129 @@ class BinanceAdapter(BaseExchangeAdapter):
             pass
         return {'bids': [], 'asks': []}
 
-    async def fetch_klines(self, symbol: str, timeframe: str = "15m", limit: int = 100) -> pd.DataFrame:
+    async def fetch_klines(self, symbol: str, timeframe: str = "15m", limit: int = 100,
+                           start_time: Optional[int] = None,
+                           end_time: Optional[int] = None) -> pd.DataFrame:
+        """
+        Fetch OHLCV klines (with CVD) via Binance REST with multi-endpoint failover.
+
+        Modes:
+        - start_time=None: latest `limit` bars (single request per endpoint).
+        - start_time set: PAGINATED deep fetch over [start_time, end_time] using
+          startTime/endTime chunks of up to 1500 bars (Binance maximum per
+          request). `limit` is ignored in this mode.
+        Non-native intervals 45m/6h are assembled from 15m/1h base candles and
+        resampled, so paginated deep history works for them too.
+        """
         session = await self.get_session()
-        fetch_tf = timeframe
-        resample_rule = None
-        req_limit = limit
+        custom = CUSTOM_TF_MAP.get(timeframe)
+        fetch_tf = custom["base"] if custom else timeframe
+        resample_rule = custom["rule"] if custom else None
 
-        if timeframe == "45m":
-            fetch_tf = "15m"
-            resample_rule = "45min"
-            req_limit = limit * 3
-        elif timeframe == "6h":
-            fetch_tf = "1h"
-            resample_rule = "6h"
-            req_limit = limit * 6
-
-        urls = [
-            f"{BINANCE_FUTURES_REST}/fapi/v1/klines",
-            "https://api.binance.com/api/v3/klines",
-            "https://data-api.binance.vision/api/v3/klines"
-        ]
-        params = {'symbol': symbol.upper(), 'interval': fetch_tf, 'limit': min(req_limit, 500)}
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
-        data = None
-
-        for u in urls:
-            try:
-                async with session.get(u, params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=6)) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        if data and isinstance(data, list):
-                            break
-            except Exception:
-                pass
-
-        if not data:
+        rows, ok = await self._fetch_klines_rows(
+            session, symbol, fetch_tf, limit, start_time, end_time
+        )
+        if not ok:
             raise ValueError(f"Binance klines error across all endpoints for {symbol}")
 
-
-        records = []
-        for k in data:
-            open_time = int(k[0])
-            open_p = float(k[1])
-            high_p = float(k[2])
-            low_p = float(k[3])
-            close_p = float(k[4])
-            vol = float(k[5])
-            taker_buy_vol = float(k[9])
-            delta = taker_buy_vol - (vol - taker_buy_vol)
-
-            records.append({
-                'timestamp': open_time,
-                'open': open_p,
-                'high': high_p,
-                'low': low_p,
-                'close': close_p,
-                'volume': vol,
-                'taker_buy_base_volume': taker_buy_vol,
-                'delta': delta
-            })
-
-        df = pd.DataFrame(records)
+        df = self._rows_to_dataframe(rows, resample_rule)
         if df.empty:
             return df
 
+        if start_time is not None:
+            # Deep mode: exact [start_time, end_time] window (resample-aligned).
+            df = df[df["timestamp"] >= int(start_time)]
+            if end_time is not None:
+                df = df[df["timestamp"] <= int(end_time)]
+            return df.reset_index(drop=True)
+
+        # Latest-batch mode: trim to the requested count (backwards compatible).
+        return df.tail(limit).reset_index(drop=True)
+
+    async def _request_klines(self, session, endpoint, params):
+        """Single GET to a Binance klines endpoint. Returns raw rows or None."""
+        try:
+            async with session.get(endpoint["url"], params=params, headers=KLINE_HEADERS,
+                                   timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if isinstance(data, list):
+                        return data
+        except Exception:
+            pass
+        return None
+
+    async def _fetch_klines_rows(self, session, symbol, fetch_tf, limit,
+                                 start_time, end_time):
+        """
+        Raw kline rows with multi-endpoint failover (Futures -> Spot -> Vision).
+
+        - start_time=None: single latest request of `limit` bars.
+        - start_time set: forward pagination over [start_time, end_time];
+          each chunk uses the endpoint's maximum bars per request (1500/1000),
+          the cursor advances via startTime until the window is covered,
+          Binance history is exhausted, or MAX_HISTORY_BASE_CANDLES is hit.
+        Returns (rows, ok); ok=False when every endpoint failed.
+        """
+        sym = symbol.upper()
+        base_ms = BASE_TF_MS.get(fetch_tf, 900_000)
+        for ep in KLINE_ENDPOINTS:
+            rows = []
+            ok = True
+            cursor = None
+            chunk = min(int(limit), ep["max_limit"])
+            if start_time is not None:
+                chunk = ep["max_limit"]
+                # One extra base bar back so a resampled group covering
+                # start_time is complete; trimmed after resample.
+                cursor = int(start_time) - base_ms
+            while True:
+                params = {"symbol": sym, "interval": fetch_tf, "limit": chunk}
+                if cursor is not None:
+                    params["startTime"] = cursor
+                if end_time is not None:
+                    params["endTime"] = int(end_time)
+                data = await self._request_klines(session, ep, params)
+                if data is None:
+                    ok = False
+                    break
+                if not data:
+                    break
+                rows.extend(data)
+                if start_time is None:
+                    break
+                cursor = int(data[-1][0]) + base_ms
+                if len(data) < ep["max_limit"]:
+                    break  # history exhausted (or window covered)
+                if len(rows) >= MAX_HISTORY_BASE_CANDLES:
+                    break  # safety cap
+                if end_time is not None and cursor > int(end_time):
+                    break  # window covered
+            if ok and rows:
+                return rows, True
+        return [], False
+
+    @staticmethod
+    def _rows_to_dataframe(rows, resample_rule=None):
+        """Raw Binance rows -> DataFrame (dedupe, sort, resample, CVD)."""
+        records = []
+        for k in rows:
+            vol = float(k[5])
+            taker_buy_vol = float(k[9])
+            records.append({
+                'timestamp': int(k[0]),
+                'open': float(k[1]),
+                'high': float(k[2]),
+                'low': float(k[3]),
+                'close': float(k[4]),
+                'volume': vol,
+                'taker_buy_base_volume': taker_buy_vol,
+                'delta': taker_buy_vol - (vol - taker_buy_vol),
+            })
+        df = pd.DataFrame(records)
+        if df.empty:
+            return df
+        df = df.drop_duplicates(subset='timestamp').sort_values('timestamp').reset_index(drop=True)
         if resample_rule:
             df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
             df.set_index('datetime', inplace=True)
@@ -161,6 +247,5 @@ class BinanceAdapter(BaseExchangeAdapter):
                 'delta': 'sum'
             }).dropna()
             df = resampled.reset_index(drop=True)
-
         df['cvd'] = df['delta'].cumsum()
-        return df.tail(limit).reset_index(drop=True)
+        return df

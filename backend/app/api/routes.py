@@ -180,9 +180,21 @@ async def get_signals(limit: int = Query(50), db: AsyncSession = Depends(get_db)
     ]
 
 @router.get("/klines")
-async def get_klines(symbol: str = Query("BTCUSDT"), timeframe: str = Query("15m"), limit: int = Query(200)):
+async def get_klines(
+    symbol: str = Query("BTCUSDT"),
+    timeframe: str = Query("15m"),
+    limit: int = Query(200),
+    start_time: Optional[int] = Query(None, description="UTC ms — start of deep history window (enables server-side pagination)"),
+    end_time: Optional[int] = Query(None, description="UTC ms — end of deep history window"),
+):
     try:
-        df = await binance_service.fetch_klines(symbol=symbol.upper(), timeframe=timeframe, limit=limit)
+        df = await binance_service.fetch_klines(
+            symbol=symbol.upper(),
+            timeframe=timeframe,
+            limit=min(int(limit), 1500),
+            start_time=start_time,
+            end_time=end_time,
+        )
         if df.empty:
             return []
         

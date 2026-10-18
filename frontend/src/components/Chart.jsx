@@ -30,12 +30,23 @@ import IndicatorSettingsDialog from './indicators/IndicatorSettingsDialog';
 import ActiveIndicatorStack from './indicators/ActiveIndicatorStack';
 import { useLayoutStore } from '../stores/layoutStore';
 import { useColorLinksStore } from '../stores/colorLinksStore';
-import { fetchKlinesDualSource } from '../services/marketDataFetcher';
+import { fetchKlinesDualSource, TF_MS } from '../services/marketDataFetcher';
 import { useTradeOverlayStore, calculatePositionMetrics } from '../stores/tradeOverlayStore';
 import { useBacktestStore } from '../stores/backtestStore';
 import { getAllTemplates, saveCustomTemplate, getStyleMemory, saveStyleMemory } from '../config/drawingTemplates';
 
 const API_BASE = "/api";
+
+// --- Шаг A: глубина истории ----------------------------------------------------
+// Первая загрузка всегда передаёт startTime (одно окно в 1500 свечей = максимум
+// Binance на запрос); скролл влево подгружает более старые окна через
+// chart.loadMore до дневного пола истории (приёмка: 1m/1h >= 30д, 45m/6h >= 14д).
+const INITIAL_HISTORY_BARS = 1500;
+const LOAD_MORE_WINDOW_BARS = 1500;
+const HISTORY_FLOOR_DAYS = {
+  '1m': 30, '5m': 30, '15m': 45, '30m': 60,
+  '45m': 30, '1h': 90, '4h': 180, '6h': 180
+};
 
 // 1. Register custom 'rect' (Zone/Imbalance box) overlay
 try {
@@ -2633,19 +2644,26 @@ export default function Chart({
     setStatusMsg(`Загрузка свечей ${symbol}...`);
     setErrorDetails(null);
 
+    // Timeframe step in ms (window math for initial deep load and scroll-back)
+    const tfMs = TF_MS[timeframe] || 900000;
+
     const fetchKlines = async () => {
       try {
+        // Deep initial window: startTime is always passed (Шаг A);
+        // the backend paginates server-side if the window exceeds one request.
         const { candles, source } = await fetchKlinesDualSource({
           symbol,
           timeframe,
-          limit: 250
+          startTime: Date.now() - INITIAL_HISTORY_BARS * tfMs
         });
 
         if (isCancelled) return;
 
         if (Array.isArray(candles) && candles.length > 0) {
           currentKlines.current = candles;
-          chart.applyNewData(candles);
+          window.__historyOldestTs = candles[0]?.timestamp ?? null;
+          window.__historyLoadedBars = candles.length;
+          chart.applyNewData(candles, true);
           setStatusMsg("");
           setErrorDetails(null);
 
@@ -2666,6 +2684,68 @@ export default function Chart({
     };
 
     fetchKlines();
+
+    // --- Шаг A: бесконечный скролл-назад (chart.loadMore) ----------------------
+    // KLineCharts v9 вызывает колбэк с timestamp самой старой загруженной свечи,
+    // когда пользователь доскроллил к левому краю. Догружаем более старое окно
+    // через пагинированный dual-source конвейер и восстанавливаем вьюпорт,
+    // пока не достигнут дневной пол истории или конец данных Binance.
+    const floorTs = Date.now() - (HISTORY_FLOOR_DAYS[timeframe] ?? 30) * 86400000;
+    let loadingOlder = false;
+    let historyExhausted = false;
+
+    try {
+      chart.loadMore(async (oldestTs) => {
+        if (isCancelled || loadingOlder || historyExhausted) return;
+        if (oldestTs == null) return;
+        if (oldestTs <= floorTs) { historyExhausted = true; return; }
+        loadingOlder = true;
+        try {
+          const windowEnd = oldestTs - 1;
+          const windowStart = Math.max(floorTs, windowEnd - LOAD_MORE_WINDOW_BARS * tfMs);
+          const { candles } = await fetchKlinesDualSource({
+            symbol,
+            timeframe,
+            startTime: windowStart,
+            endTime: windowEnd
+          });
+          if (isCancelled) return;
+          if (!Array.isArray(candles) || candles.length === 0) {
+            historyExhausted = true;
+            return;
+          }
+          // Слияние с ЖИВЫМ списком графика (WS мог дописать новые свечи).
+          let existing = [];
+          try { existing = chart.getDataList() || []; } catch (_) { existing = []; }
+          const seen = new Set(existing.map(c => c && c.timestamp));
+          const older = candles.filter(c => c && !seen.has(c.timestamp));
+          if (older.length === 0) { historyExhausted = true; return; }
+          const merged = [...older, ...existing]
+            .filter(c => c && c.timestamp != null)
+            .sort((a, b) => a.timestamp - b.timestamp);
+          currentKlines.current = merged;
+          window.__historyOldestTs = merged[0].timestamp;
+          window.__historyLoadedBars = merged.length;
+          const moreAvailable = merged[0].timestamp > floorTs;
+          let restoreTs = null;
+          try {
+            const range = chart.getVisibleRange();
+            restoreTs = range?.from?.timestamp ?? null;
+          } catch (_) {}
+          chart.applyNewData(merged, moreAvailable, () => {
+            if (restoreTs != null) {
+              try { chart.scrollToTimestamp(restoreTs, 0); } catch (_) {}
+            }
+          });
+          setKlinesVersion(v => v + 1);
+        } catch (err) {
+          console.warn('Deep history window load failed:', err?.message || err);
+          historyExhausted = true;
+        } finally {
+          loadingOlder = false;
+        }
+      });
+    } catch (_) {}
 
     // Live Binance WebSocket Kline stream with instant connection, failover, and heartbeat fallback
     const binanceInterval = timeframe === '45m' ? '15m' : (timeframe === '6h' ? '1h' : timeframe);
