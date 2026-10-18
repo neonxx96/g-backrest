@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useCallback } from 'react';
+import { useTradeOverlayStore } from '../stores/tradeOverlayStore';
 
 /**
  * High-Performance Canvas 2D Ladder Renderer for OrderBookDOM
@@ -103,6 +104,13 @@ export default function OrderBookCanvasLadder({
     const lastPrice = aggregatedData.lastPriceSnap || 0;
 
     const now = Date.now();
+
+    // Zero-latency transient setup from chart overlay dragging
+    const liveSetup = useTradeOverlayStore.getState().activeSetup || activePositionSetup;
+    const entryP = Number(liveSetup?.entry_price || 0);
+    const slP = Number(liveSetup?.sl_price || 0);
+    const tp1P = Number(liveSetup?.tp1_price || 0);
+    const tp2P = Number(liveSetup?.tp2_price || 0);
 
     // 2. Render each visible ladder row
     for (let r = 0; r < visibleRows.length; r++) {
@@ -221,28 +229,74 @@ export default function OrderBookCanvasLadder({
       }
       ctx.fillText(row.price.toFixed(priceDecimals), w - 6, y + ROW_HEIGHT / 2);
 
-      // 2e. Feature 8: Strategy / Backtest / User Limit badges (ENTRY, SL, TP1, TP2)
-      const matchingStratLvl = strategyLevels?.find(
-        (lvl) => Math.abs(lvl.price - row.price) < stepSize * 0.52
-      );
-      if (matchingStratLvl) {
-        const role = matchingStratLvl.role || '';
-        let badgeColor = '#2563eb';
-        let badgeLabel = 'ENTRY';
-        if (role === 'SL') {
-          badgeColor = '#ef4444';
-          badgeLabel = 'SL';
-        } else if (role === 'TP1' || role === 'TP2') {
-          badgeColor = '#10b981';
-          badgeLabel = role;
-        }
+      // 2e. Feature 8: Zero-Latency DOM Projection (ENTRY, SL, TP1, TP2) + Strategy / Backtest badges
+      let matchedBadge = false;
 
-        ctx.fillStyle = badgeColor;
-        ctx.fillRect(w - 48, y + 2, 44, ROW_HEIGHT - 4);
+      if (entryP > 0 && Math.abs(row.price - entryP) < stepSize * 0.52) {
+        matchedBadge = true;
+        ctx.fillStyle = 'rgba(59, 130, 246, 0.22)';
+        ctx.fillRect(0, y, w, ROW_HEIGHT);
+        ctx.fillStyle = '#2563eb';
+        ctx.fillRect(w - 56, y + 2, 52, ROW_HEIGHT - 4);
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 8.5px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(badgeLabel, w - 26, y + ROW_HEIGHT / 2);
+        ctx.fillText('ENTRY', w - 30, y + ROW_HEIGHT / 2);
+      } else if (slP > 0 && Math.abs(row.price - slP) < stepSize * 0.52) {
+        matchedBadge = true;
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.22)';
+        ctx.fillRect(0, y, w, ROW_HEIGHT);
+        ctx.fillStyle = '#dc2626';
+        ctx.fillRect(w - 50, y + 2, 46, ROW_HEIGHT - 4);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 8.5px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('SL', w - 27, y + ROW_HEIGHT / 2);
+      } else if (tp1P > 0 && Math.abs(row.price - tp1P) < stepSize * 0.52) {
+        matchedBadge = true;
+        ctx.fillStyle = 'rgba(16, 185, 129, 0.22)';
+        ctx.fillRect(0, y, w, ROW_HEIGHT);
+        ctx.fillStyle = '#059669';
+        ctx.fillRect(w - 50, y + 2, 46, ROW_HEIGHT - 4);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 8.5px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('TP1', w - 27, y + ROW_HEIGHT / 2);
+      } else if (tp2P > 0 && Math.abs(row.price - tp2P) < stepSize * 0.52) {
+        matchedBadge = true;
+        ctx.fillStyle = 'rgba(4, 120, 87, 0.22)';
+        ctx.fillRect(0, y, w, ROW_HEIGHT);
+        ctx.fillStyle = '#047857';
+        ctx.fillRect(w - 50, y + 2, 46, ROW_HEIGHT - 4);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 8.5px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('TP2', w - 27, y + ROW_HEIGHT / 2);
+      }
+
+      if (!matchedBadge) {
+        const matchingStratLvl = strategyLevels?.find(
+          (lvl) => Math.abs(lvl.price - row.price) < stepSize * 0.52
+        );
+        if (matchingStratLvl) {
+          const role = matchingStratLvl.role || '';
+          let badgeColor = '#2563eb';
+          let badgeLabel = 'ENTRY';
+          if (role === 'SL') {
+            badgeColor = '#ef4444';
+            badgeLabel = 'SL';
+          } else if (role === 'TP1' || role === 'TP2') {
+            badgeColor = '#10b981';
+            badgeLabel = role;
+          }
+
+          ctx.fillStyle = badgeColor;
+          ctx.fillRect(w - 48, y + 2, 44, ROW_HEIGHT - 4);
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 8.5px monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText(badgeLabel, w - 26, y + ROW_HEIGHT / 2);
+        }
       }
 
       // Column divider lines
@@ -280,6 +334,14 @@ export default function OrderBookCanvasLadder({
   useEffect(() => {
     let animId = requestAnimationFrame(renderFrame);
     return () => cancelAnimationFrame(animId);
+  }, [renderFrame]);
+
+  // Zero-latency subscription to transient store: updates ladder at 60fps during drag with zero React tree re-renders
+  useEffect(() => {
+    const unsub = useTradeOverlayStore.subscribe(() => {
+      requestAnimationFrame(renderFrame);
+    });
+    return () => unsub();
   }, [renderFrame]);
 
   return (
