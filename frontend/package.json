@@ -10,10 +10,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "dockview-react": "^8.6.0",
     "klinecharts": "^9.8.12",
     "lucide-react": "^1.59.0",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
