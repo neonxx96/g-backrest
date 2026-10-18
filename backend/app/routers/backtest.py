@@ -280,6 +280,98 @@ async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
     return df.copy()
 
 
+class LimitSetupRequest(BaseModel):
+    """Request for the single limit order "here & now" backtest."""
+    symbol: str = Field(default="BTCUSDT")
+    side: str = Field(default="BUY")  # "BUY" | "SELL"
+    entry_price: float = Field(gt=0)
+    sl_price: float = Field(gt=0)
+    tp_price: float = Field(gt=0)
+    size: float = Field(default=0.01, gt=0)
+    created_at_ts: int = Field(ge=0)  # UTC ms
+    max_bars: int = Field(default=1440, ge=1, le=43200)
+    maker_fee_pct: float = Field(default=0.02, ge=0.0, le=1.0)
+    taker_fee_pct: float = Field(default=0.05, ge=0.0, le=1.0)
+    slippage_ticks: float = Field(default=1.0, ge=0.0)
+    tick_size: float = Field(default=0.01, gt=0)
+
+
+class LimitSetupResponse(BaseModel):
+    filled: bool
+    entry_price: float
+    entry_bar_ts: Optional[int]
+    exit_price: Optional[float]
+    exit_bar_ts: Optional[int]
+    exit_reason: str
+    bars_held: int
+    gross_pnl: float
+    fees_paid: float
+    slippage_cost: float
+    net_pnl: float
+    net_pnl_r: float
+
+
+@backtest_router.post("/simulate-limit-box")
+async def simulate_limit_box(req: LimitSetupRequest) -> LimitSetupResponse:
+    """
+    Fast single-setup backtest: deterministic simulation of a limit order
+    (entry / SL / TP) against real historical bars strictly AFTER created_at_ts.
+    Zero look-ahead bias, maker/taker fees, adverse slippage on SL.
+    """
+    from backend.app.services.limit_fill_simulator import LimitSetupParams, simulate_limit_setup
+
+    symbol = req.symbol.strip().upper()
+    side = req.side.strip().upper()
+    if side not in {"BUY", "SELL"}:
+        raise HTTPException(status_code=422, detail="side must be BUY or SELL")
+    if req.sl_price >= req.tp_price:
+        raise HTTPException(status_code=422, detail="sl_price must be below tp_price")
+
+    # Determine how many days of history we need to cover max_bars.
+    tf_min = 1  # simulator operates on 1m bars
+    days = max(1, int(math.ceil((req.max_bars + 5) / 1440.0)))
+
+    try:
+        df = await fetch_history(symbol, "1m", days)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"History load failed: {e}")
+
+    if df.empty:
+        raise HTTPException(status_code=400, detail=f"No candles for {symbol}")
+
+    params = LimitSetupParams(
+        symbol=symbol,
+        side=side,
+        entry_price=float(req.entry_price),
+        sl_price=float(req.sl_price),
+        tp_price=float(req.tp_price),
+        size=float(req.size),
+        created_at_ts=int(req.created_at_ts),
+        max_bars=int(req.max_bars),
+        maker_fee_pct=float(req.maker_fee_pct),
+        taker_fee_pct=float(req.taker_fee_pct),
+        slippage_ticks=float(req.slippage_ticks),
+        tick_size=float(req.tick_size),
+    )
+
+    result = simulate_limit_setup(df, params)
+    return LimitSetupResponse(
+        filled=result.filled,
+        entry_price=result.entry_price,
+        entry_bar_ts=result.entry_bar_ts,
+        exit_price=result.exit_price,
+        exit_bar_ts=result.exit_bar_ts,
+        exit_reason=result.exit_reason,
+        bars_held=result.bars_held,
+        gross_pnl=result.gross_pnl,
+        fees_paid=result.fees_paid,
+        slippage_cost=result.slippage_cost,
+        net_pnl=result.net_pnl,
+        net_pnl_r=result.net_pnl_r,
+    )
+
+
+
 def _sharpe(equity_curve: List[Dict[str, float]]) -> float:
     eq = np.array([float(p["equity"]) for p in equity_curve], dtype=float)
     if len(eq) < 3:
