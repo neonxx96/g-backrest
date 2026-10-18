@@ -1,19 +1,33 @@
-# Current Task Specification
+# Current Task: Limit Order Simulator (Fast Backtest Setup)
 
-### Objective
-Initial project setup and architecture baseline.
+## Status
+- **Priority**: 🔴 CRITICAL (торговля завтра)
+- **Agent**: Antigravity (OpenRouter)
+- **Branch**: main (HEAD: a129916, tag: stable-20261018-merged)
+- **Target**: agent/cline/limit-fill-simulator
 
-### Quant Constraints
-- UTC millisecond timestamps (ms).
-- Zero future data leakage (No Look-Ahead Bias).
-- Strict handling of slippage, commissions, and order book depth.
+## Completed
+- ✅ All branches merged to main (35 commits, fast-forward, 0 conflicts)
+- ✅ scripts/check.ps1 GREEN (16 tests, build 611ms, Playwright smoke + live WS)
+- ✅ Tag stable-20261018-merged created
+- ✅ Push to origin completed (main = a129916, tag pushed)
+- ✅ Model routing synchronized (config/model-routing.json = OpenRouter budget models)
 
-### Affected Files
-- context/CURRENT_TASK.md
+## Next Steps
+1. Create branch agent/cline/limit-fill-simulator from main.
+2. Implement backend simulator (backend/app/services/limit_fill_simulator.py).
+3. Add API route POST /api/backtest/simulate-limit-box.
+4. Write tests (backend/tests/test_limit_fill_simulator.py) with look-ahead bias check.
+5. Run scripts/check.ps1 → EXIT_CODE=0.
+6. Do NOT implement frontend HUD yet (Chart.jsx монолит не трогать).
 
-### Implementation Checklist
-- [x] Initial coordination files created.
-- [ ] Ready for architectural blueprint from LibreChat.
+## Quant Constraints
+- Zero look-ahead bias: bars with open_time <= created_at_ts are ignored.
+- Limit fill: low <= entry (BUY) / high >= entry (SELL), price = entry, fee = maker.
+- TP = limit (maker), SL = market (taker + adverse slippage).
+- Tie-break (TP & SL in same bar): conservative → SL first (worst case).
+- Timestamps: UTC ms, deterministic (no Math.random()).
 
-### Execution Log
-- Coordination environment successfully initialized.
+## Notes
+- Consultative mode only: auto-trading forbidden.
+- If scope creep detected → stop and ask user.
