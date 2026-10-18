@@ -42,6 +42,7 @@ WATCHLIST_SYMBOLS = [s.strip().upper() for s in WATCHLIST_SYMBOLS_RAW.split(",")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
 # OpenRouter LLM Configuration
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "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")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001")
+
 

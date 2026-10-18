@@ -23,9 +23,10 @@
 
 | Переменная | Описание | Значение по умолчанию |
 |---|---|---|
-| `BINANCE_API_KEY` | API-ключ Binance (опционально, публичные данные работают без него) | `T1jRxJf...` |
-| `BINANCE_API_SECRET` | Секретный ключ Binance | `fI9PNV8...` |
-| `TELEGRAM_BOT_TOKEN` | Токен Telegram-бота от @BotFather | `5122605345:AAGyu...` |
+| `BINANCE_API_KEY` | API-ключ Binance (опционально, публичные данные работают без него) | `your_binance_api_key_here` |
+| `BINANCE_API_SECRET` | Секретный ключ Binance | `your_binance_api_secret_here` |
+| `TELEGRAM_BOT_TOKEN` | Токен Telegram-бота от @BotFather | `123456789:ABCDefGh...` |
+| `OPENROUTER_API_KEY` | Ключ OpenRouter для AI Copilot (опционально) | `sk-or-v1-...` |
 | `BACKEND_HOST` | Хост для запуска FastAPI сервера | `127.0.0.1` |
 | `BACKEND_PORT` | Порт бэкенда | `8000` |
 | `FRONTEND_URL` | Адрес фронтенда (для формирования ссылок в боте) | `http://localhost:5173` |

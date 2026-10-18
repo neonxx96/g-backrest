@@ -1,21 +1,45 @@
+# Virtual Environment & Python bytecode
 .venv/
 __pycache__/
 *.py[cod]
 *$py.class
-*.png
-data/cache/
-data/raw/
-data/recorded/
-data/exports/
-*.parquet
+.pytest_cache/
+
+# Local Environment Variables & Secrets
+.env
+.env.local
+.env.*.local
+
+# Database & Runtime Data
 *.db
 *.db-shm
 *.db-wal
 signalscript.db
+data/
+*.parquet
+*.csv
+
+# Logs & Temporary Files
+*.log
 backend.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Frontend Dependencies & Build Output
 frontend/node_modules/
 frontend/dist/
-.env
+frontend/.vite/
+
+# Screenshots & Visual Artifacts
+*.png
+*.jpg
+*.jpeg
+*.svg
+!frontend/src/**/*.svg
+
+# IDEs & System Files
 .idea/
 .vscode/
-
+.DS_Store
+Thumbs.db
