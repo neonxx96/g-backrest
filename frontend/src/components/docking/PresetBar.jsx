@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useLayoutStore } from '../../stores/layoutStore';
-import { LayoutGrid, Plus, Trash2, Check, RefreshCw, AlertCircle, Save } from 'lucide-react';
+import { LayoutGrid, Plus, Trash2, Check, RefreshCw, AlertCircle, Save, Zap } from 'lucide-react';
 
-export default function PresetBar({ onSwitchPreset, onNewPreset }) {
+export default function PresetBar({ onSwitchPreset, onNewPreset, onAddTradesPanel }) {
   const presets = useLayoutStore((s) => s.presets);
   const activePresetId = useLayoutStore((s) => s.activePresetId);
   const saveStatus = useLayoutStore((s) => s.saveStatus);
@@ -94,6 +94,20 @@ export default function PresetBar({ onSwitchPreset, onNewPreset }) {
           >
             <Plus size={11} />
             <span className="text-[10px] font-mono">Пресет</span>
+          </button>
+        )}
+
+        {/* Open / Focus Trades Tape button */}
+        {onAddTradesPanel && (
+          <button
+            type="button"
+            data-testid="btn-add-trades-panel"
+            onClick={onAddTradesPanel}
+            title="Открыть / Переключить на ленту сделок (Tape)"
+            className="flex items-center space-x-1 px-2 py-0.5 rounded text-[10.5px] bg-[#171a23] text-[#eab308] border border-[#2e374d] hover:bg-[#202738] hover:border-[#eab30860] transition cursor-pointer shrink-0"
+          >
+            <Zap size={11} />
+            <span className="text-[10px] font-mono font-medium">Лента сделок</span>
           </button>
         )}
       </div>

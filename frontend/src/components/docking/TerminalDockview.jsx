@@ -8,6 +8,7 @@ import { useColorLinksStore } from '../../stores/colorLinksStore';
 import Chart from '../Chart';
 import OrderBookDOM from '../OrderBookDOM';
 import WatchlistWidget from './WatchlistWidget';
+import TradesWidget from './TradesWidget';
 import { FootprintPlaceholderWidget, CvdPlaceholderWidget } from './Placeholders';
 import ChannelSelector from './ChannelSelector';
 import PresetBar from './PresetBar';
@@ -245,6 +246,7 @@ export default function TerminalDockview({
       orderbook: OrderBookDockPanel,
       watchlist: WatchlistWidget,
       signals: SignalsDockPanel,
+      trades: TradesWidget,
       footprint_placeholder: FootprintPlaceholderWidget,
       cvd_placeholder: CvdPlaceholderWidget
     }),
@@ -257,7 +259,7 @@ export default function TerminalDockview({
 
     if (presetId === 'default_orderflow') {
       // Preset 2: Order Flow Scalper
-      // Left: LTF Chart, Center: DOM, Right: Tab group of Footprint / CVD / Signals
+      // Left: LTF Chart, Center: DOM, Right: Tab group of Footprint / CVD / Signals + Tape
       const chartPanel = api.addPanel({
         id: 'chart_ltf',
         component: 'chart',
@@ -285,15 +287,22 @@ export default function TerminalDockview({
         position: { referencePanel: footprintPanel, direction: 'below' }
       });
 
-      api.addPanel({
+      const signalsPanel = api.addPanel({
         id: 'signals_main',
         component: 'signals',
         title: 'Лента сигналов',
         position: { referencePanel: domPanel, direction: 'below' }
       });
+
+      api.addPanel({
+        id: 'trades_main',
+        component: 'trades',
+        title: 'Лента сделок (Tape)',
+        position: { referencePanel: signalsPanel, direction: 'within' }
+      });
     } else {
       // Preset 1: Classic Trader (Default)
-      // Left: Watchlist (width ~260px), Center: Chart, Right: DOM (top) + Signals (bottom)
+      // Left: Watchlist (width ~260px), Center: Chart, Right: DOM (top) + Signals / Trades (bottom)
       const watchlistPanel = api.addPanel({
         id: 'watchlist_main',
         component: 'watchlist',
@@ -314,11 +323,18 @@ export default function TerminalDockview({
         position: { referencePanel: chartPanel, direction: 'right' }
       });
 
-      api.addPanel({
+      const signalsPanel = api.addPanel({
         id: 'signals_main',
         component: 'signals',
         title: 'Лента сигналов',
         position: { referencePanel: domPanel, direction: 'below' }
+      });
+
+      api.addPanel({
+        id: 'trades_main',
+        component: 'trades',
+        title: 'Лента сделок (Tape)',
+        position: { referencePanel: signalsPanel, direction: 'within' }
       });
     }
   }, []);
@@ -341,6 +357,18 @@ export default function TerminalDockview({
         try {
           api.clear();
           api.fromJSON(dockviewJson);
+          // Auto-migrate: If trades_main is not yet in the saved layout, add it tabbed within signals_main
+          if (!api.getPanel('trades_main')) {
+            const ref = api.getPanel('signals_main') || api.getPanel('orderbook_main') || api.getPanel('chart_main');
+            if (ref) {
+              api.addPanel({
+                id: 'trades_main',
+                component: 'trades',
+                title: 'Лента сделок (Tape)',
+                position: { referencePanel: ref, direction: 'within' }
+              });
+            }
+          }
         } catch (err) {
           console.warn('Dockview fromJSON corrupted, rebuilding default layout:', err);
           buildDefaultLayout(api, workspaceDetail.id);
@@ -415,6 +443,26 @@ export default function TerminalDockview({
     handleSwitchPreset(saved.id);
   };
 
+  // Handle open / focus Trades Tape panel
+  const handleAddTradesPanel = () => {
+    if (!dockviewApiRef.current) return;
+    const api = dockviewApiRef.current;
+    const existing = api.getPanel('trades_main');
+    if (existing) {
+      existing.api.setActive();
+      return;
+    }
+    const ref = api.getPanel('signals_main') || api.getPanel('orderbook_main') || api.getPanel('chart_main');
+    if (ref) {
+      api.addPanel({
+        id: 'trades_main',
+        component: 'trades',
+        title: 'Лента сделок (Tape)',
+        position: { referencePanel: ref, direction: 'within' }
+      });
+    }
+  };
+
   return (
     <div
       data-testid="terminal-dockview-container"
@@ -424,6 +472,7 @@ export default function TerminalDockview({
       <PresetBar
         onSwitchPreset={handleSwitchPreset}
         onNewPreset={handleNewPreset}
+        onAddTradesPanel={handleAddTradesPanel}
       />
 
       {/* Dockview Container */}

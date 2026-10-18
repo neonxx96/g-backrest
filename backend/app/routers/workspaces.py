@@ -40,13 +40,14 @@ DEFAULT_CLASSIC_LAYOUT = {
         "chart_main": {"id": "chart_main", "component": "chart", "title": "График (HTF)", "channel": "c1"},
         "orderbook_main": {"id": "orderbook_main", "component": "orderbook", "title": "Стакан DOM", "channel": "c1"},
         "watchlist_main": {"id": "watchlist_main", "component": "watchlist", "title": "Watchlist", "channel": "c1"},
-        "signals_main": {"id": "signals_main", "component": "signals", "title": "Лента сигналов", "channel": "c1"}
+        "signals_main": {"id": "signals_main", "component": "signals", "title": "Лента сигналов", "channel": "c1"},
+        "trades_main": {"id": "trades_main", "component": "trades", "title": "Лента сделок (Tape)", "channel": "c1"}
     },
     "dockview": None  # Managed by dockview.toJSON()
 }
 
 # Preset 2: «Скальпер Order Flow»
-# Layout: Chart LTF + Chart HTF + OrderBook + CVD Placeholder + Footprint Placeholder + Signals
+# Layout: Chart LTF + Chart HTF + OrderBook + CVD Placeholder + Footprint Placeholder + Signals + Tape
 DEFAULT_ORDERFLOW_LAYOUT = {
     "schemaVersion": 1,
     "name": "Скальпер Order Flow",
@@ -55,6 +56,7 @@ DEFAULT_ORDERFLOW_LAYOUT = {
         "chart_ltf": {"id": "chart_ltf", "component": "chart", "title": "График LTF (1m)", "channel": "c1"},
         "orderbook_main": {"id": "orderbook_main", "component": "orderbook", "title": "Стакан DOM", "channel": "c1"},
         "signals_main": {"id": "signals_main", "component": "signals", "title": "Лента сигналов", "channel": "c1"},
+        "trades_main": {"id": "trades_main", "component": "trades", "title": "Лента сделок (Tape)", "channel": "c1"},
         "footprint_placeholder": {
             "id": "footprint_placeholder",
             "component": "footprint_placeholder",
