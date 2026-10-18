@@ -121,8 +121,8 @@ export default function ScreenerWidget({ panelId = 'watchlist_main' }) {
 
     sparklineCache.set(sym, synthetic);
 
-    // 2. Fetch real 24h mini klines asynchronously
-    if (!pendingFetches.has(sym)) {
+    // 2. Fetch real 24h mini klines asynchronously (throttled to max 4 concurrent requests)
+    if (!pendingFetches.has(sym) && pendingFetches.size < 4 && sparklineCache.size < 50) {
       pendingFetches.add(sym);
       fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${sym}&interval=1h&limit=24`, {
         signal: AbortSignal.timeout(3000)

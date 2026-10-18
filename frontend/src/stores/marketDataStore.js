@@ -101,19 +101,28 @@ export const useMarketDataStore = create((set, get) => {
 
         ws.onerror = () => {
           set({ isConnected: false });
+          try { ws.close(); } catch (_) {}
         };
 
         ws.onclose = () => {
+          ws = null;
           set({ isConnected: false });
           if (!reconnectTimer) {
             reconnectTimer = setTimeout(() => {
               reconnectTimer = null;
               get().initMiniTickerStream();
-            }, 3000);
+            }, 2500);
           }
         };
       } catch (err) {
         console.warn('MiniTicker stream error:', err);
+      }
+
+      if (typeof window !== 'undefined' && !window.__miniTickerOnlineRegistered) {
+        window.__miniTickerOnlineRegistered = true;
+        window.addEventListener('online', () => {
+          get().initMiniTickerStream();
+        });
       }
     },
 
@@ -121,7 +130,13 @@ export const useMarketDataStore = create((set, get) => {
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (flushTimer) clearTimeout(flushTimer);
       if (ws) {
-        ws.close();
+        try {
+          ws.onopen = null;
+          ws.onmessage = null;
+          ws.onerror = null;
+          ws.onclose = null;
+          ws.close();
+        } catch (_) {}
         ws = null;
       }
       set({ isConnected: false });

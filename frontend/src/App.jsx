@@ -11,6 +11,7 @@ import SettingsModal, {
 } from './components/SettingsModal';
 import BacktestPanel from './components/BacktestPanel';
 import AICopilotSidebar from './components/AICopilotSidebar';
+import DecisionJournalModal from './components/DecisionJournalModal';
 import IndicatorsModal, {
   loadChartIndicators,
   saveChartIndicators
@@ -134,8 +135,9 @@ export default function App() {
       .catch(() => {});
   }, [userId]);
 
-  // AI Copilot Sidebar & Indicators Catalog states
+  // AI Copilot Sidebar, Decision Journal & Indicators Catalog states
   const [showAICopilot, setShowAICopilot] = useState(false);
+  const [showDecisionJournal, setShowDecisionJournal] = useState(false);
   const [showIndicatorsModal, setShowIndicatorsModal] = useState(false);
   const [indicatorsTargetChart, setIndicatorsTargetChart] = useState('primary');
   const [primaryIndicators, setPrimaryIndicators] = useState(() => loadChartIndicators('primary'));
@@ -975,6 +977,21 @@ export default function App() {
             <span>AI Ассистент [A]</span>
           </button>
 
+          {/* Decision Journal Modal Toggle (Stage 1) */}
+          <button
+            data-testid="btn-open-decision-journal"
+            onClick={() => setShowDecisionJournal(true)}
+            className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition cursor-pointer ${
+              showDecisionJournal
+                ? 'bg-[#0f292a] text-[#2dd4bf] border-[#2dd4bf60] font-bold'
+                : 'text-[#2dd4bf] border-[#2dd4bf40] bg-[#101c22] hover:bg-[#162932]'
+            }`}
+            title="Журнал решений, сигналов и второго мнения AI (SQLite + CSV экспорт)"
+          >
+            <span>📓</span>
+            <span>Журнал [J]</span>
+          </button>
+
           {/* Backtest drawer toggle */}
           <button
             data-testid="btn-toggle-backtest-drawer"
@@ -1266,6 +1283,15 @@ export default function App() {
             description: `Нанесено ${levels.length} уровней AI Ассистента на график и в стакан`
           });
         }}
+      />
+
+      {/* Decision Journal Modal (Stage 1 & 2) */}
+      <DecisionJournalModal
+        isOpen={showDecisionJournal}
+        onClose={() => setShowDecisionJournal(false)}
+        activeSymbol={symbol}
+        activeTimeframe={timeframe}
+        activeSetup={activePositionSetup}
       />
 
       {/* Indicators Catalog Modal */}

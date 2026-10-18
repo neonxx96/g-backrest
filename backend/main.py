@@ -98,12 +98,14 @@ app.add_middleware(
 )
 
 from backend.app.routers.workspaces import router as workspaces_router
+from backend.app.routers.journal import journal_router
 
 app.include_router(api_router)
 app.include_router(data_router)
 app.include_router(backtest_router)
 app.include_router(ai_router)
 app.include_router(workspaces_router)
+app.include_router(journal_router)
 
 if __name__ == "__main__":
 

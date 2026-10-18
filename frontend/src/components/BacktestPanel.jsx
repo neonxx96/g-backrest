@@ -354,6 +354,135 @@ export default function BacktestPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  // Stage 3: Fast 1-Click Strategy Parameter Presets
+  const [presets, setPresets] = useState([]);
+  const [selectedPresetId, setSelectedPresetId] = useState('');
+  const [newPresetName, setNewPresetName] = useState('');
+  const [showSavePresetInput, setShowSavePresetInput] = useState(false);
+
+  const fetchPresets = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/journal/presets`);
+      if (res.ok) {
+        const data = await res.json();
+        const list = Array.isArray(data.presets) ? data.presets : [];
+        setPresets(list);
+        if (list.length > 0 && !selectedPresetId) {
+          setSelectedPresetId(String(list[0].id));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch strategy presets:', err);
+    }
+  }, [selectedPresetId]);
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchPresets();
+    }
+  }, [isOpen, fetchPresets]);
+
+  const applyPresetByObj = useCallback((preset) => {
+    if (!preset) return;
+    const p = preset.params || {};
+    if (preset.strategy_type) {
+      setStrategy(preset.strategy_type);
+      if (onStrategyChange) onStrategyChange(preset.strategy_type);
+    }
+    if (preset.timeframe && TIMEFRAMES.includes(preset.timeframe)) {
+      setTimeframe(preset.timeframe);
+    }
+    if (p.stop_loss_pct != null) setSl(Number(p.stop_loss_pct));
+    if (p.take_profit_pct != null) setTp(Number(p.take_profit_pct));
+    if (p.leverage != null) setLeverage(Number(p.leverage));
+    if (p.min_density_usd != null) setMinWallK(Math.round(Number(p.min_density_usd) / 1000));
+    if (p.volume_multiplier != null) setVolMult(Number(p.volume_multiplier));
+    if (p.entryMode) setEntryMode(p.entryMode);
+    if (p.slMode) setSlMode(p.slMode);
+    if (p.use_atr_filter != null) setFilterAtr(Boolean(p.use_atr_filter));
+    if (p.use_atr_sl != null) setFilterAtrSl(Boolean(p.use_atr_sl));
+    if (p.atr_multiplier != null) setAtrMultiplier(Number(p.atr_multiplier));
+    if (p.use_cvd_filter != null) setFilterCvd(Boolean(p.use_cvd_filter));
+    if (p.use_oi_filter != null) setFilterOi(Boolean(p.use_oi_filter));
+    if (p.use_rsi_filter != null) setFilterRsi(Boolean(p.use_rsi_filter));
+
+    // Sync to global backtestStore so 1-click chart backtest immediately uses the preset
+    useBacktestStore.setState({
+      strategyType: preset.strategy_type || strategy,
+      customParams: {
+        stop_loss_pct: Number(p.stop_loss_pct ?? sl),
+        take_profit_pct: Number(p.take_profit_pct ?? tp),
+        leverage: Number(p.leverage ?? leverage),
+        min_density_usd: Number(p.min_density_usd ?? minWallK * 1000),
+        use_atr_filter: Boolean(p.use_atr_filter ?? filterAtr),
+        use_cvd_filter: Boolean(p.use_cvd_filter ?? filterCvd),
+        use_oi_filter: Boolean(p.use_oi_filter ?? filterOi),
+        use_rsi_filter: Boolean(p.use_rsi_filter ?? filterRsi),
+      }
+    });
+
+    if (onApplyStrategy) {
+      onApplyStrategy({
+        strategy: preset.strategy_type || strategy,
+        sl: Number(p.stop_loss_pct ?? sl),
+        tp: Number(p.take_profit_pct ?? tp),
+        minWallK: Math.round(Number(p.min_density_usd ?? minWallK * 1000) / 1000),
+        leverage: Number(p.leverage ?? leverage),
+        volMult: Number(p.volume_multiplier ?? volMult)
+      });
+    }
+
+    setAppliedFeedback(
+      `⚡ Пресет "${preset.name}" применён (SL ${p.stop_loss_pct ?? sl}% / TP ${p.take_profit_pct ?? tp}% / Плечо ${p.leverage ?? leverage}x)`
+    );
+    setTimeout(() => setAppliedFeedback(null), 4000);
+  }, [strategy, sl, tp, leverage, minWallK, volMult, filterAtr, filterCvd, filterOi, filterRsi, onStrategyChange, onApplyStrategy]);
+
+  const handleSavePreset = async () => {
+    const name = newPresetName.trim();
+    if (!name) return;
+    try {
+      const res = await fetch(`${API_BASE}/journal/presets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          symbol: symbol || 'ANY',
+          timeframe,
+          strategy_type: strategy,
+          params: {
+            stop_loss_pct: Number(sl),
+            take_profit_pct: Number(tp),
+            leverage: Number(leverage),
+            min_density_usd: Number(minWallK) * 1000,
+            volume_multiplier: Number(volMult),
+            entryMode,
+            slMode,
+            use_atr_filter: Boolean(filterAtr),
+            use_atr_sl: Boolean(filterAtrSl),
+            atr_multiplier: Number(atrMultiplier),
+            use_cvd_filter: Boolean(filterCvd),
+            use_oi_filter: Boolean(filterOi),
+            use_rsi_filter: Boolean(filterRsi),
+          }
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        await fetchPresets();
+        if (data.preset?.id) {
+          setSelectedPresetId(String(data.preset.id));
+        }
+        setNewPresetName('');
+        setShowSavePresetInput(false);
+        setAppliedFeedback(`💾 Пресет "${name}" сохранён и готов к вызову в 1 клик`);
+        setTimeout(() => setAppliedFeedback(null), 3500);
+      }
+    } catch (err) {
+      console.error('Failed to save preset:', err);
+    }
+  };
+
   const projectSetupOntoTerminal = useCallback(
     (setup) => {
       if (!setup || !setup.entry_price) return;
@@ -906,6 +1035,78 @@ export default function BacktestPanel({
             </div>
           ) : (
             <>
+              {/* Stage 3: Fast 1-Click Strategy Parameter Presets */}
+              <div
+                data-testid="strategy-presets-bar"
+                className="p-1.5 rounded bg-[#0c111d] border border-[#2563eb50] space-y-1 font-mono"
+              >
+                <div className="flex items-center justify-between text-[8.5px]">
+                  <span className="font-bold text-[#38bdf8] uppercase tracking-wider">⚡ Быстрые пресеты (1 клик):</span>
+                  <button
+                    type="button"
+                    data-testid="btn-open-save-preset"
+                    onClick={() => setShowSavePresetInput((v) => !v)}
+                    className="text-[#2dd4bf] hover:underline cursor-pointer font-bold"
+                  >
+                    {showSavePresetInput ? '✕ Отмена' : '+ Сохранить текущие'}
+                  </button>
+                </div>
+
+                {showSavePresetInput ? (
+                  <div className="flex items-center space-x-1 pt-0.5">
+                    <input
+                      data-testid="input-preset-name"
+                      type="text"
+                      placeholder="Название пресета..."
+                      value={newPresetName}
+                      onChange={(e) => setNewPresetName(e.target.value)}
+                      className="flex-1 bg-[#070a10] border border-[#2b3955] rounded px-1.5 py-0.5 text-[9.5px] text-white outline-none focus:border-[#38bdf8]"
+                    />
+                    <button
+                      type="button"
+                      data-testid="btn-confirm-save-preset"
+                      onClick={handleSavePreset}
+                      disabled={!newPresetName.trim()}
+                      className="px-2 py-0.5 rounded bg-[#059669] hover:bg-[#047857] text-white text-[9px] font-bold disabled:opacity-40 cursor-pointer"
+                    >
+                      💾 Сохранить
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-1">
+                    <select
+                      data-testid="select-strategy-preset"
+                      value={selectedPresetId}
+                      onChange={(e) => {
+                        const id = e.target.value;
+                        setSelectedPresetId(id);
+                        const found = presets.find((p) => String(p.id) === String(id));
+                        if (found) applyPresetByObj(found);
+                      }}
+                      className="flex-1 bg-[#070a10] border border-[#1f293d] rounded px-1.5 py-0.5 text-[9.5px] text-white outline-none focus:border-[#38bdf8]"
+                    >
+                      {presets.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      data-testid="btn-apply-preset-1click"
+                      onClick={() => {
+                        const found = presets.find((p) => String(p.id) === String(selectedPresetId)) || presets[0];
+                        if (found) applyPresetByObj(found);
+                      }}
+                      className="px-2 py-0.5 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-white text-[9px] font-bold cursor-pointer shrink-0"
+                      title="Применить выбранный набор параметров в 1 клик без перезапуска"
+                    >
+                      Применить
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <div className="space-y-1">
                 <label className="flex flex-col text-[8.5px] text-[#787f91] font-mono">
                   <span className="mb-0.5 text-[#cbd5e1] font-bold uppercase tracking-wide">Стратегия:</span>

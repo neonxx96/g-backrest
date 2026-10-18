@@ -96,48 +96,60 @@ export const useTradesStore = create((set, get) => ({
       return;
     }
 
-    // Synchronous immediate seed so tape is NEVER empty on initial mount
+    // Fetch real recent aggTrades from Binance REST so tape shows genuine market prints immediately
     if (reg.buffer.length === 0) {
-      const basePrice = useMarketDataStore.getState().tickers[cleanSym]?.price || (cleanSym.startsWith('BTC') ? 81300 : cleanSym.startsWith('SOL') ? 162.5 : 2600);
-      const seeds = [];
-      const now = Date.now();
-      for (let i = 0; i < 35; i++) {
-        const delta = (Math.random() - 0.49) * (basePrice * 0.0006);
-        const price = Number((basePrice + delta).toFixed(2));
-        const isWhale = i % 5 === 0;
-        const size = isWhale ? Number((Math.random() * 6 + 1.5).toFixed(3)) : Number((Math.random() * 0.6 + 0.05).toFixed(4));
-        const isBuyerMaker = Math.random() < 0.5;
-        seeds.push({
-          id: `seed_${now - i * 350}`,
-          symbol: cleanSym,
-          price,
-          size,
-          usd: price * size,
-          time: now - i * 350,
-          isBuyerMaker,
-          side: isBuyerMaker ? 'SELL' : 'BUY'
-        });
-      }
-      reg.buffer = seeds;
-      set((state) => ({
-        tradesBySymbol: { ...state.tradesBySymbol, [cleanSym]: seeds }
-      }));
+      fetch(`https://fapi.binance.com/fapi/v1/aggTrades?symbol=${cleanSym}&limit=60`)
+        .then((r) => (r.ok ? r.json() : []))
+        .then((list) => {
+          if (reg.isClosing || !Array.isArray(list) || list.length === 0) return;
+          if (reg.buffer.length > 0) return; // WS already populated
+          const realSeeds = list
+            .slice()
+            .reverse()
+            .map((raw) => {
+              const price = parseFloat(raw.p);
+              const size = parseFloat(raw.q);
+              const isBuyerMaker = Boolean(raw.m);
+              return {
+                id: raw.a || `${raw.T}_${price}_${size}`,
+                symbol: cleanSym,
+                price,
+                size,
+                usd: price * size,
+                time: Number(raw.T) || Date.now(),
+                isBuyerMaker,
+                side: isBuyerMaker ? 'SELL' : 'BUY'
+              };
+            });
+          reg.buffer = realSeeds.slice(0, MAX_TRADES);
+          set((state) => ({
+            tradesBySymbol: { ...state.tradesBySymbol, [cleanSym]: reg.buffer }
+          }));
+        })
+        .catch(() => {});
     }
 
-    // Connect WebSocket
+    // Connect WebSocket with clean auto-reconnect
     const connectWs = () => {
-      if (reg.isClosing) return;
+      if (reg.isClosing || reg.listeners.size === 0) return;
+      if (reg.reconnectTimer) {
+        clearTimeout(reg.reconnectTimer);
+        reg.reconnectTimer = null;
+      }
+      if (reg.ws) {
+        try {
+          reg.ws.onopen = null;
+          reg.ws.onmessage = null;
+          reg.ws.onerror = null;
+          reg.ws.onclose = null;
+          reg.ws.close();
+        } catch (_) {}
+        reg.ws = null;
+      }
 
       set((state) => ({
         connectionStatus: { ...state.connectionStatus, [cleanSym]: 'connecting' }
       }));
-
-      // If WS does not connect within 2.5s, start fallback simulator
-      const connectTimeout = setTimeout(() => {
-        if (!reg.ws || reg.ws.readyState !== WebSocket.OPEN) {
-          startFallbackSimulator(reg, cleanSym);
-        }
-      }, 2500);
 
       const lower = cleanSym.toLowerCase();
       const wsUrl = `wss://fstream.binance.com/ws/${lower}@aggTrade`;
@@ -147,24 +159,17 @@ export const useTradesStore = create((set, get) => ({
         reg.ws = ws;
 
         ws.onopen = () => {
-          clearTimeout(connectTimeout);
-          if (reg.isClosing) {
-            ws.close();
+          if (reg.isClosing || reg.ws !== ws) {
+            try { ws.close(); } catch (_) {}
             return;
           }
           set((state) => ({
             connectionStatus: { ...state.connectionStatus, [cleanSym]: 'connected' }
           }));
-
-          // Stop fallback simulator if running
-          if (reg.simInterval) {
-            clearInterval(reg.simInterval);
-            reg.simInterval = null;
-          }
         };
 
         ws.onmessage = (event) => {
-          if (reg.isClosing) return;
+          if (reg.isClosing || reg.ws !== ws) return;
           try {
             const raw = JSON.parse(event.data);
             if (!raw || !raw.p || !raw.q) return;
@@ -174,8 +179,6 @@ export const useTradesStore = create((set, get) => ({
             const usd = price * size;
             const time = Number(raw.T) || Date.now();
             const isBuyerMaker = Boolean(raw.m);
-            // In Binance aggTrade: m = true means maker was buyer -> taker was seller -> MARKET SELL (Red)
-            // m = false means maker was seller -> taker was buyer -> MARKET BUY (Green)
             const side = isBuyerMaker ? 'SELL' : 'BUY';
 
             const trade = {
@@ -208,8 +211,6 @@ export const useTradesStore = create((set, get) => ({
                 const incoming = reg.pendingIncoming;
                 reg.pendingIncoming = [];
 
-                // Prepend newest trades
-                // incoming may have multiple trades; sort newest first or reverse
                 incoming.reverse();
                 reg.buffer = [...incoming, ...reg.buffer].slice(0, MAX_TRADES);
 
@@ -225,79 +226,38 @@ export const useTradesStore = create((set, get) => ({
         };
 
         ws.onerror = () => {
-          // Fallback to simulator if WebSocket cannot connect
-          startFallbackSimulator(reg, cleanSym);
+          try { ws.close(); } catch (_) {}
         };
 
         ws.onclose = () => {
-          if (reg.isClosing) return;
+          if (reg.isClosing || reg.ws !== ws) return;
           set((state) => ({
             connectionStatus: { ...state.connectionStatus, [cleanSym]: 'disconnected' }
           }));
 
-          // Reconnect after 3s if still needed
           if (!reg.reconnectTimer && reg.listeners.size > 0) {
             reg.reconnectTimer = setTimeout(() => {
               reg.reconnectTimer = null;
               connectWs();
-            }, 3000);
+            }, 2000);
           }
         };
       } catch (err) {
-        startFallbackSimulator(reg, cleanSym);
+        if (!reg.isClosing && reg.listeners.size > 0) {
+          reg.reconnectTimer = setTimeout(() => {
+            reg.reconnectTimer = null;
+            connectWs();
+          }, 2500);
+        }
       }
     };
 
-    // Fallback generator in case of network restriction or offline testing
-    const startFallbackSimulator = (registry, sym) => {
-      if (registry.simInterval || registry.isClosing) return;
-      registry.simInterval = setInterval(() => {
-        if (registry.listeners.size === 0) {
-          clearInterval(registry.simInterval);
-          registry.simInterval = null;
-          return;
-        }
-
-        const basePrice = useMarketDataStore.getState().tickers[sym]?.price || 80000;
-        const delta = (Math.random() - 0.49) * (basePrice * 0.0005);
-        const price = Number((basePrice + delta).toFixed(2));
-        const isWhale = Math.random() < 0.08;
-        const size = isWhale
-          ? Number(((Math.random() * 8 + 1.5) * (sym === 'BTCUSDT' ? 1.5 : 20)).toFixed(3))
-          : Number((Math.random() * 0.5 + 0.01).toFixed(4));
-        const usd = price * size;
-        const isBuyerMaker = Math.random() < 0.5;
-        const side = isBuyerMaker ? 'SELL' : 'BUY';
-        const trade = {
-          id: `sim_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-          symbol: sym,
-          price,
-          size,
-          usd,
-          time: Date.now(),
-          isBuyerMaker,
-          side
-        };
-
-        tradeListeners.forEach((fn) => {
-          try {
-            fn(trade);
-          } catch (_) {}
-        });
-
-        registry.buffer = [trade, ...registry.buffer].slice(0, MAX_TRADES);
-        set((state) => ({
-          tradesBySymbol: {
-            ...state.tradesBySymbol,
-            [sym]: registry.buffer
-          },
-          connectionStatus: {
-            ...state.connectionStatus,
-            [sym]: 'connected'
-          }
-        }));
-      }, 250);
+    reg.onNetworkOnline = () => {
+      if (!reg.isClosing && reg.listeners.size > 0) {
+        connectWs();
+      }
     };
+    window.addEventListener('online', reg.onNetworkOnline);
 
     connectWs();
   },
@@ -316,20 +276,42 @@ export const useTradesStore = create((set, get) => ({
     // If no more listeners for this symbol, close socket and clean up
     if (reg.listeners.size === 0) {
       reg.isClosing = true;
+      if (reg.onNetworkOnline) {
+        window.removeEventListener('online', reg.onNetworkOnline);
+      }
       if (reg.reconnectTimer) clearTimeout(reg.reconnectTimer);
       if (reg.flushTimer) clearTimeout(reg.flushTimer);
       if (reg.simInterval) clearInterval(reg.simInterval);
       if (reg.ws) {
         try {
+          reg.ws.onopen = null;
+          reg.ws.onmessage = null;
+          reg.ws.onerror = null;
+          reg.ws.onclose = null;
           reg.ws.close();
         } catch (_) {}
         reg.ws = null;
       }
       socketRegistry.delete(cleanSym);
 
-      set((state) => ({
-        connectionStatus: { ...state.connectionStatus, [cleanSym]: 'disconnected' }
-      }));
+      set((state) => {
+        const nextStatus = { ...state.connectionStatus, [cleanSym]: 'disconnected' };
+        const nextTrades = { ...state.tradesBySymbol };
+        // Evict inactive symbol buffers if more than 8 symbols cached to prevent memory growth
+        const keys = Object.keys(nextTrades);
+        if (keys.length > 8) {
+          for (const k of keys) {
+            if (k !== cleanSym && !socketRegistry.has(k)) {
+              delete nextTrades[k];
+              if (Object.keys(nextTrades).length <= 6) break;
+            }
+          }
+        }
+        return {
+          connectionStatus: nextStatus,
+          tradesBySymbol: nextTrades
+        };
+      });
     }
   }
 }));

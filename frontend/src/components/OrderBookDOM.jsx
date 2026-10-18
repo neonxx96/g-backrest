@@ -372,114 +372,226 @@ export default function OrderBookDOM({
       })
       .catch(() => {});
 
-    // 3. Live Depth WebSocket (@depth20@100ms) buffered into raw maps
+    // 3. Live Depth WebSocket (@depth20@100ms) with auto-reconnect
     let depthWs = null;
-    try {
-      depthWs = new WebSocket(`wss://fstream.binance.com/ws/${cleanSym}@depth20@100ms`);
-      depthWs.onmessage = (ev) => {
-        if (isUnmounted) return;
+    let depthReconnectTimer = null;
+
+    const connectDepthWs = () => {
+      if (isUnmounted) return;
+      if (depthReconnectTimer) {
+        clearTimeout(depthReconnectTimer);
+        depthReconnectTimer = null;
+      }
+      if (depthWs) {
         try {
-          const d = JSON.parse(ev.data);
-          if (!d.b || !d.a) return;
-          const b0 = d.b[0] ? parseFloat(d.b[0][0]) : 0;
-          const bMin = d.b[d.b.length - 1] ? parseFloat(d.b[d.b.length - 1][0]) : 0;
-          const a0 = d.a[0] ? parseFloat(d.a[0][0]) : 0;
-          const aMax = d.a[d.a.length - 1] ? parseFloat(d.a[d.a.length - 1][0]) : 0;
-
-          if (b0 > 0 && a0 > 0) {
-            bestBidRef.current = b0;
-            bestAskRef.current = a0;
-            lockInitialAnchorIfNeeded(b0, a0);
-
-            for (const k of rawBidsMap.current.keys()) {
-              if (k >= bMin || k >= a0) rawBidsMap.current.delete(k);
-            }
-            for (const k of rawAsksMap.current.keys()) {
-              if (k <= aMax || k <= b0) rawAsksMap.current.delete(k);
-            }
-            d.b.forEach(([p, q]) => {
-              const pf = parseFloat(p);
-              const qf = parseFloat(q);
-              if (qf > 0) rawBidsMap.current.set(pf, qf);
-            });
-            d.a.forEach(([p, q]) => {
-              const pf = parseFloat(p);
-              const qf = parseFloat(q);
-              if (qf > 0) rawAsksMap.current.set(pf, qf);
-            });
-
-            if (rawBidsMap.current.size > 600) {
-              const firstKey = rawBidsMap.current.keys().next().value;
-              rawBidsMap.current.delete(firstKey);
-            }
-            if (rawAsksMap.current.size > 600) {
-              const firstKey = rawAsksMap.current.keys().next().value;
-              rawAsksMap.current.delete(firstKey);
-            }
-            dirtyRef.current = true;
-          }
+          depthWs.onopen = null;
+          depthWs.onmessage = null;
+          depthWs.onerror = null;
+          depthWs.onclose = null;
+          depthWs.close();
         } catch (_) {}
-      };
-    } catch (_) {}
+        depthWs = null;
+      }
 
-    // 4. Live AggTrade WebSocket (@aggTrade) buffered into raw maps
+      try {
+        const ws = new WebSocket(`wss://fstream.binance.com/ws/${cleanSym}@depth20@100ms`);
+        depthWs = ws;
+
+        ws.onmessage = (ev) => {
+          if (isUnmounted || depthWs !== ws) return;
+          try {
+            const d = JSON.parse(ev.data);
+            if (!d.b || !d.a) return;
+            const b0 = d.b[0] ? parseFloat(d.b[0][0]) : 0;
+            const bMin = d.b[d.b.length - 1] ? parseFloat(d.b[d.b.length - 1][0]) : 0;
+            const a0 = d.a[0] ? parseFloat(d.a[0][0]) : 0;
+            const aMax = d.a[d.a.length - 1] ? parseFloat(d.a[d.a.length - 1][0]) : 0;
+
+            if (b0 > 0 && a0 > 0) {
+              bestBidRef.current = b0;
+              bestAskRef.current = a0;
+              lockInitialAnchorIfNeeded(b0, a0);
+
+              for (const k of rawBidsMap.current.keys()) {
+                if (k >= bMin || k >= a0) rawBidsMap.current.delete(k);
+              }
+              for (const k of rawAsksMap.current.keys()) {
+                if (k <= aMax || k <= b0) rawAsksMap.current.delete(k);
+              }
+              d.b.forEach(([p, q]) => {
+                const pf = parseFloat(p);
+                const qf = parseFloat(q);
+                if (qf > 0) rawBidsMap.current.set(pf, qf);
+              });
+              d.a.forEach(([p, q]) => {
+                const pf = parseFloat(p);
+                const qf = parseFloat(q);
+                if (qf > 0) rawAsksMap.current.set(pf, qf);
+              });
+
+              if (rawBidsMap.current.size > 600) {
+                const firstKey = rawBidsMap.current.keys().next().value;
+                rawBidsMap.current.delete(firstKey);
+              }
+              if (rawAsksMap.current.size > 600) {
+                const firstKey = rawAsksMap.current.keys().next().value;
+                rawAsksMap.current.delete(firstKey);
+              }
+              dirtyRef.current = true;
+            }
+          } catch (_) {}
+        };
+
+        ws.onerror = () => {
+          try { ws.close(); } catch (_) {}
+        };
+
+        ws.onclose = () => {
+          if (!isUnmounted && depthWs === ws) {
+            depthReconnectTimer = setTimeout(connectDepthWs, 2000);
+          }
+        };
+      } catch (_) {
+        if (!isUnmounted) {
+          depthReconnectTimer = setTimeout(connectDepthWs, 2500);
+        }
+      }
+    };
+
+    // 4. Live AggTrade WebSocket (@aggTrade) with auto-reconnect
     let tradeWs = null;
-    try {
-      tradeWs = new WebSocket(`wss://fstream.binance.com/ws/${cleanSym}@aggTrade`);
-      tradeWs.onmessage = (ev) => {
-        if (isUnmounted) return;
+    let tradeReconnectTimer = null;
+
+    const connectTradeWs = () => {
+      if (isUnmounted) return;
+      if (tradeReconnectTimer) {
+        clearTimeout(tradeReconnectTimer);
+        tradeReconnectTimer = null;
+      }
+      if (tradeWs) {
         try {
-          const t = JSON.parse(ev.data);
-          if (!t.p || !t.q) return;
-          const price = parseFloat(t.p);
-          const qty = parseFloat(t.q);
-          const usd = price * qty;
-          const isBuy = !t.m;
-          const ts = Number(t.T) || Date.now();
-
-          lastTradePriceRef.current = price;
-          lastTradeSideRef.current = isBuy ? 'BUY' : 'SELL';
-
-          const baseKey = Number((Math.round(price / baseTick) * baseTick).toFixed(6));
-          const cur = rawClustersMap.current.get(baseKey) || { bidUsd: 0, askUsd: 0, bidQty: 0, askQty: 0 };
-          if (isBuy) {
-            cur.askUsd += usd;
-            cur.askQty += qty;
-          } else {
-            cur.bidUsd += usd;
-            cur.bidQty += qty;
-          }
-          rawClustersMap.current.set(baseKey, cur);
-
-          if (rawClustersMap.current.size > 600) {
-            const oldestKey = rawClustersMap.current.keys().next().value;
-            rawClustersMap.current.delete(oldestKey);
-          }
-
-          recentTicksRef.current.push({
-            id: t.a || `${ts}-${Math.random()}`,
-            price,
-            qty,
-            usd,
-            isBuy,
-            ts
-          });
-          if (recentTicksRef.current.length > 40) {
-            recentTicksRef.current.splice(0, recentTicksRef.current.length - 40);
-          }
-
-          tradeLog.current.push({ price, usd, time: ts });
-          tradeVolumeMap.current.set(price, (tradeVolumeMap.current.get(price) || 0) + usd);
-          dirtyRef.current = true;
+          tradeWs.onopen = null;
+          tradeWs.onmessage = null;
+          tradeWs.onerror = null;
+          tradeWs.onclose = null;
+          tradeWs.close();
         } catch (_) {}
-      };
-    } catch (_) {}
+        tradeWs = null;
+      }
+
+      try {
+        const ws = new WebSocket(`wss://fstream.binance.com/ws/${cleanSym}@aggTrade`);
+        tradeWs = ws;
+
+        ws.onmessage = (ev) => {
+          if (isUnmounted || tradeWs !== ws) return;
+          try {
+            const t = JSON.parse(ev.data);
+            if (!t.p || !t.q) return;
+            const price = parseFloat(t.p);
+            const qty = parseFloat(t.q);
+            const usd = price * qty;
+            const isBuy = !t.m;
+            const ts = Number(t.T) || Date.now();
+
+            lastTradePriceRef.current = price;
+            lastTradeSideRef.current = isBuy ? 'BUY' : 'SELL';
+
+            const baseKey = Number((Math.round(price / baseTick) * baseTick).toFixed(6));
+            const cur = rawClustersMap.current.get(baseKey) || { bidUsd: 0, askUsd: 0, bidQty: 0, askQty: 0 };
+            if (isBuy) {
+              cur.askUsd += usd;
+              cur.askQty += qty;
+            } else {
+              cur.bidUsd += usd;
+              cur.bidQty += qty;
+            }
+            rawClustersMap.current.set(baseKey, cur);
+
+            if (rawClustersMap.current.size > 600) {
+              const oldestKey = rawClustersMap.current.keys().next().value;
+              rawClustersMap.current.delete(oldestKey);
+            }
+
+            recentTicksRef.current.push({
+              id: t.a || `${ts}-${Math.random()}`,
+              price,
+              qty,
+              usd,
+              isBuy,
+              ts
+            });
+            if (recentTicksRef.current.length > 40) {
+              recentTicksRef.current.splice(0, recentTicksRef.current.length - 40);
+            }
+
+            tradeLog.current.push({ price, usd, time: ts });
+            if (tradeLog.current.length > 500) {
+              const dropped = tradeLog.current.shift();
+              if (dropped) {
+                const cv = tradeVolumeMap.current.get(dropped.price) || 0;
+                if (cv <= dropped.usd) tradeVolumeMap.current.delete(dropped.price);
+                else tradeVolumeMap.current.set(dropped.price, cv - dropped.usd);
+              }
+            }
+            tradeVolumeMap.current.set(price, (tradeVolumeMap.current.get(price) || 0) + usd);
+            dirtyRef.current = true;
+          } catch (_) {}
+        };
+
+        ws.onerror = () => {
+          try { ws.close(); } catch (_) {}
+        };
+
+        ws.onclose = () => {
+          if (!isUnmounted && tradeWs === ws) {
+            tradeReconnectTimer = setTimeout(connectTradeWs, 2000);
+          }
+        };
+      } catch (_) {
+        if (!isUnmounted) {
+          tradeReconnectTimer = setTimeout(connectTradeWs, 2500);
+        }
+      }
+    };
+
+    const handleNetworkOnline = () => {
+      if (isUnmounted) return;
+      connectDepthWs();
+      connectTradeWs();
+      fetchDeepBook();
+    };
+    window.addEventListener('online', handleNetworkOnline);
+
+    connectDepthWs();
+    connectTradeWs();
 
     return () => {
       isUnmounted = true;
+      window.removeEventListener('online', handleNetworkOnline);
       clearInterval(deepRefreshTimer);
-      if (depthWs) depthWs.close();
-      if (tradeWs) tradeWs.close();
+      if (depthReconnectTimer) clearTimeout(depthReconnectTimer);
+      if (tradeReconnectTimer) clearTimeout(tradeReconnectTimer);
+      if (depthWs) {
+        try {
+          depthWs.onopen = null;
+          depthWs.onmessage = null;
+          depthWs.onerror = null;
+          depthWs.onclose = null;
+          depthWs.close();
+        } catch (_) {}
+        depthWs = null;
+      }
+      if (tradeWs) {
+        try {
+          tradeWs.onopen = null;
+          tradeWs.onmessage = null;
+          tradeWs.onerror = null;
+          tradeWs.onclose = null;
+          tradeWs.close();
+        } catch (_) {}
+        tradeWs = null;
+      }
     };
   }, [symbol, baseTick]);
 

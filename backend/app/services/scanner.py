@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Any, Tuple
 from sqlalchemy import select
 
 from backend.app.db.database import AsyncSessionLocal
-from backend.app.db.models import UserSetting, SignalHistory
+from backend.app.db.models import UserSetting, SignalHistory, DecisionLog
 from backend.app.services.binance_service import binance_service
 from backend.app.services.coingecko import coingecko_service
 from backend.app.services.indicators import (
@@ -278,6 +278,26 @@ class MarketScanner:
                         created_at=datetime.utcnow()
                     )
                     db.add(record)
+
+                    # Stage 1: Automatically log triggered signal into Decision Journal
+                    dir_mapped = "LONG" if sig['direction'] in ("BULLISH", "OVERSOLD", "LONG") else ("SHORT" if sig['direction'] in ("BEARISH", "OVERBOUGHT", "SHORT") else "NEUTRAL")
+                    decision_row = DecisionLog(
+                        timestamp=datetime.utcnow(),
+                        event_type="SIGNAL",
+                        symbol=sig['symbol'],
+                        timeframe=sig['timeframe'],
+                        direction=dir_mapped,
+                        price=float(sig['price'] or 0.0),
+                        strategy_or_condition=f"{sig['condition_type']}: {sig['description']}",
+                        context_json=json.dumps({
+                            "condition_type": sig['condition_type'],
+                            "raw_direction": sig['direction'],
+                            "normalized_metric": sig.get('normalized_metric')
+                        }, ensure_ascii=False),
+                        user_decision="PENDING",
+                        notes=""
+                    )
+                    db.add(decision_row)
                     
                     if setting.notifications_enabled:
                         try:

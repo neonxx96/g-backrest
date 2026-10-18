@@ -1463,6 +1463,78 @@ export default function Chart({
       console.error("Quick backtest failed:", err);
     }
   }, [runQuickBacktest, symbol, timeframe]);
+
+  // Stage 2: Consultative AI Second Opinion ("Второе мнение AI")
+  const [secondOpinionData, setSecondOpinionData] = useState(null);
+  const [isAskingOpinion, setIsAskingOpinion] = useState(false);
+
+  const handleAskSecondOpinion = useCallback(async () => {
+    setIsAskingOpinion(true);
+    try {
+      const transient = useTradeOverlayStore.getState().transientSetup;
+      const setup = transient || activePositionSetup || localPositionSetup;
+      const lastCandlePrice = currentKlines.current.length > 0
+        ? currentKlines.current[currentKlines.current.length - 1].close
+        : 0;
+      const entryP = Number(setup?.entryPrice || setup?.entry_price || lastCandlePrice || 0);
+      const slP = Number(setup?.slPrice || setup?.sl_price || 0) || null;
+      const tpP = Number(setup?.tpPrice || setup?.tp1_price || setup?.tp_price || 0) || null;
+      const dir = setup?.direction || (tpP && entryP && tpP < entryP ? 'SHORT' : 'LONG');
+      const slPct = Number(setup?.slPct || setup?.sl_pct) ? Math.abs(Number(setup?.slPct || setup?.sl_pct)) : 0.6;
+      const tpPct = Number(setup?.tpPct || setup?.tp1_pct) ? Math.abs(Number(setup?.tpPct || setup?.tp1_pct)) : 1.5;
+
+      const res = await fetch('/api/journal/second-opinion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol,
+          timeframe,
+          direction: dir,
+          price: lastCandlePrice || entryP,
+          entry_price: entryP || null,
+          sl_price: slP,
+          tp_price: tpP,
+          stop_loss_pct: slPct,
+          take_profit_pct: tpPct,
+          strategy_type: 'density_bounce'
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSecondOpinionData(data);
+        window.dispatchEvent(new CustomEvent('decision-journal-updated'));
+      }
+    } catch (err) {
+      console.error('Second opinion error:', err);
+      setSecondOpinionData({
+        ai_available: false,
+        verdict: 'AI НЕДОСТУПЕН',
+        reason: 'AI недоступен, принимай решение сам',
+        context: { symbol, timeframe },
+        log: null
+      });
+    } finally {
+      setIsAskingOpinion(false);
+    }
+  }, [symbol, timeframe, activePositionSetup, localPositionSetup]);
+
+  const handleDecisionFromOpinion = useCallback(async (userDecision) => {
+    if (!secondOpinionData?.log?.id) return;
+    try {
+      const res = await fetch(`/api/journal/log/${secondOpinionData.log.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_decision: userDecision })
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setSecondOpinionData((prev) => prev ? { ...prev, log: updated.log } : prev);
+        window.dispatchEvent(new CustomEvent('decision-journal-updated'));
+      }
+    } catch (err) {
+      console.error('Failed to record trader decision on second opinion:', err);
+    }
+  }, [secondOpinionData]);
   
   const prevSymbolRef = useRef(symbol);
   const prevTimeframeRef = useRef(timeframe);
@@ -2610,8 +2682,18 @@ export default function Chart({
 
     const connectWs = () => {
       if (isCancelled) return;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
       if (wsRef.current) {
-        try { wsRef.current.close(); } catch (_) {}
+        try {
+          wsRef.current.onopen = null;
+          wsRef.current.onmessage = null;
+          wsRef.current.onerror = null;
+          wsRef.current.onclose = null;
+          wsRef.current.close();
+        } catch (_) {}
         wsRef.current = null;
       }
 
@@ -2622,10 +2704,12 @@ export default function Chart({
         wsRef.current = ws;
 
         ws.onopen = () => {
+          if (isCancelled || wsRef.current !== ws) return;
           lastTickTime = Date.now();
         };
 
         ws.onmessage = (event) => {
+          if (isCancelled || wsRef.current !== ws) return;
           try {
             const payload = JSON.parse(event.data);
             const k = payload.k || payload;
@@ -2683,7 +2767,7 @@ export default function Chart({
         };
 
         ws.onclose = () => {
-          if (!isCancelled) {
+          if (!isCancelled && wsRef.current === ws) {
             endpointIdx++;
             reconnectTimer = setTimeout(connectWs, 2000);
           }
@@ -2696,6 +2780,13 @@ export default function Chart({
       }
     };
 
+    const handleNetworkOnline = () => {
+      if (isCancelled) return;
+      connectWs();
+      fetchKlines();
+    };
+    window.addEventListener('online', handleNetworkOnline);
+
     connectWs();
 
     // Heartbeat fallback: checks every 3s; if no tick received for > 4.5s, polls REST endpoint
@@ -2704,9 +2795,9 @@ export default function Chart({
       if (Date.now() - lastTickTime > 4500) {
         try {
           const r = await fetch(`${API_BASE}/klines?symbol=${symbol}&timeframe=${timeframe}&limit=2`);
-          if (r.ok) {
+          if (r.ok && !isCancelled) {
             const data = await r.json();
-            if (Array.isArray(data) && data.length > 0) {
+            if (Array.isArray(data) && data.length > 0 && chartRef.current) {
               const latest = data[data.length - 1];
               const bar = {
                 timestamp: Number(latest.timestamp),
@@ -2723,7 +2814,7 @@ export default function Chart({
           }
         } catch (_) {}
 
-        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        if (!wsRef.current || (wsRef.current.readyState !== WebSocket.OPEN && wsRef.current.readyState !== WebSocket.CONNECTING)) {
           endpointIdx++;
           connectWs();
         }
@@ -2732,10 +2823,17 @@ export default function Chart({
 
     return () => {
       isCancelled = true;
+      window.removeEventListener('online', handleNetworkOnline);
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       if (wsRef.current) {
-        try { wsRef.current.close(); } catch (_) {}
+        try {
+          wsRef.current.onopen = null;
+          wsRef.current.onmessage = null;
+          wsRef.current.onerror = null;
+          wsRef.current.onclose = null;
+          wsRef.current.close();
+        } catch (_) {}
         wsRef.current = null;
       }
     };
@@ -3437,6 +3535,19 @@ export default function Chart({
             <span className="text-[#f59e0b] text-[10px] font-mono animate-pulse mr-1">{statusMsg}</span>
           )}
 
+          {/* Stage 2: Consultative Second Opinion Button in Toolbar */}
+          <button
+            type="button"
+            data-testid="btn-toolbar-second-opinion"
+            onClick={handleAskSecondOpinion}
+            disabled={isAskingOpinion}
+            title="Консультативное второе мнение AI по текущему сетапу и рынку (без автоторговли)"
+            className="px-1.5 py-0.5 rounded text-[10px] font-mono transition flex items-center space-x-1 bg-[#2e1065] hover:bg-[#581c87] text-[#e9d5ff] border border-[#a855f760] mr-0.5 cursor-pointer font-bold"
+          >
+            <span>🧠</span>
+            <span>{isAskingOpinion ? 'Анализ...' : 'Мнение AI'}</span>
+          </button>
+
           <button 
             data-testid="btn-open-indicators-modal"
             title="Каталог индикаторов & Order Flow (Клавиша 'I')" 
@@ -3608,6 +3719,19 @@ export default function Chart({
               <span>{isBacktesting ? 'Расчет...' : 'Тест сетапа'}</span>
             </button>
 
+            {/* Stage 2: Consultative AI Second Opinion Button right next to Risk/Reward setup */}
+            <button
+              type="button"
+              data-testid="btn-ask-second-opinion"
+              onClick={handleAskSecondOpinion}
+              disabled={isAskingOpinion}
+              className="px-2 py-0.5 rounded bg-[#6b21a8] hover:bg-[#7e22ce] text-white font-bold flex items-center space-x-1 transition cursor-pointer shadow-sm text-[9.5px] border border-[#c084fc80]"
+              title="Консультативное второе мнение AI по этой позиции (только факты рынка, решение за вами)"
+            >
+              <span>🧠</span>
+              <span>{isAskingOpinion ? 'Запрос AI...' : 'Спросить мнение по этой позиции'}</span>
+            </button>
+
             <button
               type="button"
               onClick={() => {
@@ -3619,6 +3743,117 @@ export default function Chart({
             >
               ✕
             </button>
+          </div>
+        )}
+
+        {/* Stage 2: Consultative Second Opinion Non-Blocking Overlay Card */}
+        {secondOpinionData && (
+          <div
+            data-testid="second-opinion-card"
+            className="absolute top-12 left-3 z-30 pointer-events-auto w-[390px] max-w-[92%] rounded-lg bg-[#0d121d]/95 border border-[#a855f770] shadow-2xl p-3 font-mono text-[10.5px] text-[#e2e8f0] backdrop-blur-md"
+          >
+            <div className="flex items-center justify-between border-b border-[#1e293b] pb-1.5 mb-2">
+              <div className="flex items-center space-x-1.5">
+                <span>🧠</span>
+                <span className="font-bold text-white">Второе мнение AI ({secondOpinionData.context?.symbol || symbol} {secondOpinionData.context?.timeframe || timeframe})</span>
+              </div>
+              <button
+                type="button"
+                data-testid="btn-close-second-opinion"
+                onClick={() => setSecondOpinionData(null)}
+                className="text-[#94a3b8] hover:text-white px-1 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Verdict & 1 Reason */}
+            <div className="mb-2">
+              <div className="flex items-center space-x-2 mb-1">
+                <span
+                  data-testid="second-opinion-verdict"
+                  className={`px-2 py-0.5 rounded font-bold text-[10.5px] ${
+                    secondOpinionData.verdict === 'ЗА'
+                      ? 'bg-[#059669]/30 text-[#34d399] border border-[#34d39960]'
+                      : secondOpinionData.verdict === 'ПРОТИВ'
+                      ? 'bg-[#dc2626]/30 text-[#f87171] border border-[#f8717160]'
+                      : !secondOpinionData.ai_available
+                      ? 'bg-[#d97706]/30 text-[#fbbf24] border border-[#fbbf2460]'
+                      : 'bg-[#334155]/50 text-[#cbd5e1] border border-[#64748b60]'
+                  }`}
+                >
+                  {secondOpinionData.verdict}
+                </span>
+                {!secondOpinionData.ai_available && (
+                  <span className="text-[9.5px] text-[#fbbf24]">Принимай решение сам по фактам ниже</span>
+                )}
+              </div>
+              <div
+                data-testid="second-opinion-reason"
+                className="text-[11px] text-white bg-[#131b2e] border border-[#1e293b] rounded p-2 leading-snug"
+              >
+                {secondOpinionData.reason}
+              </div>
+            </div>
+
+            {/* Factual Market Snapshot Passed */}
+            {secondOpinionData.context && (
+              <div className="grid grid-cols-2 gap-1 text-[9.5px] text-[#94a3b8] bg-[#090d16] p-2 rounded border border-[#1e293b] mb-2">
+                <div>Тренд: <span className="text-white">{secondOpinionData.context.trend || '—'}</span></div>
+                <div>Дельта CVD: <span className="text-white">{secondOpinionData.context.cvd_bias || '—'}</span></div>
+                <div>OI (24ч): <span className="text-white">{secondOpinionData.context.oi_change_24h_pct ?? 0}%</span></div>
+                <div>
+                  Ист. EV: <span className="text-white">${secondOpinionData.context.historical_ev_usd ?? 0} ({secondOpinionData.context.historical_trades_count ?? 0} сд.)</span>
+                </div>
+              </div>
+            )}
+
+            {/* Trader's Final Decision Recording */}
+            <div className="flex items-center justify-between pt-1 border-t border-[#1e293b]">
+              <span className="text-[9.5px] text-[#94a3b8]">
+                {secondOpinionData.log?.user_decision && secondOpinionData.log.user_decision !== 'PENDING'
+                  ? `В журнале: ${secondOpinionData.log.user_decision}`
+                  : 'Записать моё решение в журнал:'}
+              </span>
+              <div className="flex items-center space-x-1">
+                <button
+                  type="button"
+                  data-testid="btn-opinion-mark-entered"
+                  onClick={() => handleDecisionFromOpinion('ENTERED')}
+                  className={`px-2 py-0.5 rounded text-[9.5px] font-bold cursor-pointer border ${
+                    secondOpinionData.log?.user_decision === 'ENTERED'
+                      ? 'bg-[#059669] text-white border-[#34d399]'
+                      : 'bg-[#059669]/20 text-[#34d399] border-[#059669]/50 hover:bg-[#059669]/40'
+                  }`}
+                >
+                  ✅ Вошёл
+                </button>
+                <button
+                  type="button"
+                  data-testid="btn-opinion-mark-skipped"
+                  onClick={() => handleDecisionFromOpinion('SKIPPED')}
+                  className={`px-2 py-0.5 rounded text-[9.5px] font-bold cursor-pointer border ${
+                    secondOpinionData.log?.user_decision === 'SKIPPED'
+                      ? 'bg-[#475569] text-white border-[#94a3b8]'
+                      : 'bg-[#1e293b] text-[#cbd5e1] border-[#334155] hover:bg-[#334155]'
+                  }`}
+                >
+                  ⏭ Пропустил
+                </button>
+                <button
+                  type="button"
+                  data-testid="btn-opinion-mark-exited"
+                  onClick={() => handleDecisionFromOpinion('EXITED')}
+                  className={`px-2 py-0.5 rounded text-[9.5px] font-bold cursor-pointer border ${
+                    secondOpinionData.log?.user_decision === 'EXITED'
+                      ? 'bg-[#d97706] text-white border-[#fbbf24]'
+                      : 'bg-[#d97706]/20 text-[#fbbf24] border-[#d97706]/50 hover:bg-[#d97706]/40'
+                  }`}
+                >
+                  🏁 Вышел
+                </button>
+              </div>
+            </div>
           </div>
         )}
 

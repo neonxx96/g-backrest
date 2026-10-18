@@ -134,3 +134,47 @@ class Workspace(Base):
     is_default = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class DecisionLog(Base):
+    """
+    Stage 1 & 2: Trader Decision Journal & AI Second Opinion Log.
+    Records triggered signals, manual user entries/exits/skips, and consultative AI recommendations.
+    Strictly consultative — never executes trades automatically.
+    """
+    __tablename__ = "decision_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    event_type = Column(String, index=True, default="SIGNAL")  # 'SIGNAL', 'AI_OPINION', 'MANUAL_ENTRY', 'MANUAL_EXIT', 'MANUAL_SKIP'
+    symbol = Column(String, index=True)
+    timeframe = Column(String, default="5m")
+    direction = Column(String, default="LONG")                 # 'LONG', 'SHORT', 'NEUTRAL'
+    price = Column(Float, default=0.0)
+    entry_price = Column(Float, nullable=True)
+    sl_price = Column(Float, nullable=True)
+    tp_price = Column(Float, nullable=True)
+    strategy_or_condition = Column(String, default="")
+    ai_verdict = Column(String, nullable=True)                 # 'ЗА', 'ПРОТИВ', 'НЕЙТРАЛЬНО', 'AI НЕДОСТУПЕН'
+    ai_reason = Column(Text, nullable=True)
+    context_json = Column(Text, default="{}")                  # Market context snapshot (CVD, OI, EV, walls, ATR)
+    user_decision = Column(String, default="PENDING")          # 'ENTERED', 'SKIPPED', 'EXITED', 'PENDING'
+    notes = Column(Text, default="")
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class StrategyPreset(Base):
+    """
+    Stage 3: Fast 1-click Strategy Parameter Presets (SL/TP, indicator filters, entry/SL modes).
+    """
+    __tablename__ = "strategy_presets"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False, index=True)
+    symbol = Column(String, default="ANY")
+    timeframe = Column(String, default="5m")
+    strategy_type = Column(String, default="density_bounce")
+    params_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
