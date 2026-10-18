@@ -19,6 +19,11 @@ import {
   MousePointer,
   Sliders
 } from 'lucide-react';
+import { INDICATORS_REGISTRY, DEFAULT_ACTIVE_INDICATORS } from '../config/indicatorsRegistry';
+import IndicatorsModal from './indicators/IndicatorsModal';
+import IndicatorSettingsDialog from './indicators/IndicatorSettingsDialog';
+import ActiveIndicatorStack from './indicators/ActiveIndicatorStack';
+import { useLayoutStore } from '../stores/layoutStore';
 
 const API_BASE = "/api";
 
@@ -850,6 +855,86 @@ try {
   });
 } catch (_) {}
 
+// 8. Register custom 'SuperTrend' indicator
+try {
+  registerIndicator({
+    name: 'SuperTrend',
+    shortName: 'SuperTrend',
+    precision: 2,
+    calcParams: [10, 3.0],
+    figures: [
+      {
+        key: 'supertrend',
+        title: 'ST: ',
+        type: 'line',
+        styles: (data) => {
+          const dir = data.current?.indicatorData?.direction ?? 1;
+          return {
+            color: dir === 1 ? '#10b981' : '#ef4444',
+            size: 2,
+            style: 'solid'
+          };
+        }
+      }
+    ],
+    calc: (dataList, { calcParams }) => {
+      const period = (calcParams && calcParams[0]) || 10;
+      const multiplier = (calcParams && calcParams[1]) || 3.0;
+      let trs = [];
+      let finalUpper = 0;
+      let finalLower = 0;
+      let direction = 1;
+
+      return dataList.map((k, i) => {
+        const prevClose = i > 0 ? (dataList[i - 1].close || k.close) : k.close;
+        const tr = Math.max(
+          (k.high || 0) - (k.low || 0),
+          Math.abs((k.high || 0) - prevClose),
+          Math.abs((k.low || 0) - prevClose)
+        );
+        trs.push(tr);
+        if (trs.length > period) trs.shift();
+        const atr = trs.reduce((a, b) => a + b, 0) / trs.length;
+
+        const hl2 = ((k.high || 0) + (k.low || 0)) / 2;
+        const basicUpper = hl2 + multiplier * atr;
+        const basicLower = hl2 - multiplier * atr;
+
+        if (i === 0) {
+          finalUpper = basicUpper;
+          finalLower = basicLower;
+          direction = 1;
+          return { supertrend: finalLower, direction };
+        }
+
+        const prevK = dataList[i - 1];
+        if (basicUpper < finalUpper || prevK.close > finalUpper) {
+          finalUpper = basicUpper;
+        }
+        if (basicLower > finalLower || prevK.close < finalLower) {
+          finalLower = basicLower;
+        }
+
+        if (direction === 1) {
+          if (k.close < finalLower) {
+            direction = -1;
+            return { supertrend: finalUpper, direction };
+          } else {
+            return { supertrend: finalLower, direction };
+          }
+        } else {
+          if (k.close > finalUpper) {
+            direction = 1;
+            return { supertrend: finalLower, direction };
+          } else {
+            return { supertrend: finalUpper, direction };
+          }
+        }
+      });
+    }
+  });
+} catch (_) {}
+
 function hexToRgba(hex, alpha = 1) {
   if (!hex || typeof hex !== 'string' || !hex.startsWith('#')) return hex;
   const h = hex.replace('#', '');
@@ -987,15 +1072,18 @@ export default function Chart({
   const [activeTool, setActiveTool] = useState(null);
   const activeDrawingOverlayId = useRef(null);
   const [isMouseDown, setIsMouseDown] = useState(false);
-  const [magnetEnabled, setMagnetEnabled] = useState(false);
-  const [indicators, setIndicators] = useState({
-    ema: uiConfig?.emaEnabled !== false,
-    vol: uiConfig?.subpanes?.vol !== false,
-    cvd: Boolean(uiConfig?.subpanes?.cvd),
-    rsi: Boolean(uiConfig?.subpanes?.rsi),
-    macd: Boolean(uiConfig?.subpanes?.macd),
-    vwap: false
+  const savedIndicators = useLayoutStore((s) => s.getPanelIndicators(chartId));
+  const setPanelIndicators = useLayoutStore((s) => s.setPanelIndicators);
+
+  const [activeIndicators, setActiveIndicators] = useState(() => {
+    return Array.isArray(savedIndicators) && savedIndicators.length > 0
+      ? savedIndicators
+      : DEFAULT_ACTIVE_INDICATORS;
   });
+
+  const [isCatalogOpen, setIsCatalogOpen] = useState(false);
+  const [settingsDialogIndId, setSettingsDialogIndId] = useState(null);
+
   const [statusMsg, setStatusMsg] = useState("");
   const [errorDetails, setErrorDetails] = useState(null);
 
@@ -1333,82 +1421,159 @@ export default function Chart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Dynamically apply uiConfig changes on the fly (theme, opacity, EMA, subpanes, precision)
+  // Sync modular indicators with KLineCharts instance
+  const syncIndicatorsWithChart = useCallback((chart, indicatorsList) => {
+    if (!chart) return;
+    const activeMap = new Map((indicatorsList || []).map((item) => [item.id, item]));
+
+    Object.values(INDICATORS_REGISTRY).forEach((def) => {
+      const activeItem = activeMap.get(def.id);
+      const isMain = def.pane === 'main';
+      const paneId = isMain ? 'candle_pane' : `pane_${def.id}`;
+      const klineName = def.klineName;
+
+      if (!activeItem || activeItem.enabled === false) {
+        try {
+          if (isMain) {
+            chart.removeIndicator(paneId, klineName);
+          } else {
+            chart.removeIndicator(paneId, klineName);
+            chart.removeIndicator({ name: klineName });
+          }
+        } catch (_) {}
+      } else {
+        const calcParams = def.toCalcParams(activeItem.inputs || def.defaultInputs);
+        const styles = def.toKlineStyles(activeItem.styles || def.defaultStyles);
+
+        try {
+          if (isMain) {
+            chart.createIndicator({
+              name: klineName,
+              calcParams,
+              styles
+            }, true, { id: 'candle_pane' });
+            chart.overrideIndicator({
+              name: klineName,
+              calcParams,
+              styles
+            }, 'candle_pane');
+          } else {
+            chart.createIndicator({
+              name: klineName,
+              calcParams,
+              styles
+            }, false, { id: paneId, height: def.height || 70 });
+            chart.overrideIndicator({
+              name: klineName,
+              calcParams,
+              styles
+            }, paneId);
+          }
+        } catch (_) {
+          try {
+            chart.createIndicator(klineName, isMain, { id: paneId, height: def.height || 70 });
+          } catch (_) {}
+        }
+      }
+    });
+  }, []);
+
+  const handleAddIndicator = useCallback((indId) => {
+    const def = INDICATORS_REGISTRY[indId];
+    if (!def) return;
+    setActiveIndicators((prev) => {
+      if (prev.some((i) => i.id === indId)) return prev;
+      const next = [
+        ...prev,
+        {
+          id: indId,
+          enabled: true,
+          inputs: { ...def.defaultInputs },
+          styles: { ...def.defaultStyles }
+        }
+      ];
+      setPanelIndicators(chartId, next);
+      if (chartRef.current) {
+        syncIndicatorsWithChart(chartRef.current, next);
+      }
+      return next;
+    });
+    setStatusMsg(`Добавлен: ${def.shortName}`);
+    setTimeout(() => setStatusMsg(''), 1500);
+  }, [chartId, setPanelIndicators, syncIndicatorsWithChart]);
+
+  const handleRemoveIndicator = useCallback((indId) => {
+    const def = INDICATORS_REGISTRY[indId];
+    setActiveIndicators((prev) => {
+      const next = prev.filter((i) => i.id !== indId);
+      setPanelIndicators(chartId, next);
+      if (chartRef.current) {
+        const isMain = def?.pane === 'main';
+        const paneId = isMain ? 'candle_pane' : `pane_${indId}`;
+        const klineName = def ? def.klineName : indId.toUpperCase();
+        try {
+          chartRef.current.removeIndicator(paneId, klineName);
+          if (!isMain) chartRef.current.removeIndicator({ name: klineName });
+        } catch (_) {}
+        syncIndicatorsWithChart(chartRef.current, next);
+      }
+      return next;
+    });
+  }, [chartId, setPanelIndicators, syncIndicatorsWithChart]);
+
+  const handleToggleVisibility = useCallback((indId) => {
+    setActiveIndicators((prev) => {
+      const next = prev.map((item) =>
+        item.id === indId ? { ...item, enabled: !item.enabled } : item
+      );
+      setPanelIndicators(chartId, next);
+      if (chartRef.current) {
+        syncIndicatorsWithChart(chartRef.current, next);
+      }
+      return next;
+    });
+  }, [chartId, setPanelIndicators, syncIndicatorsWithChart]);
+
+  const handleSaveSettings = useCallback((indId, newInputs, newStyles) => {
+    setActiveIndicators((prev) => {
+      const next = prev.map((item) =>
+        item.id === indId
+          ? { ...item, inputs: { ...newInputs }, styles: { ...newStyles } }
+          : item
+      );
+      setPanelIndicators(chartId, next);
+      if (chartRef.current) {
+        syncIndicatorsWithChart(chartRef.current, next);
+      }
+      return next;
+    });
+    setStatusMsg(`Настройки ${indId.toUpperCase()} сохранены`);
+    setTimeout(() => setStatusMsg(''), 1500);
+  }, [chartId, setPanelIndicators, syncIndicatorsWithChart]);
+
+  // Dynamically apply uiConfig and indicators sync
   useEffect(() => {
     const chart = chartRef.current;
-    if (!chart || !uiConfig) return;
+    if (!chart) return;
 
-    try {
-      chart.setStyles(buildChartStyles(uiConfig));
-    } catch (_) {}
-
-    // Precision
-    try {
-      if (uiConfig.pricePrecision && uiConfig.pricePrecision !== 'auto') {
-        chart.setPriceVolumePrecision(Number(uiConfig.pricePrecision), 2);
-      } else {
-        const p = symbol.includes('BTC') ? 1 : symbol.includes('ETH') || symbol.includes('SOL') ? 2 : 4;
-        chart.setPriceVolumePrecision(p, 2);
-      }
-    } catch (_) {}
-
-    // Sync EMA
-    try {
-      const wantEma = uiConfig.emaEnabled !== false;
-      const emaLines = (uiConfig.emaColors || ['#38bdf8', '#f59e0b', '#a855f7']).map(color => ({
-        style: 'solid',
-        smooth: false,
-        size: uiConfig.emaWidth ?? 1.5,
-        dashedValue: [2, 2],
-        color
-      }));
-      if (wantEma) {
-        if (!indicators.ema) {
-          chart.createIndicator({
-            name: 'EMA',
-            calcParams: uiConfig.emaPeriods || [9, 21, 50],
-            styles: { lines: emaLines }
-          }, true, { id: 'candle_pane' });
-        } else {
-          chart.overrideIndicator({
-            name: 'EMA',
-            calcParams: uiConfig.emaPeriods || [9, 21, 50],
-            styles: { lines: emaLines }
-          }, 'candle_pane');
-        }
-      } else if (indicators.ema) {
-        chart.removeIndicator('candle_pane', 'EMA');
-      }
-    } catch (_) {}
-
-    // Sync subpanes (VOL, CVD, RSI, MACD)
-    const sp = uiConfig.subpanes || {};
-    const syncPane = (key, indName, paneId, height = 70) => {
-      const want = Boolean(sp[key]);
-      const has = Boolean(indicators[key]);
+    if (uiConfig) {
       try {
-        if (want && !has) {
-          chart.createIndicator(indName, false, { id: paneId, height });
-        } else if (!want && has) {
-          chart.removeIndicator(paneId, indName);
+        chart.setStyles(buildChartStyles(uiConfig));
+      } catch (_) {}
+
+      try {
+        if (uiConfig.pricePrecision && uiConfig.pricePrecision !== 'auto') {
+          chart.setPriceVolumePrecision(Number(uiConfig.pricePrecision), 2);
+        } else {
+          const p = symbol.includes('BTC') ? 1 : symbol.includes('ETH') || symbol.includes('SOL') ? 2 : 4;
+          chart.setPriceVolumePrecision(p, 2);
         }
       } catch (_) {}
-    };
-    syncPane('vol', 'VOL', 'pane_vol', 70);
-    syncPane('cvd', 'CVD', 'pane_cvd', 75);
-    syncPane('rsi', 'RSI', 'pane_rsi', 70);
-    syncPane('macd', 'MACD', 'pane_macd', 75);
+    }
 
-    setIndicators(prev => ({
-      ...prev,
-      ema: uiConfig.emaEnabled !== false,
-      vol: Boolean(sp.vol),
-      cvd: Boolean(sp.cvd),
-      rsi: Boolean(sp.rsi),
-      macd: Boolean(sp.macd)
-    }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uiConfig, symbol]);
+    // Sync modular indicators with KLineCharts
+    syncIndicatorsWithChart(chart, activeIndicators);
+  }, [uiConfig, symbol, activeIndicators, syncIndicatorsWithChart, chartReady]);
 
   // Save drawings for a specific symbol/timeframe (e.g. before coin switch)
   const saveDrawingsFor = useCallback((targetSymbol, targetTimeframe) => {
@@ -1583,6 +1748,11 @@ export default function Chart({
       } else if (e.key === 'Escape') {
         cancelActiveDrawing();
         setContextMenu({ visible: false, x: 0, y: 0 });
+        setIsCatalogOpen(false);
+        setSettingsDialogIndId(null);
+      } else if ((e.key === 'i' || e.key === 'I' || e.key === 'ш' || e.key === 'Ш' || e.key === '/') && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        setIsCatalogOpen((prev) => !prev);
       }
     };
 
@@ -2327,64 +2497,27 @@ export default function Chart({
     setTimeout(() => setStatusMsg(""), 1200);
   };
 
-  // Toggle indicators
+  // Toggle indicator helper (synced with activeIndicators registry)
   const toggleIndicator = (name) => {
-    if (!chartRef.current) return;
-    const chart = chartRef.current;
-    
-    if (name === 'rsi') {
-      if (indicators.rsi) {
-        try { chart.removeIndicator('pane_rsi', 'RSI'); } catch (_) {}
-        try { chart.removeIndicator({ name: 'RSI' }); } catch (_) {}
-      } else {
-        chart.createIndicator('RSI', false, { id: 'pane_rsi', height: 70 });
-      }
-      setIndicators(prev => ({ ...prev, rsi: !prev.rsi }));
-    } else if (name === 'macd') {
-      if (indicators.macd) {
-        try { chart.removeIndicator('pane_macd', 'MACD'); } catch (_) {}
-        try { chart.removeIndicator({ name: 'MACD' }); } catch (_) {}
-      } else {
-        chart.createIndicator('MACD', false, { id: 'pane_macd', height: 75 });
-      }
-      setIndicators(prev => ({ ...prev, macd: !prev.macd }));
-    } else if (name === 'cvd') {
-      if (indicators.cvd) {
-        try { chart.removeIndicator('pane_cvd', 'CVD'); } catch (_) {}
-        try { chart.removeIndicator({ name: 'CVD' }); } catch (_) {}
-      } else {
-        chart.createIndicator('CVD', false, { id: 'pane_cvd', height: 75 });
-      }
-      setIndicators(prev => ({ ...prev, cvd: !prev.cvd }));
-    } else if (name === 'ema') {
-      if (indicators.ema) {
-        chart.removeIndicator('candle_pane', 'EMA');
-      } else {
-        chart.createIndicator({
-          name: 'EMA',
-          calcParams: uiConfig?.emaPeriods || [9, 21, 50]
-        }, true, { id: 'candle_pane' });
-      }
-      setIndicators(prev => ({ ...prev, ema: !prev.ema }));
-    } else if (name === 'vol') {
-      if (indicators.vol) {
-        try { chart.removeIndicator('pane_vol', 'VOL'); } catch (_) {}
-        try { chart.removeIndicator({ name: 'VOL' }); } catch (_) {}
-      } else {
-        chart.createIndicator('VOL', false, { id: 'pane_vol', height: 70 });
-      }
-      setIndicators(prev => ({ ...prev, vol: !prev.vol }));
-    } else if (name === 'vwap') {
+    if (name === 'vwap') {
       const nextVwap = !showVwap;
       setShowVwap(nextVwap);
-      setIndicators(prev => ({ ...prev, vwap: nextVwap }));
       localStorage.setItem('chart_vwap', nextVwap ? 'true' : 'false');
       if (!nextVwap && vwapLineOverlay.current) {
-        try { chart.removeOverlay({ id: vwapLineOverlay.current }); } catch (_) {}
+        try { chartRef.current?.removeOverlay({ id: vwapLineOverlay.current }); } catch (_) {}
         vwapLineOverlay.current = null;
       } else {
         updateVwapOverlay();
       }
+      return;
+    }
+
+    const indId = name.toLowerCase();
+    const existing = activeIndicators.find((i) => i.id === indId);
+    if (existing) {
+      handleToggleVisibility(indId);
+    } else {
+      handleAddIndicator(indId);
     }
   };
 
@@ -2568,12 +2701,13 @@ export default function Chart({
           )}
 
           <button 
+            data-testid="btn-open-indicators-modal"
             title="Каталог индикаторов & Order Flow (Клавиша 'I')" 
-            onClick={() => onOpenIndicators && onOpenIndicators(chartId)}
+            onClick={() => setIsCatalogOpen(true)}
             className="px-1.5 py-0.5 rounded text-[10px] font-mono transition flex items-center space-x-1 bg-[#1e293b] hover:bg-[#2563eb] text-[#38bdf8] hover:text-white border border-[#38bdf850] mr-0.5 cursor-pointer"
           >
             <Sliders size={11} />
-            <span>Индикаторы [I]</span>
+            <span>Индикаторы [I] ({activeIndicators.filter(i => i.enabled !== false).length})</span>
           </button>
           
           <button 
@@ -2613,21 +2747,21 @@ export default function Chart({
 
           <button 
             onClick={() => toggleIndicator('ema')}
-            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition ${indicators.ema ? 'bg-[#1e293b] text-[#38bdf8] border border-[#38bdf840]' : 'text-[#60697b] hover:text-white'}`}
+            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition ${activeIndicators.some(i => i.id === 'ema' && i.enabled !== false) ? 'bg-[#1e293b] text-[#38bdf8] border border-[#38bdf840]' : 'text-[#60697b] hover:text-white'}`}
           >
             EMA
           </button>
 
           <button 
             onClick={() => toggleIndicator('vol')}
-            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition ${indicators.vol ? 'bg-[#1e293b] text-[#26a69a] border border-[#26a69a40]' : 'text-[#60697b] hover:text-white'}`}
+            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition ${activeIndicators.some(i => i.id === 'vol' && i.enabled !== false) ? 'bg-[#1e293b] text-[#26a69a] border border-[#26a69a40]' : 'text-[#60697b] hover:text-white'}`}
           >
             VOL
           </button>
 
           <button 
             onClick={() => toggleIndicator('cvd')}
-            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition ${indicators.cvd ? 'bg-[#1e293b] text-[#00e5ff] border border-[#00e5ff40]' : 'text-[#60697b] hover:text-white'}`}
+            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition ${activeIndicators.some(i => i.id === 'cvd' && i.enabled !== false) ? 'bg-[#1e293b] text-[#00e5ff] border border-[#00e5ff40]' : 'text-[#60697b] hover:text-white'}`}
             title="Кумулятивная дельта объёма (CVD)"
           >
             CVD
@@ -2635,14 +2769,14 @@ export default function Chart({
 
           <button 
             onClick={() => toggleIndicator('rsi')}
-            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition ${indicators.rsi ? 'bg-[#1e293b] text-[#a855f7] border border-[#a855f740]' : 'text-[#60697b] hover:text-white'}`}
+            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition ${activeIndicators.some(i => i.id === 'rsi' && i.enabled !== false) ? 'bg-[#1e293b] text-[#a855f7] border border-[#a855f740]' : 'text-[#60697b] hover:text-white'}`}
           >
             RSI
           </button>
           
           <button 
             onClick={() => toggleIndicator('macd')}
-            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition ${indicators.macd ? 'bg-[#1e293b] text-[#f59e0b] border border-[#f59e0b40]' : 'text-[#60697b] hover:text-white'}`}
+            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition ${activeIndicators.some(i => i.id === 'macd' && i.enabled !== false) ? 'bg-[#1e293b] text-[#f59e0b] border border-[#f59e0b40]' : 'text-[#60697b] hover:text-white'}`}
           >
             MACD
           </button>
@@ -2910,6 +3044,35 @@ export default function Chart({
             <div className="font-mono text-[10px] break-words opacity-90">{errorDetails}</div>
           </div>
         )}
+
+        {/* Active Indicators Stack (Top-left below toolbar) */}
+        <ActiveIndicatorStack
+          activeIndicators={activeIndicators}
+          onToggleVisibility={handleToggleVisibility}
+          onOpenSettings={(id) => setSettingsDialogIndId(id)}
+          onRemoveIndicator={handleRemoveIndicator}
+          onOpenCatalog={() => setIsCatalogOpen(true)}
+        />
+
+        {/* Indicators Catalog Modal */}
+        <IndicatorsModal
+          isOpen={isCatalogOpen}
+          onClose={() => setIsCatalogOpen(false)}
+          activeIndicators={activeIndicators}
+          onAddIndicator={handleAddIndicator}
+          onRemoveIndicator={handleRemoveIndicator}
+          onOpenSettings={(id) => setSettingsDialogIndId(id)}
+        />
+
+        {/* Indicator Settings Dialog */}
+        <IndicatorSettingsDialog
+          isOpen={Boolean(settingsDialogIndId)}
+          indicatorId={settingsDialogIndId}
+          currentInputs={activeIndicators.find((i) => i.id === settingsDialogIndId)?.inputs}
+          currentStyles={activeIndicators.find((i) => i.id === settingsDialogIndId)?.styles}
+          onClose={() => setSettingsDialogIndId(null)}
+          onSave={handleSaveSettings}
+        />
       </div>
     </div>
   );

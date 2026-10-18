@@ -26,6 +26,27 @@ export const useLayoutStore = create((set, get) => {
     saveStatus: 'idle', // 'idle' | 'saving' | 'saved' | 'error'
     lastSavedAt: null,
     errorMessage: null,
+    panelIndicators: {}, // Map of panelId -> array of active indicators
+
+    // Get indicators for a specific panel (with fallback to default)
+    getPanelIndicators: (panelId = 'chart_main') => {
+      const state = get();
+      return state.panelIndicators[panelId] || null;
+    },
+
+    // Update indicators for a panel and schedule debounced save
+    setPanelIndicators: (panelId, indicators) => {
+      set((state) => ({
+        panelIndicators: {
+          ...state.panelIndicators,
+          [panelId]: indicators
+        }
+      }));
+      const state = get();
+      if (state.currentLayoutData?.dockview) {
+        state.scheduleAutosave(state.currentLayoutData.dockview);
+      }
+    },
 
     // Fetch all presets from backend
     loadPresets: async () => {
@@ -56,9 +77,12 @@ export const useLayoutStore = create((set, get) => {
           layoutData.schemaVersion = 1;
         }
 
+        const restoredIndicators = layoutData.indicators || {};
+
         set({
           activePresetId: data.id,
           currentLayoutData: layoutData,
+          panelIndicators: restoredIndicators,
           saveStatus: 'idle'
         });
 
@@ -101,6 +125,7 @@ export const useLayoutStore = create((set, get) => {
             layout_data: {
               schemaVersion: 1,
               dockview: dockviewJson,
+              indicators: get().panelIndicators,
               updatedAt: Date.now()
             },
             color_links: colorLinks || undefined,
