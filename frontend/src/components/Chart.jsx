@@ -24,6 +24,8 @@ import IndicatorsModal from './indicators/IndicatorsModal';
 import IndicatorSettingsDialog from './indicators/IndicatorSettingsDialog';
 import ActiveIndicatorStack from './indicators/ActiveIndicatorStack';
 import { useLayoutStore } from '../stores/layoutStore';
+import { useColorLinksStore } from '../stores/colorLinksStore';
+import { fetchKlinesDualSource } from '../services/marketDataFetcher';
 
 const API_BASE = "/api";
 
@@ -1037,7 +1039,7 @@ const USER_DRAWING_TYPES = new Set([
 
 export default function Chart({ 
   chartId = "primary", 
-  symbol = "BTCUSDT", 
+  symbol: propSymbol = "BTCUSDT", 
   timeframe = "15m", 
   userId = "0", 
   titlePrefix = "", 
@@ -1051,6 +1053,9 @@ export default function Chart({
   onOpenIndicators = null,
   onCloseWidget = null
 }) {
+  const channelSymbol = useColorLinksStore((s) => chartId ? s.getPanelSymbol(chartId, propSymbol) : null);
+  const symbol = (channelSymbol || propSymbol || "BTCUSDT").toUpperCase();
+
   const chartContainerRef = useRef(null);
   const chartRef = useRef(null);
   const wsRef = useRef(null);
@@ -2082,48 +2087,36 @@ export default function Chart({
     const chart = chartRef.current;
     let isCancelled = false;
 
-    setStatusMsg("Загрузка свечей...");
+    // Instantly wipe previous coin's candles so old ticker data never lingers
+    try {
+      chart.clearData();
+    } catch (_) {}
+    currentKlines.current = [];
+    setStatusMsg(`Загрузка свечей ${symbol}...`);
     setErrorDetails(null);
 
     const fetchKlines = async () => {
       try {
-        let res;
-        try {
-          res = await fetch(`${API_BASE}/klines?symbol=${symbol}&timeframe=${timeframe}&limit=250`);
-        } catch (proxyErr) {
-          res = await fetch(`http://127.0.0.1:8000/api/klines?symbol=${symbol}&timeframe=${timeframe}&limit=250`);
-        }
+        const { candles, source } = await fetchKlinesDualSource({
+          symbol,
+          timeframe,
+          limit: 250
+        });
 
-        if (!res.ok) {
-          const errText = await res.text();
-          throw new Error(`HTTP ${res.status}: ${errText}`);
-        }
-
-        const data = await res.json();
         if (isCancelled) return;
 
-        if (Array.isArray(data) && data.length > 0) {
-          const formattedData = data.map(k => ({
-            timestamp: Number(k.timestamp),
-            open: Number(k.open),
-            high: Number(k.high),
-            low: Number(k.low),
-            close: Number(k.close),
-            volume: Number(k.volume),
-            turnover: Number(k.turnover || (k.close * k.volume))
-          }));
-
-          currentKlines.current = formattedData;
-          chart.applyNewData(formattedData);
+        if (Array.isArray(candles) && candles.length > 0) {
+          currentKlines.current = candles;
+          chart.applyNewData(candles);
           setStatusMsg("");
           setErrorDetails(null);
 
           // Restore saved drawings, vwap, liquidations, and heatmap
           loadDrawings();
-          updateVwapOverlay(formattedData);
+          updateVwapOverlay(candles);
           loadLiquidations();
           loadHeatmap();
-          setKlinesVersion(v => v + 1);
+          setKlinesVersion((v) => v + 1);
         } else {
           setStatusMsg("Свечи отсутствуют");
         }
