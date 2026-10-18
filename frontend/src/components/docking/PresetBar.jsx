@@ -97,6 +97,18 @@ export default function PresetBar({ onSwitchPreset, onNewPreset, onAddTradesPane
           </button>
         )}
 
+        {/* Open Widget Hub Modal button */}
+        <button
+          type="button"
+          data-testid="btn-open-widget-hub-preset"
+          onClick={() => useLayoutStore.getState().openWidgetHub()}
+          title="Каталог модулей: добавить График, DOM, Ленту, Скринер"
+          className="flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10.5px] bg-[#0f1420] text-[#38bdf8] border border-[#1b253b] hover:bg-[#18243b] hover:border-[#38bdf850] transition cursor-pointer shrink-0"
+        >
+          <LayoutGrid size={11} />
+          <span className="text-[10px] font-mono">+ Виджет</span>
+        </button>
+
         {/* Open / Focus Trades Tape button */}
         {onAddTradesPanel && (
           <button

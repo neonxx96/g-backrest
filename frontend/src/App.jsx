@@ -42,6 +42,7 @@ import {
   RotateCcw,
   LayoutGrid
 } from 'lucide-react';
+import { useLayoutStore } from './stores/layoutStore';
 
 const TIMEFRAMES = ['1m', '5m', '15m', '30m', '45m', '1h', '4h', '6h'];
 const POPULAR_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'DOGEUSDT', 'XRPUSDT', 'BNBUSDT', 'SUIUSDT', 'NEARUSDT'];
@@ -791,17 +792,13 @@ export default function App() {
             <Keyboard size={13} />
           </button>
 
-          {/* Widget Manager Dropdown ('+ Виджеты') */}
+          {/* Widget Hub Modal Trigger ('+ Виджеты') */}
           <div className="relative">
             <button
               data-testid="widgets-menu-button"
-              onClick={() => setShowWidgetsMenu((v) => !v)}
-              className={`px-2 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition cursor-pointer ${
-                showWidgetsMenu
-                  ? 'bg-[#2563eb] text-white border-[#38bdf8] font-bold shadow-md'
-                  : 'bg-[#141720] text-[#38bdf8] border-[#38bdf850] hover:bg-[#1e293b]'
-              }`}
-              title="Менеджер виджетов: добавить или скрыть панели терминала"
+              onClick={() => useLayoutStore.getState().openWidgetHub()}
+              className="px-2 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition cursor-pointer bg-[#141720] text-[#38bdf8] border-[#38bdf850] hover:bg-[#1e293b] hover:border-[#38bdf8]"
+              title="Каталог модулей: добавить График, DOM, Ленту, Скринер"
             >
               <Plus size={11} />
               <span>Виджеты</span>

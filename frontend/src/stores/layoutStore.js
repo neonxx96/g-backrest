@@ -27,6 +27,26 @@ export const useLayoutStore = create((set, get) => {
     lastSavedAt: null,
     errorMessage: null,
     panelIndicators: {}, // Map of panelId -> array of active indicators
+    isWidgetHubOpen: false,
+    addWidgetHandler: null,
+
+    // Widget Hub modal controls
+    openWidgetHub: () => set({ isWidgetHubOpen: true }),
+    closeWidgetHub: () => set({ isWidgetHubOpen: false }),
+    setWidgetHubOpen: (isOpen) => set({ isWidgetHubOpen: isOpen }),
+
+    // Register active dockview add panel handler
+    setAddWidgetHandler: (fn) => set({ addWidgetHandler: fn }),
+
+    // Add a widget to the active dockview grid
+    addWidgetPanel: (type, options = {}) => {
+      const handler = get().addWidgetHandler;
+      if (handler) {
+        return handler(type, options);
+      }
+      console.warn('addWidgetHandler is not registered yet');
+      return null;
+    },
 
     // Get indicators for a specific panel (with fallback to default)
     getPanelIndicators: (panelId = 'chart_main') => {

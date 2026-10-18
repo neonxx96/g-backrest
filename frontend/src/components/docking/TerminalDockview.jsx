@@ -8,7 +8,9 @@ import { useColorLinksStore } from '../../stores/colorLinksStore';
 import Chart from '../Chart';
 import OrderBookDOM from '../OrderBookDOM';
 import WatchlistWidget from './WatchlistWidget';
+import ScreenerWidget from './ScreenerWidget';
 import TradesWidget from './TradesWidget';
+import WidgetHubModal from './WidgetHubModal';
 import { FootprintPlaceholderWidget, CvdPlaceholderWidget } from './Placeholders';
 import ChannelSelector from './ChannelSelector';
 import PresetBar from './PresetBar';
@@ -244,7 +246,8 @@ export default function TerminalDockview({
     () => ({
       chart: ChartDockPanel,
       orderbook: OrderBookDockPanel,
-      watchlist: WatchlistWidget,
+      watchlist: ScreenerWidget,
+      screener: ScreenerWidget,
       signals: SignalsDockPanel,
       trades: TradesWidget,
       footprint_placeholder: FootprintPlaceholderWidget,
@@ -443,6 +446,113 @@ export default function TerminalDockview({
     handleSwitchPreset(saved.id);
   };
 
+  // Handle dynamically adding a widget from Widget Hub
+  const handleAddWidget = useCallback(
+    (type, customOptions = {}) => {
+      const api = dockviewApiRef.current;
+      if (!api) return null;
+
+      const timestamp = Date.now();
+      let panelId = `${type}_${timestamp}`;
+      let title = '';
+      let component = type;
+      let position = {};
+
+      const panels = Array.isArray(api.panels)
+        ? api.panels
+        : api.panels && typeof api.panels.values === 'function'
+        ? Array.from(api.panels.values())
+        : [];
+      const chartPanels = panels.filter((p) => p.id.startsWith('chart'));
+      const domPanels = panels.filter((p) => p.id.startsWith('orderbook'));
+      const tradesPanels = panels.filter((p) => p.id.startsWith('trades'));
+      const screenerPanels = panels.filter(
+        (p) => p.id.startsWith('watchlist') || p.id.startsWith('screener')
+      );
+      const signalsPanels = panels.filter((p) => p.id.startsWith('signals'));
+
+      if (type === 'chart') {
+        title = `График #${chartPanels.length + 1}`;
+        component = 'chart';
+        const ref = chartPanels[0] || panels[0];
+        if (ref) {
+          position = { referencePanel: ref, direction: 'within' };
+        }
+      } else if (type === 'orderbook') {
+        title = `Стакан DOM #${domPanels.length + 1}`;
+        component = 'orderbook';
+        const ref = domPanels[0] || chartPanels[0] || panels[0];
+        if (ref) {
+          position = { referencePanel: ref, direction: domPanels[0] ? 'within' : 'right' };
+        }
+      } else if (type === 'trades') {
+        title = `Лента сделок (Tape) #${tradesPanels.length + 1}`;
+        component = 'trades';
+        const ref = tradesPanels[0] || signalsPanels[0] || domPanels[0] || panels[0];
+        if (ref) {
+          position = {
+            referencePanel: ref,
+            direction: tradesPanels[0] || signalsPanels[0] ? 'within' : 'below'
+          };
+        }
+      } else if (type === 'screener' || type === 'watchlist') {
+        title = `Скринер рынка #${screenerPanels.length + 1}`;
+        component = 'screener';
+        const ref = screenerPanels[0] || panels[0];
+        if (ref) {
+          position = { referencePanel: ref, direction: screenerPanels[0] ? 'within' : 'left' };
+        }
+      } else if (type === 'signals') {
+        title = `Лента сигналов #${signalsPanels.length + 1}`;
+        component = 'signals';
+        const ref = signalsPanels[0] || tradesPanels[0] || domPanels[0] || panels[0];
+        if (ref) {
+          position = { referencePanel: ref, direction: 'within' };
+        }
+      } else if (type === 'footprint') {
+        title = 'Футпринт / Кластеры';
+        component = 'footprint_placeholder';
+        const ref = domPanels[0] || panels[0];
+        if (ref) {
+          position = { referencePanel: ref, direction: 'right' };
+        }
+      } else if (type === 'cvd') {
+        title = 'CVD Дельта';
+        component = 'cvd_placeholder';
+        const ref = domPanels[0] || panels[0];
+        if (ref) {
+          position = { referencePanel: ref, direction: 'below' };
+        }
+      }
+
+      // Connect to color channel c1
+      useColorLinksStore.getState().setPanelChannel(panelId, 'c1');
+
+      const panel = api.addPanel({
+        id: panelId,
+        component,
+        title: customOptions.title || title,
+        position: Object.keys(position).length > 0 ? position : undefined
+      });
+
+      if (panel) {
+        panel.api.setActive();
+      }
+
+      const json = api.toJSON();
+      scheduleAutosave(json, useColorLinksStore.getState().channels);
+      return panel;
+    },
+    [scheduleAutosave]
+  );
+
+  useEffect(() => {
+    useLayoutStore.getState().setAddWidgetHandler(handleAddWidget);
+    return () => {
+      useLayoutStore.getState().setAddWidgetHandler(null);
+    };
+  }, [handleAddWidget]);
+
   // Handle open / focus Trades Tape panel
   const handleAddTradesPanel = () => {
     if (!dockviewApiRef.current) return;
@@ -483,6 +593,9 @@ export default function TerminalDockview({
           className="dockview-theme-dark h-full w-full"
         />
       </div>
+
+      {/* Widget Hub Modal */}
+      <WidgetHubModal />
     </div>
   );
 }
