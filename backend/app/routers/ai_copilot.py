@@ -908,8 +908,8 @@ async def get_market_analysis(payload: MarketAnalysisRequest):
         "base_price": round(current_price, price_dec),
         "base_timestamp": last_candle_ts,
         "atr_14": round(atr, price_dec),
-        "sigma_1s_pct": round((sigma_1_bar * math.sqrt(num_bars_forward) / current_price) * 100.0, 2),
-        "sigma_2s_pct": round((sigma_1_bar * 1.96 * math.sqrt(num_bars_forward) / current_price) * 100.0, 2),
+        "sigma_1s_pct": round((sigma_1_bar * math.sqrt(num_bars_forward) / max(1e-9, current_price)) * 100.0, 2),
+        "sigma_2s_pct": round((sigma_1_bar * 1.96 * math.sqrt(num_bars_forward) / max(1e-9, current_price)) * 100.0, 2),
         "fan_points": fan_points
     }
 
@@ -955,11 +955,18 @@ async def get_market_analysis(payload: MarketAnalysisRequest):
         "target_liquidity_price": magnet_target_price
     }
 
-    # === Stage 3: Real Backtest-grounded Expected Value (EV) ===
+    # === Stage 3: Real Backtest-grounded Expected Value (EV) with Robust Sample ===
     try:
         bt_engine = OrderFlowBacktester(initial_capital=10000.0)
+        ev_df = df
+        if len(df) < 500:
+            try:
+                ev_df = await fetch_history(sym, tf, days=14)
+            except Exception:
+                ev_df = df
+
         fast_bt = bt_engine.run_backtest(
-            df=df,
+            df=ev_df,
             strategy_type=recommended_strategy if recommended_strategy in ("confluence_ema", "cvd_absorption", "ema_trend") else "confluence_ema",
             take_profit_pct=tp1_pct,
             stop_loss_pct=sl_pct,
@@ -1008,6 +1015,8 @@ async def get_market_analysis(payload: MarketAnalysisRequest):
         "ev_per_trade_usd": round(ev_usd, 2),
         "ev_r_multiple": f"{'+' if ev_r_multiple > 0 else ''}{ev_r_multiple}R",
         "sample_trades_tested": total_tr,
+        "is_statistically_significant": total_tr >= 30,
+        "sample_warning": ("Мало данных (<30 сделок), доверительный интервал широкий" if total_tr < 30 else None),
         "is_positive_expectancy": ev_usd > 0,
         "verdict": "Математическое преимущество (+Edge)" if ev_usd > 0 else "Отрицательное мат. ожидание (-Edge)"
     }

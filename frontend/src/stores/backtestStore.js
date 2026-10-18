@@ -81,6 +81,8 @@ export const useBacktestStore = create((set, get) => ({
         };
       }
 
+      console.log("[BACKTEST-STORE] Sending payload:", JSON.stringify(payload));
+
       const res = await fetch(`${API_BASE}/backtest/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -93,6 +95,7 @@ export const useBacktestStore = create((set, get) => ({
       }
 
       const data = await res.json();
+      console.log("[BACKTEST-STORE] Backtest completed, received trades:", data.trades?.length);
       
       // Inject symbol and timeframe into result for strict matching
       data.symbol = symbol.toUpperCase();

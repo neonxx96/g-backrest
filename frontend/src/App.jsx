@@ -16,6 +16,8 @@ import IndicatorsModal, {
   saveChartIndicators
 } from './components/IndicatorsModal';
 import { soundManager } from './utils/sound';
+import { useColorLinksStore } from './stores/colorLinksStore';
+import { useBacktestStore } from './stores/backtestStore';
 import {
   Settings,
   Layers,
@@ -85,6 +87,20 @@ export default function App() {
   const [symbol, setSymbol] = useState(initialSymbol);
   const [timeframe, setTimeframe] = useState(initialTf);
   const [userId] = useState(initialUserId);
+
+  // Synchronize App symbol with Channel 1 (c1) of Color Links
+  const c1Symbol = useColorLinksStore((s) => s.channels.c1);
+  const setChannelSymbol = useColorLinksStore((s) => s.setChannelSymbol);
+
+  useEffect(() => {
+    if (c1Symbol && c1Symbol !== symbol) {
+      setSymbol(c1Symbol);
+    }
+  }, [c1Symbol]);
+
+  useEffect(() => {
+    window.__backtestStore = useBacktestStore;
+  }, []);
 
   // Global UI & Orderflow Configuration (Theme, Font, Opacity, EMA, Subpanes, DOM/Tape thresholds)
   const [uiConfig, setUiConfig] = useState(() => {
@@ -640,7 +656,9 @@ export default function App() {
   }, []);
 
   const handleSelectSignal = (newSymbol, newTf) => {
-    setSymbol(newSymbol.toUpperCase());
+    const sym = newSymbol.toUpperCase();
+    setSymbol(sym);
+    setChannelSymbol('c1', sym);
     if (newTf) setTimeframe(newTf);
   };
 
@@ -650,6 +668,7 @@ export default function App() {
     let s = searchInput.trim().toUpperCase();
     if (!s.endsWith('USDT')) s += 'USDT';
     setSymbol(s);
+    setChannelSymbol('c1', s);
     setSearchInput('');
   };
 

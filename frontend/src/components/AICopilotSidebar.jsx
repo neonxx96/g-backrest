@@ -437,6 +437,7 @@ export default function AICopilotSidebar({
               <span>Ключ</span>
             </button>
             <button
+              data-testid="btn-close-ai-sidebar"
               onClick={onClose}
               className="p-1 rounded text-[#787f91] hover:text-white hover:bg-[#1f2430] transition cursor-pointer"
               title="Закрыть сайдбар (Клавиша 'A')"
@@ -884,6 +885,21 @@ export default function AICopilotSidebar({
                     <div className="font-bold text-[#f59e0b]">-${analysis.expected_value.avg_fees_and_slippage_usd}</div>
                   </div>
                 </div>
+
+                {/* Confidence warning if sample size is underpowered (<30 trades) */}
+                {analysis.expected_value.sample_trades_tested < 30 ? (
+                  <div
+                    data-testid="ai-ev-sample-warning"
+                    className="p-1.5 rounded bg-[#f59e0b15] border border-[#f59e0b40] text-[#fbbf24] text-[9.5px] flex items-center space-x-1.5 leading-snug"
+                  >
+                    <AlertCircle size={12} className="shrink-0 text-[#f59e0b]" />
+                    <span>⚠️ Выборка: {analysis.expected_value.sample_trades_tested} сделок (мало данных, доверительный интервал широкий)</span>
+                  </div>
+                ) : (
+                  <div className="text-[8.5px] text-[#64748b] text-right">
+                    ✓ Выборка: {analysis.expected_value.sample_trades_tested} сделок (статистически достоверно)
+                  </div>
+                )}
               </div>
             )}
 

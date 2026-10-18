@@ -156,6 +156,7 @@ class BacktestRequest(BaseModel):
     tp2_mode: Optional[str] = None
     tp2_rr_ratio: Optional[float] = None
     min_wall_lifetime_sec: Optional[int] = None
+    source_setup: Optional[Dict[str, Any]] = None
 
     model_config = {"extra": "ignore"}
 
@@ -189,7 +190,8 @@ async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
         return cached[1].copy()
 
     tf_min = TF_MINUTES.get(timeframe, 5)
-    need = min(int(days * 1440 / tf_min), MAX_CANDLES)
+    # Ensure at least 100 candles are fetched for indicator warm-up (EMA20/50, ATR14, CVD)
+    need = min(max(100, int(days * 1440 / tf_min)), MAX_CANDLES)
     session = await binance_service.adapter.get_session()
 
     headers = {
@@ -518,7 +520,8 @@ async def run_backtest(req: BacktestRequest):
             "cvd_filter": use_cvd_filter,
             "oi_filter": use_oi_filter,
             "rsi_filter": use_rsi_filter,
-        }
+        },
+        "source_setup": req.source_setup
     }
     return build_response(raw, req.initial_capital, meta)
 

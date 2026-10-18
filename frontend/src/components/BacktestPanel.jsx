@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { useBacktestStore } from '../stores/backtestStore';
 import {
   BarChart3,
   Play,
@@ -288,7 +289,7 @@ export default function BacktestPanel({
   isOpen,
   onClose,
   symbol,
-  result,
+  result: propResult,
   onResult,
   showSignals,
   onToggleSignals,
@@ -296,6 +297,14 @@ export default function BacktestPanel({
   onStrategyChange,
   onProjectPositionSetup
 }) {
+  const storeResult = useBacktestStore((s) => s.activeResult);
+  const result = (propResult?.symbol === symbol?.toUpperCase() ? propResult : null) || (storeResult?.symbol === symbol?.toUpperCase() ? storeResult : null) || propResult || storeResult;
+
+  const handleSetResult = useCallback((data) => {
+    if (onResult) onResult(data);
+    useBacktestStore.setState({ activeResult: data });
+  }, [onResult]);
+
   const [mode, setMode] = useState('single'); // 'single' | 'grid' (Genetic Optimizer) | 'ai'
   const [strategy, setStrategy] = useState('delta_absorption');
   const [timeframe, setTimeframe] = useState('5m');
@@ -422,7 +431,7 @@ export default function BacktestPanel({
         const data = await res.json();
         if (!res.ok)
           throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail));
-        onResult({ ...data, symbol, timeframe, mode: 'single' });
+        handleSetResult({ ...data, symbol, timeframe, mode: 'single' });
         if (data.active_position_setup) {
           projectSetupOntoTerminal(data.active_position_setup);
         }
@@ -542,7 +551,7 @@ export default function BacktestPanel({
       if (!res.ok)
         throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail));
       setOptProgress(100);
-      onResult({ ...data, symbol, timeframe, mode: 'grid' });
+      handleSetResult({ ...data, symbol, timeframe, mode: 'grid' });
       if (data.active_position_setup) {
         projectSetupOntoTerminal(data.active_position_setup);
       }
