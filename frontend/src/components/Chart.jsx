@@ -26,6 +26,7 @@ import ActiveIndicatorStack from './indicators/ActiveIndicatorStack';
 import { useLayoutStore } from '../stores/layoutStore';
 import { useColorLinksStore } from '../stores/colorLinksStore';
 import { fetchKlinesDualSource } from '../services/marketDataFetcher';
+import { useTradeOverlayStore, calculatePositionMetrics } from '../stores/tradeOverlayStore';
 
 const API_BASE = "/api";
 
@@ -452,56 +453,126 @@ try {
   });
 } catch (_) {}
 
-// 5b. Register custom 'positionSetupBox' (Full Entry / SL / TP1 / TP2 + Risk/Reward Shaded Zones)
+// 5b. Register custom 'positionSetupBox' (Interactive Draggable Risk/Reward Overlay)
 try {
   registerOverlay({
     name: 'positionSetupBox',
-    totalStep: 2,
-    lock: true,
-    needDefaultPointFigure: false,
+    totalStep: 3,
+    lock: false,
+    needDefaultPointFigure: true,
     needDefaultXAxisFigure: false,
     needDefaultYAxisFigure: false,
-    createPointFigures: ({ bounding, yAxis, overlay }) => {
-      const ext = overlay.extendData || {};
+    performEventPressedMove: ({ points, performPointIndex, performPoint }) => {
+      if (Array.isArray(points) && performPointIndex != null && points[performPointIndex]) {
+        points[performPointIndex] = { ...performPoint };
+      }
+    },
+    onPressedMoving: ({ overlay }) => {
+      if (!overlay || !Array.isArray(overlay.points) || overlay.points.length < 3) return;
+      const entryP = Number(overlay.points[0]?.value);
+      const tpP = Number(overlay.points[1]?.value);
+      const slP = Number(overlay.points[2]?.value);
+      if (entryP <= 0 || tpP <= 0 || slP <= 0) return;
+
+      const riskUsd = Number(overlay.extendData?.risk_usd ?? overlay.extendData?.sl_risk_usd ?? 50);
+      const metrics = calculatePositionMetrics({ entryPrice: entryP, tpPrice: tpP, slPrice: slP, riskUsd });
+      if (metrics) {
+        overlay.extendData = {
+          ...overlay.extendData,
+          ...metrics
+        };
+        // Zero-latency transient update into Zustand store without React re-render
+        useTradeOverlayStore.getState().setTransientSetup({
+          ...metrics,
+          order_type: metrics.direction === 'LONG' ? 'BUY LIMIT' : 'SELL LIMIT'
+        });
+        window.__chartActiveSetup = {
+          overlayId: overlay.id,
+          ...metrics
+        };
+      }
+    },
+    onPressedMoveEnd: ({ overlay }) => {
+      if (!overlay || !Array.isArray(overlay.points) || overlay.points.length < 3) return;
+      const entryP = Number(overlay.points[0]?.value);
+      const tpP = Number(overlay.points[1]?.value);
+      const slP = Number(overlay.points[2]?.value);
+      if (entryP <= 0 || tpP <= 0 || slP <= 0) return;
+
+      const riskUsd = Number(overlay.extendData?.risk_usd ?? overlay.extendData?.sl_risk_usd ?? 50);
+      const metrics = calculatePositionMetrics({ entryPrice: entryP, tpPrice: tpP, slPrice: slP, riskUsd });
+      if (metrics) {
+        overlay.extendData = {
+          ...overlay.extendData,
+          ...metrics
+        };
+        useTradeOverlayStore.getState().setTransientSetup({
+          ...metrics,
+          order_type: metrics.direction === 'LONG' ? 'BUY LIMIT' : 'SELL LIMIT'
+        });
+        window.__chartActiveSetup = {
+          overlayId: overlay.id,
+          ...metrics
+        };
+      }
+    },
+    createPointFigures: ({ bounding, coordinates, overlay, yAxis }) => {
+      const pts = overlay?.points || [];
+      const ext = overlay?.extendData || {};
       if (!yAxis || typeof yAxis.convertToPixel !== 'function') return [];
 
-      const entryP = Number(ext.entry_price || 0);
-      const slP = Number(ext.sl_price || 0);
-      const tp1P = Number(ext.tp1_price || 0);
-      const tp2P = Number(ext.tp2_price || tp1P || 0);
-      if (entryP <= 0 || slP <= 0 || tp1P <= 0) return [];
+      let entryP = Number(pts[0]?.value ?? ext.entry_price ?? 0);
+      let tpP = Number(pts[1]?.value ?? ext.tp1_price ?? 0);
+      let slP = Number(pts[2]?.value ?? ext.sl_price ?? 0);
+
+      if (entryP <= 0 && ext.entry_price) entryP = Number(ext.entry_price);
+      if (entryP <= 0) return [];
+
+      if (tpP <= 0) tpP = entryP * 1.015;
+      if (slP <= 0) slP = entryP * 0.99;
 
       const yEntry = yAxis.convertToPixel(entryP);
+      const yTp = yAxis.convertToPixel(tpP);
       const ySl = yAxis.convertToPixel(slP);
-      const yTp1 = yAxis.convertToPixel(tp1P);
-      const yTp2 = yAxis.convertToPixel(tp2P);
-      if (![yEntry, ySl, yTp1, yTp2].every(Number.isFinite)) return [];
+      if (![yEntry, yTp, ySl].every(Number.isFinite)) return [];
 
       const width = (bounding && bounding.width) ? bounding.width : 2200;
-      const boxLeft = Math.max(12, Math.round(width * 0.14));
-      const boxWidth = Math.max(240, width - boxLeft - 8);
+      let x0 = coordinates?.[0]?.x;
+      let x1 = coordinates?.[1]?.x;
+      let boxLeft = Math.max(12, Math.round(width * 0.12));
+      let boxRight = width - 15;
 
-      const orderType = ext.order_type || (ext.direction === 'SHORT' ? 'SELL LIMIT' : 'BUY LIMIT');
-      const slPct = Number(ext.sl_pct ?? -0.28).toFixed(2);
-      const slRiskUsd = Math.round(Number(ext.sl_risk_usd ?? 50));
-      const tp1Pct = Number(ext.tp1_pct ?? 0.43).toFixed(2);
-      const tp2Pct = Number(ext.tp2_pct ?? 0.92).toFixed(2);
-      const rrLabel = ext.rr_label || `1:${Number(ext.rr_ratio || 2.8).toFixed(1)}`;
+      if (Number.isFinite(x0) && Number.isFinite(x1) && Math.abs(x1 - x0) > 40) {
+        boxLeft = Math.min(x0, x1);
+        boxRight = Math.max(x0, x1);
+      }
+      const boxWidth = Math.max(160, boxRight - boxLeft);
+
+      // Auto-detect direction: TP above entry = LONG; TP below entry = SHORT
+      const isLong = tpP >= entryP;
+      const orderType = ext.order_type || (isLong ? 'BUY LIMIT' : 'SELL LIMIT');
+
+      const profitDiff = Math.abs(tpP - entryP);
+      const lossDiff = Math.abs(entryP - slP);
+      const tpPct = ((profitDiff / entryP) * 100).toFixed(2);
+      const slPct = ((lossDiff / entryP) * 100).toFixed(2);
+      const rrRatio = lossDiff > 0 ? (profitDiff / lossDiff).toFixed(2) : '0.00';
+      const riskUsd = Math.round(Number(ext.risk_usd ?? ext.sl_risk_usd ?? 50));
+      const rewardUsd = Math.round(riskUsd * (lossDiff > 0 ? profitDiff / lossDiff : 0));
       const dec = entryP >= 1000 ? 1 : entryP >= 1 ? 2 : 4;
 
       const entryBadge = `[${orderType} @ ${entryP.toFixed(dec)}]`;
-      const slBadge = `[SL @ ${slP.toFixed(dec)} (${slPct}% | -$${slRiskUsd})]`;
-      const tp1Badge = `[TP1 @ ${tp1P.toFixed(dec)} (+${tp1Pct}%)]`;
-      const tp2Badge = `[TP2 @ ${tp2P.toFixed(dec)} (+${tp2Pct}%)]`;
-      const rrBadge = `[R:R ${rrLabel}]`;
+      const slBadge = `[SL @ ${slP.toFixed(dec)} (-${slPct}% | -$${riskUsd})]`;
+      const tpBadge = `[TP @ ${tpP.toFixed(dec)} (+${tpPct}% | +$${rewardUsd})]`;
+      const rrBadge = `[R:R 1:${rrRatio}]`;
 
       const riskTop = Math.min(yEntry, ySl);
       const riskHeight = Math.max(2, Math.abs(ySl - yEntry));
-      const rewardTop = Math.min(yEntry, yTp2);
-      const rewardHeight = Math.max(2, Math.abs(yTp2 - yEntry));
+      const rewardTop = Math.min(yEntry, yTp);
+      const rewardHeight = Math.max(2, Math.abs(yTp - yEntry));
 
       return [
-        // Red Risk Zone between Entry and SL
+        // 1. Shaded Risk Zone (Red)
         {
           type: 'rect',
           attrs: {
@@ -512,11 +583,11 @@ try {
           },
           styles: {
             style: 'fill',
-            color: 'rgba(239, 68, 68, 0.15)'
+            color: 'rgba(239, 68, 68, 0.18)'
           },
           ignoreEvent: true
         },
-        // Green Reward Zone between Entry and TP2
+        // 2. Shaded Reward Zone (Green)
         {
           type: 'rect',
           attrs: {
@@ -527,17 +598,17 @@ try {
           },
           styles: {
             style: 'fill',
-            color: 'rgba(16, 185, 129, 0.14)'
+            color: 'rgba(16, 185, 129, 0.18)'
           },
           ignoreEvent: true
         },
-        // Entry Line (Blue Dashed)
+        // 3. Entry Line (Blue Dashed)
         {
           type: 'line',
           attrs: {
             coordinates: [
               { x: boxLeft, y: yEntry },
-              { x: width, y: yEntry }
+              { x: boxRight, y: yEntry }
             ]
           },
           styles: {
@@ -548,13 +619,13 @@ try {
           },
           ignoreEvent: true
         },
-        // SL Line (Bright Red Solid)
+        // 4. SL Line (Red Solid)
         {
           type: 'line',
           attrs: {
             coordinates: [
               { x: boxLeft, y: ySl },
-              { x: width, y: ySl }
+              { x: boxRight, y: ySl }
             ]
           },
           styles: {
@@ -564,40 +635,42 @@ try {
           },
           ignoreEvent: true
         },
-        // TP1 Line (Emerald Green Dashed)
+        // 5. TP Line (Emerald Solid)
         {
           type: 'line',
           attrs: {
             coordinates: [
-              { x: boxLeft, y: yTp1 },
-              { x: width, y: yTp1 }
+              { x: boxLeft, y: yTp },
+              { x: boxRight, y: yTp }
             ]
           },
           styles: {
             color: '#10b981',
-            size: 1.5,
-            style: 'dashed',
-            dashedValue: [4, 3]
-          },
-          ignoreEvent: true
-        },
-        // TP2 Line (Emerald Green Solid)
-        {
-          type: 'line',
-          attrs: {
-            coordinates: [
-              { x: boxLeft, y: yTp2 },
-              { x: width, y: yTp2 }
-            ]
-          },
-          styles: {
-            color: '#059669',
             size: 2,
             style: 'solid'
           },
           ignoreEvent: true
         },
-        // Entry Badge + R:R Badge
+        // 6. Handle circles for dragging
+        {
+          type: 'circle',
+          attrs: { x: boxRight, y: yEntry, r: 4.5 },
+          styles: { style: 'fill', color: '#3b82f6' },
+          ignoreEvent: false
+        },
+        {
+          type: 'circle',
+          attrs: { x: boxRight, y: yTp, r: 4.5 },
+          styles: { style: 'fill', color: '#10b981' },
+          ignoreEvent: false
+        },
+        {
+          type: 'circle',
+          attrs: { x: boxRight, y: ySl, r: 4.5 },
+          styles: { style: 'fill', color: '#ef4444' },
+          ignoreEvent: false
+        },
+        // 7. Entry + R:R Badge
         {
           type: 'text',
           attrs: {
@@ -616,7 +689,7 @@ try {
           },
           ignoreEvent: true
         },
-        // SL Badge
+        // 8. SL Badge
         {
           type: 'text',
           attrs: {
@@ -635,38 +708,19 @@ try {
           },
           ignoreEvent: true
         },
-        // TP1 Badge
+        // 9. TP Badge
         {
           type: 'text',
           attrs: {
             x: boxLeft + 8,
-            y: yTp1,
-            text: ` ${tp1Badge} `,
+            y: yTp,
+            text: ` ${tpBadge} `,
             align: 'left',
             baseline: 'middle'
           },
           styles: {
             color: '#ffffff',
             backgroundColor: '#059669',
-            size: 9.5,
-            padding: 3,
-            borderRadius: 2
-          },
-          ignoreEvent: true
-        },
-        // TP2 Badge
-        {
-          type: 'text',
-          attrs: {
-            x: boxLeft + 8,
-            y: yTp2,
-            text: ` ${tp2Badge} `,
-            align: 'left',
-            baseline: 'middle'
-          },
-          styles: {
-            color: '#ffffff',
-            backgroundColor: '#047857',
             size: 9.5,
             padding: 3,
             borderRadius: 2
@@ -2375,19 +2429,40 @@ export default function Chart({
       return;
     }
 
-    const anchorTs = klines[klines.length - 1].timestamp;
+    const klen = klines.length;
+    const anchorTs = klines[klen - 1].timestamp;
+    const startTs = klines[Math.max(0, klen - 30)].timestamp;
+
+    const entryP = Number(effectivePositionSetup.entry_price);
+    const tpP = Number(effectivePositionSetup.tp1_price || effectivePositionSetup.tp2_price || (entryP * 1.015));
+    const slP = Number(effectivePositionSetup.sl_price || (entryP * 0.99));
+
     try {
       const id = chart.createOverlay({
         name: 'positionSetupBox',
-        lock: true,
-        points: [{ timestamp: anchorTs, value: Number(effectivePositionSetup.entry_price) }],
-        extendData: { ...effectivePositionSetup }
+        lock: false,
+        points: [
+          { timestamp: startTs, value: entryP },
+          { timestamp: anchorTs, value: tpP },
+          { timestamp: anchorTs, value: slP }
+        ],
+        extendData: {
+          ...effectivePositionSetup,
+          entry_price: entryP,
+          tp1_price: tpP,
+          sl_price: slP
+        }
       });
       if (id) activePositionOverlayId.current = id;
-      window.__chartActiveSetup = {
+      const initialSetup = {
         overlayId: id,
-        ...effectivePositionSetup
+        ...effectivePositionSetup,
+        entry_price: entryP,
+        tp1_price: tpP,
+        sl_price: slP
       };
+      window.__chartActiveSetup = initialSetup;
+      useTradeOverlayStore.getState().setTransientSetup(initialSetup);
     } catch (_) {}
   }, [effectivePositionSetup, symbol, timeframe, klinesVersion, chartReady]);
 
@@ -2454,6 +2529,17 @@ export default function Chart({
         setActiveTool(null);
         activeDrawingOverlayId.current = null;
         if (e && e.overlay) {
+          if (e.overlay.name === 'positionSetupBox' && e.overlay.points?.length >= 3) {
+            const entryP = Number(e.overlay.points[0]?.value);
+            const tpP = Number(e.overlay.points[1]?.value);
+            const slP = Number(e.overlay.points[2]?.value);
+            const metrics = calculatePositionMetrics({ entryPrice: entryP, tpPrice: tpP, slPrice: slP });
+            if (metrics) {
+              e.overlay.extendData = { ...e.overlay.extendData, ...metrics };
+              useTradeOverlayStore.getState().setTransientSetup(metrics);
+              window.__chartActiveSetup = { overlayId: e.overlay.id, ...metrics };
+            }
+          }
           trackedOverlays.current.set(e.overlay.id, {
             name: e.overlay.name,
             points: e.overlay.points,
@@ -2656,6 +2742,16 @@ export default function Chart({
             className={`p-1 rounded transition ${activeTool === 'measure' ? 'bg-[#2563eb] text-white' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'}`}
           >
             <Ruler size={12} />
+          </button>
+
+          <button 
+            data-testid="tool-risk-reward"
+            title="Интерактивный сетап Risk/Reward (Entry / TP / SL)" 
+            onClick={() => handleSelectTool('positionSetupBox')}
+            className={`px-1.5 py-0.5 rounded text-[10.5px] font-mono flex items-center transition ${activeTool === 'positionSetupBox' ? 'bg-[#10b981] text-white font-bold' : 'text-[#787f91] hover:bg-[#161922] hover:text-[#10b981]'}`}
+          >
+            <TrendingUp size={12} className="mr-0.5 text-[#10b981]" />
+            <span className="hidden xl:inline">R:R Box</span>
           </button>
 
           <div className="h-3.5 w-px bg-[#1f2430] mx-0.5" />
