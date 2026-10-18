@@ -13,6 +13,17 @@ import { create } from 'zustand';
 
 const WS_MINI_TICKER_URL = 'wss://fstream.binance.com/ws/!miniTicker@arr';
 
+const INITIAL_TICKERS = {
+  BTCUSDT: { symbol: 'BTCUSDT', price: 81300.0, open24h: 80100.0, high24h: 82500.0, low24h: 79800.0, change24hPct: 1.5, volumeUsd: 15400000000, ts: Date.now() },
+  ETHUSDT: { symbol: 'ETHUSDT', price: 2610.0, open24h: 2580.0, high24h: 2650.0, low24h: 2540.0, change24hPct: 1.16, volumeUsd: 6800000000, ts: Date.now() },
+  SOLUSDT: { symbol: 'SOLUSDT', price: 162.5, open24h: 158.0, high24h: 165.0, low24h: 155.0, change24hPct: 2.85, volumeUsd: 3200000000, ts: Date.now() },
+  BNBUSDT: { symbol: 'BNBUSDT', price: 595.0, open24h: 602.0, high24h: 610.0, low24h: 590.0, change24hPct: -1.16, volumeUsd: 850000000, ts: Date.now() },
+  DOGEUSDT: { symbol: 'DOGEUSDT', price: 0.142, open24h: 0.148, high24h: 0.155, low24h: 0.138, change24hPct: -4.05, volumeUsd: 920000000, ts: Date.now() },
+  XRPUSDT: { symbol: 'XRPUSDT', price: 0.548, open24h: 0.540, high24h: 0.560, low24h: 0.535, change24hPct: 1.48, volumeUsd: 740000000, ts: Date.now() },
+  SUIUSDT: { symbol: 'SUIUSDT', price: 2.15, open24h: 2.05, high24h: 2.25, low24h: 2.00, change24hPct: 4.88, volumeUsd: 610000000, ts: Date.now() },
+  NEARUSDT: { symbol: 'NEARUSDT', price: 4.85, open24h: 4.70, high24h: 5.10, low24h: 4.60, change24hPct: 3.19, volumeUsd: 350000000, ts: Date.now() }
+};
+
 export const useMarketDataStore = create((set, get) => {
   let ws = null;
   let reconnectTimer = null;
@@ -21,10 +32,10 @@ export const useMarketDataStore = create((set, get) => {
 
   return {
     // Map of symbol -> { symbol, price, open24h, high24h, low24h, change24hPct, volumeUsd, ts }
-    tickers: {},
-    tickersList: [],
+    tickers: { ...INITIAL_TICKERS },
+    tickersList: Object.values(INITIAL_TICKERS),
     isConnected: false,
-    lastUpdateTs: 0,
+    lastUpdateTs: Date.now(),
 
     initMiniTickerStream: () => {
       if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {

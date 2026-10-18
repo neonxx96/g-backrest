@@ -118,3 +118,7 @@ export const useColorLinksStore = create((set, get) => ({
     }));
   }
 }));
+
+if (typeof window !== 'undefined') {
+  window.useColorLinksStore = useColorLinksStore;
+}

@@ -278,18 +278,18 @@ export default function TerminalDockview({
         position: { referencePanel: domPanel, direction: 'right' }
       });
 
-      api.addPanel({
+      const cvdPanel = api.addPanel({
         id: 'cvd_placeholder',
         component: 'cvd_placeholder',
         title: 'CVD Дельта',
-        position: { referencePanel: footprintPanel, direction: 'within' }
+        position: { referencePanel: footprintPanel, direction: 'below' }
       });
 
       api.addPanel({
         id: 'signals_main',
         component: 'signals',
         title: 'Лента сигналов',
-        position: { referencePanel: footprintPanel, direction: 'below' }
+        position: { referencePanel: domPanel, direction: 'below' }
       });
     } else {
       // Preset 1: Classic Trader (Default)
@@ -328,6 +328,8 @@ export default function TerminalDockview({
     (api, workspaceDetail) => {
       if (!api || !workspaceDetail) return;
 
+      useLayoutStore.setState({ isLayoutLoaded: false });
+
       const layoutData = workspaceDetail.layout_data || {};
       const dockviewJson = layoutData.dockview;
 
@@ -350,7 +352,7 @@ export default function TerminalDockview({
       // Mark layout as ready so future user drag/resize events trigger autosave safely
       setTimeout(() => {
         markLayoutReady();
-      }, 150);
+      }, 250);
     },
     [importColorLinks, buildDefaultLayout, markLayoutReady]
   );
