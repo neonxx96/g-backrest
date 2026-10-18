@@ -15,6 +15,8 @@ from fastapi import WebSocket
 
 from backend.app.services.historical_data_loader import historical_loader
 from backend.app.services.orderflow_backtester import OrderFlowBacktester
+from backend.app.engine.regime_classifier import MarketRegime, regime_classifier
+from backend.app.engine.walk_forward_engine import walk_forward_engine
 
 logger = logging.getLogger("SignalScript.BackgroundWorker")
 
@@ -323,6 +325,12 @@ class BackgroundWorker:
                         f"[AUTO-OPTIMIZE] {ticker}: No profitable regime found on 7d backtest (best={opt['pnl_pct']:+.2f}%). "
                         f"Coin disabled from automatic trade execution."
                     )
+
+                # Execute 72h In-Sample Walk-Forward adaptation pass
+                try:
+                    await walk_forward_engine.train_walk_forward(ticker, hours=72)
+                except Exception as wf_err:
+                    logger.debug(f"[WalkForward] Adaptation notice for {ticker}: {wf_err}")
             except Exception as e:
                 logger.error(f"[AUTO-OPTIMIZE] {ticker}: Optimization failed with error: {e}", exc_info=True)
                 opt = {**CANDIDATE_STRATEGIES[0], "is_profitable": False, "pnl_pct": 0.0, "win_rate_pct": 0.0, "trades_count": 0}
@@ -335,9 +343,11 @@ class BackgroundWorker:
         """
         Processes a single ticker with concurrency limiting via Semaphore:
         1. Fetch latest historical data & footprint clusters (Parquet cache)
-        2. Run active confluence backtest strategy using auto-optimized parameters
-        3. Prepare forecast metrics and delta bias
-        4. Manage shadow paper trading positions and order fills
+        2. Vectorized Market Regime Classification (RegimeClassifier: FLAT_DENSE, TREND_IMPULSE, TOXIC_VOLATILITY)
+        3. Walk-Forward Parameter Adaptation per regime (WalkForwardEngine)
+        4. Strict NO_TRADE gate if regime is TOXIC_VOLATILITY
+        5. Run active confluence backtest strategy using adapted parameters
+        6. Manage shadow paper trading positions and order fills
         """
         async with self.semaphore:
             logger.info(f"[{ticker}] Starting background quant analysis cycle...")
@@ -366,10 +376,42 @@ class BackgroundWorker:
                 })
                 return
 
-            # Step 2: Continuous Backtesting with Auto-Optimized Parameters
+            last_close = float(df["close"].iloc[-1])
+
+            # Step 1b: Market Regime Classification & Micro-structure Diagnostics
+            regime, reg_metrics = regime_classifier.classify_current(df)
+            regime_name = regime.value
+            is_trade_allowed = reg_metrics.get("is_trade_allowed", True)
+
+            # Strict TOXIC_VOLATILITY gate: halt entries immediately
+            if not is_trade_allowed:
+                logger.warning(
+                    f"[{ticker}] TOXIC_VOLATILITY detected (ATR={reg_metrics.get('norm_atr', 0):.5f}, "
+                    f"Density={reg_metrics.get('rel_density', 0):.2f}). Trading strictly blocked."
+                )
+                await self.broadcast_status(ticker, {
+                    "state": "toxic_halt",
+                    "step": "Токсичный рынок: Аномальный ATR при разреженном стакане (Входы заблокированы)",
+                    "pnl_pct": 0.0,
+                    "win_rate_pct": 0.0,
+                    "signal": "BLOCKED (TOXIC)",
+                    "forecast_trend": "VOLATILE",
+                    "last_price": last_close,
+                    "is_profitable": False,
+                    "regime": regime_name,
+                    "is_trade_allowed": False,
+                    "regime_metrics": reg_metrics,
+                    "regime_name": "NO_TRADE (Toxic Vacuum)"
+                })
+                return
+
+            # Step 2: Continuous Backtesting with Walk-Forward Adapted Parameters
             await self.broadcast_status(ticker, {
                 "state": "backtesting",
-                "step": f"Бэктест квант-стратегии (CVD+EMA+ATR)..."
+                "step": f"Бэктест ({regime_name})...",
+                "regime": regime_name,
+                "is_trade_allowed": is_trade_allowed,
+                "regime_metrics": reg_metrics,
             })
 
             backtester = OrderFlowBacktester(
@@ -379,14 +421,16 @@ class BackgroundWorker:
                 slippage_ticks=2
             )
 
-            # Retrieve auto-optimized parameters or fallback
-            opt_cfg = self.optimized_params.get(ticker)
-            if not opt_cfg:
-                opt_cfg = {**CANDIDATE_STRATEGIES[0], "is_profitable": True}
+            # Retrieve Walk-Forward adapted parameters for this regime
+            adapted_cfg = walk_forward_engine.get_adapted_parameters(ticker, regime)
+            opt_cfg = adapted_cfg if adapted_cfg else self.optimized_params.get(ticker, CANDIDATE_STRATEGIES[0])
 
             clean_params = {
                 k: v for k, v in opt_cfg.items()
-                if k not in ("name", "is_profitable", "pnl_pct", "win_rate_pct", "trades_count")
+                if k not in (
+                    "name", "is_profitable", "pnl_pct", "win_rate_pct", "trades_count",
+                    "regime", "is_trade_allowed", "uplift", "sample_bars", "updated_at", "source", "reason"
+                )
             }
 
             bt_res = backtester.run_backtest(
@@ -410,11 +454,10 @@ class BackgroundWorker:
             # Step 3: Predictive Forecasting & Telemetry
             await self.broadcast_status(ticker, {
                 "state": "forecasting",
-                "step": f"Синтез прогнозного конуса волатильности..."
+                "step": f"Синтез конуса волатильности ({regime_name})..."
             })
 
             # Calculate forecast bias from latest indicators
-            last_close = float(df["close"].iloc[-1])
             vol_delta = float(df["volume_delta"].tail(10).sum()) if "volume_delta" in df.columns else 0.0
             forecast_trend = "BULLISH" if vol_delta > 0 else "BEARISH" if vol_delta < 0 else "FLAT"
 
@@ -439,8 +482,8 @@ class BackgroundWorker:
                         paper_trading_session.close_position(ticker, reason="Take Profit Hit", price=last_close)
 
             # Open paper trade if profitable regime found and fresh signal exists
-            is_profitable = opt_cfg.get("is_profitable", False)
-            if is_profitable and last_signal in ("LONG", "SHORT"):
+            is_profitable = opt_cfg.get("is_profitable", True)
+            if is_profitable and is_trade_allowed and last_signal in ("LONG", "SHORT"):
                 active_pos = paper_trading_session.positions.get(ticker)
                 has_open_pos = active_pos and not active_pos.closed and active_pos.qty > 0
                 has_pending = any(
@@ -453,8 +496,8 @@ class BackgroundWorker:
                     stop_px = round(last_close * (1.0 - sl_pct / 100.0) if last_signal == "LONG" else last_close * (1.0 + sl_pct / 100.0), 4)
                     target_px = round(last_close * (1.0 + tp_pct / 100.0) if last_signal == "LONG" else last_close * (1.0 - tp_pct / 100.0), 4)
                     reason_desc = (
-                        f"{opt_cfg.get('name', 'Confluence')} | "
-                        f"7d Opt PnL: {opt_cfg.get('pnl_pct', 0.0):+.1f}% (WR: {opt_cfg.get('win_rate_pct', 0.0):.0f}%) | "
+                        f"[{regime_name}] {opt_cfg.get('name', 'Confluence')} | "
+                        f"SL: {sl_pct}% TP: {tp_pct}% | "
                         f"CVD/EMA {last_signal} Signal"
                     )
                     order_info = paper_trading_session.execute_trade_signal(
@@ -465,7 +508,8 @@ class BackgroundWorker:
                         target_price=target_px,
                         order_type="MARKET",
                         reason=reason_desc,
-                        signal_ts=now_ms
+                        signal_ts=now_ms,
+                        regime=regime_name
                     )
                     # Simulate immediate market fill
                     if order_info.get("order_id"):
@@ -482,9 +526,9 @@ class BackgroundWorker:
             await asyncio.sleep(0.15)
 
             # Step 5: Completed
-            status_desc = f"Готово: PnL {total_pnl:+.2f}%, WR {win_rate:.0f}%, Сигнал: {last_signal}"
+            status_desc = f"Режим: {regime_name} | PnL {total_pnl:+.2f}%, WR {win_rate:.0f}%, Сигнал: {last_signal}"
             if not is_profitable:
-                status_desc += " (Стратегия не запущена: 7d PnL <= 0)"
+                status_desc += " (Стратегия не запущена: PnL <= 0)"
 
             await self.broadcast_status(ticker, {
                 "state": "completed",
@@ -495,9 +539,15 @@ class BackgroundWorker:
                 "forecast_trend": forecast_trend,
                 "last_price": last_close,
                 "is_profitable": is_profitable,
+                "regime": regime_name,
+                "is_trade_allowed": is_trade_allowed,
+                "regime_metrics": reg_metrics,
                 "regime_name": opt_cfg.get("name", "Default")
             })
-            logger.info(f"[{ticker}] Quant cycle complete: PnL {total_pnl:+.2f}%, WinRate {win_rate}% | Profitable: {is_profitable}")
+            logger.info(
+                f"[{ticker}] Quant cycle complete: Regime: {regime_name} | PnL {total_pnl:+.2f}%, "
+                f"WinRate {win_rate}% | TradeAllowed: {is_trade_allowed}"
+            )
 
     async def _process_ticker_safely(self, ticker: str):
         """Wrapper ensuring task cancellation and exceptions are safely caught."""

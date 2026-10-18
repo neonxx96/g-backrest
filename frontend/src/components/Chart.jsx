@@ -22,7 +22,8 @@ import {
   Palette,
   Layers,
   ChevronDown,
-  Zap
+  Zap,
+  AlertTriangle
 } from 'lucide-react';
 import { INDICATORS_REGISTRY, DEFAULT_ACTIVE_INDICATORS } from '../config/indicatorsRegistry';
 import IndicatorsModal from './indicators/IndicatorsModal';
@@ -1569,6 +1570,30 @@ export default function Chart({
   const lastScrolledResult = useRef(null);
   const [klinesVersion, setKlinesVersion] = useState(0);
   const [btTooltip, setBtTooltip] = useState(null);
+
+  // Market Regime: Toxic Volatility state
+  const [isToxicRegime, setIsToxicRegime] = useState(false);
+  const [isToxicDismissed, setIsToxicDismissed] = useState(false);
+
+  useEffect(() => {
+    setIsToxicDismissed(false);
+    let isSubscribed = true;
+    const checkRegime = async () => {
+      try {
+        const res = await fetch('/api/monitoring/state');
+        if (res.ok && isSubscribed) {
+          const data = await res.json();
+          const symKey = symbol ? symbol.toUpperCase() : '';
+          const symStatus = data.statuses?.[symKey] || data.statuses?.[symbol];
+          const isToxic = symStatus?.regime === 'TOXIC_VOLATILITY' || (symStatus?.is_trade_allowed === false && symStatus?.state === 'toxic_halt');
+          setIsToxicRegime(!!isToxic);
+        }
+      } catch (e) {}
+    };
+    checkRegime();
+    const interval = setInterval(checkRegime, 4000);
+    return () => { isSubscribed = false; clearInterval(interval); };
+  }, [symbol]);
 
   // Synchronize with quantitative Backtest Store
   const activeBtResult = useBacktestStore((s) => s.activeResult);
@@ -3932,6 +3957,34 @@ export default function Chart({
             cursor: activeTool ? 'crosshair' : isMouseDown ? 'grabbing' : 'grab'
           }}
         />
+
+        {/* Market Regime: Toxic Volatility Warning Overlay */}
+        {isToxicRegime && !isToxicDismissed && (
+          <div
+            data-testid="toxic-volatility-overlay"
+            className="absolute inset-x-4 top-3 z-30 flex items-center justify-between p-3 rounded-lg bg-rose-950/85 border border-rose-500/50 backdrop-blur-xs text-rose-200 shadow-2xl animate-pulse select-none font-mono"
+          >
+            <div className="flex items-center space-x-2.5">
+              <AlertTriangle className="text-rose-400 shrink-0" size={18} />
+              <div>
+                <div className="text-xs font-bold uppercase tracking-wider text-rose-300">
+                  Рыночный режим изменен: Токсичная ликвидность. Торги приостановлены
+                </div>
+                <div className="text-[10px] text-rose-200/80">
+                  Высокая волатильность при разреженном стакане (ATR% &gt; 1.8%, плотность &lt; 0.6). Входы в сделки заблокированы ядром.
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsToxicDismissed(true)}
+              className="p-1 rounded hover:bg-rose-900/60 text-rose-300 hover:text-white transition cursor-pointer"
+              title="Скрыть предупреждение"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
 
         {/* ТАКТ 2.1: Interactive Position Setup HUD Overlay (Entry / SL / TP1 / TP2 / R:R) */}
         {effectivePositionSetup && Number(effectivePositionSetup.entry_price) > 0 && (

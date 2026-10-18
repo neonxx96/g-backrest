@@ -469,10 +469,16 @@ class PaperTradingSession:
         order_type: str = "LIMIT",
         reason: str = "Algorithm Signal",
         signal_ts: Optional[int] = None,
+        regime: Optional[str] = None,
     ) -> dict:
         """
         Executes a trade signal applying risk position sizing, stop/target, reason, and margin rules.
+        Rejects signal immediately if market regime is TOXIC_VOLATILITY.
         """
+        if regime and str(regime).upper() == "TOXIC_VOLATILITY":
+            logger.warning(f"[TRADE] Rejected signal for {symbol}: TOXIC_VOLATILITY regime blocks entries | reason='{reason}'")
+            return {"status": "REJECTED", "reason": "toxic_volatility_blocked"}
+
         if quantity is None or quantity <= 0:
             quantity = self.calculate_position_size(symbol, price, stop_price)
 

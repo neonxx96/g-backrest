@@ -30,6 +30,9 @@ from backend.app.services.bot import start_bot_polling, broadcast_signal
 
 
 # Configure logging
+from backend.app.logging_setup import setup_stress_logging
+setup_stress_logging()
+
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL.upper(), logging.INFO),
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",

@@ -387,35 +387,57 @@ export default function TradeHistoryWidget(props) {
 
         {activeTab === 'regimes' && (
           <div className="p-3">
-            <div className="mb-2 text-[10px] text-neutral-400 font-mono">
-              Фокус-лист монет с квантовой авто-оптимизацией на 7-дневной истории (активны только положительные PnL):
+            <div className="mb-2 text-[10px] text-neutral-400 font-mono flex items-center justify-between">
+              <span>Адаптивный классификатор режимов рынка (Walk-Forward Adaptive Brain):</span>
+              <span className="text-[9.5px] text-neutral-500">In-Sample 72h • Auto-TP/SL</span>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 font-mono text-[11px]">
               {Object.entries(monitoringData?.statuses || {}).map(([ticker, st]) => {
-                const isProfitable = st.is_profitable !== false && (st.pnl_pct > 0 || st.regime_name);
+                const regime = st.regime || (st.state === 'toxic_halt' ? 'TOXIC_VOLATILITY' : 'FLAT_DENSE');
+                const isToxic = regime === 'TOXIC_VOLATILITY' || st.is_trade_allowed === false;
+                const isTrend = regime === 'TREND_IMPULSE';
+                const isFlat = regime === 'FLAT_DENSE' && !isToxic;
+
                 return (
                   <div
                     key={ticker}
-                    className="p-2.5 rounded bg-[#12161E] border border-neutral-800 flex flex-col space-y-1.5"
+                    className={`p-2.5 rounded border flex flex-col space-y-1.5 transition ${
+                      isToxic
+                        ? 'bg-rose-950/20 border-rose-500/40 shadow-xs shadow-rose-950/50'
+                        : isTrend
+                        ? 'bg-emerald-950/15 border-emerald-500/30'
+                        : 'bg-[#12161E] border-neutral-800'
+                    }`}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-1.5 font-bold text-white">
                         <span className="text-amber-400 font-mono text-[9px] bg-amber-400/10 px-1 rounded border border-amber-400/20">BINANCE</span>
                         <span>{ticker}</span>
                       </div>
-                      <span
-                        className={`text-[9.5px] px-1.5 py-0.5 rounded font-bold ${
-                          isProfitable
-                            ? 'bg-[#10b98120] text-[#10b981] border border-[#10b98140]'
-                            : 'bg-neutral-800 text-neutral-500 border border-neutral-700'
-                        }`}
-                      >
-                        {isProfitable ? 'АКТИВЕН' : 'ПАУЗА (PnL <= 0)'}
-                      </span>
+
+                      {/* Regime Badge */}
+                      {isToxic ? (
+                        <span className="text-[9.5px] px-1.5 py-0.5 rounded font-bold bg-rose-500/15 text-rose-400 border border-rose-500/40 flex items-center space-x-1 animate-pulse">
+                          <span>🔴 TOXIC (Входы заблокированы)</span>
+                        </span>
+                      ) : isTrend ? (
+                        <span className="text-[9.5px] px-1.5 py-0.5 rounded font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/40 flex items-center space-x-1">
+                          <span>🟢 TREND_IMPULSE</span>
+                        </span>
+                      ) : (
+                        <span className="text-[9.5px] px-1.5 py-0.5 rounded font-bold bg-amber-500/15 text-amber-300 border border-amber-500/40 flex items-center space-x-1">
+                          <span>🟡 FLAT_DENSE</span>
+                        </span>
+                      )}
                     </div>
 
-                    <div className="text-[10px] text-neutral-400 truncate">
-                      Режим: <span className="text-neutral-200">{st.regime_name || 'Confluence Momentum'}</span>
+                    <div className="text-[10px] text-neutral-400 flex items-center justify-between">
+                      <span className="truncate">Стратегия: <span className="text-neutral-200">{st.regime_name || 'Adaptive Quant'}</span></span>
+                      {st.regime_metrics && (
+                        <span className="text-neutral-500 text-[9px] tabular-nums">
+                          ATR: {(st.regime_metrics.norm_atr * 100).toFixed(2)}% • Плотность: {st.regime_metrics.rel_density}x
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex items-center justify-between text-[10px] pt-1 border-t border-neutral-800/50">
@@ -427,8 +449,16 @@ export default function TradeHistoryWidget(props) {
                       </div>
                       <div>
                         <span className="text-neutral-500">Сигнал: </span>
-                        <span className={`font-bold ${st.signal === 'LONG' ? 'text-[#10b981]' : st.signal === 'SHORT' ? 'text-[#ef4444]' : 'text-neutral-400'}`}>
-                          {st.signal || 'NEUTRAL'}
+                        <span className={`font-bold ${
+                          isToxic
+                            ? 'text-rose-400'
+                            : st.signal === 'LONG'
+                            ? 'text-[#10b981]'
+                            : st.signal === 'SHORT'
+                            ? 'text-[#ef4444]'
+                            : 'text-neutral-400'
+                        }`}>
+                          {isToxic ? 'BLOCKED' : (st.signal || 'NEUTRAL')}
                         </span>
                       </div>
                       <div>

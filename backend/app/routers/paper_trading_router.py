@@ -26,6 +26,7 @@ class OrderSignalRequest(BaseModel):
     quantity: Optional[float] = None
     order_type: str = "LIMIT"
     reason: str = "Manual UI Signal"
+    regime: Optional[str] = None
 
 
 @router.get("/status")
@@ -69,6 +70,7 @@ async def reset_paper_wallet(req: ResetWalletRequest = ResetWalletRequest()):
 async def place_paper_order(req: OrderSignalRequest):
     """
     Places a paper trading order with risk sizing, stop-loss, target, and mandatory reason.
+    Rejects immediately if regime is TOXIC_VOLATILITY.
     """
     try:
         order_res = paper_trading_session.execute_trade_signal(
@@ -79,7 +81,8 @@ async def place_paper_order(req: OrderSignalRequest):
             target_price=req.target_price,
             quantity=req.quantity,
             order_type=req.order_type.upper(),
-            reason=req.reason
+            reason=req.reason,
+            regime=req.regime
         )
         return {"status": "ok", "order": order_res}
     except Exception as e:
