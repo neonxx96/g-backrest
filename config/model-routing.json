@@ -2,22 +2,22 @@
   "defaultRoute": "standard",
   "routes": {
     "routine": {
-      "model": "deepseek/deepseek-v4.1-flash",
+      "model": "google/gemma-2-9b-it:free",
       "provider": "openrouter",
       "reason": "Small documentation, text, styling, or isolated UI change."
     },
     "standard": {
-      "model": "google/gemini-2.5-flash",
+      "model": "meta-llama/llama-3.1-8b-instruct",
       "provider": "openrouter",
       "reason": "Normal implementation with limited scope and no financial-core changes."
     },
     "expert": {
-      "model": "z-ai/glm-5.3",
+      "model": "anthropic/claude-3.5-sonnet",
       "provider": "openrouter",
       "reason": "Risk, backtesting, order book, database, WebSocket, architecture, or multi-file change."
     },
     "review": {
-      "model": "anthropic/claude-sonnet-4-6",
+      "model": "anthropic/claude-3.5-haiku",
       "provider": "openrouter",
       "reason": "Final review of sensitive financial, execution, or security-related changes."
     }
