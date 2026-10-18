@@ -343,10 +343,13 @@ def run_blocking_part(console_errors: list, page_errors: list) -> bool:
                 for (const d of containers) {
                     const c = d.querySelector('canvas');
                     if (c) {
-                        chartCanvas = true;
                         const r = c.getBoundingClientRect();
-                        chartRect = { w: Math.round(r.width), h: Math.round(r.height) };
-                        break;
+                        const rw = Math.round(r.width);
+                        const rh = Math.round(r.height);
+                        if (!chartRect || (rw * rh > chartRect.w * chartRect.h)) {
+                            chartCanvas = true;
+                            chartRect = { w: rw, h: rh };
+                        }
                     }
                 }
                 return {
