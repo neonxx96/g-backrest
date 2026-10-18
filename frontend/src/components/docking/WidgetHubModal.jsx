@@ -14,6 +14,7 @@ import {
   Radio,
   BarChart3,
   TrendingUp,
+  ShieldCheck,
   X,
   Plus,
   Sparkles,
@@ -65,6 +66,17 @@ const MODULES = [
     iconColor: 'text-[#a855f7]',
     description: 'Мультирыночный скринер 350+ пар с 24-часовыми спарклайнами, сортировкой по объему, динамике роста/падения и волатильности.',
     defaultLocation: 'Левая колонка рынков'
+  },
+  {
+    id: 'papertrade',
+    type: 'papertrade',
+    title: 'Бумажная торговля (Paper Trading)',
+    badge: 'Shadow Engine',
+    badgeColor: 'text-[#10b981] bg-[#10b98115] border-[#10b98130]',
+    icon: ShieldCheck,
+    iconColor: 'text-[#10b981]',
+    description: 'Симуляция исполнения скальпинг-сделок в реальном времени с виртуальным балансом, контролем риска и PnL без риска для депозита.',
+    defaultLocation: 'Нижняя вкладка'
   },
   {
     id: 'signals',
