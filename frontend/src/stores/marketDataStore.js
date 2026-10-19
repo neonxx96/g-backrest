@@ -11,6 +11,7 @@
 
 import { create } from 'zustand';
 import { DEFAULT_FOCUS_LIST } from '../config/coinLibrary';
+import { deterministicSignalId } from '../utils/researchVerdict';
 
 const WS_MINI_TICKER_URL = 'wss://fstream.binance.com/ws/!miniTicker@arr';
 
@@ -183,7 +184,7 @@ export const useMarketDataStore = create((set, get) => {
 
     addLiveSignal: (signal) => {
       set((state) => {
-        const id = signal.id || `${signal.symbol}_${signal.timestamp || Date.now()}_${Math.random()}`;
+        const id = signal.id || deterministicSignalId(signal);
         const newSig = { ...signal, id, receivedAt: Date.now() };
         // Maintain last 50 signals
         const updated = [newSig, ...state.liveSignals.filter((s) => s.id !== id)].slice(0, 50);

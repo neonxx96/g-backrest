@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { useBacktestStore } from '../stores/backtestStore';
+import { buildResearchVerdict } from '../utils/researchVerdict';
 import {
   BarChart3,
   Play,
@@ -471,6 +472,7 @@ export default function BacktestPanel({
   const [takerFeePct, setTakerFeePct] = useState(0.05);
   const [slippageTicks, setSlippageTicks] = useState(2);
   const [useMultiTp, setUseMultiTp] = useState(true);
+  const [currentRegime, setCurrentRegime] = useState('NO_DATA');
 
   // ТАКТ 2: Genetic Optimizer ranges (SL 0.2%-1.2%, TP 0.5%-3.0%, Min Wall $300k-$3M)
   const [slMin, setSlMin] = useState(0.2);
@@ -1246,6 +1248,22 @@ export default function BacktestPanel({
   const pnlTone = s ? (s.total_pnl_pct > 0 ? 'pos' : s.total_pnl_pct < 0 ? 'neg' : null) : null;
   const gridRows = result?.grid_results || [];
   const confluenceMatrix = result?.confluence_matrix || [];
+  const feeDragPct = s?.gross_pnl_usd ? Math.abs(Number(s.total_exchange_cost_usd || 0) / Number(s.gross_pnl_usd)) * 100 : 0;
+  const profitBleedPct = result?.trades?.length
+    ? (result.trades.filter((trade) => trade.profit_bleed).length / result.trades.length) * 100
+    : 0;
+  const hasL2History = result?.data_availability?.l2_history?.available === true;
+  const verdict = s ? buildResearchVerdict({ netPnlUsd: s.net_pnl_usd, feeDragPct, profitBleedPct, regime: currentRegime, hasL2History }) : null;
+
+  useEffect(() => {
+    if (!result || !symbol) return undefined;
+    let active = true;
+    fetch(`${API_BASE}/adaptive/regime?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`)
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => { if (active) setCurrentRegime(data?.regime || 'NO_DATA'); })
+      .catch(() => { if (active) setCurrentRegime('NO_DATA'); });
+    return () => { active = false; };
+  }, [result, symbol, timeframe]);
 
   // Stage 2: Full Trades Log with Multi-column Sorting and CSV Export
   const [tradeSortField, setTradeSortField] = useState('id');
@@ -2066,27 +2084,21 @@ export default function BacktestPanel({
             <div className="truncate">
               <span className="text-[#64748b] uppercase block text-[8px]">Стакан & Плотности</span>
               <span className="text-white font-bold">
-                Порог ${(result?.data_feed_context?.orderbook_walls?.min_density_threshold_usd
-                  ? Math.round(result.data_feed_context.orderbook_walls.min_density_threshold_usd / 1000)
-                  : minWallK)}k
+                {hasL2History ? 'Available' : 'No data (OHLCV only)'}
               </span>{' '}
               <span className="text-[#26a69a]">
-                • Bid $
-                {result?.data_feed_context?.orderbook_walls?.nearest_bid_wall_usd
-                  ? `${(result.data_feed_context.orderbook_walls.nearest_bid_wall_usd / 1000000).toFixed(2)}M`
-                  : '1.42M'}{' '}
-                ({result?.data_feed_context?.orderbook_walls?.nearest_bid_distance_pct ?? 0.18}%)
+                • Historical L2 unavailable
               </span>
             </div>
 
             <div className="truncate">
               <span className="text-[#64748b] uppercase block text-[8px]">Дельта & Кластеры (CVD)</span>
               <span className="text-[#38bdf8] font-bold">
-                CVD: {result?.data_feed_context?.cvd_footprint?.cvd_value ?? '+420.5'} (EMA14:{' '}
-                {result?.data_feed_context?.cvd_footprint?.cvd_ema_14 ?? '+310.2'})
+                CVD: {result?.data_feed_context?.cvd_footprint?.cvd_current ?? 'No data'} (EMA14:{' '}
+                {result?.data_feed_context?.cvd_footprint?.cvd_ema14 ?? 'No data'})
               </span>{' '}
               <span className="text-[#cbd5e1]">
-                • {result?.data_feed_context?.cvd_footprint?.divergence_status || 'Дивергенция не обнаружена'}
+                • {result?.data_feed_context?.cvd_footprint?.divergence_status || 'No data'}
               </span>
             </div>
 
@@ -2095,10 +2107,10 @@ export default function BacktestPanel({
               <span className="text-[#4ade80] font-bold">
                 {result?.data_feed_context?.open_interest?.oi_change_1h_pct != null
                   ? `${result.data_feed_context.open_interest.oi_change_1h_pct >= 0 ? '+' : ''}${result.data_feed_context.open_interest.oi_change_1h_pct}%`
-                  : '+1.42%'}
+                  : 'No data'}
               </span>{' '}
               <span className="text-[#cbd5e1]">
-                • {result?.data_feed_context?.open_interest?.capital_flow_status || 'Приток капитала'}
+                • {result?.data_feed_context?.open_interest?.flow_status || 'No data'}
               </span>
             </div>
 
@@ -2106,8 +2118,8 @@ export default function BacktestPanel({
               <div className="truncate">
                 <span className="text-[#64748b] uppercase block text-[8px]">Волатильность ATR(14)</span>
                 <span className="text-[#fbbf24] font-bold">
-                  ${result?.data_feed_context?.volatility_atr?.atr_14_usd ?? 145.2} (
-                  {result?.data_feed_context?.volatility_atr?.atr_14_ticks ?? 1452} тик)
+                  ${result?.data_feed_context?.volatility_atr?.atr_14_usd ?? 'No data'} (
+                  {result?.data_feed_context?.volatility_atr?.atr_14_ticks ?? 'No data'} тик)
                 </span>
               </div>
               {result?.active_position_setup && (
@@ -2178,6 +2190,15 @@ export default function BacktestPanel({
                   <span>{new Date(result?.meta?.to_time || Date.now()).toLocaleTimeString()} UTC</span>
                 </div>
               </div>
+
+              {verdict && (
+                <div data-testid="research-verdict" className={`flex items-center justify-between px-2.5 py-1 rounded border font-mono text-[9px] ${
+                  verdict.level === 'READY' ? 'bg-emerald-950/30 border-emerald-700/50 text-emerald-300' : verdict.level === 'BLOCK' ? 'bg-red-950/30 border-red-700/50 text-red-300' : 'bg-amber-950/30 border-amber-700/50 text-amber-300'
+                }`}>
+                  <span className="font-bold">{verdict.label}</span>
+                  <span>Regime: {currentRegime} · Fee Drag: {feeDragPct.toFixed(2)}% · {verdict.l2Label}</span>
+                </div>
+              )}
 
               {/* Top Summary Metrics Row: Large Stat Cards for Top 4 Metrics */}
               <div className="flex space-x-2 min-w-0 shrink-0">
@@ -2604,7 +2625,7 @@ export default function BacktestPanel({
                         </thead>
                         <tbody className="divide-y divide-[#13161f]">
                           {allTrades.map((t) => (
-                            <tr key={t.id} className="hover:bg-[#161922] transition-colors">
+                            <tr key={t.id} data-testid="backtest-trade-row" onClick={() => window.dispatchEvent(new CustomEvent('focus-backtest-trade', { detail: t }))} className="hover:bg-[#161922] transition-colors cursor-pointer">
                               <td className="px-2 py-0.5 text-[#60697b]">{t.id}</td>
                               <td
                                 className={`px-2 font-bold ${

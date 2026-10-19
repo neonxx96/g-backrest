@@ -109,6 +109,7 @@ def test_adapter_from_backtest_trade():
         "entry_time": 1700000100000,
         "exit_time": 1700000200000,
         "pnl_pct": 2.0,
+        "entry_reason": ["EMA20 crossed above EMA50", "CVD slope = +42.0"],
         "exit_reason": "Take Profit Target Hit"
     }
 
@@ -128,7 +129,7 @@ def test_adapter_from_backtest_trade():
     assert sig.tp1 > sig.entry_price
     assert sig.leverage == 3.0
     assert sig.risk_pct == 1.0
-    assert sig.reason == ["Take Profit Target Hit"]
+    assert sig.reason == ["EMA20 crossed above EMA50", "CVD slope = +42.0"]
     assert sig.data_source == "historical_backtest"
 
 
@@ -229,6 +230,20 @@ def test_signal_reason_is_normalized_to_a_nonempty_list():
 
     req = to_paper_order_request(sig)
     assert req["reason"].endswith("EMA20 crossed up")
+
+
+def test_paper_order_adapter_preserves_structured_manual_conditions():
+    sig = from_paper_order({
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "price": 100.0,
+        "stop_price": 99.0,
+        "target_price": 102.0,
+        "reason": ["EMA20 crossed up", "CVD slope = +1.2"],
+        "created_ts": 1700000700000,
+    })
+
+    assert sig.reason == ["EMA20 crossed up", "CVD slope = +1.2"]
 
 
 def test_paper_session_executes_entry_from_unified_signal_only():

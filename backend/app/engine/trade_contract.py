@@ -134,7 +134,10 @@ def from_backtest_trade(
     if entry_price > 0 and abs(entry_price - sl) > 0:
         expected_rr = round(abs(tp1 - entry_price) / abs(entry_price - sl), 2)
 
-    reason = trade.get("exit_reason") or trade.get("reason") or "Backtest Signal Execution"
+    # Entry conditions and exit outcome are distinct facts. Legacy payloads may
+    # only have a generic reason, but an exit reason must never become the
+    # explanation for why a position was opened.
+    reason = trade.get("entry_reason") or trade.get("reason") or "Backtest Signal Execution"
 
     return UnifiedTradeSignal(
         symbol=symbol,
@@ -150,7 +153,7 @@ def from_backtest_trade(
         risk_pct=float(risk_pct),
         expected_rr=max(0.1, expected_rr),
         confidence=1.0 if pnl_pct > 0 else 0.5,
-        reason=[str(reason)],
+        reason=reason,
         strategy_type=strategy_type,
         data_source=data_source,
         invalidation_condition="Price breaches SL level"
@@ -293,7 +296,7 @@ def from_paper_order(
         risk_pct=float(order_data.get("risk_pct", 2.0)),
         expected_rr=max(0.1, expected_rr),
         confidence=1.0,
-        reason=[str(order_data.get("reason", "Paper Trading Order"))],
+        reason=order_data.get("reason", "Paper Trading Order"),
         strategy_type=strategy_type,
         data_source=data_source,
         invalidation_condition="Stop loss or manual cancellation"

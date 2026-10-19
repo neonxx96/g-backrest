@@ -4,11 +4,13 @@ Provides endpoints to inspect virtual wallet status, open/closed positions,
 and manual administrative wallet reset.
 """
 
-from typing import Optional
+import time
+from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.app.services.paper_trading import paper_trading_session
+from backend.app.engine.trade_contract import UnifiedTradeSignal
 
 router = APIRouter(prefix="/api/paper-trading", tags=["Paper Trading"])
 
@@ -25,7 +27,7 @@ class OrderSignalRequest(BaseModel):
     target_price: float = 0.0
     quantity: Optional[float] = None
     order_type: str = "LIMIT"
-    reason: str = "Manual UI Signal"
+    reason: List[str] = Field(default_factory=lambda: ["Manual UI Signal"])
     regime: Optional[str] = None
 
 
@@ -73,17 +75,21 @@ async def place_paper_order(req: OrderSignalRequest):
     Rejects immediately if regime is TOXIC_VOLATILITY or if system is HALTED.
     """
     try:
-        order_res = paper_trading_session.execute_trade_signal(
+        direction = "LONG" if req.side.strip().upper() in {"BUY", "LONG"} else "SHORT"
+        risk_distance = abs(req.price - req.stop_price)
+        reward_distance = abs(req.target_price - req.price)
+        signal = UnifiedTradeSignal(
             symbol=req.symbol.upper(),
-            side=req.side.upper(),
-            price=req.price,
-            stop_price=req.stop_price,
-            target_price=req.target_price,
-            quantity=req.quantity,
-            order_type=req.order_type.upper(),
+            timestamp=int(time.time() * 1000),
+            direction=direction,
+            entry_type=req.order_type.upper(),
+            entry_price=req.price,
+            sl=req.stop_price,
+            tp1=req.target_price,
+            expected_rr=max(0.1, reward_distance / risk_distance) if risk_distance > 0 else 0.1,
             reason=req.reason,
-            regime=req.regime
         )
+        order_res = paper_trading_session.execute_unified_signal(signal, regime=req.regime)
         return {"status": "ok", "order": order_res}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

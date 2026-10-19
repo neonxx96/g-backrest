@@ -3336,6 +3336,17 @@ export default function Chart({
   }, [effectiveBacktestSignals, effectiveShowBtSignals, symbol, timeframe, klinesVersion, chartReady]);
 
   useEffect(() => {
+    const focusTrade = (event) => {
+      const trade = event.detail;
+      if (!trade || !chartRef.current || !trade.entry_time) return;
+      try { chartRef.current.scrollToTimestamp(trade.entry_time, 180); } catch (_) {}
+      setBtTooltip({ x: 24, y: 42, trade, isTrade: true, source: 'backtest' });
+    };
+    window.addEventListener('focus-backtest-trade', focusTrade);
+    return () => window.removeEventListener('focus-backtest-trade', focusTrade);
+  }, []);
+
+  useEffect(() => {
     const chart = chartRef.current;
     const klines = currentKlines.current;
     paperOverlayIds.current.forEach((id) => { try { chart?.removeOverlay({ id }); } catch (_) {} });
@@ -4453,15 +4464,18 @@ export default function Chart({
                   <span className={btTooltip.trade.direction === 'LONG' || btTooltip.trade.type === 'BUY' ? 'text-[#34d399] font-bold' : 'text-[#f87171] font-bold'}>
                     {btTooltip.source === 'paper' ? 'PAPER' : 'BACKTEST'} · #{btTooltip.trade.id} · {btTooltip.trade.direction || btTooltip.trade.type}
                   </span>
-                  <span className="text-[#94a3b8] text-[9px]">{Array.isArray(btTooltip.trade.reason) ? btTooltip.trade.reason.join(' · ') : (btTooltip.trade.reason || 'Exit')}</span>
+                  <span className="text-[#94a3b8] text-[9px]">{btTooltip.trade.regime || 'Regime: No data'}</span>
                 </div>
                 <div className="text-[#cbd5e1] text-[9.5px] leading-tight">
                   <div>Вход: <span className="text-white">${btTooltip.trade.entry_price}</span> → Выход: <span className="text-white">${btTooltip.trade.exit_price}</span></div>
+                  <div>Entry: <span className="text-white">{Array.isArray(btTooltip.trade.entry_reason || btTooltip.trade.reason) ? (btTooltip.trade.entry_reason || btTooltip.trade.reason).join(' · ') : (btTooltip.trade.entry_reason || btTooltip.trade.reason || 'No data')}</span></div>
+                  <div>Exit: <span className="text-white">{btTooltip.trade.exit_reason || 'No data'}</span></div>
                 </div>
                 <div className={`font-bold mt-1 text-[11px] ${(btTooltip.trade.pnl_usd ?? 0) >= 0 ? 'text-[#34d399]' : 'text-[#f87171]'}`}>
                   Чистый PnL: {(btTooltip.trade.pnl_usd ?? 0) >= 0 ? '+' : ''}${btTooltip.trade.pnl_usd} ({(btTooltip.trade.pnl_pct ?? 0) >= 0 ? '+' : ''}{btTooltip.trade.pnl_pct}%)
                 </div>
                 <div className="text-[8.5px] text-[#64748b] mt-0.5 flex justify-between">
+                  <span>Gross: {btTooltip.trade.gross_pnl_usd ?? 'No data'}</span>
                   <span>Комиссия: -${Number(btTooltip.trade.fee_paid_usd || 0).toFixed(2)}</span>
                   <span>Слиппейдж: -${Number(btTooltip.trade.slippage_cost_usd || 0).toFixed(2)}</span>
                 </div>

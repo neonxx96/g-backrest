@@ -7,7 +7,31 @@ from backend.app.routers.backtest import (
     BacktestRequest,
     BacktestParams,
     OptimizeRequest,
+    build_response,
 )
+
+
+def test_backtest_response_separates_entry_and_exit_reasons_and_declares_l2_absence():
+    raw = {
+        "trades": [{
+            "direction": "LONG", "entry_time": 1700000000000, "exit_time": 1700000300000,
+            "entry_price": 100.0, "exit_price": 102.0, "pnl_usd": 2.0, "pnl_pct": 2.0,
+            "entry_reason": ["EMA20 crossed above EMA50", "CVD slope = +3.0"],
+            "exit_reason": "Take Profit", "context_snapshot": {},
+        }],
+        "total_trades": 1, "wins_count": 1, "losses_count": 0, "net_pnl": 2.0,
+        "gross_pnl": 2.0, "roi_pct": 2.0, "gross_roi_pct": 2.0,
+        "profit_factor": 2.0, "win_rate_pct": 100.0, "max_drawdown_pct": 0.0,
+        "equity_curve": [], "data_feed_context": {},
+    }
+
+    response = build_response(raw, 100.0, {"strategy_type": "confluence_ema"})
+    trade = response["trades"][0]
+
+    assert trade["entry_reason"] == ["EMA20 crossed above EMA50", "CVD slope = +3.0"]
+    assert trade["exit_reason"] == "Take Profit"
+    assert response["data_availability"]["l2_history"]["available"] is False
+    assert response["data_availability"]["l2_history"]["label"] == "No data (OHLCV only)"
 
 
 @pytest.mark.anyio

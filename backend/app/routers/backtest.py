@@ -335,6 +335,30 @@ def _sharpe(equity_curve: List[Dict[str, float]]) -> float:
     return float(np.mean(rets) / sd * math.sqrt(len(rets)))
 
 
+def _entry_reason_from_trade(trade: Dict[str, Any], strategy_type: str) -> List[str]:
+    """Return entry conditions without ever re-labelling an exit as an entry."""
+    explicit = trade.get("entry_reason")
+    if isinstance(explicit, str):
+        explicit = [explicit]
+    if isinstance(explicit, list):
+        normalized = [str(item).strip() for item in explicit if str(item).strip()]
+        if normalized:
+            return normalized
+
+    context = trade.get("context_snapshot") or {}
+    conditions = [f"Strategy = {strategy_type}"]
+    for label, key in (
+        ("Imbalance ratio", "imbalance_ratio"),
+        ("CVD trend", "cvd_trend"),
+        ("CVD divergence", "cvd_divergence"),
+        ("OI state", "oi_status"),
+    ):
+        value = context.get(key)
+        if value not in (None, ""):
+            conditions.append(f"{label} = {value}")
+    return conditions
+
+
 def build_response(raw: Dict[str, Any], initial_capital: float, meta: Dict[str, Any]) -> Dict[str, Any]:
     raw_trades = raw.get("trades", [])
     trades, signals = [], []
@@ -343,6 +367,8 @@ def build_response(raw: Dict[str, Any], initial_capital: float, meta: Dict[str, 
         is_long = t["direction"] == "LONG" or side == "BUY"
         pnl_val = float(t.get("pnl_pct", 0.0))
         ctx = t.get("context_snapshot") or {}
+        entry_reason = _entry_reason_from_trade(t, str(meta.get("strategy_type", raw.get("strategy", "unknown"))))
+        exit_reason = str(t.get("exit_reason") or "Exit not recorded")
         trades.append({
             "id": idx,
             "entry_time": t["entry_time"],
@@ -360,7 +386,9 @@ def build_response(raw: Dict[str, Any], initial_capital: float, meta: Dict[str, 
             "pnl_pct": pnl_val,
             "pnl_percent": pnl_val,
             "pnl_usd": float(t["pnl_usd"]),
-            "reason": t["exit_reason"],
+            "entry_reason": entry_reason,
+            "exit_reason": exit_reason,
+            "reason": entry_reason,
             "context_snapshot": ctx
         })
         signals.append({
@@ -368,7 +396,9 @@ def build_response(raw: Dict[str, Any], initial_capital: float, meta: Dict[str, 
             "type": side,
             "price": t["entry_price"],
             "label": f"{side} #{idx}",
-            "reason": t["exit_reason"],
+            "entry_reason": entry_reason,
+            "exit_reason": exit_reason,
+            "reason": entry_reason,
             "pnl_pct": t["pnl_pct"],
             "pnl_usd": t["pnl_usd"],
             "context_snapshot": ctx
@@ -413,6 +443,17 @@ def build_response(raw: Dict[str, Any], initial_capital: float, meta: Dict[str, 
         "monte_carlo": raw.get("monte_carlo"),
         "execution_config": raw.get("execution_config"),
         "data_feed_context": raw.get("data_feed_context"),
+        "data_availability": {
+            "ohlcv": {
+                "available": True,
+                "source": "Binance Futures OHLCV + taker-buy volume",
+            },
+            "l2_history": {
+                "available": False,
+                "label": "No data (OHLCV only)",
+                "reason": "Historical L2 order-book snapshots are not supplied to this backtest.",
+            },
+        },
         "active_position_setup": raw.get("active_position_setup"),
         "meta": meta,
         # legacy keys (test_e2e.py / BacktestModal / AICopilotSidebar)

@@ -41,13 +41,14 @@ async def test_paper_trading_place_order_endpoint():
         stop_price=59000.0,
         target_price=62000.0,
         order_type="MARKET",
-        reason="EMA crossover + Volume surge test"
+        reason=["EMA crossover + Volume surge", "CVD slope = +21.5"]
     )
     res = await place_paper_order(order_req)
     assert res["status"] == "ok"
     assert "order" in res
     assert res["order"]["symbol"] == "BTCUSDT"
-    assert res["order"]["reason"] == "EMA crossover + Volume surge test"
+    assert "EMA crossover + Volume surge" in res["order"]["reason"]
+    assert "CVD slope = +21.5" in res["order"]["reason"]
 
     # Reset again to leave clean state
     await reset_paper_wallet(ResetWalletRequest(initial_balance=100.0))
