@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -34,7 +34,10 @@ class UnifiedTradeSignal(BaseModel):
     risk_pct: float = Field(default=2.0, gt=0, le=100.0, description="Max portfolio equity risked (%)")
     expected_rr: float = Field(default=1.5, gt=0, description="Expected Risk/Reward ratio")
     confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="Signal confidence score (0.0 - 1.0)")
-    reason: str = Field(default="Quant Algorithmic Signal", description="Transparent entry rationale")
+    reason: List[str] = Field(
+        default_factory=lambda: ["Quant Algorithmic Signal"],
+        description="Ordered, human-readable conditions that produced the signal"
+    )
     strategy_type: str = Field(default="confluence_ema", description="Generating strategy identifier")
     data_source: str = Field(default="binance_futures_rest", description="Data provenance (e.g. rest, ws, parquet)")
     invalidation_condition: str = Field(
@@ -68,13 +71,25 @@ class UnifiedTradeSignal(BaseModel):
     def clean_entry_type(cls, v: str) -> str:
         return v.strip().upper()
 
+    @field_validator("reason", mode="before")
+    @classmethod
+    def normalize_reason(cls, v: Any) -> List[str]:
+        """Accept legacy text at the boundary, but store every signal as explicit conditions."""
+        values = [v] if isinstance(v, str) else v
+        if not isinstance(values, list):
+            raise ValueError("reason must be a string or a list of condition strings")
+        normalized = [str(item).strip() for item in values if str(item).strip()]
+        if not normalized:
+            raise ValueError("reason must contain at least one non-empty condition")
+        return normalized
+
     def model_post_init(self, __context: Any) -> None:
         """Generates deterministic unique_id if not explicitly provided."""
         if not self.unique_id:
             raw_fingerprint = (
                 f"{self.symbol}_{self.timeframe}_{self.direction}_"
                 f"{self.entry_price:.4f}_{self.sl:.4f}_{self.tp1:.4f}_"
-                f"{self.timestamp}_{self.strategy_type}"
+                f"{self.timestamp}_{self.strategy_type}_{'|'.join(self.reason)}"
             )
             self.unique_id = hashlib.sha256(raw_fingerprint.encode("utf-8")).hexdigest()[:16]
 
@@ -135,7 +150,7 @@ def from_backtest_trade(
         risk_pct=float(risk_pct),
         expected_rr=max(0.1, expected_rr),
         confidence=1.0 if pnl_pct > 0 else 0.5,
-        reason=str(reason),
+        reason=[str(reason)],
         strategy_type=strategy_type,
         data_source=data_source,
         invalidation_condition="Price breaches SL level"
@@ -179,7 +194,7 @@ def from_backtest_setup(
         risk_pct=float(risk_pct),
         expected_rr=max(0.1, rr),
         confidence=1.0,
-        reason=f"{setup.get('entry_mode', strategy_type)} (RR 1:{rr})",
+        reason=[f"{setup.get('entry_mode', strategy_type)} (RR 1:{rr})"],
         strategy_type=strategy_type,
         data_source=data_source,
         invalidation_condition=f"Price breaches SL {sl_price} or wall expired"
@@ -232,7 +247,7 @@ def from_scanner_signal(
         risk_pct=float(risk_pct),
         expected_rr=rr,
         confidence=0.85,
-        reason=reason,
+        reason=[reason],
         strategy_type=f"scanner_{cond_type.lower()}",
         data_source=data_source,
         invalidation_condition="Opposite scanner trigger or SL breach"
@@ -278,7 +293,7 @@ def from_paper_order(
         risk_pct=float(order_data.get("risk_pct", 2.0)),
         expected_rr=max(0.1, expected_rr),
         confidence=1.0,
-        reason=str(order_data.get("reason", "Paper Trading Order")),
+        reason=[str(order_data.get("reason", "Paper Trading Order"))],
         strategy_type=strategy_type,
         data_source=data_source,
         invalidation_condition="Stop loss or manual cancellation"
@@ -297,6 +312,6 @@ def to_paper_order_request(signal: UnifiedTradeSignal, quantity: Optional[float]
         "target_price": signal.tp1,
         "quantity": quantity,
         "order_type": signal.entry_type,
-        "reason": f"[{signal.strategy_type}] {signal.reason}",
+        "reason": f"[{signal.strategy_type}] {' | '.join(signal.reason)}",
         "regime": None
     }

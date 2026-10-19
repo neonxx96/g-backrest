@@ -17,6 +17,7 @@ from fastapi import WebSocket
 from backend.app.services.historical_data_loader import historical_loader
 from backend.app.services.orderflow_backtester import OrderFlowBacktester
 from backend.app.engine.regime_classifier import MarketRegime, regime_classifier
+from backend.app.engine.trade_contract import UnifiedTradeSignal
 from backend.app.engine.walk_forward_engine import walk_forward_engine
 
 logger = logging.getLogger("SignalScript.BackgroundWorker")
@@ -518,21 +519,31 @@ class BackgroundWorker:
                     tp_pct = opt_cfg.get("take_profit_pct", 1.8)
                     stop_px = round(last_close * (1.0 - sl_pct / 100.0) if last_signal == "LONG" else last_close * (1.0 + sl_pct / 100.0), 4)
                     target_px = round(last_close * (1.0 + tp_pct / 100.0) if last_signal == "LONG" else last_close * (1.0 - tp_pct / 100.0), 4)
-                    reason_desc = (
-                        f"[{regime_name}] {opt_cfg.get('name', 'Confluence')} | "
-                        f"SL: {sl_pct}% TP: {tp_pct}% | "
-                        f"CVD/EMA {last_signal} Signal"
-                    )
-                    order_info = paper_trading_session.execute_trade_signal(
+                    signal = UnifiedTradeSignal(
                         symbol=ticker,
-                        side="BUY" if last_signal == "LONG" else "SELL",
-                        price=last_close,
-                        stop_price=stop_px,
-                        target_price=target_px,
-                        order_type="MARKET",
-                        reason=reason_desc,
-                        signal_ts=now_ms,
-                        regime=regime_name
+                        timeframe="5m",
+                        timestamp=now_ms,
+                        direction=last_signal,
+                        entry_type="MARKET",
+                        entry_price=last_close,
+                        sl=stop_px,
+                        tp1=target_px,
+                        leverage=float(opt_cfg.get("leverage", 1.0)),
+                        risk_pct=2.0,
+                        expected_rr=round(tp_pct / max(sl_pct, 0.01), 2),
+                        reason=[
+                            f"regime = {regime_name}",
+                            f"strategy = {opt_cfg.get('name', 'Confluence')}",
+                            f"signal = {last_signal}",
+                            f"SL = {sl_pct}%",
+                            f"TP = {tp_pct}%",
+                        ],
+                        strategy_type=str(opt_cfg.get("strategy_type", "confluence_ema")),
+                        data_source="background_worker",
+                    )
+                    order_info = paper_trading_session.execute_unified_signal(
+                        signal,
+                        regime=regime_name,
                     )
                     # Simulate immediate market fill
                     if order_info.get("order_id"):

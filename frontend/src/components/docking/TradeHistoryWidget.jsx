@@ -15,7 +15,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 
-const API_BASE = 'http://127.0.0.1:8000';
+const API_BASE = '/api';
 
 export default function TradeHistoryWidget(props) {
   const [sessionData, setSessionData] = useState(null);
@@ -28,7 +28,7 @@ export default function TradeHistoryWidget(props) {
   // Fetch Paper Trading Status
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/paper-trading/status`);
+      const res = await fetch(`${API_BASE}/paper-trading/status`);
       if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
       const data = await res.json();
       setSessionData(data);
@@ -44,7 +44,7 @@ export default function TradeHistoryWidget(props) {
   // Fetch Monitoring Regimes & Forecasts
   const fetchMonitoring = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/monitoring/state`);
+      const res = await fetch(`${API_BASE}/monitoring/state`);
       if (res.ok) {
         const data = await res.json();
         setMonitoringData(data);
@@ -71,7 +71,7 @@ export default function TradeHistoryWidget(props) {
     }
     setIsResetting(true);
     try {
-      const res = await fetch(`${API_BASE}/api/paper-trading/reset`, {
+      const res = await fetch(`${API_BASE}/paper-trading/reset`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ initial_balance: 100.0 })
@@ -92,7 +92,7 @@ export default function TradeHistoryWidget(props) {
       return;
     }
     try {
-      const res = await fetch(`${API_BASE}/api/paper-trading/kill-switch`, {
+      const res = await fetch(`${API_BASE}/paper-trading/kill-switch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: 'Ручная аварийная остановка (UI Emergency Stop)' })
@@ -108,7 +108,7 @@ export default function TradeHistoryWidget(props) {
   // Handle Resume Trading
   const handleResumeTrading = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/paper-trading/resume`, {
+      const res = await fetch(`${API_BASE}/paper-trading/resume`, {
         method: 'POST'
       });
       if (res.ok) {

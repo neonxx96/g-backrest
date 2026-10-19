@@ -621,6 +621,20 @@ class PaperTradingSession:
             signal_ts=signal_ts,
         )
 
+    def execute_unified_signal(self, signal, regime: Optional[str] = None) -> dict:
+        """Execute an entry only through the shared History/Validation/Paper contract."""
+        from backend.app.engine.trade_contract import UnifiedTradeSignal, to_paper_order_request
+
+        if not isinstance(signal, UnifiedTradeSignal):
+            raise TypeError("Paper entries require a UnifiedTradeSignal")
+
+        payload = to_paper_order_request(signal)
+        payload["regime"] = regime
+        return self.execute_trade_signal(
+            **payload,
+            signal_ts=signal.timestamp,
+        )
+
     def close_position(
         self,
         symbol: str,

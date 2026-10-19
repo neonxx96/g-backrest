@@ -12,33 +12,12 @@ import ScreenerWidget from './ScreenerWidget';
 import TradesWidget from './TradesWidget';
 import WidgetHubModal from './WidgetHubModal';
 import TradeHistoryWidget from './TradeHistoryWidget';
-import PaperTradePanel from '../PaperTradePanel';
 import { FootprintPlaceholderWidget, CvdPlaceholderWidget } from './Placeholders';
 import ChannelSelector from './ChannelSelector';
 import PresetBar from './PresetBar';
 import { Radio, SlidersHorizontal, Sparkles, Zap, Loader2, Eye, EyeOff } from 'lucide-react';
 import { useBacktestStore } from '../../stores/backtestStore';
 import { useTradeOverlayStore } from '../../stores/tradeOverlayStore';
-
-function PaperTradeDockPanel(props) {
-  const [session] = React.useState({
-    session_id: 'shadow_active',
-    initial_balance: 10000,
-    balance: 10000,
-    realized_pnl: 0,
-    unrealized_pnl: 0,
-    available_margin: 10000,
-    locked_margin: 0,
-    positions: [],
-    active_orders: []
-  });
-
-  return (
-    <div className="h-full w-full overflow-y-auto bg-[#0b0e14] p-2 text-xs">
-      <PaperTradePanel sessionState={session} />
-    </div>
-  );
-}
 
 /**
  * Chart Panel Component for Dockview

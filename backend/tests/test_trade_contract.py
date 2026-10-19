@@ -15,6 +15,7 @@ from backend.app.engine.trade_contract import (
     from_paper_order,
     to_paper_order_request
 )
+from backend.app.services.paper_trading import PaperTradingSession
 
 
 def test_unified_trade_signal_creation_and_deterministic_id():
@@ -31,7 +32,7 @@ def test_unified_trade_signal_creation_and_deterministic_id():
         risk_pct=1.5,
         expected_rr=2.0,
         confidence=0.9,
-        reason="Test Signal",
+        reason=["EMA20 crossed up", "CVD slope > 0"],
         strategy_type="confluence_ema"
     )
 
@@ -59,7 +60,7 @@ def test_unified_trade_signal_creation_and_deterministic_id():
         risk_pct=1.5,
         expected_rr=2.0,
         confidence=0.9,
-        reason="Test Signal",
+        reason=["EMA20 crossed up", "CVD slope > 0"],
         strategy_type="confluence_ema"
     )
     assert sig.unique_id == sig2.unique_id
@@ -127,7 +128,7 @@ def test_adapter_from_backtest_trade():
     assert sig.tp1 > sig.entry_price
     assert sig.leverage == 3.0
     assert sig.risk_pct == 1.0
-    assert sig.reason == "Take Profit Target Hit"
+    assert sig.reason == ["Take Profit Target Hit"]
     assert sig.data_source == "historical_backtest"
 
 
@@ -158,7 +159,7 @@ def test_adapter_from_backtest_setup():
     assert sig.tp1 == 64000.0
     assert sig.tp2 == 63000.0
     assert sig.expected_rr == 2.0
-    assert "limit_bounce" in sig.reason
+    assert any("limit_bounce" in item for item in sig.reason)
 
 
 def test_adapter_from_scanner_signal():
@@ -210,3 +211,40 @@ def test_adapter_from_paper_order_and_to_request():
     assert req["target_price"] == 3300.0
     assert req["quantity"] == 0.5
     assert "Test Paper Entry" in req["reason"]
+
+
+def test_signal_reason_is_normalized_to_a_nonempty_list():
+    """Legacy string reasons remain readable, while every contract stores conditions as a list."""
+    sig = UnifiedTradeSignal(
+        symbol="BTCUSDT",
+        timestamp=1700000600000,
+        direction="LONG",
+        entry_price=100.0,
+        sl=99.0,
+        tp1=102.0,
+        reason="EMA20 crossed up",
+    )
+
+    assert sig.reason == ["EMA20 crossed up"]
+
+    req = to_paper_order_request(sig)
+    assert req["reason"].endswith("EMA20 crossed up")
+
+
+def test_paper_session_executes_entry_from_unified_signal_only():
+    signal = UnifiedTradeSignal(
+        symbol="BTCUSDT",
+        timestamp=1700000700000,
+        direction="LONG",
+        entry_type="MARKET",
+        entry_price=100.0,
+        sl=99.0,
+        tp1=102.0,
+        reason=["EMA20 crossed up", "CVD slope > 0"],
+    )
+    session = PaperTradingSession(initial_balance=1000.0, session_id="unified_contract")
+
+    order = session.execute_unified_signal(signal, regime="TREND_IMPULSE")
+
+    assert order["symbol"] == "BTCUSDT"
+    assert "EMA20 crossed up" in order["reason"]
