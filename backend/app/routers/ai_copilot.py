@@ -1162,3 +1162,252 @@ async def chat_with_copilot(payload: AIChatRequest):
     }
 
 
+# ============================================================================
+# Stage 3: Probabilistic Forecast (Expected Move Cone ±1σ / ±2σ & Journal Log)
+# ============================================================================
+
+class ForecastRequest(BaseModel):
+    symbol: str = Field(default="BTCUSDT")
+    timeframe: str = Field(default="15m")
+    horizon_bars: int = Field(default=16, ge=4, le=64)
+
+
+async def compute_probabilistic_forecast(symbol: str, timeframe: str, horizon_bars: int = 16) -> Dict[str, Any]:
+    from backend.app.engine.trade_contract import UnifiedTradeSignal
+    from backend.app.db.database import AsyncSessionLocal
+    from backend.app.db.models import DecisionLog
+
+    sym = symbol.strip().upper()
+    tf = timeframe.strip().lower()
+    tf_minutes = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240}.get(tf, 15)
+    time_step_ms = tf_minutes * 60 * 1000
+
+    try:
+        df = await fetch_history(sym, tf, days=3)
+    except Exception as e:
+        logger.error(f"Failed to fetch klines for forecast: {e}")
+        raise HTTPException(status_code=502, detail=f"Ошибка загрузки истории Binance для {sym}: {e}")
+
+    if df.empty or len(df) < 60:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Недостаточно исторических данных для прогноза {sym} (минимум 60 свечей, получено {len(df) if not df.empty else 0})"
+        )
+
+    close_s = df['close'].astype(float)
+    high_s = df['high'].astype(float)
+    low_s = df['low'].astype(float)
+    vol_s = df['volume'].astype(float)
+
+    current_price = float(close_s.iloc[-1])
+    price_dec = 1 if current_price >= 100 else 4
+    anchor_timestamp = int(df['timestamp'].iloc[-1])
+
+    # ATR(14)
+    tr1 = high_s - low_s
+    tr2 = (high_s - close_s.shift(1)).abs()
+    tr3 = (low_s - close_s.shift(1)).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    atr = float(tr.rolling(14, min_periods=1).mean().iloc[-1])
+    if atr <= 0:
+        atr = current_price * 0.005
+
+    # Momentum & CVD
+    ema20 = float(close_s.ewm(span=20, adjust=False).mean().iloc[-1])
+    ema50 = float(close_s.ewm(span=50, adjust=False).mean().iloc[-1])
+
+    if 'delta' in df.columns:
+        delta_s = df['delta'].astype(float)
+    else:
+        rng_s = (high_s - low_s).replace(0, np.nan)
+        buy_ratio_s = ((close_s - low_s) / rng_s).fillna(0.5)
+        delta_s = (2.0 * buy_ratio_s - 1.0) * vol_s
+
+    cvd_s = delta_s.cumsum()
+    cvd_ema14_s = cvd_s.ewm(span=14, adjust=False).mean()
+    cvd_current = float(cvd_s.iloc[-1])
+    cvd_ema14 = float(cvd_ema14_s.iloc[-1])
+    recent_delta_sum = float(delta_s.iloc[-14:].sum())
+
+    # Direction bias
+    bullish_signals = int(current_price > ema20) + int(ema20 > ema50) + int(cvd_current > cvd_ema14) + int(recent_delta_sum > 0)
+    bearish_signals = int(current_price < ema20) + int(ema20 < ema50) + int(cvd_current < cvd_ema14) + int(recent_delta_sum < 0)
+
+    if bullish_signals >= 3:
+        direction = "LONG"
+        bias = "BULLISH"
+        drift_direction = 1.0
+        reasoning = "Восходящий импульс: цена выше EMA(20/50), кумулятивная дельта CVD подтверждает преобладание покупателей."
+    elif bearish_signals >= 3:
+        direction = "SHORT"
+        bias = "BEARISH"
+        drift_direction = -1.0
+        reasoning = "Нисходящий импульс: цена ниже EMA(20/50), давление рыночных продаж по дельте CVD."
+    else:
+        direction = "LONG" if current_price >= ema20 else "SHORT"
+        bias = "NEUTRAL"
+        drift_direction = 0.2 if current_price >= ema20 else -0.2
+        reasoning = "Сбалансированная консолидация: нейтральное соотношение сил покупателей и продавцов."
+
+    sigma_1_bar = float(atr * 0.9)
+    drift_per_bar = drift_direction * (sigma_1_bar * 0.12)
+    expected_drift_pct = round((drift_per_bar * horizon_bars / max(1e-9, current_price)) * 100.0, 2)
+
+    fan_points = []
+    for k in range(1, horizon_bars + 1):
+        future_ts = anchor_timestamp + (k * time_step_ms)
+        sqrt_k = math.sqrt(k)
+        mid_price = current_price + (drift_per_bar * k)
+        u1 = mid_price + (sigma_1_bar * sqrt_k)
+        l1 = mid_price - (sigma_1_bar * sqrt_k)
+        u2 = mid_price + (sigma_1_bar * 1.96 * sqrt_k)
+        l2 = mid_price - (sigma_1_bar * 1.96 * sqrt_k)
+        fan_points.append({
+            "bar_offset": k,
+            "step": k,
+            "timestamp": future_ts,
+            "price_mid": round(mid_price, price_dec),
+            "upper_1s": round(u1, price_dec),
+            "lower_1s": round(l1, price_dec),
+            "upper_2s": round(u2, price_dec),
+            "lower_2s": round(l2, price_dec),
+            "upper_1sigma": round(u1, price_dec),
+            "lower_1sigma": round(l1, price_dec),
+            "upper_2sigma": round(u2, price_dec),
+            "lower_2sigma": round(l2, price_dec),
+        })
+
+    sigma_1s_pct = round((sigma_1_bar * math.sqrt(horizon_bars) / max(1e-9, current_price)) * 100.0, 2)
+    sigma_2s_pct = round((sigma_1_bar * 1.96 * math.sqrt(horizon_bars) / max(1e-9, current_price)) * 100.0, 2)
+
+    cone_dict = {
+        "bars_forward": horizon_bars,
+        "timeframe": tf,
+        "base_price": round(current_price, price_dec),
+        "base_timestamp": anchor_timestamp,
+        "atr_14": round(atr, price_dec),
+        "sigma_1s_pct": sigma_1s_pct,
+        "sigma_2s_pct": sigma_2s_pct,
+        "direction": bias,
+        "trend": bias,
+        "expected_drift_pct": expected_drift_pct,
+        "fan_points": fan_points
+    }
+
+    # Stop Loss & Take Profit targets
+    sl_dist = 1.2 * atr
+    tp1_dist = 1.5 * atr
+    tp2_dist = 2.8 * atr
+    if direction == "LONG":
+        sl_price = round(current_price - sl_dist, price_dec)
+        tp1_price = round(current_price + tp1_dist, price_dec)
+        tp2_price = round(current_price + tp2_dist, price_dec)
+    else:
+        sl_price = round(current_price + sl_dist, price_dec)
+        tp1_price = round(current_price - tp1_dist, price_dec)
+        tp2_price = round(current_price - tp2_dist, price_dec)
+
+    unified_signal = UnifiedTradeSignal(
+        symbol=sym,
+        timeframe=tf,
+        timestamp=anchor_timestamp,
+        direction=direction,
+        entry_type="FORECAST_CONE",
+        entry_price=round(current_price, price_dec),
+        sl=sl_price,
+        tp1=tp1_price,
+        tp2=tp2_price,
+        leverage=1.0,
+        risk_pct=0.02,
+        expected_rr=2.33,
+        confidence=0.72,
+        reason=reasoning,
+        strategy_type="probabilistic_forecast",
+        data_source="realtime_binance",
+        invalidation_condition="Bar close outside 1-sigma cone boundary",
+    )
+
+    # Log into Decision Journal (consultative log)
+    try:
+        async with AsyncSessionLocal() as session:
+            log_entry = DecisionLog(
+                event_type="FORECAST",
+                symbol=sym,
+                timeframe=tf,
+                direction=direction,
+                price=current_price,
+                entry_price=current_price,
+                sl_price=sl_price,
+                tp_price=tp2_price,
+                strategy_or_condition="Probabilistic Volatility Cone (16 bars)",
+                ai_verdict=bias,
+                ai_reason=reasoning,
+                context_json=json.dumps({
+                    "cone": cone_dict,
+                    "unified_signal": unified_signal.model_dump(),
+                    "atr": atr,
+                    "sigma_1s_pct": sigma_1s_pct,
+                    "sigma_2s_pct": sigma_2s_pct,
+                }),
+                user_decision="PENDING",
+                notes=f"Probabilistic Forecast horizon: {horizon_bars} bars",
+            )
+            session.add(log_entry)
+            await session.commit()
+    except Exception as db_err:
+        logger.debug(f"Decision journal logging skipped: {db_err}")
+
+    return {
+        "status": "success",
+        "symbol": sym,
+        "timeframe": tf,
+        "is_probabilistic_forecast": True,
+        "disclaimer": "Вероятностный прогноз волатильности (±1σ / ±2σ). Не является гарантированной доходностью или инвестиционной рекомендацией.",
+        "anchor_price": round(current_price, price_dec),
+        "anchor_timestamp": anchor_timestamp,
+        "horizon_bars": horizon_bars,
+        "base_scenario": {
+            "direction": direction,
+            "bias": bias,
+            "drift_direction": drift_direction,
+            "expected_drift_pct": expected_drift_pct,
+            "reason": reasoning,
+        },
+        "bands": fan_points,
+        "expected_move_cone": cone_dict,
+        "unified_signal": unified_signal.model_dump(),
+        "trading_idea": {
+            "direction": direction,
+            "order_type": "BUY LIMIT" if direction == "LONG" else "SELL LIMIT",
+            "entry_price": round(current_price, price_dec),
+            "sl_price": sl_price,
+            "tp1_price": tp1_price,
+            "tp2_price": tp2_price,
+            "risk_reward_ratio": "1:2.33",
+            "reasoning": reasoning,
+        }
+    }
+
+
+@ai_router.get("/forecast")
+@ai_router.get("/copilot-analysis")
+async def get_forecast_query(symbol: str = "BTCUSDT", timeframe: str = "15m", horizon_bars: int = 16):
+    """
+    Probabilistic Forecast Endpoint (GET):
+    Returns expected volatility cone (±1σ / ±2σ), anchor price/timestamp,
+    horizon, and UnifiedTradeSignal.
+    """
+    return await compute_probabilistic_forecast(symbol=symbol, timeframe=timeframe, horizon_bars=horizon_bars)
+
+
+@ai_router.post("/forecast")
+async def post_forecast(req: ForecastRequest):
+    """
+    Probabilistic Forecast Endpoint (POST):
+    Returns expected volatility cone (±1σ / ±2σ), anchor price/timestamp,
+    horizon, and UnifiedTradeSignal.
+    """
+    return await compute_probabilistic_forecast(symbol=req.symbol, timeframe=req.timeframe, horizon_bars=req.horizon_bars)
+
+
+

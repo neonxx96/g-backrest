@@ -641,53 +641,37 @@ export default function BacktestPanel({
     setForecastLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/ai/copilot-analysis?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`);
-      let cone = null;
-      if (res.ok) {
-        const data = await res.json();
-        cone = data.expected_move_cone;
+      const res = await fetch(
+        `${API_BASE}/api/ai/forecast?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`
+      );
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || `Ошибка расчёта прогноза (${res.status})`);
       }
-
-      if (!cone) {
-        const basePrice = result?.trades?.[result.trades.length - 1]?.exit_price || 81500;
-        const now = Date.now();
-        const tfMs = timeframe === '1m' ? 60000 : timeframe === '5m' ? 300000 : timeframe === '15m' ? 900000 : 3600000;
-        const fanPoints = [];
-        for (let i = 1; i <= 16; i++) {
-          const stepSigma = Math.sqrt(i) * (basePrice * 0.0035);
-          fanPoints.push({
-            bar_offset: i,
-            timestamp: now + i * tfMs,
-            upper_1sigma: Number((basePrice + stepSigma).toFixed(2)),
-            lower_1sigma: Number((basePrice - stepSigma).toFixed(2)),
-            upper_2sigma: Number((basePrice + stepSigma * 1.96).toFixed(2)),
-            lower_2sigma: Number((basePrice - stepSigma * 1.96).toFixed(2)),
-          });
-        }
-        cone = {
-          base_price: basePrice,
-          base_timestamp: now,
-          fan_points: fanPoints,
-          expected_drift_pct: 0.25
-        };
+      const data = await res.json();
+      const cone = data.expected_move_cone;
+      if (!cone || !cone.fan_points || cone.fan_points.length === 0) {
+        throw new Error('Получен пустой вероятностный конус');
       }
 
       window.dispatchEvent(
         new CustomEvent('apply-volatility-cone', {
           detail: {
             cone,
-            symbol
+            symbol,
+            timeframe
           }
         })
       );
-      setAppliedFeedback(`📐 Прогнозный конус (±1σ / ±2σ) спроецирован на график для ${symbol}`);
+      setAppliedFeedback(`📐 Вероятностный конус (±1σ / ±2σ) спроецирован на график для ${symbol} (${timeframe})`);
       setTimeout(() => setAppliedFeedback(null), 4000);
     } catch (err) {
       console.warn('Forecast error:', err);
+      setError(err.message || 'Ошибка построения прогноза');
     } finally {
       setForecastLoading(false);
     }
-  }, [symbol, timeframe, result]);
+  }, [symbol, timeframe]);
 
   // Stage 3: Fast 1-Click Strategy Parameter Presets
   const [presets, setPresets] = useState([]);
@@ -2167,6 +2151,34 @@ export default function BacktestPanel({
 
           {s && !loading && !aiLoading && (
             <>
+              {/* Institutional Context & State Header (Stage 5) */}
+              <div
+                data-testid="backtest-result-context-badge"
+                className="flex items-center justify-between px-2.5 py-1 rounded bg-[#0e131f] border border-[#1e293b] font-mono text-[9px] text-neutral-300 shrink-0"
+              >
+                <div className="flex items-center space-x-2">
+                  <span className="px-1.5 py-0.2 rounded bg-neutral-800 text-sky-400 font-bold border border-sky-500/30">
+                    HISTORICAL BACKTEST
+                  </span>
+                  <span className="font-bold text-white tracking-wide">
+                    {result?.symbol || symbol}
+                  </span>
+                  <span className="text-neutral-500">•</span>
+                  <span className="text-neutral-300">
+                    {result?.timeframe || timeframe}
+                  </span>
+                  <span className="text-neutral-500">•</span>
+                  <span className="text-emerald-400">
+                    {STRATEGIES.find((st) => st.id === (result?.meta?.strategy_type || strategy))?.name || result?.meta?.strategy_type || strategy}
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2 text-neutral-500">
+                  <span>Свечей: {result?.meta?.candles || 0} ({result?.meta?.requested_days || days}д)</span>
+                  <span>•</span>
+                  <span>{new Date(result?.meta?.to_time || Date.now()).toLocaleTimeString()} UTC</span>
+                </div>
+              </div>
+
               {/* Top Summary Metrics Row: Large Stat Cards for Top 4 Metrics */}
               <div className="flex space-x-2 min-w-0 shrink-0">
                 <Card

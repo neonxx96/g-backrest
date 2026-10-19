@@ -107,6 +107,9 @@ class PaperSessionState:
     closed_trades: List[dict] = field(default_factory=list)
     total_fees_paid: float = 0.0
     uptime_seconds: int = 0
+    is_halted: bool = False
+    halt_reason: Optional[str] = None
+    halt_ts: Optional[int] = None
 
     def to_dict(self) -> dict:
         return {
@@ -122,6 +125,9 @@ class PaperSessionState:
             "closed_trades": self.closed_trades,
             "total_fees_paid": self.total_fees_paid,
             "uptime_seconds": self.uptime_seconds,
+            "is_halted": self.is_halted,
+            "halt_reason": self.halt_reason,
+            "halt_ts": self.halt_ts,
         }
 
 
@@ -168,6 +174,11 @@ class PaperTradingSession:
 
         # Early Exit Engine (MFE/MAE tracker + alert rule engine)
         self.early_exit_engine = EarlyExitEngine()
+
+        # Kill Switch / Circuit Breaker State
+        self.is_halted: bool = False
+        self.halt_reason: Optional[str] = None
+        self.halt_ts: Optional[int] = None
 
     def calculate_position_size(
         self,
@@ -217,6 +228,10 @@ class PaperTradingSession:
         Create a virtual order. Returns an order info dict.
         Deterministic: order_id is derived from a monotonic counter, not uuid.
         """
+        if self.is_halted and role == PaperOrderRole.ENTRY.value:
+            logger.warning(f"[KILL_SWITCH] Entry order rejected: system is HALTED ({self.halt_reason})")
+            raise ValueError(f"System is HALTED: {self.halt_reason}")
+
         ts = signal_ts if signal_ts is not None else self._last_event_ts
         cfg = OrderConfig(
             signal_ts=int(ts),
@@ -559,6 +574,24 @@ class PaperTradingSession:
         Executes a trade signal applying risk position sizing, stop/target, reason, and margin rules.
         Rejects signal immediately if market regime is TOXIC_VOLATILITY.
         """
+        if self.is_halted:
+            logger.warning(f"[KILL_SWITCH] Rejected signal for {symbol}: system is HALTED ({self.halt_reason})")
+            return {"status": "REJECTED", "reason": f"System HALTED: {self.halt_reason}"}
+
+        if price <= 0 or stop_price <= 0 or target_price <= 0:
+            logger.warning(f"[TRADE] Rejected signal for {symbol}: invalid entry/SL/TP (price={price}, sl={stop_price}, tp={target_price})")
+            return {"status": "REJECTED", "reason": "invalid_entry_sl_tp"}
+
+        side_up = str(side).upper()
+        if side_up in ("BUY", "LONG"):
+            if not (stop_price < price < target_price):
+                logger.warning(f"[TRADE] Rejected LONG signal for {symbol}: invalid price geometry (sl={stop_price} < price={price} < tp={target_price})")
+                return {"status": "REJECTED", "reason": "invalid_long_geometry"}
+        elif side_up in ("SELL", "SHORT"):
+            if not (target_price < price < stop_price):
+                logger.warning(f"[TRADE] Rejected SHORT signal for {symbol}: invalid price geometry (tp={target_price} < price={price} < sl={stop_price})")
+                return {"status": "REJECTED", "reason": "invalid_short_geometry"}
+
         if regime and str(regime).upper() == "TOXIC_VOLATILITY":
             logger.warning(f"[TRADE] Rejected signal for {symbol}: TOXIC_VOLATILITY regime blocks entries | reason='{reason}'")
             return {"status": "REJECTED", "reason": "toxic_volatility_blocked"}
@@ -609,6 +642,95 @@ class PaperTradingSession:
             signal_ts=signal_ts,
         )
 
+    def kill_switch(self, reason: str = "EMERGENCY STOP triggered by user") -> dict:
+        """
+        Emergency Kill Switch:
+        1. Immediately sets system status to HALTED.
+        2. Cancels all pending and active unfilled orders.
+        3. Closes all active open positions at current market price (Market exit, Taker fee).
+        4. Logs halt event and records reason.
+        """
+        self.is_halted = True
+        self.halt_reason = reason
+        self.halt_ts = int(time.time() * 1000)
+
+        # 1. Cancel all unfilled active orders
+        cancelled_orders = 0
+        for po in list(self.orders.values()):
+            if po.sim.state.status in (OrderStatus.PENDING, OrderStatus.ACTIVE, OrderStatus.PARTIALLY_FILLED):
+                po.sim.state.status = OrderStatus.CANCELLED
+                cancelled_orders += 1
+
+        # 2. Close all open positions at market price
+        closed_positions_count = 0
+        now_ts = int(time.time() * 1000)
+        for sym, pos in list(self.positions.items()):
+            if pos.qty > 0 and not pos.closed:
+                market_price = self.last_prices.get(sym, pos.avg_entry_price)
+                close_qty = pos.qty
+                fee = market_price * close_qty * self.taker_fee
+                if pos.side == "LONG":
+                    gross = (market_price - pos.avg_entry_price) * close_qty
+                    pnl_pct = ((market_price - pos.avg_entry_price) / pos.avg_entry_price * 100.0) if pos.avg_entry_price > 0 else 0.0
+                else:
+                    gross = (pos.avg_entry_price - market_price) * close_qty
+                    pnl_pct = ((pos.avg_entry_price - market_price) / pos.avg_entry_price * 100.0) if pos.avg_entry_price > 0 else 0.0
+                net = gross - fee
+
+                self.realized_pnl += net
+                pos.fees_paid += fee
+                self.total_fees_paid += fee
+                pos.qty = 0.0
+                pos.closed = True
+
+                self.closed_trades.append({
+                    "symbol": sym,
+                    "side": pos.side,
+                    "qty": close_qty,
+                    "entry_price": pos.avg_entry_price,
+                    "exit_price": market_price,
+                    "target_price": getattr(pos, "target_price", market_price),
+                    "stop_price": pos.stop_price,
+                    "gross_pnl": gross,
+                    "net_pnl": net,
+                    "pnl_percent": round(pnl_pct, 2),
+                    "fee": fee,
+                    "reason": f"KILL_SWITCH: {reason}",
+                    "entry_reason": getattr(pos, "reason", "Technical Signal"),
+                    "entry_ts": pos.entry_ts,
+                    "exit_ts": now_ts,
+                })
+
+                margin_released = pos.avg_entry_price * close_qty
+                self.locked_margin = max(0.0, self.locked_margin - margin_released)
+                self.available_margin += margin_released + net
+                self.early_exit_engine.remove_position(sym)
+                closed_positions_count += 1
+
+        logger.critical(
+            f"[KILL_SWITCH] Emergency Kill Switch activated: '{reason}'. "
+            f"Cancelled {cancelled_orders} orders, closed {closed_positions_count} open positions."
+        )
+        return {
+            "status": "HALTED",
+            "reason": reason,
+            "halt_ts": self.halt_ts,
+            "cancelled_orders": cancelled_orders,
+            "closed_positions": closed_positions_count,
+            "state": self.get_state().to_dict(),
+        }
+
+    def resume(self, reason: str = "Manual Resume") -> dict:
+        """Resumes trading after a Kill Switch halt."""
+        self.is_halted = False
+        self.halt_reason = None
+        self.halt_ts = None
+        logger.info(f"[KILL_SWITCH] Trading resumed: '{reason}'")
+        return {
+            "status": "ACTIVE",
+            "state": self.get_state().to_dict(),
+        }
+
     def reset_wallet(self, initial_balance: float = 100.0) -> None:
         """Strictly resets the paper trading virtual wallet to initial_balance ($100.00 USD)."""
         self.initial_balance = float(initial_balance)
@@ -617,6 +739,9 @@ class PaperTradingSession:
         self.realized_pnl = 0.0
         self.total_fees_paid = 0.0
         self.start_time = time.time()
+        self.is_halted = False
+        self.halt_reason = None
+        self.halt_ts = None
         self.positions.clear()
         self.orders.clear()
         self.closed_trades.clear()
@@ -681,6 +806,9 @@ class PaperTradingSession:
             closed_trades=list(self.closed_trades),
             total_fees_paid=self.total_fees_paid,
             uptime_seconds=uptime,
+            is_halted=self.is_halted,
+            halt_reason=self.halt_reason,
+            halt_ts=self.halt_ts,
         )
 
 

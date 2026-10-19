@@ -86,6 +86,39 @@ export default function TradeHistoryWidget(props) {
     }
   };
 
+  // Handle Kill Switch (Emergency Stop)
+  const handleKillSwitch = async () => {
+    if (!window.confirm('ВНИМАНИЕ: Активировать аварийную остановку (KILL SWITCH)? Все открытые позиции будут немедленно закрыты по рынку, а приём новых сигналов заблокирован.')) {
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/api/paper-trading/kill-switch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Ручная аварийная остановка (UI Emergency Stop)' })
+      });
+      if (res.ok) {
+        await fetchStatus();
+      }
+    } catch (err) {
+      console.error('Failed to trigger kill switch:', err);
+    }
+  };
+
+  // Handle Resume Trading
+  const handleResumeTrading = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/paper-trading/resume`, {
+        method: 'POST'
+      });
+      if (res.ok) {
+        await fetchStatus();
+      }
+    } catch (err) {
+      console.error('Failed to resume trading:', err);
+    }
+  };
+
   // Metrics calculation
   const metrics = useMemo(() => {
     if (!sessionData) {
@@ -141,10 +174,41 @@ export default function TradeHistoryWidget(props) {
             <div>
               <span className="font-semibold text-xs tracking-wide text-white">Trade History & Forecasts</span>
               <span className="ml-2 text-[10px] text-neutral-500 font-mono">Paper Trading $100.00</span>
+              {sessionData?.is_halted ? (
+                <span data-testid="status-halted-badge" className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-rose-950 text-rose-300 border border-rose-700 animate-pulse">
+                  HALTED
+                </span>
+              ) : (
+                <span data-testid="status-active-badge" className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-700">
+                  ACTIVE
+                </span>
+              )}
             </div>
           </div>
 
           <div className="flex items-center space-x-2">
+            {sessionData?.is_halted ? (
+              <button
+                type="button"
+                data-testid="btn-resume-trading"
+                onClick={handleResumeTrading}
+                className="flex items-center space-x-1 px-2.5 py-0.5 rounded bg-emerald-800 hover:bg-emerald-700 text-white border border-emerald-600 text-[10px] font-mono font-bold transition cursor-pointer shadow-sm"
+                title="Возобновить прием сигналов и торговлю"
+              >
+                <span>▶ ВОЗОБНОВИТЬ</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                data-testid="btn-kill-switch"
+                onClick={handleKillSwitch}
+                className="flex items-center space-x-1 px-2.5 py-0.5 rounded bg-rose-800 hover:bg-rose-700 text-white border border-rose-600 text-[10px] font-mono font-bold transition cursor-pointer shadow-sm"
+                title="Аварийная остановка: отмена заявок, мгновенный выход по рынку, блокировка новых ордеров"
+              >
+                <AlertCircle size={10} />
+                <span>EMERGENCY STOP</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={fetchStatus}
@@ -165,6 +229,28 @@ export default function TradeHistoryWidget(props) {
             </button>
           </div>
         </div>
+
+        {sessionData?.is_halted && (
+          <div
+            data-testid="paper-trading-halted-banner"
+            className="flex items-center justify-between px-2.5 py-1.5 rounded bg-rose-950/80 border border-rose-600/80 text-rose-200 text-[10px] font-mono"
+          >
+            <div className="flex items-center space-x-2">
+              <AlertCircle size={12} className="text-rose-400 shrink-0" />
+              <span>
+                <strong>СИСТЕМА ОСТАНОВЛЕНА (HALTED):</strong> {sessionData.halt_reason || 'Аварийный стоп активен'}.
+                Новые ордера заблокированы.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handleResumeTrading}
+              className="px-2 py-0.5 rounded bg-rose-800 hover:bg-rose-700 text-white text-[9px] font-bold cursor-pointer transition"
+            >
+              Снять блок
+            </button>
+          </div>
+        )}
 
         {/* Institutional Metrics Grid */}
         <div className="grid grid-cols-5 gap-2 text-center text-[10px] font-mono">

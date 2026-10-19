@@ -70,7 +70,7 @@ async def reset_paper_wallet(req: ResetWalletRequest = ResetWalletRequest()):
 async def place_paper_order(req: OrderSignalRequest):
     """
     Places a paper trading order with risk sizing, stop-loss, target, and mandatory reason.
-    Rejects immediately if regime is TOXIC_VOLATILITY.
+    Rejects immediately if regime is TOXIC_VOLATILITY or if system is HALTED.
     """
     try:
         order_res = paper_trading_session.execute_trade_signal(
@@ -87,3 +87,36 @@ async def place_paper_order(req: OrderSignalRequest):
         return {"status": "ok", "order": order_res}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class KillSwitchRequest(BaseModel):
+    reason: str = Field(default="EMERGENCY STOP triggered by user")
+
+
+@router.post("/kill-switch")
+async def trigger_kill_switch(req: KillSwitchRequest = KillSwitchRequest()):
+    """
+    Emergency Kill Switch:
+    - Stops accepting any new orders (sets HALTED status).
+    - Immediately cancels all pending/active orders.
+    - Closes all active open positions at current market price (Market order with taker fee).
+    - Records halt reason and timestamp.
+    """
+    try:
+        res = paper_trading_session.kill_switch(reason=req.reason)
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/resume")
+async def resume_paper_trading():
+    """
+    Resumes paper trading after emergency stop (unhalts system).
+    """
+    try:
+        res = paper_trading_session.resume(reason="Admin/UI Resume")
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
