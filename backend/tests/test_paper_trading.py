@@ -266,6 +266,78 @@ class TestPaperTradingSessionLifecycle(unittest.TestCase):
         self.assertAlmostEqual(final_state.balance, 100.0 + 1.9792, places=4)
         self.assertAlmostEqual(final_state.total_fees_paid, 0.02 + 0.0208, places=4)
 
+    def test_dynamic_breakeven_trigger_on_mfe(self):
+        """Dynamic Breakeven moves SL to Entry + 2*Fee + 1tick when MFE reaches +0.5R."""
+        session = PaperTradingSession(
+            initial_balance=100.0,
+            maker_fee=0.0002,
+            taker_fee=0.0005,
+            signal_lag_ms=0,
+            order_rtt_ms=0,
+            session_id="be_test"
+        )
+        # Entry at 100.0 with SL at 98.0 (R = 2.0 USDT)
+        session.place_order(
+            symbol="BTCUSDT",
+            side="BUY",
+            order_type="MARKET",
+            price=100.0,
+            quantity=0.1,
+            role=PaperOrderRole.ENTRY.value,
+            stop_price=98.0,
+            signal_ts=1000
+        )
+        session.process_event(MockEvent(1000, "depth", {"bids": [(99.9, 1.0)], "asks": [(100.0, 1.0)]}))
+        session.process_event(MockEvent(1000, "trade", {"price": 100.0, "quantity": 0.1}, symbol="BTCUSDT"))
+
+        pos = session.positions["BTCUSDT"]
+        self.assertEqual(pos.stop_price, 98.0)
+        self.assertEqual(pos.initial_stop_price, 98.0)
+        self.assertFalse(pos.breakeven_triggered)
+
+        # Small price move to 100.4 (MFE = +0.4, which is 0.2R < 0.5R) -> BE not triggered
+        session.process_event(MockEvent(1100, "trade", {"price": 100.4, "quantity": 0.1}, symbol="BTCUSDT"))
+        self.assertEqual(pos.stop_price, 98.0)
+        self.assertFalse(pos.breakeven_triggered)
+
+        # Price reaches 101.0 (MFE = +1.0, which is 0.5R >= 0.5R) -> Dynamic Breakeven triggered!
+        session.process_event(MockEvent(1200, "trade", {"price": 101.0, "quantity": 0.1}, symbol="BTCUSDT"))
+        self.assertTrue(pos.breakeven_triggered)
+
+        # Expected SL = Entry (100.0) + (100.0 * 2 * 0.0005) + tick (0.001) = 100.0 + 0.10 + 0.001 = 100.101
+        expected_sl = 100.0 + (100.0 * 2.0 * 0.0005) + session.estimate_tick_size(100.0)
+        self.assertAlmostEqual(pos.stop_price, expected_sl, places=4)
+        self.assertGreater(pos.stop_price, 100.0)  # Strictly above entry
+
+    def test_maker_tp_fee_vs_taker_sl_fee(self):
+        """Take Profit executions use LIMIT (Maker fee = 0.02%), while SL uses MARKET (Taker fee = 0.05%)."""
+        session = PaperTradingSession(
+            initial_balance=100.0,
+            maker_fee=0.0002,
+            taker_fee=0.0005,
+            signal_lag_ms=0,
+            order_rtt_ms=0,
+            session_id="tp_maker_test"
+        )
+        # Entry at 100.0, qty 0.1
+        session.place_order("SOLUSDT", "BUY", "LIMIT", 100.0, 0.1, PaperOrderRole.ENTRY.value, signal_ts=1000)
+        session.process_event(MockEvent(1000, "depth", {"bids": [(99.0, 1.0)], "asks": [(101.0, 1.0)]}))
+        # Trade through limit price
+        session.process_event(MockEvent(1000, "trade", {"price": 99.5, "quantity": 0.1}, symbol="SOLUSDT"))
+
+        # Close via Take Profit (LIMIT order -> maker fee)
+        session.close_position("SOLUSDT", price=105.0, order_type="LIMIT", reason="Take Profit Hit", signal_ts=2000)
+        session.process_event(MockEvent(2000, "depth", {"bids": [(104.0, 1.0)], "asks": [(106.0, 1.0)]}))
+        session.process_event(MockEvent(2000, "trade", {"price": 105.5, "quantity": 0.1}, symbol="SOLUSDT"))
+
+        state = session.get_state()
+        self.assertEqual(len(state.closed_trades), 1)
+        closed = state.closed_trades[0]
+        # Exit notional = 105.0 * 0.1 = 10.5
+        # Maker fee = 10.5 * 0.0002 = 0.0021
+        self.assertAlmostEqual(closed["fee"], 0.0021, places=5)
+        self.assertEqual(closed["reason"], "Take Profit Hit")
+
 
 if __name__ == "__main__":
     unittest.main()

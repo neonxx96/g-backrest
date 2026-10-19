@@ -1,6 +1,7 @@
 import pytest
 from backend.app.routers.monitoring import (
     get_monitoring_state,
+    get_system_monitoring_state,
     toggle_ticker_monitoring,
     set_monitored_tickers,
     ToggleTickerRequest,
@@ -15,6 +16,18 @@ async def test_get_monitoring_state_endpoint():
     assert "monitored_tickers" in res
     assert "statuses" in res
     assert "active_tasks_count" in res
+    assert "BTCUSDT" in res["monitored_tickers"]
+
+
+@pytest.mark.anyio
+async def test_get_system_monitoring_state_endpoint():
+    res = await get_system_monitoring_state()
+    assert res["status"] == "ok"
+    assert "uptime" in res
+    assert res["uptime"] >= 0
+    assert "active_workers" in res
+    assert "monitored_tickers" in res
+    assert "statuses" in res
     assert "BTCUSDT" in res["monitored_tickers"]
 
 

@@ -169,6 +169,8 @@ class OrderFlowBacktester:
         tp2_mode: str = "trend_rr",                # 'trend_rr' | 'opposite_wall'
         tp2_rr_ratio: float = 2.8,                 # TP2 R:R target (e.g. 1:2.8)
         min_wall_lifetime_sec: int = 30,           # Spoofing filter: min wall hold time (10..60 sec)
+        use_dynamic_breakeven: bool = False,       # Move SL to Breakeven (+2*Fee+1tick) when MFE >= +0.5R
+        dynamic_be_trigger_r: float = 0.5,
     ) -> Dict[str, Any]:
         """
         Executes realistic institutional order-flow backtest with:
@@ -360,6 +362,7 @@ class OrderFlowBacktester:
         initial_pos_size = 0.0
         remaining_fraction = 1.0
         tp1_filled = False
+        dynamic_be_triggered = False
         realized_leg1_gross_usd = 0.0
         realized_leg1_fee_usd = 0.0
         entry_fee_usd = 0.0
@@ -398,6 +401,24 @@ class OrderFlowBacktester:
                         sl_price = (entry_price + be_offset) if pos_dir == 1 else max(1e-8, entry_price - be_offset)
                         trailing_sl = sl_price
 
+                # Step 1A2: Dynamic Breakeven (+0.5R MFE protection)
+                if use_dynamic_breakeven and not dynamic_be_triggered and sl_dist > 0:
+                    fee_buffer = entry_price * (taker_rate * 2.0)
+                    if pos_dir == 1:
+                        if (high_p - entry_price) >= dynamic_be_trigger_r * sl_dist:
+                            dynamic_be_triggered = True
+                            be_sl = entry_price + fee_buffer + tick_unit
+                            if be_sl > sl_price:
+                                sl_price = be_sl
+                                trailing_sl = max(trailing_sl, sl_price)
+                    elif pos_dir == -1:
+                        if (entry_price - low_p) >= dynamic_be_trigger_r * sl_dist:
+                            dynamic_be_triggered = True
+                            be_sl = entry_price - fee_buffer - tick_unit
+                            if sl_price <= 0 or be_sl < sl_price:
+                                sl_price = be_sl
+                                trailing_sl = min(trailing_sl, sl_price)
+
                 exit_price = None
                 exit_reason = ""
                 is_stop_exit = False
@@ -430,7 +451,7 @@ class OrderFlowBacktester:
                     if pos_dir == 1:
                         if low_p <= sl_price:
                             exit_price = max(1e-8, sl_price - stop_slippage_abs)
-                            exit_reason = "TP1 + Breakeven" if tp1_filled else "Stop Loss"
+                            exit_reason = "Dynamic Breakeven" if dynamic_be_triggered else ("TP1 + Breakeven" if tp1_filled else "Stop Loss")
                             is_stop_exit = True
                         elif high_p >= tp2_price:
                             exit_price = tp2_price
@@ -439,7 +460,7 @@ class OrderFlowBacktester:
                     elif pos_dir == -1:
                         if high_p >= sl_price:
                             exit_price = sl_price + stop_slippage_abs
-                            exit_reason = "TP1 + Breakeven" if tp1_filled else "Stop Loss"
+                            exit_reason = "Dynamic Breakeven" if dynamic_be_triggered else ("TP1 + Breakeven" if tp1_filled else "Stop Loss")
                             is_stop_exit = True
                         elif low_p <= tp2_price:
                             exit_price = tp2_price
@@ -518,6 +539,7 @@ class OrderFlowBacktester:
                 initial_pos_size = capital * safe_lev
                 remaining_fraction = 1.0
                 tp1_filled = False
+                dynamic_be_triggered = False
                 realized_leg1_gross_usd = 0.0
                 realized_leg1_fee_usd = 0.0
                 # Limit entry at liquidity density pays Maker fee (0.02% default)

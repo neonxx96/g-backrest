@@ -333,12 +333,21 @@ export default function BacktestPanel({
   onProjectPositionSetup
 }) {
   const storeResult = useBacktestStore((s) => s.activeResult);
+  const getParamsForSymbol = useBacktestStore((s) => s.getParamsForSymbol);
+  const setParamsForSymbol = useBacktestStore((s) => s.setParamsForSymbol);
+
   const result = (propResult?.symbol === symbol?.toUpperCase() ? propResult : null) || (storeResult?.symbol === symbol?.toUpperCase() ? storeResult : null) || propResult || storeResult;
 
   const handleSetResult = useCallback((data) => {
     if (onResult) onResult(data);
     useBacktestStore.setState({ activeResult: data });
   }, [onResult]);
+
+  const updateSymbolParam = useCallback((partial) => {
+    if (symbol && setParamsForSymbol) {
+      setParamsForSymbol(symbol, partial);
+    }
+  }, [symbol, setParamsForSymbol]);
 
   const [mode, setMode] = useState('single'); // 'single' | 'grid' (Genetic Optimizer) | 'ai'
   const [strategy, setStrategy] = useState('delta_absorption');
@@ -349,6 +358,33 @@ export default function BacktestPanel({
   const [minWallK, setMinWallK] = useState(100);
   const [volMult, setVolMult] = useState(1.0);
   const [leverage, setLeverage] = useState(2);
+
+  // Sync isolated parameters per symbol when symbol changes
+  useEffect(() => {
+    if (!symbol || !getParamsForSymbol) return;
+    const p = getParamsForSymbol(symbol);
+    if (p.strategy_type) setStrategy(p.strategy_type);
+    if (p.timeframe && TIMEFRAMES.includes(p.timeframe)) setTimeframe(p.timeframe);
+    if (p.days != null) setDays(Number(p.days));
+    if (p.stop_loss_pct != null) setSl(Number(p.stop_loss_pct));
+    if (p.take_profit_pct != null) setTp(Number(p.take_profit_pct));
+    if (p.min_density_usd != null) setMinWallK(Math.round(Number(p.min_density_usd) / 1000));
+    if (p.volume_multiplier != null) setVolMult(Number(p.volume_multiplier));
+    if (p.leverage != null) setLeverage(Number(p.leverage));
+    if (p.entryMode) setEntryMode(p.entryMode);
+    if (p.slMode) setSlMode(p.slMode);
+    if (p.wallSlOffsetTicks != null) setWallSlOffsetTicks(Number(p.wallSlOffsetTicks));
+    if (p.tp1RrRatio != null) setTp1RrRatio(Number(p.tp1RrRatio));
+    if (p.tp2Mode) setTp2Mode(p.tp2Mode);
+    if (p.tp2RrRatio != null) setTp2RrRatio(Number(p.tp2RrRatio));
+    if (p.minWallLifetimeSec != null) setMinWallLifetimeSec(Number(p.minWallLifetimeSec));
+    if (p.use_atr_filter != null) setFilterAtr(Boolean(p.use_atr_filter));
+    if (p.use_atr_sl != null) setFilterAtrSl(Boolean(p.use_atr_sl));
+    if (p.atr_multiplier != null) setAtrMultiplier(Number(p.atr_multiplier));
+    if (p.use_cvd_filter != null) setFilterCvd(Boolean(p.use_cvd_filter));
+    if (p.use_oi_filter != null) setFilterOi(Boolean(p.use_oi_filter));
+    if (p.use_rsi_filter != null) setFilterRsi(Boolean(p.use_rsi_filter));
+  }, [symbol, getParamsForSymbol]);
 
   // ТАКТ 1.2: Расширенные параметры стратегии (Entry Mode, Dynamic SL, Multi-TP, Wall Lifetime)
   const [entryMode, setEntryMode] = useState('limit_bounce'); // 'limit_bounce' | 'breakout' | 'cvd_absorption'
@@ -382,6 +418,117 @@ export default function BacktestPanel({
   const [filterAtrSl, setFilterAtrSl] = useState(false);
   const [atrMultiplier, setAtrMultiplier] = useState(1.5);
   const [filterRsi, setFilterRsi] = useState(false);
+
+  // Handlers for isolated per-symbol parameter persistence
+  const handleSlChange = useCallback((v) => {
+    const n = Number(v);
+    setSl(n);
+    updateSymbolParam({ stop_loss_pct: n });
+  }, [updateSymbolParam]);
+
+  const handleTpChange = useCallback((v) => {
+    const n = Number(v);
+    setTp(n);
+    updateSymbolParam({ take_profit_pct: n });
+  }, [updateSymbolParam]);
+
+  const handleLeverageChange = useCallback((v) => {
+    const n = Number(v);
+    setLeverage(n);
+    updateSymbolParam({ leverage: n });
+  }, [updateSymbolParam]);
+
+  const handleMinWallChange = useCallback((v) => {
+    const n = Number(v);
+    setMinWallK(n);
+    updateSymbolParam({ min_density_usd: n * 1000 });
+  }, [updateSymbolParam]);
+
+  const handleVolMultChange = useCallback((v) => {
+    const n = Number(v);
+    setVolMult(n);
+    updateSymbolParam({ volume_multiplier: n });
+  }, [updateSymbolParam]);
+
+  const handleDaysChange = useCallback((v) => {
+    const n = Number(v);
+    setDays(n);
+    updateSymbolParam({ days: n });
+  }, [updateSymbolParam]);
+
+  const handleTimeframeChange = useCallback((tf) => {
+    setTimeframe(tf);
+    updateSymbolParam({ timeframe: tf });
+  }, [updateSymbolParam]);
+
+  const handleStrategyChange = useCallback((st) => {
+    setStrategy(st);
+    updateSymbolParam({ strategy_type: st });
+    if (onStrategyChange) onStrategyChange(st);
+  }, [updateSymbolParam, onStrategyChange]);
+
+  const handleEntryModeChange = useCallback((em) => {
+    setEntryMode(em);
+    updateSymbolParam({ entryMode: em });
+  }, [updateSymbolParam]);
+
+  const handleSlModeChange = useCallback((sm) => {
+    setSlMode(sm);
+    updateSymbolParam({ slMode: sm });
+  }, [updateSymbolParam]);
+
+  const handleWallSlOffsetChange = useCallback((v) => {
+    const n = Number(v);
+    setWallSlOffsetTicks(n);
+    updateSymbolParam({ wallSlOffsetTicks: n });
+  }, [updateSymbolParam]);
+
+  const handleAtrMultiplierChange = useCallback((v) => {
+    const n = Number(v);
+    setAtrMultiplier(n);
+    updateSymbolParam({ atrMultiplier: n });
+  }, [updateSymbolParam]);
+
+  const handleMultiTpChange = useCallback((checked) => {
+    setUseMultiTp(checked);
+    updateSymbolParam({ use_multi_tp: checked });
+  }, [updateSymbolParam]);
+
+  const handleTp1RrChange = useCallback((v) => {
+    const n = Number(v);
+    setTp1RrRatio(n);
+    updateSymbolParam({ tp1RrRatio: n });
+  }, [updateSymbolParam]);
+
+  const handleTp2ModeChange = useCallback((m) => {
+    setTp2Mode(m);
+    updateSymbolParam({ tp2Mode: m });
+  }, [updateSymbolParam]);
+
+  const handleFilterCvdChange = useCallback((v) => {
+    setFilterCvd(v);
+    updateSymbolParam({ use_cvd_filter: v });
+  }, [updateSymbolParam]);
+
+  const handleFilterOiChange = useCallback((v) => {
+    setFilterOi(v);
+    updateSymbolParam({ use_oi_filter: v });
+  }, [updateSymbolParam]);
+
+  const handleFilterAtrChange = useCallback((v) => {
+    setFilterAtr(v);
+    updateSymbolParam({ use_atr_filter: v });
+  }, [updateSymbolParam]);
+
+  const handleFilterAtrSlChange = useCallback((v) => {
+    setFilterAtrSl(v);
+    updateSymbolParam({ use_atr_sl: v });
+  }, [updateSymbolParam]);
+
+  const handleFilterRsiChange = useCallback((v) => {
+    setFilterRsi(v);
+    updateSymbolParam({ use_rsi_filter: v });
+  }, [updateSymbolParam]);
 
   // Results view tab: 'equity' (Equity & Monte Carlo) | 'optimizer' (Before/After + Leaderboard) | 'trades' | 'matrix'
   const [viewTab, setViewTab] = useState('equity');
@@ -495,6 +642,26 @@ export default function BacktestPanel({
     if (p.use_rsi_filter != null) setFilterRsi(Boolean(p.use_rsi_filter));
 
     // Sync to global backtestStore so 1-click chart backtest immediately uses the preset
+    if (symbol && setParamsForSymbol) {
+      setParamsForSymbol(symbol, {
+        strategy_type: preset.strategy_type || strategy,
+        timeframe: preset.timeframe || timeframe,
+        stop_loss_pct: Number(p.stop_loss_pct ?? sl),
+        take_profit_pct: Number(p.take_profit_pct ?? tp),
+        leverage: Number(p.leverage ?? leverage),
+        min_density_usd: Number(p.min_density_usd ?? minWallK * 1000),
+        volume_multiplier: Number(p.volume_multiplier ?? volMult),
+        entryMode: p.entryMode || entryMode,
+        slMode: p.slMode || slMode,
+        use_atr_filter: Boolean(p.use_atr_filter ?? filterAtr),
+        use_atr_sl: Boolean(p.use_atr_sl ?? filterAtrSl),
+        atr_multiplier: Number(p.atr_multiplier ?? atrMultiplier),
+        use_cvd_filter: Boolean(p.use_cvd_filter ?? filterCvd),
+        use_oi_filter: Boolean(p.use_oi_filter ?? filterOi),
+        use_rsi_filter: Boolean(p.use_rsi_filter ?? filterRsi),
+      });
+    }
+
     useBacktestStore.setState({
       strategyType: preset.strategy_type || strategy,
       customParams: {
@@ -649,6 +816,31 @@ export default function BacktestPanel({
         if (!res.ok)
           throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail));
         handleSetResult({ ...data, symbol, timeframe, mode: 'single' });
+        if (symbol && setParamsForSymbol) {
+          setParamsForSymbol(symbol, {
+            stop_loss_pct: Number(pSl) || 0.8,
+            take_profit_pct: Number(pTp) || 1.5,
+            min_density_usd: (Number(pWallK) || 0) * 1000,
+            volume_multiplier: Number(volMult) || 1.0,
+            leverage: Math.max(1, Math.round(Number(leverage) || 1)),
+            strategy_type: strategy,
+            timeframe,
+            days: Number(days) || 14,
+            use_atr_filter: filterAtr,
+            use_atr_sl: slMode === 'atr_volatility' || filterAtrSl,
+            atr_multiplier: Number(atrMultiplier) || 1.5,
+            use_cvd_filter: pCvd,
+            use_oi_filter: filterOi,
+            use_rsi_filter: filterRsi,
+            entry_mode: entryMode,
+            sl_mode: slMode,
+            wall_sl_offset_ticks: Number(wallSlOffsetTicks) || 5,
+            tp1_rr_ratio: Number(tp1RrRatio) || 1.5,
+            tp2_mode: tp2Mode,
+            tp2_rr_ratio: Number(tp2RrRatio) || 2.8,
+            min_wall_lifetime_sec: Math.min(60, Math.max(10, Number(minWallLifetimeSec) || 30))
+          });
+        }
         if (data.active_position_setup) {
           projectSetupOntoTerminal(data.active_position_setup);
         }
@@ -1248,7 +1440,7 @@ export default function BacktestPanel({
                         {TIMEFRAMES.map((tf) => (
                           <button
                             key={tf}
-                            onClick={() => setTimeframe(tf)}
+                            onClick={() => handleTimeframeChange(tf)}
                             className={`flex-1 py-0.5 rounded text-[9px] font-mono transition cursor-pointer ${
                               timeframe === tf
                                 ? 'bg-neutral-200 text-neutral-950 font-bold shadow-xs'
@@ -1267,7 +1459,7 @@ export default function BacktestPanel({
                       <NumField
                         label=""
                         value={days}
-                        onChange={setDays}
+                        onChange={handleDaysChange}
                         step={1}
                         min={1}
                         max={30}
@@ -1286,7 +1478,7 @@ export default function BacktestPanel({
                     <select
                       data-testid="select-entry-mode"
                       value={entryMode}
-                      onChange={(e) => setEntryMode(e.target.value)}
+                      onChange={(e) => handleEntryModeChange(e.target.value)}
                       className="w-full bg-neutral-900 border border-neutral-800 rounded px-2 py-0.5 text-neutral-200 text-[9.5px] outline-none focus:border-neutral-500"
                     >
                       <option value="limit_bounce">Лимитный отскок от плотности (Bounce)</option>
@@ -1313,9 +1505,9 @@ export default function BacktestPanel({
 
                 {mode === 'single' ? (
                   <div className="grid grid-cols-3 gap-1.5">
-                    <NumField label="SL" value={sl} onChange={setSl} step={0.1} min={0.1} suffix="%" tooltip="Stop-Loss в % от точки входа" />
-                    <NumField label="TP" value={tp} onChange={setTp} step={0.1} min={0.1} suffix="%" tooltip="Take-Profit в % от точки входа" />
-                    <NumField label="Плечо" value={leverage} onChange={setLeverage} step={1} min={1} max={125} suffix="x" tooltip="Изолированное кредитное плечо для расчёта" />
+                    <NumField label="SL" value={sl} onChange={handleSlChange} step={0.1} min={0.1} suffix="%" tooltip="Stop-Loss в % от точки входа" />
+                    <NumField label="TP" value={tp} onChange={handleTpChange} step={0.1} min={0.1} suffix="%" tooltip="Take-Profit в % от точки входа" />
+                    <NumField label="Плечо" value={leverage} onChange={handleLeverageChange} step={1} min={1} max={125} suffix="x" tooltip="Изолированное кредитное плечо для расчёта" />
                   </div>
                 ) : (
                   <div className="space-y-1">
@@ -1346,7 +1538,7 @@ export default function BacktestPanel({
                         key={opt.id}
                         type="button"
                         data-testid={`sl-mode-${opt.id}`}
-                        onClick={() => setSlMode(opt.id)}
+                        onClick={() => handleSlModeChange(opt.id)}
                         className={`py-0.5 px-1 rounded border text-[8.5px] truncate transition cursor-pointer ${
                           slMode === opt.id
                             ? 'bg-neutral-200 text-neutral-950 border-neutral-300 font-bold shadow-xs'
@@ -1366,7 +1558,7 @@ export default function BacktestPanel({
                         min={1}
                         max={50}
                         value={wallSlOffsetTicks}
-                        onChange={(e) => setWallSlOffsetTicks(Number(e.target.value) || 5)}
+                        onChange={(e) => handleWallSlOffsetChange(e.target.value)}
                         className="w-16 bg-neutral-900 border border-neutral-800 rounded px-1 py-0.5 text-right text-neutral-200 text-[9px] outline-none focus:border-neutral-500"
                       />
                     </div>
@@ -1381,7 +1573,7 @@ export default function BacktestPanel({
                         min={1.0}
                         max={3.0}
                         value={atrMultiplier}
-                        onChange={(e) => setAtrMultiplier(Number(e.target.value) || 1.5)}
+                        onChange={(e) => handleAtrMultiplierChange(e.target.value)}
                         className="w-16 bg-neutral-900 border border-neutral-800 rounded px-1 py-0.5 text-right text-neutral-200 text-[9px] outline-none focus:border-neutral-500"
                       />
                     </div>
@@ -1397,7 +1589,7 @@ export default function BacktestPanel({
                         data-testid="toggle-multi-tp"
                         type="checkbox"
                         checked={useMultiTp}
-                        onChange={(e) => setUseMultiTp(e.target.checked)}
+                        onChange={(e) => handleMultiTpChange(e.target.checked)}
                         className="w-3 h-3 rounded accent-neutral-200 cursor-pointer"
                       />
                       <span>Включить (50% + Б/У)</span>
@@ -1416,7 +1608,7 @@ export default function BacktestPanel({
                         min={0.8}
                         max={4.0}
                         value={tp1RrRatio}
-                        onChange={(e) => setTp1RrRatio(Number(e.target.value) || 1.5)}
+                        onChange={(e) => handleTp1RrChange(e.target.value)}
                         className="bg-neutral-900 border border-neutral-800 rounded px-1.5 py-0.5 text-neutral-200 text-right text-[9.5px] outline-none focus:border-neutral-500"
                       />
                     </label>
@@ -1428,7 +1620,7 @@ export default function BacktestPanel({
                       <select
                         data-testid="select-tp2-mode"
                         value={tp2Mode}
-                        onChange={(e) => setTp2Mode(e.target.value)}
+                        onChange={(e) => handleTp2ModeChange(e.target.value)}
                         className="bg-neutral-900 border border-neutral-800 rounded px-1.5 py-0.5 text-neutral-200 text-[9px] outline-none focus:border-neutral-500"
                       >
                         <option value="opposite_wall">Перед стенкой</option>
@@ -1455,7 +1647,7 @@ export default function BacktestPanel({
                   <NumField
                     label="Стенка стакана"
                     value={minWallK}
-                    onChange={setMinWallK}
+                    onChange={handleMinWallChange}
                     step={50}
                     min={0}
                     suffix="$k"
@@ -1464,7 +1656,7 @@ export default function BacktestPanel({
                   <NumField
                     label="Объём свечи ×"
                     value={volMult}
-                    onChange={setVolMult}
+                    onChange={handleVolMultChange}
                     step={0.1}
                     min={0.5}
                     tooltip="Множитель объема свечного кластера"
@@ -1489,7 +1681,11 @@ export default function BacktestPanel({
                     max={60}
                     step={5}
                     value={minWallLifetimeSec}
-                    onChange={(e) => setMinWallLifetimeSec(Number(e.target.value))}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      setMinWallLifetimeSec(v);
+                      updateSymbolParam({ minWallLifetimeSec: v });
+                    }}
                     className="w-full h-1.5 accent-neutral-300 bg-neutral-800 rounded cursor-pointer mt-0.5"
                   />
                 </div>
@@ -1507,10 +1703,10 @@ export default function BacktestPanel({
                   </div>
                   <div className="grid grid-cols-4 gap-1 text-[8.5px] font-mono">
                     {[
-                      { label: 'CVD', active: filterCvd, toggle: () => setFilterCvd(!filterCvd) },
-                      { label: 'OI', active: filterOi, toggle: () => setFilterOi(!filterOi) },
-                      { label: 'ATR', active: filterAtr, toggle: () => setFilterAtr(!filterAtr) },
-                      { label: 'RSI', active: filterRsi, toggle: () => setFilterRsi(!filterRsi) }
+                      { label: 'CVD', active: filterCvd, toggle: () => handleFilterCvdChange(!filterCvd) },
+                      { label: 'OI', active: filterOi, toggle: () => handleFilterOiChange(!filterOi) },
+                      { label: 'ATR', active: filterAtr, toggle: () => handleFilterAtrChange(!filterAtr) },
+                      { label: 'RSI', active: filterRsi, toggle: () => handleFilterRsiChange(!filterRsi) }
                     ].map((f) => (
                       <button
                         key={f.label}

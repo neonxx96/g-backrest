@@ -53,16 +53,19 @@ class PaperPosition:
     avg_entry_price: float = 0.0
     entry_ts: int = 0
     stop_price: float = 0.0
+    initial_stop_price: float = 0.0
     target_price: float = 0.0
     fees_paid: float = 0.0
     closed: bool = False
+    breakeven_triggered: bool = False
     reason: str = "Technical Signal"
 
     @property
     def risk_amount(self) -> float:
-        """R in absolute USDT: distance to stop * qty (fallback: notional * 0.005)."""
-        if self.stop_price > 0 and self.avg_entry_price > 0:
-            return abs(self.avg_entry_price - self.stop_price) * self.qty
+        """R in absolute USDT: distance to initial stop * qty (fallback: notional * 0.005)."""
+        ref_stop = self.initial_stop_price if self.initial_stop_price > 0 else self.stop_price
+        if ref_stop > 0 and self.avg_entry_price > 0:
+            return abs(self.avg_entry_price - ref_stop) * self.qty
         return self.avg_entry_price * self.qty * 0.005
 
     def unrealized_pnl(self, last_price: float) -> float:
@@ -276,6 +279,80 @@ class PaperTradingSession:
             "target_price": po.target_price,
         }
 
+    @staticmethod
+    def estimate_tick_size(price: float) -> float:
+        """Estimates minimum tick size for crypto assets."""
+        if price <= 0:
+            return 0.01
+        if price >= 10000:
+            return 0.1
+        elif price >= 1000:
+            return 0.01
+        elif price >= 10:
+            return 0.001
+        elif price >= 1:
+            return 0.0001
+        else:
+            return 0.00001
+
+    def check_dynamic_breakeven(self, symbol: str, current_price: float) -> bool:
+        """
+        Dynamic Breakeven (MFE Bleed Protection):
+        When floating profit reaches +0.5R (where R = abs(entry - initial_sl)),
+        Stop-Loss is automatically moved to Breakeven:
+        Entry + (Fee * 2) + 1 tick (Long)
+        Entry - (Fee * 2) - 1 tick (Short)
+        Accounts for double fee + tick size so net outcome is strictly zero or slight profit.
+        """
+        pos = self.positions.get(symbol)
+        if not pos or pos.closed or pos.qty <= 0 or current_price <= 0:
+            return False
+
+        if pos.breakeven_triggered:
+            return False
+
+        ref_sl = pos.initial_stop_price if pos.initial_stop_price > 0 else pos.stop_price
+        if ref_sl <= 0 or abs(pos.avg_entry_price - ref_sl) < 1e-9:
+            r_dist = pos.avg_entry_price * 0.015
+        else:
+            r_dist = abs(pos.avg_entry_price - ref_sl)
+
+        entry = pos.avg_entry_price
+        fee_rate = self.taker_fee * 2.0
+        fee_offset = entry * fee_rate
+        tick = self.estimate_tick_size(entry)
+
+        if pos.side == "LONG":
+            floating_pnl_dist = current_price - entry
+            if floating_pnl_dist >= 0.5 * r_dist:
+                new_sl = entry + fee_offset + tick
+                pos.breakeven_triggered = True
+                if new_sl > pos.stop_price:
+                    old_sl = pos.stop_price
+                    pos.stop_price = new_sl
+                    logger.info(
+                        f"[TRADE] DYNAMIC BREAKEVEN [{self.session_id}] {symbol} LONG: "
+                        f"MFE reached +0.5R (+{floating_pnl_dist:.4f} >= {0.5 * r_dist:.4f}). "
+                        f"SL moved {old_sl:.4f} -> {new_sl:.4f} (+2*Fee+1tick) | reason='Dynamic Breakeven (MFE Bleed Protection)'"
+                    )
+                    return True
+        elif pos.side == "SHORT":
+            floating_pnl_dist = entry - current_price
+            if floating_pnl_dist >= 0.5 * r_dist:
+                new_sl = entry - fee_offset - tick
+                pos.breakeven_triggered = True
+                if pos.stop_price <= 0 or new_sl < pos.stop_price:
+                    old_sl = pos.stop_price
+                    pos.stop_price = new_sl
+                    logger.info(
+                        f"[TRADE] DYNAMIC BREAKEVEN [{self.session_id}] {symbol} SHORT: "
+                        f"MFE reached +0.5R (+{floating_pnl_dist:.4f} >= {0.5 * r_dist:.4f}). "
+                        f"SL moved {old_sl:.4f} -> {new_sl:.4f} (-2*Fee-1tick) | reason='Dynamic Breakeven (MFE Bleed Protection)'"
+                    )
+                    return True
+
+        return False
+
     # ------------------------------------------------------------------ #
     #  Event feeding
     # ------------------------------------------------------------------ #
@@ -294,6 +371,9 @@ class PaperTradingSession:
             symbol = getattr(event, "symbol", None) or event.payload.get("symbol")
             if symbol and price > 0:
                 self.last_prices[symbol] = price
+
+                # Check Dynamic Breakeven (+0.5R MFE protection)
+                self.check_dynamic_breakeven(symbol, price)
 
                 # --- Early Exit Engine integration (MFE/MAE + alerts) ---
                 self.early_exit_engine.on_price_update(symbol, price, ts)
@@ -337,23 +417,27 @@ class PaperTradingSession:
         pos_side = "LONG" if entry_side == "BUY" else "SHORT"
 
         if pos is None or pos.closed or pos.qty <= 0:
+            stop_px = float(getattr(po, "stop_price", 0.0))
             pos = PaperPosition(
                 symbol=symbol,
                 side=pos_side,
                 qty=0.0,
                 avg_entry_price=0.0,
                 entry_ts=po.created_ts,
-                stop_price=getattr(po, "stop_price", 0.0),
-                target_price=getattr(po, "target_price", 0.0),
+                stop_price=stop_px,
+                initial_stop_price=stop_px,
+                target_price=float(getattr(po, "target_price", 0.0)),
                 reason=getattr(po, "reason", "Technical Signal"),
+                breakeven_triggered=False,
             )
             self.positions[symbol] = pos
         else:
             pos.reason = getattr(po, "reason", pos.reason)
-            if getattr(po, "stop_price", 0.0) > 0:
-                pos.stop_price = po.stop_price
+            if getattr(po, "stop_price", 0.0) > 0 and pos.stop_price <= 0:
+                pos.stop_price = float(po.stop_price)
+                pos.initial_stop_price = float(po.stop_price)
             if getattr(po, "target_price", 0.0) > 0:
-                pos.target_price = po.target_price
+                pos.target_price = float(po.target_price)
 
         if pos.side != pos_side:
             logger.warning(f"[PaperSession] conflicting side for {symbol}: {pos.side} vs {pos_side}")
@@ -563,6 +647,8 @@ class PaperTradingSession:
                 "avg_entry_price": pos.avg_entry_price,
                 "entry_ts": pos.entry_ts,
                 "stop_price": pos.stop_price,
+                "initial_stop_price": pos.initial_stop_price,
+                "breakeven_triggered": pos.breakeven_triggered,
                 "target_price": getattr(pos, "target_price", 0.0),
                 "reason": getattr(pos, "reason", "Technical Signal"),
                 "fees_paid": pos.fees_paid,

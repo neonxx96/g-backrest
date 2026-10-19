@@ -6,6 +6,7 @@ Streams real-time progress and telemetry updates to frontend clients via WebSock
 """
 
 import asyncio
+import inspect
 import logging
 import time
 from typing import Dict, Any, List, Set, Optional
@@ -140,6 +141,7 @@ class BackgroundWorker:
 
         self._main_loop_task: Optional[asyncio.Task] = None
         self._running: bool = False
+        self.start_time: float = time.time()
 
         # Initialize statuses
         for ticker in self.monitored_tickers:
@@ -425,12 +427,10 @@ class BackgroundWorker:
             adapted_cfg = walk_forward_engine.get_adapted_parameters(ticker, regime)
             opt_cfg = adapted_cfg if adapted_cfg else self.optimized_params.get(ticker, CANDIDATE_STRATEGIES[0])
 
+            valid_bt_keys = set(inspect.signature(backtester.run_backtest).parameters.keys())
             clean_params = {
                 k: v for k, v in opt_cfg.items()
-                if k not in (
-                    "name", "is_profitable", "pnl_pct", "win_rate_pct", "trades_count",
-                    "regime", "is_trade_allowed", "uplift", "sample_bars", "updated_at", "source", "reason"
-                )
+                if k in valid_bt_keys and k not in ("df", "compute_monte_carlo", "fast_eval")
             }
 
             bt_res = backtester.run_backtest(
@@ -467,19 +467,25 @@ class BackgroundWorker:
             paper_trading_session.last_prices[ticker] = last_close
             paper_trading_session._last_event_ts = max(paper_trading_session._last_event_ts, now_ms)
 
-            # Evaluate any existing active positions for stop-loss or take-profit
+            # Evaluate any existing active positions for dynamic breakeven, stop-loss or take-profit
             active_pos = paper_trading_session.positions.get(ticker)
             if active_pos and not active_pos.closed and active_pos.qty > 0:
+                # 1. Dynamic Breakeven check (+0.5R MFE protection)
+                paper_trading_session.check_dynamic_breakeven(ticker, last_close)
+
+                # 2. Check Stop Loss (MARKET / Taker fee) or Take Profit (LIMIT / Maker fee)
                 if active_pos.side == "LONG":
                     if active_pos.stop_price > 0 and last_close <= active_pos.stop_price:
-                        paper_trading_session.close_position(ticker, reason="Stop Loss Hit", price=last_close)
+                        sl_reason = "Dynamic Breakeven Hit" if active_pos.breakeven_triggered else "Stop Loss Hit"
+                        paper_trading_session.close_position(ticker, reason=sl_reason, price=last_close, order_type="MARKET")
                     elif active_pos.target_price > 0 and last_close >= active_pos.target_price:
-                        paper_trading_session.close_position(ticker, reason="Take Profit Hit", price=last_close)
+                        paper_trading_session.close_position(ticker, reason="Take Profit Hit", price=last_close, order_type="LIMIT")
                 elif active_pos.side == "SHORT":
                     if active_pos.stop_price > 0 and last_close >= active_pos.stop_price:
-                        paper_trading_session.close_position(ticker, reason="Stop Loss Hit", price=last_close)
+                        sl_reason = "Dynamic Breakeven Hit" if active_pos.breakeven_triggered else "Stop Loss Hit"
+                        paper_trading_session.close_position(ticker, reason=sl_reason, price=last_close, order_type="MARKET")
                     elif active_pos.target_price > 0 and last_close <= active_pos.target_price:
-                        paper_trading_session.close_position(ticker, reason="Take Profit Hit", price=last_close)
+                        paper_trading_session.close_position(ticker, reason="Take Profit Hit", price=last_close, order_type="LIMIT")
 
             # Open paper trade if profitable regime found and fresh signal exists
             is_profitable = opt_cfg.get("is_profitable", True)

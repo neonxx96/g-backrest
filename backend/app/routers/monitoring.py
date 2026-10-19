@@ -8,9 +8,28 @@ from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
+import time
+
 from backend.app.engine.background_worker import background_worker
 
+SERVER_START_TIME = time.time()
+
 router = APIRouter(prefix="/api/screener/monitoring", tags=["screener-monitoring"])
+system_monitoring_router = APIRouter(prefix="/api/monitoring", tags=["monitoring"])
+
+
+def _build_monitoring_payload():
+    start = getattr(background_worker, "start_time", SERVER_START_TIME) or SERVER_START_TIME
+    uptime = max(0.0, round(time.time() - start, 2))
+    return {
+        "status": "ok",
+        "uptime": uptime,
+        "active_workers": 1,
+        "monitored_tickers": sorted(list(background_worker.monitored_tickers)),
+        "statuses": background_worker.task_statuses,
+        "active_tasks_count": len([t for t in background_worker.active_tasks.values() if not t.done()]),
+        "max_concurrency": background_worker.max_concurrency
+    }
 
 
 class SetMonitoredTickersRequest(BaseModel):
@@ -23,14 +42,17 @@ class ToggleTickerRequest(BaseModel):
 
 
 @router.get("")
+@router.get("/state")
 async def get_monitoring_state():
     """Returns the list of monitored tickers and their latest background analysis statuses."""
-    return {
-        "monitored_tickers": sorted(list(background_worker.monitored_tickers)),
-        "statuses": background_worker.task_statuses,
-        "active_tasks_count": len([t for t in background_worker.active_tasks.values() if not t.done()]),
-        "max_concurrency": background_worker.max_concurrency
-    }
+    return _build_monitoring_payload()
+
+
+@system_monitoring_router.get("")
+@system_monitoring_router.get("/state")
+async def get_system_monitoring_state():
+    """Returns system monitoring state including uptime, active workers, statuses, and tickers."""
+    return _build_monitoring_payload()
 
 
 @router.post("")

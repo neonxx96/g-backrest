@@ -41,6 +41,7 @@ class PositionTrackState:
     mfe_ts: int = 0            # timestamp of the MFE peak
     last_price: float = 0.0
     last_update_ts: int = 0
+    breakeven_triggered: bool = False
     active_alerts: List[dict] = field(default_factory=list)
 
     @property
@@ -145,6 +146,20 @@ class EarlyExitEngine:
         now_ts = position_state.last_update_ts
         pnl_r = position_state.current_pnl_r
         mfe_r = position_state.mfe_r
+
+        # Rule 0: Dynamic Breakeven triggered (+0.5R reached)
+        if position_state.mfe_r >= self.mfe_bleed_r_threshold and not position_state.breakeven_triggered:
+            position_state.breakeven_triggered = True
+            alerts.append({
+                "symbol": position_state.symbol,
+                "alert_type": "Dynamic_Breakeven",
+                "severity": "INFO",
+                "message": "INFO: MFE >= +0.5R reached. Stop-Loss moved to Breakeven (+2*Fee+1tick)",
+                "mfe": round(position_state.mfe, 6),
+                "mfe_r": round(mfe_r, 4),
+                "current_pnl": round(position_state.current_pnl, 6),
+                "timestamp": now_ts,
+            })
 
         # Rule 1: Profit bleed (MFE_Bleed)
         if (
