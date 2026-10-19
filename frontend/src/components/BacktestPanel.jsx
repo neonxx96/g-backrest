@@ -1621,6 +1621,7 @@ export default function BacktestPanel({
                       <div className="text-[8.5px] text-neutral-400 font-mono mb-0.5">Период истории:</div>
                       <NumField
                         label=""
+                        testId="input-days"
                         value={days}
                         onChange={handleDaysChange}
                         step={1}
@@ -1668,9 +1669,9 @@ export default function BacktestPanel({
 
                 {mode === 'single' ? (
                   <div className="grid grid-cols-3 gap-1.5">
-                    <NumField label="SL" value={sl} onChange={handleSlChange} step={0.1} min={0.1} suffix="%" tooltip="Stop-Loss в % от точки входа" />
-                    <NumField label="TP" value={tp} onChange={handleTpChange} step={0.1} min={0.1} suffix="%" tooltip="Take-Profit в % от точки входа" />
-                    <NumField label="Плечо" value={leverage} onChange={handleLeverageChange} step={1} min={1} max={125} suffix="x" tooltip="Изолированное кредитное плечо для расчёта" />
+                    <NumField testId="input-sl" label="SL" value={sl} onChange={handleSlChange} step={0.1} min={0.1} suffix="%" tooltip="Stop-Loss в % от точки входа" />
+                    <NumField testId="input-tp" label="TP" value={tp} onChange={handleTpChange} step={0.1} min={0.1} suffix="%" tooltip="Take-Profit в % от точки входа" />
+                    <NumField testId="input-leverage" label="Плечо" value={leverage} onChange={handleLeverageChange} step={1} min={1} max={125} suffix="x" tooltip="Изолированное кредитное плечо для расчёта" />
                   </div>
                 ) : (
                   <div className="space-y-1">
