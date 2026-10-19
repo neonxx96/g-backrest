@@ -505,20 +505,25 @@ class PaperTradingSession:
             return
 
         close_qty = min(qty, pos.qty)
+        open_qty_before_exit = pos.qty
+        # Allocate entry fees proportionally so Net PnL stays truthful on partial exits.
+        entry_fee_share = pos.fees_paid * (close_qty / open_qty_before_exit) if open_qty_before_exit > 0 else 0.0
         if pos.side == "LONG":
             gross = (price - pos.avg_entry_price) * close_qty
         else:
             gross = (pos.avg_entry_price - price) * close_qty
-        net = gross - fee
+        net = gross - entry_fee_share - fee
         self.realized_pnl += net
-        pos.fees_paid += fee
+        pos.fees_paid = max(0.0, pos.fees_paid - entry_fee_share)
         self.total_fees_paid += fee
         pos.qty -= close_qty
 
         pnl_pct = ((price - pos.avg_entry_price) / pos.avg_entry_price * 100.0) if pos.side == "LONG" else ((pos.avg_entry_price - price) / pos.avg_entry_price * 100.0)
         exit_reason = getattr(po, "reason", "Exit Target/Stop")
 
-        # Record closed trade
+        track = self.early_exit_engine.tracks.get(symbol)
+        fee_drag = entry_fee_share + fee
+        # Record closed trade with the completed Reality Mirror metrics.
         self.closed_trades.append({
             "symbol": symbol,
             "side": pos.side,
@@ -531,6 +536,11 @@ class PaperTradingSession:
             "net_pnl": net,
             "pnl_percent": round(pnl_pct, 2),
             "fee": fee,
+            "fee_drag": fee_drag,
+            "mfe": track.mfe if track else 0.0,
+            "mae": track.mae if track else 0.0,
+            "mfe_r": round(track.mfe_r, 4) if track else 0.0,
+            "profit_bleed": bool(track and track.mfe_r >= 0.5 and net <= 0.0),
             "reason": exit_reason,
             "entry_reason": getattr(pos, "reason", "Technical Signal"),
             "entry_ts": pos.entry_ts,
@@ -694,10 +704,11 @@ class PaperTradingSession:
                 else:
                     gross = (pos.avg_entry_price - market_price) * close_qty
                     pnl_pct = ((pos.avg_entry_price - market_price) / pos.avg_entry_price * 100.0) if pos.avg_entry_price > 0 else 0.0
-                net = gross - fee
+                entry_fee = pos.fees_paid
+                net = gross - entry_fee - fee
 
                 self.realized_pnl += net
-                pos.fees_paid += fee
+                pos.fees_paid = 0.0
                 self.total_fees_paid += fee
                 pos.qty = 0.0
                 pos.closed = True
@@ -714,6 +725,11 @@ class PaperTradingSession:
                     "net_pnl": net,
                     "pnl_percent": round(pnl_pct, 2),
                     "fee": fee,
+                    "fee_drag": entry_fee + fee,
+                    "mfe": track.mfe if (track := self.early_exit_engine.tracks.get(sym)) else 0.0,
+                    "mae": track.mae if track else 0.0,
+                    "mfe_r": round(track.mfe_r, 4) if track else 0.0,
+                    "profit_bleed": bool(track and track.mfe_r >= 0.5 and net <= 0.0),
                     "reason": f"KILL_SWITCH: {reason}",
                     "entry_reason": getattr(pos, "reason", "Technical Signal"),
                     "entry_ts": pos.entry_ts,

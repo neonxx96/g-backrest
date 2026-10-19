@@ -130,13 +130,17 @@ export default function TradeHistoryWidget(props) {
         activePositions: 0,
         totalTrades: 0,
         winRate: 0,
+        avgFee: 0,
+        profitBleedPct: 0,
         uptimeStr: '00:00:00'
       };
     }
 
     const closed = sessionData.closed_trades || [];
-    const wins = closed.filter((t) => (t.exit_price - t.entry_price) * (t.side === 'LONG' ? 1 : -1) > 0);
+    const wins = closed.filter((t) => Number(t.net_pnl ?? 0) > 0);
     const wr = closed.length > 0 ? (wins.length / closed.length) * 100 : 0;
+    const totalFeeDrag = closed.reduce((sum, trade) => sum + Number(trade.fee_drag ?? trade.fee ?? 0), 0);
+    const bleedCount = closed.filter((trade) => trade.profit_bleed).length;
 
     const uptimeSec = sessionData.uptime_seconds || 0;
     const hrs = Math.floor(uptimeSec / 3600);
@@ -152,6 +156,8 @@ export default function TradeHistoryWidget(props) {
       activePositions: (sessionData.positions || []).length,
       totalTrades: closed.length,
       winRate: Math.round(wr),
+      avgFee: closed.length > 0 ? totalFeeDrag / closed.length : 0,
+      profitBleedPct: closed.length > 0 ? (bleedCount / closed.length) * 100 : 0,
       uptimeStr
     };
   }, [sessionData]);
@@ -253,7 +259,7 @@ export default function TradeHistoryWidget(props) {
         )}
 
         {/* Institutional Metrics Grid */}
-        <div className="grid grid-cols-5 gap-2 text-center text-[10px] font-mono">
+        <div className="grid grid-cols-6 gap-2 text-center text-[10px] font-mono">
           <div className="p-1.5 rounded bg-[#12161E] border border-neutral-800/80 flex flex-col">
             <span className="text-neutral-500 uppercase text-[9px]">Баланс</span>
             <span className="font-bold text-white text-[12px] tabular-nums">
@@ -281,6 +287,14 @@ export default function TradeHistoryWidget(props) {
             <span className="font-bold text-neutral-200 text-[12px] tabular-nums">
               {metrics.winRate}% <span className="text-[9px] text-neutral-500">({metrics.totalTrades})</span>
             </span>
+          </div>
+          <div className="p-1.5 rounded bg-[#12161E] border border-neutral-800/80 flex flex-col">
+            <span className="text-neutral-500 uppercase text-[9px]">Avg Fee Drag</span>
+            <span className="font-bold text-amber-300 text-[12px] tabular-nums">-${metrics.avgFee.toFixed(2)}</span>
+          </div>
+          <div className="p-1.5 rounded bg-[#12161E] border border-neutral-800/80 flex flex-col">
+            <span className="text-neutral-500 uppercase text-[9px]">Profit Bleed</span>
+            <span className="font-bold text-rose-300 text-[12px] tabular-nums">{metrics.profitBleedPct.toFixed(0)}%</span>
           </div>
           <div className="p-1.5 rounded bg-[#12161E] border border-neutral-800/80 flex flex-col">
             <span className="text-neutral-500 uppercase text-[9px]">Аптайм</span>
@@ -349,7 +363,9 @@ export default function TradeHistoryWidget(props) {
                     <th className="py-2 px-3">Сторона</th>
                     <th className="py-2 px-3 text-right">Вход</th>
                     <th className="py-2 px-3 text-right">Выход</th>
-                    <th className="py-2 px-3 text-right">PnL ($)</th>
+                    <th className="py-2 px-3 text-right">Net PnL</th>
+                    <th className="py-2 px-3 text-right">Fee Drag</th>
+                    <th className="py-2 px-3 text-right">MFE / MAE</th>
                     <th className="py-2 px-3">Причина входа / выхода</th>
                   </tr>
                 </thead>
@@ -359,7 +375,9 @@ export default function TradeHistoryWidget(props) {
                     const pnlPct = trade.entry_price > 0
                       ? ((trade.exit_price - trade.entry_price) / trade.entry_price) * 100 * (trade.side === 'LONG' ? 1 : -1)
                       : 0;
-                    const isProfit = gross > 0;
+                    const netPnl = Number(trade.net_pnl ?? gross - Number(trade.fee_drag ?? trade.fee ?? 0));
+                    const feeDrag = Number(trade.fee_drag ?? trade.fee ?? 0);
+                    const isProfit = netPnl > 0;
                     const timeStr = trade.exit_ts ? new Date(trade.exit_ts).toLocaleTimeString() : '--:--:--';
 
                     return (
@@ -388,7 +406,11 @@ export default function TradeHistoryWidget(props) {
                           ${trade.exit_price?.toFixed(2)}
                         </td>
                         <td className={`py-2 px-3 text-right font-bold tabular-nums ${isProfit ? 'text-[#10b981]' : 'text-[#ef4444]'}`}>
-                          {isProfit ? '+' : ''}${gross.toFixed(2)} ({isProfit ? '+' : ''}{pnlPct.toFixed(2)}%)
+                          {isProfit ? '+' : ''}${netPnl.toFixed(2)} ({isProfit ? '+' : ''}{pnlPct.toFixed(2)}%)
+                        </td>
+                        <td className="py-2 px-3 text-right text-amber-300 tabular-nums">-${feeDrag.toFixed(2)}</td>
+                        <td className="py-2 px-3 text-right text-neutral-300 tabular-nums">
+                          <span className="text-emerald-300">+{Number(trade.mfe ?? 0).toFixed(2)}</span> / <span className="text-rose-300">-{Number(trade.mae ?? 0).toFixed(2)}</span>
                         </td>
                         <td className="py-2 px-3 text-neutral-400 max-w-[280px] truncate" title={trade.reason || trade.exit_reason || 'Signal'}>
                           {trade.reason || trade.exit_reason || 'Confluence Signal'}

@@ -353,12 +353,13 @@ try {
       if (!Number.isFinite(y0) || !Number.isFinite(y1)) return [];
 
       const isLong = ext.direction === 'LONG' || ext.type === 'BUY';
+      const isPaper = ext.source === 'paper';
       const pnlPct = Number(ext.pnl_pct ?? ext.pnl_percent ?? 0);
       const isProfit = pnlPct >= 0;
-      const pnlColor = isProfit ? '#10b981' : '#ef4444';
-      const pnlBg = isProfit ? 'rgba(16, 185, 129, 0.20)' : 'rgba(239, 68, 68, 0.20)';
-      const pnlBorder = isProfit ? 'rgba(16, 185, 129, 0.80)' : 'rgba(239, 68, 68, 0.80)';
-      const entryColor = isLong ? '#10b981' : '#ef4444';
+      const pnlColor = isProfit ? (isPaper ? '#38bdf8' : '#10b981') : (isPaper ? '#a78bfa' : '#ef4444');
+      const pnlBg = isProfit ? (isPaper ? 'rgba(56, 189, 248, 0.14)' : 'rgba(16, 185, 129, 0.20)') : (isPaper ? 'rgba(167, 139, 250, 0.14)' : 'rgba(239, 68, 68, 0.20)');
+      const pnlBorder = isProfit ? (isPaper ? 'rgba(56, 189, 248, 0.65)' : 'rgba(16, 185, 129, 0.80)') : (isPaper ? 'rgba(167, 139, 250, 0.65)' : 'rgba(239, 68, 68, 0.80)');
+      const entryColor = isPaper ? (isLong ? '#38bdf8' : '#a78bfa') : (isLong ? '#10b981' : '#ef4444');
 
       const figures = [];
 
@@ -1581,6 +1582,8 @@ export default function Chart({
   const lastScrolledResult = useRef(null);
   const [klinesVersion, setKlinesVersion] = useState(0);
   const [btTooltip, setBtTooltip] = useState(null);
+  const [paperTrades, setPaperTrades] = useState([]);
+  const paperOverlayIds = useRef([]);
 
   // Market Regime: Toxic Volatility state
   const [isToxicRegime, setIsToxicRegime] = useState(false);
@@ -1620,6 +1623,24 @@ export default function Chart({
   const showLiveSignals = useMarketDataStore((s) => s.showLiveSignals);
   const toggleLiveSignals = useMarketDataStore((s) => s.toggleLiveSignals);
   const liveSignalOverlayIds = useRef([]);
+
+  // Paper trades share the same native overlay path as historical trades, with muted blue/violet colors.
+  useEffect(() => {
+    let active = true;
+    const loadPaperTrades = async () => {
+      try {
+        const response = await fetch('/api/paper-trading/status');
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (active) setPaperTrades((payload.closed_trades || []).filter((trade) => trade.symbol === symbol.toUpperCase()));
+      } catch (_) {
+        if (active) setPaperTrades([]);
+      }
+    };
+    loadPaperTrades();
+    const interval = setInterval(loadPaperTrades, 5000);
+    return () => { active = false; clearInterval(interval); };
+  }, [symbol]);
 
   const handleQuickBacktestCurrentSetup = useCallback(async () => {
     try {
@@ -3314,6 +3335,67 @@ export default function Chart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveBacktestSignals, effectiveShowBtSignals, symbol, timeframe, klinesVersion, chartReady]);
 
+  useEffect(() => {
+    const chart = chartRef.current;
+    const klines = currentKlines.current;
+    paperOverlayIds.current.forEach((id) => { try { chart?.removeOverlay({ id }); } catch (_) {} });
+    paperOverlayIds.current = [];
+    if (!chart || !klines?.length || !paperTrades.length) return;
+
+    const firstTs = klines[0].timestamp;
+    const lastTs = klines[klines.length - 1].timestamp;
+    const nearestBar = (timestamp) => {
+      if (!timestamp || timestamp < firstTs || timestamp > lastTs) return null;
+      return klines.reduce((nearest, bar) => (
+        Math.abs(bar.timestamp - timestamp) < Math.abs(nearest.timestamp - timestamp) ? bar : nearest
+      ), klines[0]);
+    };
+    const container = chartContainerRef.current;
+    paperTrades.forEach((rawTrade) => {
+      const entryBar = nearestBar(rawTrade.entry_ts);
+      const exitBar = nearestBar(rawTrade.exit_ts) || entryBar;
+      if (!entryBar || !exitBar) return;
+      const trade = {
+        ...rawTrade,
+        id: rawTrade.order_id || `paper-${rawTrade.entry_ts}`,
+        direction: rawTrade.side,
+        entry_time: rawTrade.entry_ts,
+        exit_time: rawTrade.exit_ts,
+        pnl_usd: rawTrade.net_pnl,
+        pnl_pct: rawTrade.pnl_percent,
+        fee_paid_usd: rawTrade.fee_drag,
+        reason: rawTrade.entry_reason || rawTrade.reason,
+      };
+      try {
+        const id = chart.createOverlay({
+          name: 'backtestTradeLine',
+          lock: true,
+          points: [
+            { timestamp: entryBar.timestamp, value: Number(rawTrade.entry_price) },
+            { timestamp: exitBar.timestamp, value: Number(rawTrade.exit_price) },
+          ],
+          extendData: { ...trade, source: 'paper', entry_price: rawTrade.entry_price, exit_price: rawTrade.exit_price },
+          onMouseEnter: (event) => {
+            const rect = container?.getBoundingClientRect() || { left: 0, top: 0 };
+            setBtTooltip({ x: (event?.pageX ?? event?.x ?? 0) - rect.left - window.scrollX, y: (event?.pageY ?? event?.y ?? 0) - rect.top - window.scrollY, trade, isTrade: true, source: 'paper' });
+            return true;
+          },
+          onClick: (event) => {
+            const rect = container?.getBoundingClientRect() || { left: 0, top: 0 };
+            setBtTooltip({ x: (event?.pageX ?? event?.x ?? 0) - rect.left - window.scrollX, y: (event?.pageY ?? event?.y ?? 0) - rect.top - window.scrollY, trade, isTrade: true, source: 'paper' });
+            return true;
+          },
+          onMouseLeave: () => { setBtTooltip(null); return true; },
+        });
+        if (id) paperOverlayIds.current.push(id);
+      } catch (_) {}
+    });
+    return () => {
+      paperOverlayIds.current.forEach((id) => { try { chart.removeOverlay({ id }); } catch (_) {} });
+      paperOverlayIds.current = [];
+    };
+  }, [paperTrades, symbol, klinesVersion, chartReady]);
+
   // Real-time algorithmic signal overlay at the live edge of the chart (Requirement 3)
   useEffect(() => {
     const chart = chartRef.current;
@@ -4369,9 +4451,9 @@ export default function Chart({
               <>
                 <div className="flex items-center justify-between border-b border-[#1f293d] pb-1 mb-1">
                   <span className={btTooltip.trade.direction === 'LONG' || btTooltip.trade.type === 'BUY' ? 'text-[#34d399] font-bold' : 'text-[#f87171] font-bold'}>
-                    #{btTooltip.trade.id} · {btTooltip.trade.direction || btTooltip.trade.type}
+                    {btTooltip.source === 'paper' ? 'PAPER' : 'BACKTEST'} · #{btTooltip.trade.id} · {btTooltip.trade.direction || btTooltip.trade.type}
                   </span>
-                  <span className="text-[#94a3b8] text-[9px]">{btTooltip.trade.reason || 'Exit'}</span>
+                  <span className="text-[#94a3b8] text-[9px]">{Array.isArray(btTooltip.trade.reason) ? btTooltip.trade.reason.join(' · ') : (btTooltip.trade.reason || 'Exit')}</span>
                 </div>
                 <div className="text-[#cbd5e1] text-[9.5px] leading-tight">
                   <div>Вход: <span className="text-white">${btTooltip.trade.entry_price}</span> → Выход: <span className="text-white">${btTooltip.trade.exit_price}</span></div>
@@ -4382,6 +4464,10 @@ export default function Chart({
                 <div className="text-[8.5px] text-[#64748b] mt-0.5 flex justify-between">
                   <span>Комиссия: -${Number(btTooltip.trade.fee_paid_usd || 0).toFixed(2)}</span>
                   <span>Слиппейдж: -${Number(btTooltip.trade.slippage_cost_usd || 0).toFixed(2)}</span>
+                </div>
+                <div className="text-[8.5px] text-[#94a3b8] mt-0.5 flex justify-between">
+                  <span>MFE: +{Number(btTooltip.trade.mfe || 0).toFixed(2)}</span>
+                  <span>MAE: -{Number(btTooltip.trade.mae || 0).toFixed(2)}</span>
                 </div>
               </>
             ) : (

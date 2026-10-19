@@ -4,7 +4,7 @@
 
 ## 🚦 Текущий статус
 
-- **ACTIVE_AGENT:** `Codex` (Этапы 2–3 в работе)
+- **ACTIVE_AGENT:** `none`
 - **Текущая ветка:** `agent/deepseek/adaptive-quant`
 - **Базовый коммит:** `284b1d1` — Walk-Forward Optimizer, динамические веса стратегий и защита от токсичного режима.
 - **Последняя полная проверка:** `2026-10-19`, `scripts/check.ps1` — **PASS**: 82/82 pytest, frontend production build, 7/7 critical API smoke, blocking и live Playwright smoke.
@@ -34,8 +34,9 @@
 
 ## ⏭️ Следующие утверждённые этапы
 
-1. **Этап 2 — Unified Pipeline:** перевести `background_worker.py` на `UnifiedTradeSignal`; убрать обходные прямые paper-входы. Во frontend удалить фальшивый баланс и статический API URL, использовать реальный `/api/paper-trading/status` и Vite config/env. Отдельный атомарный коммит.
-2. **Этап 3 — Reality Mirror:** показать в истории сделок Net PnL, Fee Drag, MFE и MAE. Добавить на `Chart.jsx` компактные маркеры backtest/paper приглушённых оттенков, с tooltip по hover/click (`reason`, MFE, MAE, Net PnL). Не менять `execution_simulator.py`; не перегружать chart.
+1. **Этап 2 — Unified Pipeline:** завершён (`824b474`). Paper-входы background worker теперь проходят через `UnifiedTradeSignal`; `reason` хранится списком условий. UI использует относительный `/api` и реальный session status.
+2. **Этап 3 — Reality Mirror:** завершён. Закрытая paper-сделка хранит Net PnL с обеими комиссиями, Fee Drag, MFE, MAE и флаг Profit Bleed. Таблица их отображает; chart показывает приглушённые paper-маркеры и tooltip с причиной/метриками.
+3. **Следующий безопасный шаг:** вручную прогнать несколько paper-сделок на BTCUSDT и сравнить историю/маркеры с реальным event stream. Автоторговлю не включать.
 
 ## 🔒 Ограничения
 

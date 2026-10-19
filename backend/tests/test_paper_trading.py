@@ -104,8 +104,14 @@ class TestPaperTradingSessionLifecycle(unittest.TestCase):
 
         state = self.session.get_state()
         self.assertEqual(len(state.positions), 0)
-        # realized = (100.0 - 99.5) * 1.0 - exit fee (99.5 * 1.0 * 0.0002 = 0.0199)
-        self.assertAlmostEqual(state.realized_pnl, 0.4801, places=4)
+        # Net PnL includes both the entry and exit maker fees.
+        self.assertAlmostEqual(state.realized_pnl, 0.4601, places=4)
+        closed = state.closed_trades[0]
+        self.assertAlmostEqual(closed["net_pnl"], 0.4601, places=4)
+        self.assertAlmostEqual(closed["fee_drag"], 0.0399, places=4)
+        self.assertEqual(closed["mfe"], 1.5)
+        self.assertEqual(closed["mae"], 0.0)
+        self.assertFalse(closed["profit_bleed"])
 
     def test_fee_deduction_from_balance(self):
         """Maker fees must be deducted from the virtual balance on both legs."""
@@ -129,10 +135,10 @@ class TestPaperTradingSessionLifecycle(unittest.TestCase):
 
         state = self.session.get_state()
         # Exit fee = 99.8 * 1.0 * 0.0002 = 0.01996
-        # realized = gross (100.0 - 99.8) * 1.0 - 0.01996 = 0.18004
-        self.assertAlmostEqual(state.realized_pnl, 0.18004, places=4)
+        # Net PnL includes entry and exit maker fees: 0.20 - 0.02 - 0.01996.
+        self.assertAlmostEqual(state.realized_pnl, 0.16004, places=4)
         # balance = initial + realized (position closed -> unrealized = 0)
-        self.assertAlmostEqual(state.balance, 10000.18004, places=4)
+        self.assertAlmostEqual(state.balance, 10000.16004, places=4)
 
     def test_mae_tracking(self):
         """MAE tracks the maximum adverse excursion against the position."""
@@ -258,12 +264,12 @@ class TestPaperTradingSessionLifecycle(unittest.TestCase):
 
         # Gross PnL = (104 - 100) * 0.5 = +2.00 USDT
         # Exit fee = 52.0 * 0.0004 = 0.0208 USDT
-        # Net realized PnL = 2.00 - 0.0208 = 1.9792 USDT
+        # Net realized PnL = 2.00 - 0.0200 entry fee - 0.0208 exit fee.
         final_state = session.get_state()
         self.assertEqual(len(final_state.positions), 0)
         self.assertEqual(len(final_state.closed_trades), 1)
-        self.assertAlmostEqual(final_state.realized_pnl, 1.9792, places=4)
-        self.assertAlmostEqual(final_state.balance, 100.0 + 1.9792, places=4)
+        self.assertAlmostEqual(final_state.realized_pnl, 1.9592, places=4)
+        self.assertAlmostEqual(final_state.balance, 100.0 + 1.9592, places=4)
         self.assertAlmostEqual(final_state.total_fees_paid, 0.02 + 0.0208, places=4)
 
     def test_dynamic_breakeven_trigger_on_mfe(self):
