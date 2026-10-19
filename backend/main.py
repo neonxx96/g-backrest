@@ -110,6 +110,7 @@ from backend.app.routers.workspaces import router as workspaces_router
 from backend.app.routers.journal import journal_router
 from backend.app.routers.monitoring import router as monitoring_router, system_monitoring_router
 from backend.app.routers.paper_trading_router import router as paper_trading_router
+from backend.app.routers.adaptive_router import adaptive_router
 
 app.include_router(api_router)
 app.include_router(data_router)
@@ -120,6 +121,7 @@ app.include_router(journal_router)
 app.include_router(monitoring_router)
 app.include_router(system_monitoring_router)
 app.include_router(paper_trading_router)
+app.include_router(adaptive_router)
 
 if __name__ == "__main__":
 

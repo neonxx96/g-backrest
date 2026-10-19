@@ -223,6 +223,7 @@ class PaperTradingSession:
         target_price: float = 0.0,
         reason: str = "Technical Signal",
         signal_ts: Optional[int] = None,
+        regime: Optional[str] = None,
     ) -> dict:
         """
         Create a virtual order. Returns an order info dict.
@@ -231,6 +232,10 @@ class PaperTradingSession:
         if self.is_halted and role == PaperOrderRole.ENTRY.value:
             logger.warning(f"[KILL_SWITCH] Entry order rejected: system is HALTED ({self.halt_reason})")
             raise ValueError(f"System is HALTED: {self.halt_reason}")
+
+        if role == PaperOrderRole.ENTRY.value and regime and str(regime).upper() == "TOXIC_VOLATILITY":
+            logger.warning(f"[TRADE] Entry order rejected for {symbol}: TOXIC_VOLATILITY regime blocks entries")
+            raise ValueError(f"Trading blocked: TOXIC_VOLATILITY regime for {symbol}")
 
         ts = signal_ts if signal_ts is not None else self._last_event_ts
         cfg = OrderConfig(

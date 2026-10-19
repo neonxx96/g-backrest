@@ -35,6 +35,7 @@ class RegimeClassifier:
         density_toxic_threshold: float = 0.65,  # liquidity vacuum (< 65% of normal)
         density_dense_threshold: float = 1.15,  # dense walls (> 115% of normal)
         slope_threshold: float = 0.35,          # normalized CVD slope significance
+        spread_toxic_threshold: float = 0.003,  # 0.3% wide spread threshold
     ):
         self.window = max(5, int(window))
         self.vol_medium_threshold = float(vol_medium_threshold)
@@ -42,6 +43,7 @@ class RegimeClassifier:
         self.density_toxic_threshold = float(density_toxic_threshold)
         self.density_dense_threshold = float(density_dense_threshold)
         self.slope_threshold = float(slope_threshold)
+        self.spread_toxic_threshold = float(spread_toxic_threshold)
 
     def compute_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -83,6 +85,18 @@ class RegimeClassifier:
 
         avg_density = raw_density.rolling(window=w * 2, min_periods=1).mean().replace(0, np.nan)
         data["rel_density"] = (raw_density / avg_density).fillna(1.0)
+
+        # 3b. Bid-Ask Spread if present
+        if "spread" in data.columns:
+            raw_spread = data["spread"].astype(float)
+            data["norm_spread"] = (raw_spread / safe_close).fillna(0.0)
+        elif "ask" in data.columns and "bid" in data.columns:
+            raw_spread = (data["ask"].astype(float) - data["bid"].astype(float)).abs()
+            data["norm_spread"] = (raw_spread / safe_close).fillna(0.0)
+        elif "spread_pct" in data.columns:
+            data["norm_spread"] = (data["spread_pct"].astype(float) / 100.0).fillna(0.0)
+        else:
+            data["norm_spread"] = pd.Series(0.0, index=data.index)
 
         # 4. Delta & CVD
         if "cvd" not in data.columns:
@@ -134,13 +148,17 @@ class RegimeClassifier:
 
         norm_atr = features["norm_atr"]
         rel_density = features["rel_density"]
+        norm_spread = features.get("norm_spread", pd.Series(0.0, index=features.index))
         abs_slope = features["cvd_slope_norm"].abs()
 
         # Initialize with FLAT_DENSE
         regimes = pd.Series(MarketRegime.FLAT_DENSE.value, index=features.index)
 
-        # Mask 1: TOXIC_VOLATILITY (extreme volatility + liquidity vacuum)
-        toxic_mask = (norm_atr >= self.vol_toxic_threshold) & (rel_density <= self.density_toxic_threshold)
+        # Mask 1: TOXIC_VOLATILITY (extreme volatility + liquidity vacuum OR abnormally wide spread + liquidity vacuum)
+        toxic_mask = (
+            ((norm_atr >= self.vol_toxic_threshold) & (rel_density <= self.density_toxic_threshold)) |
+            ((norm_spread >= self.spread_toxic_threshold) & (rel_density <= self.density_toxic_threshold))
+        )
 
         # Mask 2: TREND_IMPULSE (healthy or high ATR + decisive directional CVD flow)
         trend_mask = (norm_atr >= self.vol_medium_threshold) & (abs_slope >= self.slope_threshold) & (~toxic_mask)
@@ -161,6 +179,7 @@ class RegimeClassifier:
             return MarketRegime.FLAT_DENSE, {
                 "norm_atr": 0.0,
                 "rel_density": 1.0,
+                "norm_spread": 0.0,
                 "cvd_slope_norm": 0.0,
                 "is_trade_allowed": True
             }
@@ -170,10 +189,16 @@ class RegimeClassifier:
 
         norm_atr = float(last_row.get("norm_atr", 0.0))
         rel_density = float(last_row.get("rel_density", 1.0))
+        norm_spread = float(last_row.get("norm_spread", 0.0))
         slope_norm = float(last_row.get("cvd_slope_norm", 0.0))
         abs_slope = abs(slope_norm)
 
-        if norm_atr >= self.vol_toxic_threshold and rel_density <= self.density_toxic_threshold:
+        is_toxic = (
+            (norm_atr >= self.vol_toxic_threshold and rel_density <= self.density_toxic_threshold) or
+            (norm_spread >= self.spread_toxic_threshold and rel_density <= self.density_toxic_threshold)
+        )
+
+        if is_toxic:
             regime = MarketRegime.TOXIC_VOLATILITY
         elif norm_atr >= self.vol_medium_threshold and abs_slope >= self.slope_threshold:
             regime = MarketRegime.TREND_IMPULSE
@@ -184,10 +209,12 @@ class RegimeClassifier:
             "regime": regime.value,
             "norm_atr": round(norm_atr, 6),
             "rel_density": round(rel_density, 3),
+            "norm_spread": round(norm_spread, 6),
             "cvd_slope_norm": round(slope_norm, 4),
             "is_trade_allowed": regime != MarketRegime.TOXIC_VOLATILITY,
             "vol_medium_threshold": self.vol_medium_threshold,
             "vol_toxic_threshold": self.vol_toxic_threshold,
+            "spread_toxic_threshold": self.spread_toxic_threshold,
         }
 
         return regime, metrics

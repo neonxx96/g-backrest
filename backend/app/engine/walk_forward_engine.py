@@ -141,21 +141,35 @@ class WalkForwardEngine:
 
         # Robust defaults if adaptation hasn't run yet
         if regime == MarketRegime.FLAT_DENSE:
+            flat_w = {c["name"]: round(1.0 / len(FLAT_CANDIDATES), 4) for c in FLAT_CANDIDATES}
+            flat_type_w = {}
+            for c in FLAT_CANDIDATES:
+                flat_type_w[c["strategy_type"]] = round(flat_type_w.get(c["strategy_type"], 0.0) + flat_w[c["name"]], 4)
             return {
                 **FLAT_CANDIDATES[0],
                 "regime": regime.value,
                 "is_trade_allowed": True,
                 "uplift": 0.8,
                 "win_rate": 55.0,
+                "strategy_weights": flat_w,
+                "strategy_type_weights": flat_type_w,
+                "primary_strategy_name": FLAT_CANDIDATES[0]["name"],
                 "source": "default_flat"
             }
         else:
+            trend_w = {c["name"]: round(1.0 / len(TREND_CANDIDATES), 4) for c in TREND_CANDIDATES}
+            trend_type_w = {}
+            for c in TREND_CANDIDATES:
+                trend_type_w[c["strategy_type"]] = round(trend_type_w.get(c["strategy_type"], 0.0) + trend_w[c["name"]], 4)
             return {
                 **TREND_CANDIDATES[0],
                 "regime": regime.value,
                 "is_trade_allowed": True,
                 "uplift": 1.2,
                 "win_rate": 50.0,
+                "strategy_weights": trend_w,
+                "strategy_type_weights": trend_type_w,
+                "primary_strategy_name": TREND_CANDIDATES[0]["name"],
                 "source": "default_trend"
             }
 
@@ -213,11 +227,8 @@ class WalkForwardEngine:
             # If slice has enough continuous bars, run backtest on slice; otherwise on whole df with regime filter
             test_df = regime_slice if len(regime_slice) >= 40 else df_annotated
 
-            best_cand = candidates[0]
-            best_uplift = -1.0
-            best_win_rate = 0.0
-            best_pnl = 0.0
-
+            evaluations = []
+            scores = []
             for cand in candidates:
                 kw = {k: v for k, v in cand.items() if k not in ("name",)}
                 try:
@@ -230,6 +241,7 @@ class WalkForwardEngine:
                     summary = bt_res.get("summary", {}) if isinstance(bt_res, dict) else {}
                     wr = float(summary.get("win_rate_pct", 0.0))
                     pnl = float(summary.get("total_pnl_pct", 0.0))
+                    trades = int(summary.get("total_trades", len(bt_res.get("trades", [])) if isinstance(bt_res, dict) else 0))
                     
                     rr = float(cand.get("take_profit_pct", 1.0)) / max(0.01, float(cand.get("stop_loss_pct", 0.5)))
                     uplift = (wr / 100.0) * rr
@@ -238,22 +250,65 @@ class WalkForwardEngine:
                     if pnl > 0:
                         uplift *= 1.25
 
-                    if uplift > best_uplift:
-                        best_uplift = uplift
-                        best_win_rate = wr
-                        best_pnl = pnl
-                        best_cand = cand
+                    score = max(0.001, uplift * max(0.1, 1.0 + (pnl / 100.0)))
+                    scores.append(score)
+                    evaluations.append({
+                        "name": cand["name"],
+                        "strategy_type": cand["strategy_type"],
+                        "win_rate_pct": round(wr, 1),
+                        "total_pnl_pct": round(pnl, 2),
+                        "total_trades": trades,
+                        "uplift": round(uplift, 3),
+                        "score": round(score, 4),
+                        "params": cand,
+                    })
                 except Exception as e:
                     logger.debug(f"[WalkForward] Evaluation error for {sym} {regime_val}: {e}")
+                    scores.append(0.001)
+                    evaluations.append({
+                        "name": cand["name"],
+                        "strategy_type": cand["strategy_type"],
+                        "win_rate_pct": 0.0,
+                        "total_pnl_pct": 0.0,
+                        "total_trades": 0,
+                        "uplift": 0.0,
+                        "score": 0.001,
+                        "params": cand,
+                    })
+
+            # Calculate normalized weights across candidate strategies
+            total_score = sum(scores)
+            weights = {}
+            type_weights = {}
+            for ev, sc in zip(evaluations, scores):
+                norm_w = round(sc / total_score, 4) if total_score > 0 else round(1.0 / len(evaluations), 4)
+                ev["weight"] = norm_w
+                weights[ev["name"]] = norm_w
+                st_type = ev["strategy_type"]
+                type_weights[st_type] = round(type_weights.get(st_type, 0.0) + norm_w, 4)
+
+            # Ensure sum of weights equals 1.0 exactly
+            if weights:
+                diff = round(1.0 - sum(weights.values()), 4)
+                first_k = next(iter(weights.keys()))
+                weights[first_k] = round(weights[first_k] + diff, 4)
+
+            best_idx = int(np.argmax(scores))
+            best_ev = evaluations[best_idx]
+            best_cand = best_ev["params"]
 
             adapted_config = {
                 **best_cand,
                 "regime": regime_val,
                 "is_trade_allowed": True,
-                "uplift": round(best_uplift, 3),
-                "win_rate": round(best_win_rate, 1),
-                "pnl_pct": round(best_pnl, 2),
+                "uplift": best_ev["uplift"],
+                "win_rate": best_ev["win_rate_pct"],
+                "pnl_pct": best_ev["total_pnl_pct"],
                 "sample_bars": len(regime_slice),
+                "strategy_weights": weights,
+                "strategy_type_weights": type_weights,
+                "candidate_evaluations": evaluations,
+                "primary_strategy_name": best_cand["name"],
                 "updated_at": int(time.time() * 1000)
             }
 
@@ -261,7 +316,7 @@ class WalkForwardEngine:
             results[regime_val] = adapted_config
             logger.info(
                 f"[WalkForward] {sym} [{regime_val}] adapted to '{best_cand['name']}' "
-                f"(Uplift: {adapted_config['uplift']:.2f}, WR: {best_win_rate:.1f}%, PnL: {best_pnl:+.2f}%)"
+                f"(Uplift: {adapted_config['uplift']:.2f}, WR: {best_ev['win_rate_pct']:.1f}%, PnL: {best_ev['total_pnl_pct']:+.2f}%)"
             )
 
         # TOXIC_VOLATILITY is strictly NO_TRADE
@@ -270,12 +325,55 @@ class WalkForwardEngine:
             "strategy_type": "none",
             "is_trade_allowed": False,
             "reason": "Токсичная волатильность: Торговые входы блокированы",
+            "strategy_weights": {cand["name"]: 0.0 for cand in FLAT_CANDIDATES + TREND_CANDIDATES},
+            "strategy_type_weights": {},
+            "candidate_evaluations": [],
+            "primary_strategy_name": "None",
             "updated_at": int(time.time() * 1000)
         }
         results[MarketRegime.TOXIC_VOLATILITY.value] = self.adapted_cache[(sym, MarketRegime.TOXIC_VOLATILITY.value)]
 
         self.last_adaptation_ts[sym] = int(time.time() * 1000)
         return results
+
+    def get_strategy_weights(self, symbol: str, regime: MarketRegime) -> Dict[str, float]:
+        """Returns normalized strategy weights for the specified symbol and market regime."""
+        cfg = self.get_adapted_parameters(symbol, regime)
+        return cfg.get("strategy_weights", {})
+
+    def get_strategy_type_weights(self, symbol: str, regime: MarketRegime) -> Dict[str, float]:
+        """Returns aggregated strategy type weights (e.g. confluence_ema, density_bounce)."""
+        cfg = self.get_adapted_parameters(symbol, regime)
+        return cfg.get("strategy_type_weights", {})
+
+    def get_active_regime_and_weights(self, symbol: str, df: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
+        """
+        Classifies current regime for symbol and returns the regime metrics along with
+        optimized strategy weights and chosen primary parameters.
+        """
+        sym = symbol.strip().upper()
+        if df is not None and not df.empty:
+            regime, metrics = regime_classifier.classify_current(df)
+        else:
+            regime = MarketRegime.FLAT_DENSE
+            metrics = {"regime": regime.value, "is_trade_allowed": True, "source": "default"}
+
+        cfg = self.get_adapted_parameters(sym, regime)
+        return {
+            "symbol": sym,
+            "regime": regime.value,
+            "is_trade_allowed": cfg.get("is_trade_allowed", True),
+            "primary_strategy_name": cfg.get("primary_strategy_name", cfg.get("name")),
+            "strategy_type": cfg.get("strategy_type"),
+            "strategy_weights": cfg.get("strategy_weights", {}),
+            "strategy_type_weights": cfg.get("strategy_type_weights", {}),
+            "uplift": cfg.get("uplift", 0.0),
+            "win_rate": cfg.get("win_rate", 0.0),
+            "take_profit_pct": cfg.get("take_profit_pct", 0.0),
+            "stop_loss_pct": cfg.get("stop_loss_pct", 0.0),
+            "metrics": metrics,
+            "last_adapted_ts": self.last_adaptation_ts.get(sym, int(time.time() * 1000))
+        }
 
     async def run_adaptation_pass(self, symbols: List[str]) -> Dict[str, Any]:
         """Runs adaptation for multiple coins."""
