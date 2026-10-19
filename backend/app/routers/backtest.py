@@ -452,6 +452,17 @@ async def run_backtest(req: BacktestRequest):
         raise HTTPException(status_code=422, detail=f"timeframe must be one of {list(TF_MINUTES)}")
 
     eff_strategy = req.strategy or req.strategy_type
+    if eff_strategy in ("live_density_bounce", "live_wall_breakout"):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Стратегия '{eff_strategy}' работает исключительно в реальном времени по живому стакану L2. "
+                "Исторический бэктест недоступен, так как биржа не хранит потиковую книгу заявок. "
+                "Для тестирования на истории выберите стратегию 'Отскок от объёмного кластера' (cluster_volume_bounce) "
+                "или 'Квант-Конфлюенс' (confluence_ema)."
+            )
+        )
+
     if eff_strategy == "cluster_volume_bounce":
         eff_strategy = "density_bounce"
 
@@ -621,6 +632,14 @@ async def optimize_backtest(req: OptimizeRequest):
     symbol = req.symbol.strip().upper()
     if req.timeframe not in TF_MINUTES:
         raise HTTPException(status_code=422, detail=f"timeframe must be one of {list(TF_MINUTES)}")
+    if req.strategy_type in ("live_density_bounce", "live_wall_breakout"):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Стратегия '{req.strategy_type}' работает исключительно в реальном времени по живому стакану L2. "
+                "Оптимизация на истории недоступна. Выберите 'confluence_ema' или 'cluster_volume_bounce'."
+            )
+        )
     if req.strategy_type not in STRATEGIES:
         raise HTTPException(status_code=422, detail=f"strategy_type must be one of {sorted(STRATEGIES)}")
 

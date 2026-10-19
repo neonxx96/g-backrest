@@ -134,14 +134,83 @@ function InfoTip({ text }) {
   );
 }
 
+export function formatBacktestError(rawError) {
+  if (!rawError) return null;
+  let str = typeof rawError === 'object' && rawError.message ? rawError.message : String(rawError);
+
+  // If it's a JSON string, try to parse Pydantic error details
+  if (str.startsWith('{') || str.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(str);
+      const items = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.detail) ? parsed.detail : null);
+      if (items && items.length > 0) {
+        const msgs = items.map((it) => {
+          const loc = Array.isArray(it.loc) ? it.loc.join('.') : '';
+          const msg = it.msg || it.message || '';
+          if (loc.includes('stop_loss') || loc.includes('sl')) {
+            return 'Стоп-лосс (SL) должен быть больше 0% (рекомендуется от 0.1% до 15%)';
+          }
+          if (loc.includes('take_profit') || loc.includes('tp')) {
+            return 'Тейк-профит (TP) должен быть больше 0% (рекомендуется от 0.2% до 30%)';
+          }
+          if (loc.includes('leverage')) {
+            return 'Кредитное плечо должно быть в диапазоне от 1x до 125x';
+          }
+          if (loc.includes('days')) {
+            return 'Период истории должен быть от 1 до 30 дней';
+          }
+          if (loc.includes('strategy_type') || loc.includes('strategy')) {
+            return 'Выбранная стратегия не поддерживается для исторического бэктеста';
+          }
+          if (loc.includes('min_density_usd') || loc.includes('wall')) {
+            return 'Минимальная плотность должна быть положительным числом';
+          }
+          return msg || loc;
+        });
+        return msgs.join('. ');
+      } else if (parsed && typeof parsed.detail === 'string') {
+        str = parsed.detail;
+      }
+    } catch (_) {
+      // Not valid JSON, keep str
+    }
+  }
+
+  if (str.includes('strategy_type must be one of')) {
+    return 'Выбранная стратегия не поддерживается для исторического бэктеста. Выберите стратегию из списка поддерживаемых.';
+  }
+  if (str.includes('live_density_bounce') || str.includes('Только Live L2') || str.includes('L2 Live')) {
+    return 'Стратегия «Плотность стакана L2 [Live]» работает исключительно в режиме реального времени. Выберите «Cluster Volume Bounce» или «Квант-Конфлюенс» для исторического бэктеста.';
+  }
+  if (str.includes('Input should be greater than 0') && (str.includes('stop_loss') || str.includes('sl'))) {
+    return 'Стоп-лосс (SL) должен быть больше 0% (рекомендуется от 0.1% до 15%)';
+  }
+  if (str.includes('Input should be greater than 0') && (str.includes('take_profit') || str.includes('tp'))) {
+    return 'Тейк-профит (TP) должен быть больше 0% (рекомендуется от 0.2% до 30%)';
+  }
+  if (str.includes('Input should be greater than or equal to 1') && str.includes('leverage')) {
+    return 'Кредитное плечо должно быть в диапазоне от 1x до 125x';
+  }
+  if (str.includes('Failed to fetch') || str.includes('NetworkError')) {
+    return 'Ошибка сетевого подключения к квант-серверу API.';
+  }
+
+  return str;
+}
+
 function NumField({ label, value, onChange, step = 0.1, min = 0, max, suffix, testId, tooltip }) {
+  const isInvalid = (min != null && value !== '' && Number(value) < min) || (max != null && value !== '' && Number(value) > max);
   return (
     <label className="flex flex-col text-[9px] font-mono min-w-0">
       <span className="mb-0.5 text-neutral-400 flex items-center justify-between truncate select-none">
-        <span className="truncate">{label}</span>
+        <span className={`truncate ${isInvalid ? 'text-red-400 font-bold' : ''}`}>{label}</span>
         {tooltip && <InfoTip text={tooltip} />}
       </span>
-      <div className="relative flex items-center bg-neutral-950/80 border border-neutral-800 rounded px-1.5 py-0.5 focus-within:border-neutral-500 focus-within:ring-1 focus-within:ring-neutral-500/30 transition-all">
+      <div className={`relative flex items-center bg-neutral-950/80 border rounded px-1.5 py-0.5 transition-all ${
+        isInvalid
+          ? 'border-red-500/80 ring-1 ring-red-500/30'
+          : 'border-neutral-800 focus-within:border-neutral-500 focus-within:ring-1 focus-within:ring-neutral-500/30'
+      }`}>
         <input
           data-testid={testId}
           type="number"
@@ -150,7 +219,9 @@ function NumField({ label, value, onChange, step = 0.1, min = 0, max, suffix, te
           min={min}
           max={max}
           onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))}
-          className="w-full bg-transparent text-neutral-100 text-[10px] text-right font-mono outline-none pr-1"
+          className={`w-full bg-transparent text-[10px] text-right font-mono outline-none pr-1 ${
+            isInvalid ? 'text-red-300 font-bold' : 'text-neutral-100'
+          }`}
         />
         {suffix && (
           <span className="text-neutral-500 text-[8.5px] font-mono select-none shrink-0 border-l border-neutral-800/80 pl-1 ml-0.5">
@@ -537,6 +608,35 @@ export default function BacktestPanel({
   const [forecastLoading, setForecastLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  const isLiveOnlyStrategy = strategy === 'live_density_bounce' || Boolean(STRATEGIES.find((st) => st.id === strategy)?.isLiveOnly);
+
+  const paramValidation = useMemo(() => {
+    const numSl = Number(sl);
+    const numTp = Number(tp);
+    const numLev = Number(leverage);
+    const numDays = Number(days);
+
+    const issues = [];
+    if (isNaN(numSl) || numSl <= 0 || numSl > 50) {
+      issues.push('Стоп-лосс (SL) должен быть от 0.1% до 50%');
+    }
+    if (isNaN(numTp) || numTp <= 0 || numTp > 200) {
+      issues.push('Тейк-профит (TP) должен быть от 0.1% до 200%');
+    }
+    if (isNaN(numLev) || numLev < 1 || numLev > 125) {
+      issues.push('Кредитное плечо должно быть в диапазоне от 1x до 125x');
+    }
+    if (isNaN(numDays) || numDays < 1 || numDays > 30) {
+      issues.push('Период истории должен быть от 1 до 30 дней');
+    }
+
+    return {
+      isValid: issues.length === 0,
+      firstIssue: issues[0] || null,
+      issues
+    };
+  }, [sl, tp, leverage, days]);
+
   const runForecast = useCallback(async () => {
     setForecastLoading(true);
     setError(null);
@@ -771,12 +871,43 @@ export default function BacktestPanel({
 
   const runSingle = useCallback(
     async (overrideParams = null) => {
-      setLoading(true);
       setError(null);
+
+      if (isLiveOnlyStrategy) {
+        setError(
+          "Стратегия «Плотность стакана L2 [Live]» работает исключительно в режиме реального времени. Для тестирования на истории выберите «Cluster Volume Bounce» или «Квант-Конфлюенс»."
+        );
+        return;
+      }
+
       const pSl = overrideParams?.sl ?? sl;
       const pTp = overrideParams?.tp ?? tp;
       const pWallK = overrideParams?.minWallK ?? minWallK;
       const pCvd = overrideParams?.useCvd ?? filterCvd;
+
+      const numSl = Number(pSl);
+      const numTp = Number(pTp);
+      const numLev = Number(leverage);
+      const numDays = Number(days);
+
+      if (isNaN(numSl) || numSl <= 0 || numSl > 50) {
+        setError('Параметр Stop-Loss (SL) должен быть больше 0% и не более 50%');
+        return;
+      }
+      if (isNaN(numTp) || numTp <= 0 || numTp > 200) {
+        setError('Параметр Take-Profit (TP) должен быть больше 0% и не более 200%');
+        return;
+      }
+      if (isNaN(numLev) || numLev < 1 || numLev > 125) {
+        setError('Кредитное плечо должно быть в диапазоне от 1x до 125x');
+        return;
+      }
+      if (isNaN(numDays) || numDays < 1 || numDays > 30) {
+        setError('Период истории должен быть от 1 до 30 дней');
+        return;
+      }
+
+      setLoading(true);
       try {
         const res = await fetch(`${API_BASE}/backtest/run`, {
           method: 'POST',
@@ -784,14 +915,14 @@ export default function BacktestPanel({
           body: JSON.stringify({
             symbol,
             timeframe,
-            days: Math.min(30, Math.max(1, Number(days) || 7)),
+            days: Math.min(30, Math.max(1, numDays)),
             strategy_type: strategy,
             params: {
-              stop_loss_pct: Number(pSl) || 0.8,
-              take_profit_pct: Number(pTp) || 1.5,
+              stop_loss_pct: Math.max(0.01, numSl),
+              take_profit_pct: Math.max(0.01, numTp),
               min_density_usd: (Number(pWallK) || 0) * 1000,
-              volume_multiplier: Number(volMult) || 1.0,
-              leverage: Math.max(1, Math.round(Number(leverage) || 1)),
+              volume_multiplier: Math.max(0.5, Math.min(20, Number(volMult) || 1.0)),
+              leverage: Math.max(1, Math.min(125, Math.round(numLev || 1))),
               use_atr_filter: filterAtr,
               use_atr_sl: slMode === 'atr_volatility' || filterAtrSl,
               atr_multiplier: Number(atrMultiplier) || 1.5,
@@ -818,14 +949,14 @@ export default function BacktestPanel({
         handleSetResult({ ...data, symbol, timeframe, mode: 'single' });
         if (symbol && setParamsForSymbol) {
           setParamsForSymbol(symbol, {
-            stop_loss_pct: Number(pSl) || 0.8,
-            take_profit_pct: Number(pTp) || 1.5,
+            stop_loss_pct: numSl,
+            take_profit_pct: numTp,
             min_density_usd: (Number(pWallK) || 0) * 1000,
             volume_multiplier: Number(volMult) || 1.0,
-            leverage: Math.max(1, Math.round(Number(leverage) || 1)),
+            leverage: Math.max(1, Math.round(numLev || 1)),
             strategy_type: strategy,
             timeframe,
-            days: Number(days) || 14,
+            days: numDays,
             use_atr_filter: filterAtr,
             use_atr_sl: slMode === 'atr_volatility' || filterAtrSl,
             atr_multiplier: Number(atrMultiplier) || 1.5,
@@ -846,12 +977,13 @@ export default function BacktestPanel({
         }
         setViewTab('equity');
       } catch (e) {
-        setError(e.message || String(e));
+        setError(formatBacktestError(e));
       } finally {
         setLoading(false);
       }
     },
     [
+      isLiveOnlyStrategy,
       symbol,
       timeframe,
       days,
@@ -918,9 +1050,16 @@ export default function BacktestPanel({
   );
 
   const runGeneticOptimizer = useCallback(async () => {
+    setError(null);
+    if (isLiveOnlyStrategy) {
+      setError(
+        "Стратегия «Плотность стакана L2 [Live]» не поддерживает историческую оптимизацию. Выберите «Cluster Volume Bounce» или «Квант-Конфлюенс»."
+      );
+      return;
+    }
+
     setLoading(true);
     setOptProgress(15);
-    setError(null);
     try {
       const res = await fetch(`${API_BASE}/backtest/optimize`, {
         method: 'POST',
@@ -966,11 +1105,12 @@ export default function BacktestPanel({
       }
       setViewTab('optimizer');
     } catch (e) {
-      setError(e.message || String(e));
+      setError(formatBacktestError(e));
     } finally {
       setLoading(false);
     }
   }, [
+    isLiveOnlyStrategy,
     symbol,
     timeframe,
     days,
@@ -1037,7 +1177,7 @@ export default function BacktestPanel({
         });
         setViewTab('equity');
       } catch (e) {
-        setError(e.message || String(e));
+        setError(formatBacktestError(e));
       } finally {
         setAiLoading(false);
       }
@@ -1425,10 +1565,33 @@ export default function BacktestPanel({
                     </optgroup>
                   </select>
 
-                  {STRATEGIES.find((st) => st.id === strategy)?.isLiveOnly && (
-                    <div className="bg-neutral-900 border border-neutral-700 text-neutral-300 text-[8.5px] p-1.5 rounded leading-tight flex items-start space-x-1 font-mono">
-                      <AlertTriangle size={12} className="shrink-0 text-amber-500 mt-0.5" />
-                      <span>Биржа не хранит исторический стакан L2. Стратегия работает в реальном времени. На истории тест выполняется по объёмным свечным кластерам.</span>
+                  {isLiveOnlyStrategy && (
+                    <div
+                      data-testid="live-strategy-warning-banner"
+                      className="bg-amber-950/40 border border-amber-600/60 text-amber-200 text-[9px] p-2 rounded-md leading-relaxed flex flex-col space-y-1 font-mono shadow-xs"
+                    >
+                      <div className="flex items-center space-x-1.5 font-bold text-amber-300">
+                        <AlertTriangle size={13} className="shrink-0 text-amber-400" />
+                        <span>Исторический бэктест недоступен (L2 Live)</span>
+                      </div>
+                      <div className="text-neutral-300 text-[8.5px]">
+                        Биржа не хранит потиковый стакан L2 в истории. Данная стратегия предназначена исключительно для торговли в реальном времени (Sentinel).
+                      </div>
+                      <div className="pt-0.5 flex items-center justify-between">
+                        <span className="text-neutral-400 text-[8px]">Для теста на истории:</span>
+                        <button
+                          type="button"
+                          data-testid="btn-switch-cluster-strategy"
+                          onClick={() => {
+                            setStrategy('cluster_volume_bounce');
+                            if (onStrategyChange) onStrategyChange('cluster_volume_bounce');
+                            setError(null);
+                          }}
+                          className="px-2 py-0.5 rounded bg-sky-950 hover:bg-sky-900 border border-sky-600/70 text-sky-300 text-[8.5px] font-bold cursor-pointer transition-colors"
+                        >
+                          Включить Cluster Volume Bounce →
+                        </button>
+                      </div>
                     </div>
                   )}
 
@@ -1774,13 +1937,36 @@ export default function BacktestPanel({
                     <button
                       data-testid="btn-run-genetic"
                       onClick={runGeneticOptimizer}
-                      disabled={loading}
-                      className="w-full flex items-center justify-center space-x-2 py-2.5 rounded-md disabled:opacity-60 text-neutral-950 font-extrabold text-[12px] bg-white hover:bg-neutral-200 transition shadow-md cursor-pointer border border-neutral-200"
+                      disabled={loading || isLiveOnlyStrategy || !paramValidation.isValid}
+                      className={`w-full flex items-center justify-center space-x-2 py-2.5 rounded-md font-extrabold text-[12px] transition shadow-md border ${
+                        isLiveOnlyStrategy
+                          ? 'opacity-40 bg-neutral-900 text-neutral-500 border-neutral-800 cursor-not-allowed'
+                          : !paramValidation.isValid
+                          ? 'opacity-50 bg-neutral-900 text-neutral-400 border-neutral-800 cursor-not-allowed'
+                          : 'text-neutral-950 bg-white hover:bg-neutral-200 cursor-pointer border-neutral-200'
+                      }`}
+                      title={
+                        isLiveOnlyStrategy
+                          ? 'Оптимизация недоступна для L2 Live'
+                          : !paramValidation.isValid
+                          ? paramValidation.firstIssue
+                          : 'Запустить генетический подбор лучшего сетапа'
+                      }
                     >
-                      {loading ? <Loader2 size={14} className="animate-spin text-neutral-950" /> : <Dna size={14} />}
+                      {loading ? (
+                        <Loader2 size={14} className="animate-spin text-neutral-950" />
+                      ) : isLiveOnlyStrategy ? (
+                        <AlertTriangle size={14} className="text-amber-500" />
+                      ) : (
+                        <Dna size={14} />
+                      )}
                       <span>
                         {loading
                           ? `Генетический отбор (${optProgress}%)…`
+                          : isLiveOnlyStrategy
+                          ? 'Оптимизация недоступна (L2 Live)'
+                          : !paramValidation.isValid
+                          ? 'Параметры некорректны'
                           : '🧬 Запустить генетический подбор лучшего сетапа'}
                       </span>
                     </button>
@@ -1801,12 +1987,38 @@ export default function BacktestPanel({
                     <button
                       data-testid="btn-run-single"
                       onClick={() => runSingle()}
-                      disabled={loading}
-                      className="flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-md disabled:opacity-60 text-neutral-950 font-extrabold text-[11.5px] bg-white hover:bg-neutral-200 transition shadow-md cursor-pointer border border-neutral-200"
-                      title="Запустить квант-тест стратегии на истории"
+                      disabled={loading || isLiveOnlyStrategy || !paramValidation.isValid}
+                      className={`flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-md font-extrabold text-[11.5px] transition shadow-md border ${
+                        isLiveOnlyStrategy
+                          ? 'opacity-40 bg-neutral-900 text-neutral-500 border-neutral-800 cursor-not-allowed'
+                          : !paramValidation.isValid
+                          ? 'opacity-50 bg-neutral-900 text-neutral-400 border-neutral-800 cursor-not-allowed'
+                          : 'text-neutral-950 bg-white hover:bg-neutral-200 cursor-pointer border-neutral-200'
+                      }`}
+                      title={
+                        isLiveOnlyStrategy
+                          ? 'Исторический бэктест недоступен для L2 Live'
+                          : !paramValidation.isValid
+                          ? paramValidation.firstIssue
+                          : 'Запустить квант-тест стратегии на истории'
+                      }
                     >
-                      {loading ? <Loader2 size={14} className="animate-spin text-neutral-950" /> : <Play size={13} className="fill-current" />}
-                      <span>{loading ? 'Расчёт…' : 'Запустить бэктест'}</span>
+                      {loading ? (
+                        <Loader2 size={14} className="animate-spin text-neutral-950" />
+                      ) : isLiveOnlyStrategy ? (
+                        <AlertTriangle size={13} className="text-amber-500" />
+                      ) : (
+                        <Play size={13} className="fill-current" />
+                      )}
+                      <span>
+                        {loading
+                          ? 'Расчёт…'
+                          : isLiveOnlyStrategy
+                          ? 'Бэктест недоступен (L2 Live)'
+                          : !paramValidation.isValid
+                          ? 'Параметры некорректны'
+                          : 'Запустить бэктест'}
+                      </span>
                     </button>
                     <button
                       data-testid="btn-run-forecast"
@@ -1825,14 +2037,36 @@ export default function BacktestPanel({
                     </button>
                   </div>
                 )}
+                {!paramValidation.isValid && (
+                  <div
+                    data-testid="param-validation-warning"
+                    className="mt-1.5 text-[8.5px] font-mono text-amber-400 bg-amber-950/30 border border-amber-800/50 rounded px-2 py-1 flex items-center space-x-1"
+                  >
+                    <AlertTriangle size={11} className="shrink-0 text-amber-400" />
+                    <span>{paramValidation.firstIssue}</span>
+                  </div>
+                )}
               </div>
             </>
           )}
 
           {error && (
-            <div className="flex items-start space-x-1 text-[10px] text-[#ef5350] bg-[#ef535014] border border-[#ef535040] rounded p-1.5 font-mono">
-              <AlertTriangle size={11} className="mt-0.5 shrink-0" />
-              <span className="break-all">{error}</span>
+            <div
+              data-testid="backtest-error-banner"
+              className="flex items-start space-x-1.5 text-[10px] text-red-400 bg-red-950/40 border border-red-700/50 rounded-md p-2 font-mono"
+            >
+              <AlertTriangle size={13} className="mt-0.5 shrink-0 text-red-400" />
+              <div className="flex-1 min-w-0">
+                <span className="break-words font-medium">{error}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setError(null)}
+                className="text-neutral-500 hover:text-neutral-300 text-[10px] ml-1 px-1 cursor-pointer"
+                title="Закрыть"
+              >
+                ✕
+              </button>
             </div>
           )}
         </div>

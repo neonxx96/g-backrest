@@ -131,7 +131,8 @@ class BackgroundWorker:
     def __init__(self, max_concurrency: int = 3, cycle_interval_sec: int = 300):
         self.max_concurrency = max_concurrency
         self.cycle_interval_sec = cycle_interval_sec
-        self.semaphore = asyncio.Semaphore(max_concurrency)
+        self._semaphore: Optional[asyncio.Semaphore] = None
+        self._semaphore_loop: Optional[asyncio.AbstractEventLoop] = None
         
         self.monitored_tickers: Set[str] = set(DEFAULT_FOCUS_LIST)
         self.active_tasks: Dict[str, asyncio.Task] = {}
@@ -155,6 +156,22 @@ class BackgroundWorker:
                 "forecast_trend": "FLAT",
                 "updated_at": int(time.time() * 1000)
             }
+
+    @property
+    def semaphore(self) -> asyncio.Semaphore:
+        """Lazily initialize asyncio.Semaphore bound to the current running event loop."""
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+
+        if self._semaphore is None:
+            self._semaphore = asyncio.Semaphore(self.max_concurrency)
+            self._semaphore_loop = current_loop
+        elif self._semaphore_loop is not current_loop and current_loop is not None:
+            self._semaphore = asyncio.Semaphore(self.max_concurrency)
+            self._semaphore_loop = current_loop
+        return self._semaphore
 
     async def register_websocket(self, ws: WebSocket):
         """Registers an active frontend WebSocket for real-time status streaming."""
