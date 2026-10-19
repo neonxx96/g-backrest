@@ -38,6 +38,7 @@ import { useBacktestStore } from '../stores/backtestStore';
 import { useTradesStore } from '../stores/tradesStore';
 import { getAllTemplates, saveCustomTemplate, getStyleMemory, saveStyleMemory } from '../config/drawingTemplates';
 import { renderBacktestTrades, clearBacktestTrades, renderLiveSignals, clearLiveSignals, renderWhaleTrades, clearWhaleTrades } from '../utils/chartAnnotations';
+import AssistantHUD from './AssistantHUD';
 
 const API_BASE = "/api";
 
@@ -472,13 +473,21 @@ try {
       const lower1Coords = [{ x: x0, y: y0 }];
       const midCoords = [{ x: x0, y: y0 }];
 
+      const isBull = cone.direction === 'BULLISH' || cone.trend === 'BULLISH' || (Number(cone.expected_drift_pct) > 0.05);
+      const isBear = cone.direction === 'BEARISH' || cone.trend === 'BEARISH' || (Number(cone.expected_drift_pct) < -0.05);
+      const color2s = isBull ? 'rgba(34, 197, 94, 0.08)' : isBear ? 'rgba(239, 68, 68, 0.08)' : 'rgba(56, 189, 248, 0.08)';
+      const border2s = isBull ? 'rgba(34, 197, 94, 0.4)' : isBear ? 'rgba(239, 68, 68, 0.4)' : 'rgba(56, 189, 248, 0.4)';
+      const color1s = isBull ? 'rgba(34, 197, 94, 0.18)' : isBear ? 'rgba(239, 68, 68, 0.18)' : 'rgba(56, 189, 248, 0.18)';
+      const border1s = isBull ? 'rgba(34, 197, 94, 0.75)' : isBear ? 'rgba(239, 68, 68, 0.75)' : 'rgba(56, 189, 248, 0.75)';
+      const midLineColor = isBull ? '#22c55e' : isBear ? '#ef4444' : '#38bdf8';
+
       fanPoints.forEach((pt, idx) => {
         const x = x0 + stepX * (idx + 1);
-        const yU2 = yAxis.convertToPixel(Number(pt.upper_2s));
-        const yL2 = yAxis.convertToPixel(Number(pt.lower_2s));
-        const yU1 = yAxis.convertToPixel(Number(pt.upper_1s));
-        const yL1 = yAxis.convertToPixel(Number(pt.lower_1s));
-        const yMid = yAxis.convertToPixel(Number(pt.price_mid));
+        const yU2 = yAxis.convertToPixel(Number(pt.upper_2s ?? pt.upper_2sigma));
+        const yL2 = yAxis.convertToPixel(Number(pt.lower_2s ?? pt.lower_2sigma));
+        const yU1 = yAxis.convertToPixel(Number(pt.upper_1s ?? pt.upper_1sigma));
+        const yL1 = yAxis.convertToPixel(Number(pt.lower_1s ?? pt.lower_1sigma));
+        const yMid = yAxis.convertToPixel(Number(pt.price_mid ?? pt.base_price ?? ((Number(pt.upper_1s ?? pt.upper_1sigma) + Number(pt.lower_1s ?? pt.lower_1sigma)) / 2)));
 
         if (Number.isFinite(yU2) && Number.isFinite(yL2)) {
           upper2Coords.push({ x, y: yU2 });
@@ -511,8 +520,8 @@ try {
           attrs: { coordinates: poly2Coords },
           styles: {
             style: 'stroke_fill',
-            color: 'rgba(56, 189, 248, 0.08)',
-            borderColor: 'rgba(56, 189, 248, 0.4)',
+            color: color2s,
+            borderColor: border2s,
             borderSize: 1,
             borderStyle: 'dashed'
           },
@@ -524,8 +533,8 @@ try {
           attrs: { coordinates: poly1Coords },
           styles: {
             style: 'stroke_fill',
-            color: 'rgba(56, 189, 248, 0.18)',
-            borderColor: 'rgba(56, 189, 248, 0.75)',
+            color: color1s,
+            borderColor: border1s,
             borderSize: 1.2
           },
           ignoreEvent: true
@@ -537,7 +546,7 @@ try {
           styles: {
             style: 'dashed',
             dashedValue: [4, 4],
-            color: '#38bdf8',
+            color: midLineColor,
             size: 1.5
           },
           ignoreEvent: true
@@ -1202,8 +1211,8 @@ try {
       const volFormatted = volUsd >= 1000000 
         ? `$${(volUsd / 1000000).toFixed(2)}M` 
         : `$${Math.round(volUsd / 1000)}k`;
-      const badgeText = isBuy ? `[BUY WALL ${volFormatted}]` : `[SELL WALL ${volFormatted}]`;
-      const color = isBuy ? '#26a69a' : '#ef5350';
+      const badgeText = isBuy ? `[🧲 BID WALL ${volFormatted}]` : `[🧲 ASK WALL ${volFormatted}]`;
+      const color = isBuy ? '#10b981' : '#f43f5e';
 
       return [
         {
@@ -1565,6 +1574,8 @@ export default function Chart({
   const btOverlayIds = useRef([]); // backtest signal overlays (never saved as drawings)
   const activeStrategyLevelOverlays = useRef([]); // strategy entry zones (never saved as drawings)
   const activeVolatilityConeOverlayId = useRef(null); // volatility cone overlay
+  const [isConeActive, setIsConeActive] = useState(false);
+  const depthWsRef = useRef(null);
   const activePositionOverlayId = useRef(null);
   const [localPositionSetup, setLocalPositionSetup] = useState(null);
   const lastScrolledResult = useRef(null);
@@ -1935,26 +1946,91 @@ export default function Chart({
     return () => window.removeEventListener('apply-ai-strategy-levels', handleAiLevels);
   }, [symbol]);
 
-  // Listen for Volatility Cone projection (Stage 3)
+  // Listen for Volatility Cone projection (Stage 3 & Stage 5)
   useEffect(() => {
     const handleVolatilityCone = (ev) => {
-      const cone = ev.detail?.cone;
+      let cone = ev.detail?.cone;
       const sym = ev.detail?.symbol;
+      const isToggle = Boolean(ev.detail?.toggle);
       if (!chartRef.current) return;
       if (sym && sym.toUpperCase() !== symbol.toUpperCase()) return;
 
       if (activeVolatilityConeOverlayId.current) {
         try { chartRef.current.removeOverlay({ id: activeVolatilityConeOverlayId.current }); } catch (_) {}
         activeVolatilityConeOverlayId.current = null;
+        setIsConeActive(false);
+        if (isToggle && !cone) {
+          setStatusMsg("Конус волатильности скрыт");
+          setTimeout(() => setStatusMsg(""), 1200);
+          return;
+        }
+      }
+
+      const klines = currentKlines.current;
+      if (!cone && klines && klines.length >= 10) {
+        // Calculate 14-period ATR from loaded klines
+        const sampleCount = Math.min(14, klines.length - 1);
+        let trSum = 0;
+        for (let i = klines.length - sampleCount; i < klines.length; i++) {
+          const bar = klines[i];
+          const prevClose = klines[i - 1] ? klines[i - 1].close : bar.open;
+          const tr = Math.max(
+            bar.high - bar.low,
+            Math.abs(bar.high - prevClose),
+            Math.abs(bar.low - prevClose)
+          );
+          trSum += tr;
+        }
+        const atr = trSum / sampleCount;
+        const lastBar = klines[klines.length - 1];
+        const basePrice = lastBar.close;
+        const anchorTs = lastBar.timestamp;
+        const tfMs = TF_MS[timeframe] || 300000;
+
+        const monStatus = useMarketDataStore.getState().monitoringStatuses[symbol.toUpperCase()];
+        const trend = (monStatus?.forecast_trend || 'NEUTRAL').toUpperCase();
+        const driftSign = trend === 'BULLISH' ? 1 : trend === 'BEARISH' ? -1 : 0;
+        const expectedDriftPct = driftSign * 0.35;
+
+        const fanPoints = [];
+        for (let i = 1; i <= 16; i++) {
+          const stepSigma = Math.sqrt(i) * Math.max(atr * 0.85, basePrice * 0.002);
+          const drift = (basePrice * (expectedDriftPct / 100)) * (i / 16);
+          const mid = Number((basePrice + drift).toFixed(2));
+          fanPoints.push({
+            bar_offset: i,
+            timestamp: anchorTs + i * tfMs,
+            price_mid: mid,
+            upper_1s: Number((mid + stepSigma).toFixed(2)),
+            lower_1s: Number((mid - stepSigma).toFixed(2)),
+            upper_2s: Number((mid + stepSigma * 1.96).toFixed(2)),
+            lower_2s: Number((mid - stepSigma * 1.96).toFixed(2)),
+            upper_1sigma: Number((mid + stepSigma).toFixed(2)),
+            lower_1sigma: Number((mid - stepSigma).toFixed(2)),
+            upper_2sigma: Number((mid + stepSigma * 1.96).toFixed(2)),
+            lower_2sigma: Number((mid - stepSigma * 1.96).toFixed(2)),
+          });
+        }
+
+        cone = {
+          base_price: basePrice,
+          base_timestamp: anchorTs,
+          fan_points: fanPoints,
+          direction: trend === 'BULLISH' ? 'BULLISH' : trend === 'BEARISH' ? 'BEARISH' : 'NEUTRAL',
+          trend,
+          expected_drift_pct: expectedDriftPct,
+          sigma_1s_pct: ((atr / basePrice) * 100).toFixed(2),
+          ev_display: driftSign > 0 ? '+0.45R' : driftSign < 0 ? '-0.45R' : '0.00R'
+        };
       }
 
       if (!cone || !cone.fan_points || cone.fan_points.length === 0) {
         setStatusMsg("Конус волатильности скрыт");
         setTimeout(() => setStatusMsg(""), 1200);
+        setIsConeActive(false);
         return;
       }
 
-      const klines = currentKlines.current;
       const anchorTs = cone.base_timestamp || (klines && klines.length ? klines[klines.length - 1].timestamp : Date.now());
       const endTs = cone.fan_points[cone.fan_points.length - 1].timestamp;
 
@@ -1973,6 +2049,7 @@ export default function Chart({
         });
         if (id) {
           activeVolatilityConeOverlayId.current = id;
+          setIsConeActive(true);
           setStatusMsg("📐 Конус волатильности (±1σ / ±2σ) спроецирован на 16 баров");
           setTimeout(() => setStatusMsg(""), 2000);
           try {
@@ -1989,6 +2066,7 @@ export default function Chart({
         try { chartRef.current.removeOverlay({ id: activeVolatilityConeOverlayId.current }); } catch (_) {}
         activeVolatilityConeOverlayId.current = null;
       }
+      setIsConeActive(false);
     };
 
     window.addEventListener('apply-volatility-cone', handleVolatilityCone);
@@ -1998,7 +2076,7 @@ export default function Chart({
       window.removeEventListener('clear-volatility-cone', handleClearVolatilityCone);
       handleClearVolatilityCone();
     };
-  }, [symbol]);
+  }, [symbol, timeframe]);
 
   // Initialize KLineChart instance with ResizeObserver (ТАКТ 1)
   useEffect(() => {
@@ -2658,7 +2736,77 @@ export default function Chart({
     } catch (_) {}
   }, [symbol, showHeatmap, heatmapMinUsd]);
 
-  // Load and render OrderBook Densities (> $1M) as crisp horizontal levels on Chart (TACT 2)
+  // Render parsed orderbook walls on the chart
+  const renderOrderBookWalls = useCallback((bidsRaw, asksRaw) => {
+    if (!chartRef.current || !showWalls) {
+      activeWallOverlays.current.forEach(id => {
+        try { chartRef.current.removeOverlay({ id }); } catch (_) {}
+      });
+      activeWallOverlays.current = [];
+      return;
+    }
+
+    const klines = currentKlines.current;
+    if (!klines || klines.length === 0) return;
+    const anchorTs = klines[klines.length - 1].timestamp;
+
+    const bids = (bidsRaw || []).map(([p, q]) => {
+      const price = parseFloat(p);
+      const qty = parseFloat(q);
+      return { price, volume_usd: price * qty, side: 'BUY' };
+    });
+
+    const asks = (asksRaw || []).map(([p, q]) => {
+      const price = parseFloat(p);
+      const qty = parseFloat(q);
+      return { price, volume_usd: price * qty, side: 'SELL' };
+    });
+
+    // Top-3 bids > $1M (fallback >= 400k, then top 2)
+    let bigBids = bids.filter(b => b.volume_usd >= 1000000).sort((a, b) => b.volume_usd - a.volume_usd).slice(0, 3);
+    if (bigBids.length === 0) {
+      bigBids = bids.filter(b => b.volume_usd >= 400000).sort((a, b) => b.volume_usd - a.volume_usd).slice(0, 2);
+    }
+    if (bigBids.length === 0 && bids.length > 0) {
+      bigBids = bids.slice().sort((a, b) => b.volume_usd - a.volume_usd).slice(0, 2);
+    }
+
+    // Top-3 asks > $1M (fallback >= 400k, then top 2)
+    let bigAsks = asks.filter(a => a.volume_usd >= 1000000).sort((a, b) => b.volume_usd - a.volume_usd).slice(0, 3);
+    if (bigAsks.length === 0) {
+      bigAsks = asks.filter(a => a.volume_usd >= 400000).sort((a, b) => b.volume_usd - a.volume_usd).slice(0, 2);
+    }
+    if (bigAsks.length === 0 && asks.length > 0) {
+      bigAsks = asks.slice().sort((a, b) => b.volume_usd - a.volume_usd).slice(0, 2);
+    }
+
+    const wallsToRender = [...bigBids, ...bigAsks];
+
+    // Remove previous walls
+    activeWallOverlays.current.forEach(id => {
+      try { chartRef.current.removeOverlay({ id }); } catch (_) {}
+    });
+    activeWallOverlays.current = [];
+
+    // Render updated walls
+    wallsToRender.forEach(w => {
+      try {
+        const id = chartRef.current.createOverlay({
+          name: 'orderbookWall',
+          lock: true,
+          points: [{ timestamp: anchorTs, value: w.price }],
+          extendData: {
+            side: w.side,
+            volume_usd: w.volume_usd,
+            price: w.price
+          }
+        });
+        if (id) activeWallOverlays.current.push(id);
+      } catch (_) {}
+    });
+  }, [showWalls]);
+
+  // Load and render OrderBook Densities (> $1M) as crisp horizontal levels on Chart (HTTP fallback)
   const loadOrderBookWalls = useCallback(async () => {
     if (!chartRef.current || !showWalls) {
       activeWallOverlays.current.forEach(id => {
@@ -2672,91 +2820,79 @@ export default function Chart({
       const res = await fetch(`${API_BASE}/depth?symbol=${symbol}&limit=100`);
       if (!res.ok) return;
       const data = await res.json();
-      if (!chartRef.current) return;
+      renderOrderBookWalls(data.bids, data.asks);
+    } catch (_) {}
+  }, [symbol, showWalls, renderOrderBookWalls]);
 
-      const klines = currentKlines.current;
-      if (!klines || klines.length === 0) return;
-      const anchorTs = klines[klines.length - 1].timestamp;
-
-      const bids = (data.bids || []).map(([p, q]) => {
-        const price = parseFloat(p);
-        const qty = parseFloat(q);
-        return { price, volume_usd: price * qty, side: 'BUY' };
-      });
-
-      const asks = (data.asks || []).map(([p, q]) => {
-        const price = parseFloat(p);
-        const qty = parseFloat(q);
-        return { price, volume_usd: price * qty, side: 'SELL' };
-      });
-
-      // Top-3 bids > $1M (fallback >= 400k)
-      let bigBids = bids.filter(b => b.volume_usd >= 1000000).sort((a, b) => b.volume_usd - a.volume_usd).slice(0, 3);
-      if (bigBids.length === 0) {
-        bigBids = bids.filter(b => b.volume_usd >= 400000).sort((a, b) => b.volume_usd - a.volume_usd).slice(0, 2);
+  // Live WebSocket Depth20 (@depth20@100ms) stream for real-time OrderBook Walls
+  useEffect(() => {
+    if (!showWalls) {
+      if (depthWsRef.current) {
+        try { depthWsRef.current.close(); } catch (_) {}
+        depthWsRef.current = null;
       }
-
-      // Top-3 asks > $1M (fallback >= 400k)
-      let bigAsks = asks.filter(a => a.volume_usd >= 1000000).sort((a, b) => b.volume_usd - a.volume_usd).slice(0, 3);
-      if (bigAsks.length === 0) {
-        bigAsks = asks.filter(a => a.volume_usd >= 400000).sort((a, b) => b.volume_usd - a.volume_usd).slice(0, 2);
-      }
-
-      const wallsToRender = [...bigBids, ...bigAsks];
-
-      // Remove previous walls
       activeWallOverlays.current.forEach(id => {
-        try { chartRef.current.removeOverlay({ id }); } catch (_) {}
+        try { chartRef.current?.removeOverlay({ id }); } catch (_) {}
       });
       activeWallOverlays.current = [];
+      return;
+    }
 
-      // Render updated walls
-      wallsToRender.forEach(w => {
-        try {
-          const id = chartRef.current.createOverlay({
-            name: 'orderbookWall',
-            lock: true,
-            points: [{ timestamp: anchorTs, value: w.price }],
-            extendData: {
-              side: w.side,
-              volume_usd: w.volume_usd,
-              price: w.price
+    let isSubCancelled = false;
+    let lastRenderTs = 0;
+    const cleanSym = symbol.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    const connectDepthWs = () => {
+      try {
+        const ws = new WebSocket(`wss://fstream.binance.com/ws/${cleanSym}@depth20@100ms`);
+        depthWsRef.current = ws;
+
+        ws.onmessage = (event) => {
+          if (isSubCancelled || depthWsRef.current !== ws) return;
+          const now = Date.now();
+          if (now - lastRenderTs < 350) return; // throttle updates to keep 60fps chart rendering
+          lastRenderTs = now;
+          try {
+            const data = JSON.parse(event.data);
+            if (data.b && data.a) {
+              renderOrderBookWalls(data.b, data.a);
             }
-          });
-          if (id) activeWallOverlays.current.push(id);
-        } catch (_) {}
-      });
-    } catch (_) {}
-  }, [symbol, showWalls]);
+          } catch (_) {}
+        };
 
-  // Fetch Storage Stats
-  useEffect(() => {
-    fetch(`${API_BASE}/recorder/status`)
-      .then(res => res.json())
-      .then(stat => {
-        if (stat) {
-          setStorageInfo({
-            earliest: stat.earliest_recorded_at || '',
-            usage: `${stat.used_storage_mb || 0} MB / ${stat.max_storage_gb || 100} GB`
-          });
+        ws.onerror = () => {
+          try { ws.close(); } catch (_) {}
+        };
+      } catch (_) {}
+    };
+
+    connectDepthWs();
+
+    // Periodic HTTP fallback
+    loadOrderBookWalls();
+    const wallTimer = setInterval(loadOrderBookWalls, 3000);
+
+    return () => {
+      isSubCancelled = true;
+      clearInterval(wallTimer);
+      if (depthWsRef.current) {
+        try { depthWsRef.current.close(); } catch (_) {}
+        depthWsRef.current = null;
+      }
+    };
+  }, [symbol, showWalls, renderOrderBookWalls, loadOrderBookWalls]);
+
+  const toggleVolatilityCone = useCallback(() => {
+    window.dispatchEvent(
+      new CustomEvent('apply-volatility-cone', {
+        detail: {
+          symbol,
+          timeframe,
+          toggle: true
         }
       })
-      .catch(() => {});
-  }, [symbol]);
-
-  useEffect(() => {
-    loadLiquidations();
-  }, [loadLiquidations]);
-
-  useEffect(() => {
-    loadHeatmap();
-  }, [loadHeatmap]);
-
-  useEffect(() => {
-    loadOrderBookWalls();
-    const wallTimer = setInterval(loadOrderBookWalls, 2500);
-    return () => clearInterval(wallTimer);
-  }, [loadOrderBookWalls]);
+    );
+  }, [symbol, timeframe]);
 
   useEffect(() => {
     updateVwapOverlay();
@@ -3879,6 +4015,30 @@ export default function Chart({
             <span className="hidden xl:inline ml-0.5">Ликв.</span>
           </button>
 
+          <button 
+            data-testid="btn-toolbar-toggle-walls"
+            title="Лимитные стенки-магниты стакана (depth20)"
+            onClick={() => {
+              const next = !showWalls;
+              setShowWalls(next);
+              localStorage.setItem('chart_walls', next ? 'true' : 'false');
+            }}
+            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition flex items-center ${showWalls ? 'bg-[#10b98122] text-[#10b981] border border-[#10b98150]' : 'text-[#60697b] hover:text-white'}`}
+          >
+            <span>🧲</span>
+            <span className="hidden xl:inline ml-0.5">Стенки</span>
+          </button>
+
+          <button 
+            data-testid="btn-toolbar-toggle-cone"
+            title="Вероятностный прогнозный конус волатильности (±1σ / ±2σ)"
+            onClick={toggleVolatilityCone}
+            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition flex items-center ${isConeActive ? 'bg-[#38bdf822] text-[#38bdf8] border border-[#38bdf850]' : 'text-[#60697b] hover:text-white'}`}
+          >
+            <span>📐</span>
+            <span className="hidden xl:inline ml-0.5">Конус</span>
+          </button>
+
           <div className="h-3 w-px bg-[#1f2430] mx-0.5" />
 
           <button 
@@ -3956,6 +4116,21 @@ export default function Chart({
           style={{
             cursor: activeTool ? 'crosshair' : isMouseDown ? 'grabbing' : 'grab'
           }}
+        />
+
+        {/* Tactical Assistant HUD: Floating Predictive & Market Regime Overlay (Stage 5) */}
+        <AssistantHUD
+          symbol={symbol}
+          timeframe={timeframe}
+          lastPrice={currentKlines.current?.length ? currentKlines.current[currentKlines.current.length - 1].close : 0}
+          showWalls={showWalls}
+          onToggleWalls={() => {
+            const next = !showWalls;
+            setShowWalls(next);
+            localStorage.setItem('chart_walls', next ? 'true' : 'false');
+          }}
+          isConeActive={isConeActive}
+          onToggleCone={toggleVolatilityCone}
         />
 
         {/* Market Regime: Toxic Volatility Warning Overlay */}

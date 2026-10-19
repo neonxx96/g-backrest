@@ -640,6 +640,7 @@ class PaperTradingSession:
         for sym, pos in self.positions.items():
             if pos.closed:
                 continue
+            track = self.early_exit_engine.tracks.get(sym)
             positions.append({
                 "symbol": sym,
                 "side": pos.side,
@@ -655,6 +656,11 @@ class PaperTradingSession:
                 "risk_amount": pos.risk_amount,
                 "unrealized_pnl": self.unrealized_pnl_for(sym),
                 "last_price": self.last_prices.get(sym, 0.0),
+                "mfe": track.mfe if track else 0.0,
+                "mae": track.mae if track else 0.0,
+                "mfe_r": round(track.mfe_r, 2) if track else 0.0,
+                "current_pnl_r": round(track.current_pnl_r, 2) if track else 0.0,
+                "active_alerts": list(track.active_alerts) if track else [],
             })
         active_orders = []
         for po in self.orders.values():

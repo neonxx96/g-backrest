@@ -18,6 +18,8 @@ router = APIRouter(prefix="/api/screener/monitoring", tags=["screener-monitoring
 system_monitoring_router = APIRouter(prefix="/api/monitoring", tags=["monitoring"])
 
 
+from backend.app.services.paper_trading import paper_trading_session
+
 def _build_monitoring_payload():
     start = getattr(background_worker, "start_time", SERVER_START_TIME) or SERVER_START_TIME
     uptime = max(0.0, round(time.time() - start, 2))
@@ -27,6 +29,7 @@ def _build_monitoring_payload():
         "active_workers": 1,
         "monitored_tickers": sorted(list(background_worker.monitored_tickers)),
         "statuses": background_worker.task_statuses,
+        "paper_trading": paper_trading_session.get_state().to_dict(),
         "active_tasks_count": len([t for t in background_worker.active_tasks.values() if not t.done()]),
         "max_concurrency": background_worker.max_concurrency
     }
