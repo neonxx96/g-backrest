@@ -39,3 +39,12 @@
 - Не изменять `backend/app/engine/` и `backend/app/services/execution_simulator.py`.
 - Порты строго: backend `8000`, frontend `5173`; SQLite: `data/signals.db`.
 - Перед каждым коммитом обязателен полный прогон `scripts/check.ps1`.
+
+## Recorder S0 handoff — 2026-10-20
+
+- **ACTIVE_AGENT:** `codex`
+- **Ветка:** `agent/codex/recorder`
+- **Сделано:** read-only аудит старого recorder и фактических Parquet-файлов; архитектурное решение нового отдельного recorder добавлено в `DECISIONS.md`.
+- **Подтверждённые разрывы:** общий gap около 5 ч 50 мин 19 Oct 2026; ETH depth gap около 18 ч 40 мин 17–18 Oct 2026.
+- **Данные не менялись:** `data/recorded`, backups и backend history не удалялись, не перемещались и не перезаписывались.
+- **Следующий шаг:** S1 — отдельный пакет recorder с envelope, config, spool, norm Parquet, gaps и Binance trade/book_ticker/mark_price/liquidation/kline_1m, без подключения к FastAPI.

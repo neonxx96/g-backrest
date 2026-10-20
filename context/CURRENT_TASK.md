@@ -13,7 +13,11 @@ Initial project setup and architecture baseline.
 
 ### Implementation Checklist
 - [x] Initial coordination files created.
-- [ ] Ready for architectural blueprint from LibreChat.
+- [x] S0 read-only audit of legacy recorder and recorded Parquet completed.
+- [x] S0 lake architecture and integrity rules recorded in `DECISIONS.md`.
+- [ ] S1 standalone recorder implementation.
 
 ### Execution Log
 - Coordination environment successfully initialized.
+- S0 completed on branch `agent/codex/recorder`; no source code or legacy data changed.
+- Next session/step: implement S1 in a separate process/package and keep the existing recorder running in parallel.
