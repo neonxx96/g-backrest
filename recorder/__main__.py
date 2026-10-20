@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 import json
 from pathlib import Path
 
 from .config import load_config
 from .service import RecorderService
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 
 def main() -> int:
@@ -15,7 +18,7 @@ def main() -> int:
     parser.add_argument("--config", type=Path, default=Path("recorder.yaml"))
     args = parser.parse_args()
     config = load_config(args.config)
-    service = RecorderService(lake_root=config.lake_root, spool_root=config.lake_root.parent / "spool", node_id=config.node_id)
+    service = RecorderService(lake_root=config.lake_root, spool_root=config.lake_root.parent / "spool", node_id=config.node_id, max_storage_gib=config.max_storage_gib)
     if args.command == "status":
         print(json.dumps(service.status(), indent=2))
         service.close()

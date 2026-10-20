@@ -16,6 +16,9 @@ def normalize_agg_trade(
     """Convert a Binance USD-M aggTrade payload into the canonical envelope."""
     event_ts = int(message["T"])
     is_buyer_maker = bool(message["m"])
+    trade_id = int(message.get("a", message.get("t")))
+    first_trade_id = int(message.get("f", trade_id))
+    last_trade_id = int(message.get("l", trade_id))
     return {
         "exchange": "binance",
         "market": "usd-m",
@@ -27,12 +30,12 @@ def normalize_agg_trade(
         "node_id": node_id,
         "session_id": session_id,
         "schema_version": schema_version,
-        "trade_id": int(message["a"]),
+        "trade_id": trade_id,
         "price": float(message["p"]),
         "quantity": float(message["q"]),
         "aggressor_side": "SELL" if is_buyer_maker else "BUY",
-        "first_trade_id": int(message["f"]),
-        "last_trade_id": int(message["l"]),
+        "first_trade_id": first_trade_id,
+        "last_trade_id": last_trade_id,
     }
 
 

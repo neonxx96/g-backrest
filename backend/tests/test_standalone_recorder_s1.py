@@ -25,6 +25,17 @@ def test_binance_buyer_maker_maps_to_sell_aggressor():
     assert event["trade_id"] == 7
 
 
+def test_binance_raw_trade_payload_uses_trade_id_as_singleton_range():
+    event = normalize_agg_trade(
+        {"e": "trade", "s": "BTCUSDT", "t": 8, "p": "100.00", "q": "0.5", "T": 1700000000000, "m": False},
+        node_id="node-a", session_id="session-a", recv_ts_ns=10, recv_mono_ns=20,
+    )
+
+    assert event["trade_id"] == 8
+    assert event["first_trade_id"] == 8
+    assert event["last_trade_id"] == 8
+
+
 def test_spool_replays_complete_lines_after_restart(tmp_path: Path):
     spool = SpoolJournal(tmp_path / "spool" / "segment.jsonl")
     spool.append({"stream": "trades", "trade_id": 1})
@@ -114,6 +125,15 @@ def test_service_processes_wrapped_binance_message_without_network(tmp_path: Pat
     assert service.counters["trades"] == 1
     service.spool.flush()
     assert list(SpoolJournal.replay(service.spool.path))[0]["trade_id"] == 1
+    service.close()
+
+
+def test_service_processes_wrapped_raw_trade_message_without_network(tmp_path: Path):
+    service = RecorderService(lake_root=tmp_path / "lake", spool_root=tmp_path / "spool", node_id="node-a", session_id="session-a")
+    event = service.process_message({"stream": "btcusdt@trade", "data": {"e": "trade", "s": "BTCUSDT", "t": 2, "p": "100", "q": "1", "T": 1700000000000, "m": False}})
+
+    assert event["stream"] == "trades"
+    assert event["trade_id"] == 2
     service.close()
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
+import logging
 import time
 import uuid
 from pathlib import Path
@@ -13,6 +13,8 @@ import websockets
 from .events import normalize_message
 from .gaps import GapJournal
 from .storage import LakeWriter, SpoolJournal
+
+LOGGER = logging.getLogger(__name__)
 
 
 class DiskPolicy:
@@ -92,7 +94,7 @@ class RecorderService:
     def _stream_name(name: str, payload: dict[str, Any]) -> str:
         lower = name.lower()
         event_type = str(payload.get("e", "")).lower()
-        if "aggtrade" in lower or event_type == "aggtrade":
+        if "aggtrade" in lower or "@trade" in lower or event_type in {"aggtrade", "trade"}:
             return "trades"
         if "bookticker" in lower or event_type == "bookticker":
             return "book_ticker"
@@ -105,23 +107,35 @@ class RecorderService:
         raise ValueError(f"unsupported Binance stream: {name or event_type}")
 
     async def run_forever(self, url: str, *, reconnect_delay: float = 2.0) -> None:
+        LOGGER.info("connecting to Binance stream (%s)", url.split("?", 1)[0])
         while True:
             try:
                 async with websockets.connect(url, ping_interval=20, ping_timeout=15, max_size=10 * 1024 * 1024) as socket:
+                    LOGGER.info("Binance stream connected")
                     async for raw in socket:
-                        self.process_message(json.loads(raw))
+                        try:
+                            self.process_message(json.loads(raw))
+                        except Exception as exc:
+                            LOGGER.exception("message processing failed; continuing stream")
+                            self.alerts.add("message_processing_error")
+                            self.gaps.record(exchange="binance", market="usd-m", symbol="*", stream="message", gap_start_ts=0, gap_end_ts=int(time.time() * 1000), reason=f"message_processing_error:{type(exc).__name__}", node_id=self.node_id)
                         if sum(len(items) for items in self.buffers.values()) >= 1000:
                             self.flush()
+                    LOGGER.warning("Binance stream closed normally: code=%s reason=%s", socket.close_code, socket.close_reason)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                LOGGER.exception("Binance connection loop failed; reconnecting")
                 self.gaps.record(exchange="binance", market="usd-m", symbol="*", stream="connection", gap_start_ts=0, gap_end_ts=int(time.time() * 1000), reason="disconnect", node_id=self.node_id)
                 self.flush()
                 await asyncio.sleep(reconnect_delay)
 
     @staticmethod
     def build_binance_url(symbols: tuple[str, ...]) -> str:
-        streams = [f"{symbol.lower()}@aggTrade" for symbol in symbols]
+        # Binance's USD-M endpoint currently delivers the raw trade stream
+        # reliably from this host; normalize_trade supports both raw trade
+        # and historical aggTrade payloads.
+        streams = [f"{symbol.lower()}@trade" for symbol in symbols]
         streams += [f"{symbol.lower()}@bookTicker" for symbol in symbols]
         streams += [f"{symbol.lower()}@markPrice@1s" for symbol in symbols]
         streams += [f"{symbol.lower()}@kline_1m" for symbol in symbols]
