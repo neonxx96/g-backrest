@@ -1,9 +1,9 @@
 {
   "status": "IN_PROGRESS",
   "activeAgent": "codex",
-  "currentTask": "S1 standalone market-data recorder core",
-  "nextAction": "Add Binance WebSocket process, status CLI, disk policy and S1 integration tests",
-  "updatedAtUtc": "2026-10-20T04:45:00Z",
+  "currentTask": "Remote deployment of standalone recorder",
+  "nextAction": "Receive server hostname/IP and SSH/Docker target, then deploy compose recorder and run status/health smoke",
+  "updatedAtUtc": "2026-10-20T04:55:00Z",
   "requiresUserDecision": false,
   "decisionQuestion": null
 }

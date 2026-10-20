@@ -49,3 +49,5 @@
 - **Данные не менялись:** `data/recorded`, backups и backend history не удалялись, не перемещались и не перезаписывались.
 - **Следующий шаг:** S1 — отдельный пакет recorder с envelope, config, spool, norm Parquet, gaps и Binance trade/book_ticker/mark_price/liquidation/kline_1m, без подключения к FastAPI.
 - **S1 progress:** новый пакет `recorder/` уже содержит канонический envelope, Binance normalizers, fsync spool, immutable zstd Parquet + SHA-256 manifest, gap journal и YAML config; покрытие — 6 тестов. WebSocket process, CLI/status и disk policy ещё не завершены.
+- **S1 completed:** WebSocket process, `python -m recorder run|status`, 50 GiB disk policy, closed-kline filtering, heartbeat/status, Dockerfile/Compose и Windows start/stop scripts добавлены; полный `scripts/check.ps1` — PASS (111 tests, build, smoke, UI and live WS checks).
+- **Deployment blocker:** локально доступен только Docker Desktop (`desktop-linux`); серверный SSH/Docker target не обнаружен. После предоставления hostname/IP, user и port либо Docker context выполнить remote build/up и smoke/status check.
