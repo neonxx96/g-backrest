@@ -115,6 +115,25 @@ def test_ohlcv_integrity_rejects_non_finite_required_price_values():
     assert "close contains non-finite values" in validation["issues"]
 
 
+def test_confluence_rsi_filter_accepts_neutral_42_to_58_band():
+    frame = pd.DataFrame(
+        [
+            {"timestamp": 1, "open": 100.0, "high": 101.0, "low": 99.0, "close": 99.0, "volume": 10.0, "ema20": 100.0, "vol_ratio": 2.0, "delta": -1.0, "rsi": 50.0, "low_min10": 99.0},
+            {"timestamp": 2, "open": 100.0, "high": 102.0, "low": 99.0, "close": 101.0, "volume": 10.0, "ema20": 100.0, "vol_ratio": 2.0, "delta": 1.0, "rsi": 50.0, "low_min10": 99.0},
+        ]
+    )
+
+    signal = OrderFlowBacktester().evaluate_latest_signal(
+        frame,
+        strategy_type="confluence_ema",
+        volume_multiplier=1.25,
+        use_rsi_filter=True,
+    )
+
+    assert signal is not None
+    assert signal["direction"] == "LONG"
+
+
 # ==============================================================================
 # 1. ZERO LOOK-AHEAD BIAS TEST
 # ==============================================================================

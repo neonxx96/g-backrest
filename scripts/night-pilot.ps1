@@ -1,7 +1,13 @@
 [CmdletBinding()]
 param(
     [ValidateSet('preflight', 'start', 'status', 'report', 'stop')]
-    [string]$Action = 'status',
+    [string]$Action = 'start',
+    [ValidateSet('production_robust', 'diagnostics_lenient', 'default')]
+    [string]$Preset = 'production_robust',
+    [ValidateRange(1, 65535)]
+    [int]$Port = 8002,
+    [ValidateRange(0, 1440)]
+    [int]$MonitorMinutes = 0,
     [string]$ApiBase = ''
 )
 
@@ -28,20 +34,7 @@ function Repair-TextEncoding {
 }
 
 if ([string]::IsNullOrWhiteSpace($ApiBase)) {
-    $runtimeManifest = Join-Path $PSScriptRoot '..\data\backend_runtime.json'
-    if (Test-Path -LiteralPath $runtimeManifest) {
-        try {
-            $runtime = Get-Content -LiteralPath $runtimeManifest -Raw | ConvertFrom-Json
-            if ($runtime.host -and $runtime.port) {
-                $ApiBase = "http://$($runtime.host):$($runtime.port)"
-            }
-        } catch {
-            Write-Warning "Unable to read backend runtime manifest; falling back to port 8000."
-        }
-    }
-    if ([string]::IsNullOrWhiteSpace($ApiBase)) {
-        $ApiBase = 'http://127.0.0.1:8000'
-    }
+    $ApiBase = "http://127.0.0.1:$Port"
 }
 
 $pilotBase = "$ApiBase/api/overnight-pilot"
@@ -87,6 +80,40 @@ function Write-PilotSummary {
     }
 }
 
+function Write-WarningSentinel {
+    param([Parameter(Mandatory = $true)][object]$Result)
+
+    foreach ($row in @($Result.summary)) {
+        $noEntry = if ($null -eq $row.paper_no_trade_count) { 0 } else { [int]$row.paper_no_trade_count }
+        $closedTrades = if ($null -eq $row.paper_closed_trades) { 0 } else { [int]$row.paper_closed_trades }
+        if ($noEntry -ge 10 -and $closedTrades -eq 0) {
+            Write-Warning "[WARNING] HIGH NO_ENTRY COUNT - Check Filters! [$($row.symbol): $noEntry]"
+        }
+        $netPnl = if ($null -eq $row.paper_pnl) { 0.0 } else { [double]$row.paper_pnl }
+        $grossPnl = if ($null -eq $row.paper_gross_pnl) { 0.0 } else { [double]$row.paper_gross_pnl }
+        if ($netPnl -lt 0 -and $grossPnl -gt 0) {
+            Write-Warning "[WARNING] FEE DRAG DETECTED [$($row.symbol): Gross=$([math]::Round($grossPnl, 2)) Net=$([math]::Round($netPnl, 2))]"
+        }
+    }
+}
+
+function Write-PaperMorningTable {
+    param([Parameter(Mandatory = $true)][object]$Result)
+
+    $rows = @($Result.summary | ForEach-Object {
+        [PSCustomObject]@{
+            Symbol = $_.symbol
+            WinRate = ('{0:N2}%' -f $(if ($null -eq $_.paper_win_rate_pct) { 0.0 } else { [double]$_.paper_win_rate_pct }))
+            NetPnL = ('$' + ('{0:N2}' -f $(if ($null -eq $_.paper_pnl) { 0.0 } else { [double]$_.paper_pnl })))
+            TotalFees = ('$' + ('{0:N2}' -f $(if ($null -eq $_.paper_total_fees) { 0.0 } else { [double]$_.paper_total_fees })))
+        }
+    })
+    if ($rows.Count -gt 0) {
+        Write-Host 'Paper results by symbol:'
+        $rows | Format-Table -AutoSize | Out-String | Write-Host
+    }
+}
+
 function Write-PilotReport {
     param([Parameter(Mandatory = $true)][object]$Result)
 
@@ -121,6 +148,8 @@ function Write-PilotReport {
     }
     Write-Host "Per strategy:"
     Write-PilotSummary $Result
+    Write-PaperMorningTable $Result
+    Write-WarningSentinel $Result
 }
 
 function Write-PilotFallbackAggregate {
@@ -168,9 +197,10 @@ try {
             Write-PilotReport (Invoke-PilotJson -Uri "$pilotBase/status")
         }
         'preflight' {
-            $configs = (Invoke-PilotJson -Uri "$pilotBase/defaults").sessions
-            $result = Invoke-PilotJson -Uri "$pilotBase/preflight" -Method Post -Body $configs
+            $endpoint = if ($Preset -eq 'default') { 'preflight' } else { "$($Preset.Replace('_', '-'))/preflight" }
+            $result = Invoke-PilotJson -Uri "$pilotBase/$endpoint" -Method Post
             Write-PilotSummary $result
+            Write-WarningSentinel $result
             if (@($result.summary).Count -ne 3) { throw 'Expected three independent pilot summaries.' }
             $incomplete = @($result.sessions.PSObject.Properties | Where-Object {
                     $null -eq $_.Value.backtest -or $null -eq $_.Value.forecast
@@ -180,15 +210,23 @@ try {
             }
         }
         'start' {
-            $configs = (Invoke-PilotJson -Uri "$pilotBase/defaults").sessions
-            $result = Invoke-PilotJson -Uri "$pilotBase/start" -Method Post -Body $configs
+            $endpoint = if ($Preset -eq 'default') { 'start' } else { "$($Preset.Replace('_', '-'))/start" }
+            $result = Invoke-PilotJson -Uri "$pilotBase/$endpoint" -Method Post
             Write-PilotSummary $result
+            Write-WarningSentinel $result
             if (@($result.sessions.PSObject.Properties).Count -ne 3) { throw 'Expected three independent pilot sessions.' }
             $notRunning = @($result.sessions.PSObject.Properties | Where-Object {
                     $null -eq $_.Value.paper -or $_.Value.paper.is_running -ne $true
                 })
             if ($notRunning.Count -gt 0) {
                 throw "Paper runner did not start for: $($notRunning.Name -join ', ')"
+            }
+            $until = (Get-Date).AddMinutes($MonitorMinutes)
+            while ($MonitorMinutes -gt 0 -and (Get-Date) -lt $until) {
+                Start-Sleep -Seconds 60
+                $status = Invoke-PilotJson -Uri "$pilotBase/status"
+                Write-PilotSummary $status
+                Write-WarningSentinel $status
             }
         }
         'stop' {

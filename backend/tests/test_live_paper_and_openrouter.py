@@ -1,7 +1,7 @@
 import pytest
 from backend.app.services.openrouter_client import openrouter_client
 from backend.app.services.live_paper_runner import LivePaperRunner, live_paper_runner, PAPER_HISTORICAL_STRATEGIES
-from backend.app.services.paper_trading import PaperTradingSession, paper_trading_session
+from backend.app.services.paper_trading import PaperPosition, PaperTradingSession, paper_trading_session
 
 
 @pytest.mark.anyio
@@ -113,6 +113,26 @@ def test_live_runner_reuses_historical_filter_contract():
 
 def test_live_runner_routes_diagnostics_lenient_through_historical_signal_adapter():
     assert "diagnostics_lenient" in PAPER_HISTORICAL_STRATEGIES
+
+
+def test_live_runner_trailing_stop_only_tightens_an_open_long_position():
+    runner = LivePaperRunner()
+    runner.symbol = "BTCUSDT"
+    runner.use_trailing = True
+    runner.trailing_pct = 0.5
+    runner.session.positions["BTCUSDT"] = PaperPosition(
+        symbol="BTCUSDT",
+        side="LONG",
+        qty=1.0,
+        avg_entry_price=100.0,
+        stop_price=99.0,
+        initial_stop_price=99.0,
+        target_price=200.0,
+    )
+
+    runner._update_open_positions(102.0)
+
+    assert runner.session.positions["BTCUSDT"].stop_price == pytest.approx(101.49)
 
 
 def test_live_runner_status_exposes_margin_and_funding_accounting():

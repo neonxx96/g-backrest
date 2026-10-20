@@ -61,6 +61,28 @@ async def start_diagnostics_lenient():
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@router.post("/production-robust/preflight")
+async def preflight_production_robust():
+    """Prepare the calibrated fee-aware paper preset without placing paper orders."""
+    try:
+        result = await overnight_pilot_manager.preflight(overnight_pilot_manager.production_robust_configs())
+        await overnight_pilot_manager.persist()
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/production-robust/start")
+async def start_production_robust():
+    """Start the calibrated production paper preset; real orders are never sent."""
+    try:
+        result = await overnight_pilot_manager.start(overnight_pilot_manager.production_robust_configs())
+        await overnight_pilot_manager.persist()
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @router.post("/stop")
 async def stop_overnight_pilot():
     result = await overnight_pilot_manager.stop()

@@ -25,6 +25,21 @@ def test_diagnostics_lenient_preset_uses_short_low_risk_real_data_sessions():
     assert all(not config.use_atr_filter and not config.use_cvd_filter and not config.use_oi_filter and not config.use_rsi_filter for config in configs)
 
 
+def test_production_robust_preset_has_fee_aware_geometry_and_neutral_rsi_filter():
+    configs = OvernightPilotManager.production_robust_configs()
+
+    assert [config.symbol for config in configs] == ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+    assert {config.strategy_type for config in configs} == {"confluence_ema"}
+    assert all(config.timeframe == "15m" and config.days == 30 for config in configs)
+    assert all(config.risk_per_trade_pct == 0.5 and config.leverage == 2.0 for config in configs)
+    assert all(config.stop_loss_pct == 0.8 and config.take_profit_pct == 2.2 for config in configs)
+    assert all(config.take_profit_pct / config.stop_loss_pct == 2.75 for config in configs)
+    assert all(config.min_density_usd == 150000.0 and config.volume_multiplier == 1.25 for config in configs)
+    assert all(config.use_atr_filter and config.use_cvd_filter and config.use_rsi_filter for config in configs)
+    assert all(not config.use_oi_filter and config.use_multi_tp and config.use_trailing for config in configs)
+    assert all(config.trailing_pct == 0.5 for config in configs)
+
+
 def test_pilot_detects_running_sessions_before_restart():
     manager = OvernightPilotManager()
     assert manager._has_running_sessions() is False

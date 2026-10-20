@@ -66,6 +66,8 @@ class LivePaperRunner:
         self.use_oi_filter: bool = False
         self.use_rsi_filter: bool = False
         self.use_multi_tp: bool = True
+        self.use_trailing: bool = True
+        self.trailing_pct: float = 0.5
         self.tp1_rr_ratio: float = 1.5
         self.tp2_rr_ratio: float = 2.8
         self._last_funding_timestamp: int = 0
@@ -114,6 +116,8 @@ class LivePaperRunner:
         self.use_oi_filter = bool(config.get("use_oi_filter", False))
         self.use_rsi_filter = bool(config.get("use_rsi_filter", False))
         self.use_multi_tp = bool(config.get("use_multi_tp", True))
+        self.use_trailing = bool(config.get("use_trailing", True))
+        self.trailing_pct = float(config.get("trailing_pct", 0.5))
         self.tp1_rr_ratio = float(config.get("tp1_rr_ratio", 1.5))
         self.tp2_rr_ratio = float(config.get("tp2_rr_ratio", 2.8))
         self._last_funding_timestamp = 0
@@ -552,6 +556,8 @@ class LivePaperRunner:
 
         if self.use_rsi_filter:
             rsi = float(latest.get("rsi", 50.0))
+            if self.strategy_type == "confluence_ema":
+                return 42 <= rsi <= 58
             previous_rsi = float(previous.get("rsi", 50.0))
             if direction > 0:
                 return rsi <= 42 or (previous_rsi <= 36 and rsi >= 30)
@@ -743,6 +749,19 @@ class LivePaperRunner:
             entry = pos.avg_entry_price
             if entry <= 0:
                 continue
+
+            if self.use_trailing and self.trailing_pct > 0:
+                trail_fraction = self.trailing_pct / 100.0
+                if pos.side == "LONG":
+                    pos.trailing_high_price = max(pos.trailing_high_price or entry, current_price)
+                    trailing_stop = pos.trailing_high_price * (1.0 - trail_fraction)
+                    if trailing_stop > pos.stop_price:
+                        pos.stop_price = trailing_stop
+                elif pos.side == "SHORT":
+                    pos.trailing_low_price = min(pos.trailing_low_price or entry, current_price)
+                    trailing_stop = pos.trailing_low_price * (1.0 + trail_fraction)
+                    if pos.stop_price <= 0 or trailing_stop < pos.stop_price:
+                        pos.stop_price = trailing_stop
 
             # Check Long
             if pos.side == "LONG":

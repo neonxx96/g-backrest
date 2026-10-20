@@ -242,11 +242,15 @@ class OrderFlowBacktester:
         if use_oi_filter and float(cur.get("oi_delta", 0.0)) < 0:
             return None
         if use_rsi_filter:
-            previous_rsi = float(prev.get("rsi", 50.0))
-            if direction > 0 and not (rsi <= 42 or (previous_rsi <= 36 and rsi >= 30)):
-                return None
-            if direction < 0 and not (rsi >= 58 or (previous_rsi >= 64 and rsi <= 70)):
-                return None
+            if profile == "confluence_ema":
+                if not 42 <= rsi <= 58:
+                    return None
+            else:
+                previous_rsi = float(prev.get("rsi", 50.0))
+                if direction > 0 and not (rsi <= 42 or (previous_rsi <= 36 and rsi >= 30)):
+                    return None
+                if direction < 0 and not (rsi >= 58 or (previous_rsi >= 64 and rsi <= 70)):
+                    return None
         return {"direction": "LONG" if direction > 0 else "SHORT", "reasons": reasons, "timestamp": int(cur.get("timestamp", 0))}
 
     def explain_latest_signal(
@@ -340,8 +344,11 @@ class OrderFlowBacktester:
             reject("oi_filter", round(float(cur.get("oi_delta", 0.0)), 4), ">=", 0.0)
         if use_cvd_filter and delta == 0:
             reject("cvd_filter", round(delta, 4), "!=", 0.0)
-        if use_rsi_filter and not (rsi <= 42 or rsi >= 58):
-            reject("rsi_filter", round(rsi, 4), "outside", [42.0, 58.0])
+        if use_rsi_filter:
+            if profile == "confluence_ema" and not 42 <= rsi <= 58:
+                reject("rsi_filter", round(rsi, 4), "within", [42.0, 58.0])
+            elif profile != "confluence_ema" and not (rsi <= 42 or rsi >= 58):
+                reject("rsi_filter", round(rsi, 4), "outside", [42.0, 58.0])
 
         signal = self.evaluate_latest_signal(
             frame,
@@ -569,13 +576,16 @@ class OrderFlowBacktester:
                         allowed = False
 
                 if allowed and use_rsi_filter:
-                    prev_rsi = float(rsi_vals[i - 1])
-                    if raw_signal == 1:
-                        if not (rsi <= 42 or (prev_rsi <= 36 and rsi >= 30)):
-                            allowed = False
-                    elif raw_signal == -1:
-                        if not (rsi >= 58 or (prev_rsi >= 64 and rsi <= 70)):
-                            allowed = False
+                    if eff_strategy == "confluence_ema":
+                        allowed = 42 <= rsi <= 58
+                    else:
+                        prev_rsi = float(rsi_vals[i - 1])
+                        if raw_signal == 1:
+                            if not (rsi <= 42 or (prev_rsi <= 36 and rsi >= 30)):
+                                allowed = False
+                        elif raw_signal == -1:
+                            if not (rsi >= 58 or (prev_rsi >= 64 and rsi <= 70)):
+                                allowed = False
 
                 if allowed:
                     signals[i] = raw_signal

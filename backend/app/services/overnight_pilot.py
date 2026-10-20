@@ -38,6 +38,8 @@ class OvernightPilotConfig(BaseModel):
     use_oi_filter: bool = False
     use_rsi_filter: bool = True
     use_multi_tp: bool = True
+    use_trailing: bool = True
+    trailing_pct: float = Field(0.5, gt=0, le=20)
     tp1_rr_ratio: float = Field(1.5, ge=0.5, le=10)
     tp2_rr_ratio: float = Field(2.8, ge=1, le=15)
     ai_control: bool = False
@@ -109,6 +111,30 @@ class OvernightPilotManager:
         }
         return [OvernightPilotConfig(symbol=symbol, **common) for symbol in ("BTCUSDT", "ETHUSDT", "SOLUSDT")]
 
+    @staticmethod
+    def production_robust_configs() -> List[OvernightPilotConfig]:
+        """Fee-aware 15m paper preset for the production paper pilot only."""
+        common = {
+            "strategy_type": "confluence_ema",
+            "timeframe": "15m",
+            "days": 30,
+            "risk_per_trade_pct": 0.5,
+            "leverage": 2.0,
+            "stop_loss_pct": 0.8,
+            "take_profit_pct": 2.2,
+            "min_density_usd": 150000.0,
+            "volume_multiplier": 1.25,
+            "use_atr_filter": True,
+            "use_cvd_filter": True,
+            "use_oi_filter": False,
+            "use_rsi_filter": True,
+            "use_multi_tp": True,
+            "use_trailing": True,
+            "trailing_pct": 0.5,
+            "ai_control": False,
+        }
+        return [OvernightPilotConfig(symbol=symbol, **common) for symbol in ("BTCUSDT", "ETHUSDT", "SOLUSDT")]
+
     def set_preflight(self, symbol: str, backtest: Dict[str, Any], forecast: Dict[str, Any]) -> None:
         key = symbol.upper()
         session = self.sessions.get(key)
@@ -161,6 +187,8 @@ class OvernightPilotManager:
                         use_oi_filter=session.config.use_oi_filter,
                         use_rsi_filter=session.config.use_rsi_filter,
                         use_multi_tp=session.config.use_multi_tp,
+                        use_trailing=session.config.use_trailing,
+                        trailing_pct=session.config.trailing_pct,
                         tp1_rr_ratio=session.config.tp1_rr_ratio,
                         tp2_rr_ratio=session.config.tp2_rr_ratio,
                     ),
@@ -287,6 +315,7 @@ class OvernightPilotManager:
                 float(trade.get("net_pnl", trade.get("pnl_usd", 0.0)) or 0.0)
                 for trade in paper_trades
             ]
+            paper_gross_pnl = sum(float(trade.get("gross_pnl", 0.0) or 0.0) for trade in paper_trades)
             paper_gross_wins = sum(max(0.0, value) for value in paper_pnl_values)
             paper_gross_losses = abs(sum(min(0.0, value) for value in paper_pnl_values))
             forecast_backtest_divergence = bool(
@@ -325,6 +354,8 @@ class OvernightPilotManager:
                 "paper_roi_pct": paper.get("roi_pct"),
                 "paper_max_drawdown_pct": paper.get("max_drawdown_pct"),
                 "paper_pnl": paper.get("realized_pnl"),
+                "paper_gross_pnl": round(paper_gross_pnl, 2),
+                "paper_total_fees": paper.get("total_fees", 0.0),
                 "paper_unrealized_pnl": paper.get("unrealized_pnl"),
                 "paper_closed_trades": len(paper_trades),
                 "paper_win_rate_pct": round(

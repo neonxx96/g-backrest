@@ -57,6 +57,8 @@ class PaperPosition:
     target_price: float = 0.0
     tp2_price: float = 0.0
     tp1_filled: bool = False
+    trailing_high_price: float = 0.0
+    trailing_low_price: float = 0.0
     fees_paid: float = 0.0
     closed: bool = False
     breakeven_triggered: bool = False

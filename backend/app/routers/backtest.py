@@ -118,6 +118,8 @@ class BacktestParams(BaseModel):
     taker_fee_pct: float = Field(0.05, ge=0.0, le=2.0)
     slippage_ticks: int = Field(2, ge=0, le=20)
     use_multi_tp: bool = True
+    use_trailing: bool = True
+    trailing_pct: float = Field(0.5, gt=0, le=20)
     tp1_pct: float = Field(0.6, gt=0, le=50)
     tp1_atr_mult: float = Field(1.5, gt=0, le=10)
     atr_period: int = Field(14, ge=3, le=100)
@@ -618,8 +620,8 @@ async def run_backtest(req: BacktestRequest):
         eff_strategy,
         tp,
         sl,
-        False,
-        0.5,
+        p.use_trailing,
+        p.trailing_pct,
         float(leverage),
         100000.0,
         p.volume_multiplier,
@@ -666,6 +668,8 @@ async def run_backtest(req: BacktestRequest):
             "taker_fee_pct": taker_fee_pct,
             "slippage_ticks": slippage_ticks,
             "use_multi_tp": use_multi_tp,
+            "use_trailing": p.use_trailing,
+            "trailing_pct": p.trailing_pct,
             "risk_per_trade_pct": risk_per_trade_pct,
         },
         "confluence_filters": {
