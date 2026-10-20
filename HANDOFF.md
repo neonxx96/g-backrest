@@ -5,45 +5,31 @@
 ## 🚦 Текущий статус
 
 - **ACTIVE_AGENT:** `none`
-- **Текущая ветка:** `agent/antigravity/integrate-quant-design`
-- **Базовый коммит:** `bbb2f8e` — Deep History & Quant Design Integration.
-- **Последняя подтверждённая полная проверка:** `2026-10-20`, `scripts/check.ps1` — **PASS**: 93/93 pytest, frontend production build, 8/8 critical API smoke, blocking и live Playwright smoke.
+- **Текущая ветка:** `agent/antigravity/paper-trading-openrouter`
+- **Последняя подтверждённая полная проверка:** `2026-10-20`, `scripts/check.ps1` — **PASS**: 95/95 pytest, frontend production build, 8/8 critical API smoke, blocking и live Playwright smoke (`ALL QUALITY CHECKS PASSED. READY TO COMMIT.`).
 
 ## ✅ Подтверждённое состояние
 
-1. **Paper Trading v0.1:** виртуальный баланс, комиссии maker/taker, MFE/MAE, закрытые сделки, kill switch, reset/resume.
-2. **Forecast bands:** вероятностный прогноз и контракт валидации покрыты тестами.
-3. **RegimeClassifier + Walk-Forward:** режимы `FLAT_DENSE`, `TREND_IMPULSE`, `TOXIC_VOLATILITY`; последний блокирует новые paper-входы.
-4. **UnifiedTradeSignal:** background worker и ручной Paper API создают/исполняют единый контракт; reason нормализуется в список условий.
-5. **Quant Analytics & 3 Cores Engine:** `FreeBinanceSelfCollector`, `MarketDataProvider`, `quant_engine.py` (Core 3 Cold Quant, R:R расчет, VETO логика), `quant_router.py` подключены к боевому FastAPI (порт 8000). Эндпоинты `/api/quant/unified`, `/api/quant/evaluate`, `/api/quant/prompt`, `/api/quant/quarantine` протестированы.
-6. **UI Overlays & Quarantine Consilium:** В боевой `App.jsx` и `TerminalDockview` интегрированы `LayerToolbar` (фильтры слоев, плеч 25x-100x, слайдер плотностей), `ChartCanvasOverlay` (прозрачный 60 FPS Canvas-оверлей со спотовыми стенами и синтетической тепловой картой ликвидаций), `LiqAnalyticsPanel` и `QuantDecisionConsilium` с кнопкой «Зафиксировать в карантин» (Shadow Quarantine) и хоткеями `Q` и `L`.
-
-## 🐞 Диагностика Quality Gate
-
-`test_get_monitoring_state_endpoint[asyncio]` не имеет дефекта в приложении. В sandbox-процессе Windows loopback `socket.connect()` получает `WinError 10013`; Python реализует `socket.socketpair()` через loopback connect/accept, поэтому AnyIO зависал ещё при создании event loop. В обычном локальном запуске тест проходит за ~1.1 с, а полный pytest — 82/82.
-
-Если `check.ps1` зависает на UI: проверить `5173`. В этой сессии прежний Vite-listener на PID `34048` принимал порт, но TCP соединения оставались `SYN_SENT`; после разрешённого перезапуска свежий Vite ответил `HTTP 200`, а UI smoke прошёл.
-
-## 🎯 Утверждённая архитектура: один движок, три режима
-
-Код стратегии должен использовать единый `UnifiedTradeSignal` в трёх последовательных режимах:
-
-1. **History:** детерминированный backtest.
-2. **Validation:** walk-forward / out-of-sample проверка.
-3. **Paper:** live симуляция без реальных ордеров.
-
-Каждый сигнал обязан иметь детерминированный `reason`: структурированный список сработавших условий и фактических значений. Эти данные нужны для пользовательской объяснимости, Reality Mirror и будущего авто-тюнинга.
-
-## ⏭️ Следующие утверждённые этапы
-
-1. **Этап 2 — Unified Pipeline:** завершён (`824b474`). Paper-входы background worker теперь проходят через `UnifiedTradeSignal`; `reason` хранится списком условий. UI использует относительный `/api` и реальный session status.
-2. **Этап 3 — Reality Mirror:** завершён. Закрытая paper-сделка хранит Net PnL с обеими комиссиями, Fee Drag, MFE, MAE и флаг Profit Bleed. Таблица их отображает; chart показывает приглушённые paper-маркеры и tooltip с причиной/метриками.
-3. **Следующий безопасный шаг:** вручную прогнать несколько paper-сделок на BTCUSDT и сравнить историю/маркеры с реальным event stream. Автоторговлю не включать.
-4. **Truth-first MVP:** History Backtest отделяет `entry_reason` от `exit_reason` и публикует `data_availability`; Historical L2 обозначается `No data (OHLCV only)`. UI Verdict блокирует токсичный режим и отрицательный Net PnL.
+1. **Честное разделение бэктеста и симулятора:**
+   - **Historical OHLCV Backtest:** в режиме истории скрыты L2-фильтры стакана (стенки и время жизни), выводятся честный информационный баннер и свечные индикаторы (ATR, RSI, поглощение объёма Price Action). Актуальный тикер синхронизирован без рассинхрона.
+   - **Live Paper Trading (Симулятор):** новый честный режим работы со стартовым балансом ($10,000 по умолчанию) и настраиваемым риском на сделку (1.0%). Движок `LivePaperRunner` подписывается на `FreeBinanceCollector` (Live L2 стакан + Liquidation Map), детектирует сетапы («Вход перед стенкой $500k+» и Quant Confluence 3 ядра), списывает маржу с виртуального баланса с учетом комиссий Maker/Taker и проскальзывания, строит интерактивную SVG equity-кривую в реальном времени.
+2. **Layout & State Persistence (Полное сохранение состояния интерфейса):**
+   - `App.jsx`: сохранение активного `symbol`, `timeframe`, состояния открытых панелей (`showBacktest`, `showAICopilot`, `showDecisionJournal`) в `localStorage`.
+   - `colorLinksStore.js`: сохранение 10 цветовых каналов, привязок панелей (`panelBindings`) и локальных тикеров через Zustand `persist` (`signalscript_color_links`).
+   - `layoutStore.js`: сохранение активного пресета (`signalscript_active_preset`) и локального снапшота раскладки dockview (`signalscript_last_dockview_layout`).
+   - `quantStore.js`: сохранение настроек слоев, плеч 25x-100x, фильтра плотностей, прозрачности и палитры через Zustand `persist` (`signalscript_quant_storage`).
+   - `backtestStore.js`: сохранение выбранного режима (`mode`), параметров по тикерам и конфигурации `livePaperConfig` через Zustand `persist` (`signalscript_backtest_storage`).
+3. **AI-Копилот риск-контроля через OpenRouter:**
+   - Создан сервис `openrouter_client.py` с поддержкой пула бесплатных моделей (`meta-llama/llama-3.1-8b-instruct:free`, `google/gemma-2-9b-it:free`).
+   - Реализован детерминированный cold quant fallback при отсутствии ключа или сбое сети (проверка R:R < 1.5 -> VETO, дисбаланс стакана против сделки -> VETO).
+   - Чекбокс `AI Контроль сделок (OpenRouter)` в симуляторе: при обнаружении сетапа сделка ставится на паузу, запрашивается риск-офицер; при ответе `VETO: TRUE` сделка отменяется, при одобрении исполняется. Все решения фиксируются в логе с цветовыми бейджами (`[AI_CONFIRM]`, `[AI_VETO]`, `[TRADE_ENTRY]`, `[TRADE_EXIT]`).
+4. **Компоненты интерфейса:**
+   - В `BacktestPanel.jsx` добавлена кнопка переключения режима `⚡ Симулятор (Paper)`.
+   - Создан компонент `LivePaperTradingView.jsx` с контролами `LivePaperTradingControls` и визуализатором `LivePaperTradingResults` (KPI-карточки баланса/equity/PnL, SVG equity chart, таблицы открытых/закрытых сделок и лог AI).
 
 ## 🔒 Ограничения
 
-- Никаких реальных ордеров, ключей или случайных данных рынка.
+- Никаких реальных ордеров, ключей или случайных данных рынка (строго консультативный терминал).
 - Не изменять `backend/app/services/execution_simulator.py`.
 - Порты строго: backend `8000`, frontend `5173`; SQLite: `data/signals.db`.
-- Перед каждым коммитом нужен полный `scripts/check.ps1`.
+- Перед каждым коммитом обязателен полный прогон `scripts/check.ps1`.

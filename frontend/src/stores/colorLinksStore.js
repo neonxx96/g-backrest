@@ -11,6 +11,7 @@
  */
 
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 export const COLOR_CHANNELS = [
   { id: 'c1', name: 'Синий', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.2)', border: '#3b82f6' },
@@ -38,7 +39,9 @@ const DEFAULT_CHANNELS = {
   c10: 'AVAXUSDT'
 };
 
-export const useColorLinksStore = create((set, get) => ({
+export const useColorLinksStore = create(
+  persist(
+    (set, get) => ({
   // 10 channels mapping: channelId -> symbol
   channels: { ...DEFAULT_CHANNELS },
 
@@ -118,7 +121,17 @@ export const useColorLinksStore = create((set, get) => ({
         : state.panelBindings
     }));
   }
-}));
+}),
+    {
+      name: 'signalscript_color_links',
+      partialize: (state) => ({
+        channels: state.channels,
+        panelBindings: state.panelBindings,
+        panelPrivateSymbols: state.panelPrivateSymbols
+      })
+    }
+  )
+);
 
 if (typeof window !== 'undefined') {
   window.useColorLinksStore = useColorLinksStore;

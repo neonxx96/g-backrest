@@ -35,11 +35,19 @@ export const DEFAULT_TICKER_PARAMS = {
   use_rsi_filter: false,
 };
 
+export const DEFAULT_LIVE_PAPER_CONFIG = {
+  initialCapital: 10000,
+  riskPerTradePct: 1.0,
+  minDensityUsd: 500000,
+  aiControl: false,
+  strategyType: 'live_density_bounce',
+};
+
 /**
  * Backtest Store
  * 
- * Central state for quantitative backtesting runs, chart trade overlays,
- * trade log tables, and real-time Risk/Reward parameter synchronization.
+ * Central state for quantitative backtesting runs, live paper trading simulator,
+ * chart trade overlays, trade log tables, and real-time Risk/Reward parameter synchronization.
  * Uses persistent storage and per-symbol parameter isolation to prevent UI ticker bleed.
  */
 export const useBacktestStore = create(
@@ -50,11 +58,91 @@ export const useBacktestStore = create(
       activeResult: null,
       showTradesOnChart: true,
       selectedTradeId: null,
-      
+
+      // Active mode in BacktestPanel: 'single' | 'live_paper' | 'grid' | 'ai'
+      mode: 'single',
+      setMode: (mode) => set({ mode }),
+
       // Strategy settings (global defaults)
       strategyType: 'confluence_ema',
       days: 14,
       initialCapital: 10000,
+
+      // Live Paper Trading Simulator state
+      isLivePaperRunning: false,
+      livePaperConfig: DEFAULT_LIVE_PAPER_CONFIG,
+      livePaperStatus: null,
+
+      setLivePaperConfig: (partial) =>
+        set((state) => ({
+          livePaperConfig: { ...state.livePaperConfig, ...partial },
+        })),
+
+      startLivePaper: async (overrideConfig = {}) => {
+        const config = { ...get().livePaperConfig, ...overrideConfig };
+        try {
+          const res = await fetch(`${API_BASE}/paper-trading/live/start`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              symbol: config.symbol || 'BTCUSDT',
+              strategy_type: config.strategyType || 'live_density_bounce',
+              initial_capital: Number(config.initialCapital) || 10000,
+              risk_per_trade_pct: Number(config.riskPerTradePct) || 1.0,
+              min_density_usd: Number(config.minDensityUsd) || 500000,
+              ai_control: Boolean(config.aiControl),
+              stop_loss_pct: Number(config.stop_loss_pct) || 0.8,
+              take_profit_pct: Number(config.take_profit_pct) || 1.6,
+              leverage: Number(config.leverage) || 2,
+            }),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || 'Не удалось запустить симулятор');
+          }
+          const data = await res.json();
+          set({
+            isLivePaperRunning: true,
+            livePaperStatus: data.runner,
+            livePaperConfig: config,
+          });
+          return data;
+        } catch (err) {
+          console.error('Failed to start live paper trading:', err);
+          throw err;
+        }
+      },
+
+      stopLivePaper: async () => {
+        try {
+          const res = await fetch(`${API_BASE}/paper-trading/live/stop`, { method: 'POST' });
+          if (res.ok) {
+            const data = await res.json();
+            set({ isLivePaperRunning: false, livePaperStatus: data.runner });
+            return data;
+          }
+        } catch (err) {
+          console.error('Failed to stop live paper trading:', err);
+        }
+        set({ isLivePaperRunning: false });
+      },
+
+      fetchLivePaperStatus: async () => {
+        try {
+          const res = await fetch(`${API_BASE}/paper-trading/live/status`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.runner) {
+              set({
+                isLivePaperRunning: Boolean(data.runner.is_running),
+                livePaperStatus: data.runner,
+              });
+            }
+          }
+        } catch (err) {
+          console.warn('Live paper status fetch error:', err);
+        }
+      },
 
       // Isolated parameter map: { [SYMBOL]: { ...params } }
       customParamsBySymbol: {},
@@ -67,7 +155,7 @@ export const useBacktestStore = create(
           strategy_type: get().strategyType || DEFAULT_TICKER_PARAMS.strategy_type,
           days: get().days || DEFAULT_TICKER_PARAMS.days,
           initialCapital: get().initialCapital || DEFAULT_TICKER_PARAMS.initialCapital,
-          ...(stored || {})
+          ...(stored || {}),
         };
       },
 
@@ -79,8 +167,8 @@ export const useBacktestStore = create(
             [symKey]: {
               ...(state.customParamsBySymbol?.[symKey] || DEFAULT_TICKER_PARAMS),
               ...partialParams,
-            }
-          }
+            },
+          },
         }));
       },
 
@@ -140,8 +228,8 @@ export const useBacktestStore = create(
               tp1_rr_ratio: Number(symbolParams.tp1RrRatio) || 1.5,
               tp2_mode: symbolParams.tp2Mode || 'opposite_wall',
               tp2_rr_ratio: Number(symbolParams.tp2RrRatio) || 2.8,
-              min_wall_lifetime_sec: Number(symbolParams.minWallLifetimeSec) || 30
-            }
+              min_wall_lifetime_sec: Number(symbolParams.minWallLifetimeSec) || 30,
+            },
           };
 
           // If user has an active Risk/Reward box on the chart, synchronize its exact levels
@@ -156,23 +244,20 @@ export const useBacktestStore = create(
             payload.params.take_profit_pct = boxTpPct;
             payload.params.tp1_rr_ratio = Number(rrRatio.toFixed(2));
             payload.params.entry_mode = activeSetup.direction;
-            
-            // Include source setup metadata
+
             payload.source_setup = {
               entry_price: activeSetup.entry_price,
               tp1_price: activeSetup.tp1_price,
               sl_price: activeSetup.sl_price,
               direction: activeSetup.direction,
-              rr_ratio: activeSetup.rr_ratio
+              rr_ratio: activeSetup.rr_ratio,
             };
           }
-
-          console.log("[BACKTEST-STORE] Sending payload:", JSON.stringify(payload));
 
           const res = await fetch(`${API_BASE}/backtest/run`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
           });
 
           if (!res.ok) {
@@ -181,9 +266,6 @@ export const useBacktestStore = create(
           }
 
           const data = await res.json();
-          console.log("[BACKTEST-STORE] Backtest completed, received trades:", data.trades?.length);
-          
-          // Inject symbol and timeframe into result for strict matching
           data.symbol = symKey;
           data.timeframe = timeframe;
 
@@ -191,7 +273,7 @@ export const useBacktestStore = create(
             activeResult: data,
             isRunning: false,
             error: null,
-            showTradesOnChart: true
+            showTradesOnChart: true,
           });
 
           return data;
@@ -200,7 +282,7 @@ export const useBacktestStore = create(
           set({ error: errMsg, isRunning: false });
           throw err;
         }
-      }
+      },
     }),
     {
       name: 'signalscript_backtest_storage',
@@ -211,6 +293,8 @@ export const useBacktestStore = create(
         initialCapital: state.initialCapital,
         showTradesOnChart: state.showTradesOnChart,
         activeResult: state.activeResult,
+        mode: state.mode,
+        livePaperConfig: state.livePaperConfig,
       }),
     }
   )

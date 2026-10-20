@@ -11,6 +11,7 @@ from backend.app.services.paper_trading import paper_trading_session
 
 @pytest.mark.anyio
 async def test_paper_trading_status_endpoint():
+    await reset_paper_wallet(ResetWalletRequest(initial_balance=100.0))
     res = await get_paper_trading_status()
     assert res["status"] == "ok"
     assert "balance" in res

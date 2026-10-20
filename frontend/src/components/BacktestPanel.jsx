@@ -20,8 +20,10 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  HelpCircle
+  HelpCircle,
+  Zap
 } from 'lucide-react';
+import { LivePaperTradingControls, LivePaperTradingResults } from './LivePaperTradingView';
 
 const API_BASE = '/api';
 
@@ -421,7 +423,19 @@ export default function BacktestPanel({
     }
   }, [symbol, setParamsForSymbol]);
 
-  const [mode, setMode] = useState('single'); // 'single' | 'grid' (Genetic Optimizer) | 'ai'
+  const storeMode = useBacktestStore((s) => s.mode);
+  const setStoreMode = useBacktestStore((s) => s.setMode);
+  const [mode, setLocalMode] = useState(storeMode || 'single');
+  const setMode = useCallback((m) => {
+    setLocalMode(m);
+    if (setStoreMode) setStoreMode(m);
+  }, [setStoreMode]);
+
+  useEffect(() => {
+    if (storeMode && storeMode !== mode) {
+      setLocalMode(storeMode);
+    }
+  }, [storeMode]);
   const [strategy, setStrategy] = useState('delta_absorption');
   const [timeframe, setTimeframe] = useState('5m');
   const [days, setDays] = useState(14);
@@ -1349,6 +1363,16 @@ export default function BacktestPanel({
           {/* Mode Switcher */}
           <div className="flex items-center bg-neutral-950 p-0.5 rounded border border-neutral-800 font-mono text-[9.5px] ml-2 shrink-0">
             <button
+              data-testid="bt-mode-paper"
+              onClick={() => setMode('live_paper')}
+              className={`flex items-center space-x-1 px-2 py-0.5 rounded transition cursor-pointer ${
+                mode === 'live_paper' ? 'bg-amber-400 text-neutral-950 font-bold shadow-xs' : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              <Zap size={10} className={mode === 'live_paper' ? 'text-black' : 'text-amber-400'} />
+              <span>⚡ Симулятор (Paper)</span>
+            </button>
+            <button
               data-testid="bt-mode-single"
               onClick={() => setMode('single')}
               className={`flex items-center space-x-1 px-2 py-0.5 rounded transition cursor-pointer ${
@@ -1356,7 +1380,7 @@ export default function BacktestPanel({
               }`}
             >
               <Sliders size={10} />
-              <span>Одиночный</span>
+              <span>Одиночный (OHLCV)</span>
             </button>
             <button
               data-testid="bt-mode-optimizer"
@@ -1405,7 +1429,9 @@ export default function BacktestPanel({
         <div
           className="w-[450px] 2xl:w-[490px] shrink-0 p-2.5 border-r border-neutral-800 space-y-2 overflow-y-auto bg-neutral-950/60 select-none"
         >
-          {mode === 'ai' ? (
+          {mode === 'live_paper' ? (
+            <LivePaperTradingControls symbol={symbol} />
+          ) : mode === 'ai' ? (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-bold text-neutral-200 uppercase tracking-wider flex items-center gap-1">
@@ -1808,52 +1834,37 @@ export default function BacktestPanel({
                   <span className="text-[8px] text-neutral-500 font-mono">FILTERS</span>
                 </div>
 
-                {/* Wall & Volume */}
-                <div className="grid grid-cols-2 gap-1.5">
-                  <NumField
-                    label="Стенка стакана"
-                    value={minWallK}
-                    onChange={handleMinWallChange}
-                    step={50}
-                    min={0}
-                    suffix="$k"
-                    tooltip="Минимальная лимитная плотность в стакане, USD"
-                  />
-                  <NumField
-                    label="Объём свечи ×"
-                    value={volMult}
-                    onChange={handleVolMultChange}
-                    step={0.1}
-                    min={0.5}
-                    tooltip="Множитель объема свечного кластера"
-                  />
-                </div>
-
-                {/* Wall lifetime slider */}
-                <div className="pt-0.5 border-t border-neutral-800/80">
-                  <div className="flex items-center justify-between text-[8.5px]">
-                    <span className="text-neutral-400 font-semibold flex items-center">
-                      ⏱️ Мин. жизнь стенки:
-                      <InfoTip text="Защита от спуфинга: плотность учитывается только если удерживается в стакане не менее указанного времени" />
+                {/* Honest Historical OHLCV Banner (L2 orderbook filters hidden in history) */}
+                <div className="border border-neutral-800/90 rounded bg-neutral-900/80 p-2 text-[8.5px] font-mono space-y-1.5">
+                  <div className="flex items-center justify-between text-amber-400 font-bold text-[9px]">
+                    <span className="flex items-center gap-1">
+                      <span>🛡️ Честный режим OHLCV истории</span>
                     </span>
-                    <span data-testid="wall-lifetime-val" className="text-neutral-200 font-bold">
-                      {minWallLifetimeSec} сек
+                    <span className="text-[7.5px] bg-amber-500/10 border border-amber-500/30 text-amber-300 px-1 rounded">
+                      L2 фильтры скрыты
                     </span>
                   </div>
-                  <input
-                    data-testid="slider-wall-lifetime"
-                    type="range"
-                    min={10}
-                    max={60}
-                    step={5}
-                    value={minWallLifetimeSec}
-                    onChange={(e) => {
-                      const v = Number(e.target.value);
-                      setMinWallLifetimeSec(v);
-                      updateSymbolParam({ minWallLifetimeSec: v });
-                    }}
-                    className="w-full h-1.5 accent-neutral-300 bg-neutral-800 rounded cursor-pointer mt-0.5"
-                  />
+                  <p className="text-neutral-400 font-sans leading-tight">
+                    Биржа не хранит исторический стакан L2. В истории доступны только свечные индикаторы (ATR, RSI, поглощение объёма).
+                    Для торговли перед лимитными стенками переключитесь в{' '}
+                    <button
+                      type="button"
+                      onClick={() => setMode('live_paper')}
+                      className="text-amber-300 font-bold underline cursor-pointer hover:text-amber-200"
+                    >
+                      ⚡ Симулятор (Paper)
+                    </button>.
+                  </p>
+                  <div className="pt-1 border-t border-neutral-800/80">
+                    <NumField
+                      label="Множитель объёма свечи"
+                      value={volMult}
+                      onChange={handleVolMultChange}
+                      step={0.1}
+                      min={0.5}
+                      tooltip="Множитель объема свечного кластера (Price Action / Volume Climax)"
+                    />
+                  </div>
                 </div>
 
                 {/* Confluence Suite */}
@@ -2076,6 +2087,10 @@ export default function BacktestPanel({
 
         {/* Right Results Column */}
         <div className="flex-1 min-w-0 p-2 flex flex-col space-y-1.5 overflow-hidden">
+          {mode === 'live_paper' ? (
+            <LivePaperTradingResults symbol={symbol} />
+          ) : (
+            <>
           {/* ТАКТ 1.1: Блок «Источники и метрики» (Data Feed Context) */}
           <div
             data-testid="data-feed-context-card"
@@ -2699,6 +2714,8 @@ export default function BacktestPanel({
                   </table>
                 )}
               </div>
+            </>
+          )}
             </>
           )}
         </div>

@@ -1,3 +1,5 @@
+from backend.app.services.live_paper_runner import live_paper_runner
+from backend.app.services.openrouter_client import openrouter_client
 """
 Paper Trading REST API Router
 Provides endpoints to inspect virtual wallet status, open/closed positions,
@@ -5,7 +7,7 @@ and manual administrative wallet reset.
 """
 
 import time
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -126,3 +128,69 @@ async def resume_paper_trading():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+
+class LiveStartRequest(BaseModel):
+    symbol: str = Field(default="BTCUSDT")
+    strategy_type: str = Field(default="live_density_bounce")
+    initial_capital: float = Field(default=10000.0)
+    risk_per_trade_pct: float = Field(default=1.0)
+    min_density_usd: float = Field(default=500000.0)
+    ai_control: bool = Field(default=False)
+    stop_loss_pct: float = Field(default=0.8)
+    take_profit_pct: float = Field(default=1.6)
+    leverage: float = Field(default=2.0)
+    maker_fee_pct: float = Field(default=0.02)
+    taker_fee_pct: float = Field(default=0.05)
+    slippage_ticks: int = Field(default=2)
+
+
+@router.post("/live/start")
+async def start_live_paper_trading(req: LiveStartRequest):
+    """Starts the real-time paper trading engine on live FreeBinanceCollector feeds."""
+    try:
+        status = live_paper_runner.start(req.model_dump())
+        return {"status": "ok", "runner": status}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/live/stop")
+async def stop_live_paper_trading():
+    """Stops the real-time paper trading engine."""
+    try:
+        status = live_paper_runner.stop()
+        return {"status": "ok", "runner": status}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/live/status")
+async def get_live_paper_status():
+    """Returns live execution state, equity curve, open positions and AI decision logs."""
+    return {
+        "status": "ok",
+        "runner": live_paper_runner.get_status()
+    }
+
+
+class AIRiskEvalRequest(BaseModel):
+    symbol: str = Field(default="BTCUSDT")
+    setup: Dict[str, Any]
+    market_snapshot: Dict[str, Any]
+    model: Optional[str] = None
+
+
+@router.post("/evaluate-ai-risk")
+async def evaluate_ai_trade_risk(req: AIRiskEvalRequest):
+    """Evaluates prospective trade setup against OpenRouter Risk Sentinel or quant fallback."""
+    try:
+        res = await openrouter_client.evaluate_trade_risk(
+            symbol=req.symbol,
+            setup=req.setup,
+            market_snapshot=req.market_snapshot,
+            model=req.model
+        )
+        return {"status": "ok", "evaluation": res}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

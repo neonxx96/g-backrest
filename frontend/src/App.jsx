@@ -94,8 +94,13 @@ function loadTerminalLayout() {
 
 export default function App() {
   const params = new URLSearchParams(window.location.search);
-  const initialSymbol = (params.get('symbol') || 'BTCUSDT').toUpperCase();
-  const initialTf = params.get('tf') || '15m';
+  const paramSymbol = params.get('symbol');
+  const paramTf = params.get('tf');
+  const savedSymbol = typeof localStorage !== 'undefined' ? localStorage.getItem('signalscript_active_symbol') : null;
+  const savedTf = typeof localStorage !== 'undefined' ? localStorage.getItem('signalscript_active_tf') : null;
+
+  const initialSymbol = (paramSymbol || savedSymbol || 'BTCUSDT').toUpperCase();
+  const initialTf = paramTf || savedTf || '15m';
   const initialUserId = params.get('user_id') || '0';
 
   const [symbol, setSymbol] = useState(initialSymbol);
@@ -180,15 +185,41 @@ export default function App() {
   }, [userId]);
 
   // AI Copilot Sidebar, Decision Journal & Indicators Catalog states
-  const [showAICopilot, setShowAICopilot] = useState(false);
-  const [showDecisionJournal, setShowDecisionJournal] = useState(false);
+  const [showAICopilot, setShowAICopilot] = useState(() => {
+    try { return localStorage.getItem('signalscript_show_ai_copilot') === 'true'; } catch (_) { return false; }
+  });
+  const [showDecisionJournal, setShowDecisionJournal] = useState(() => {
+    try { return localStorage.getItem('signalscript_show_journal') === 'true'; } catch (_) { return false; }
+  });
   const [showIndicatorsModal, setShowIndicatorsModal] = useState(false);
   const [indicatorsTargetChart, setIndicatorsTargetChart] = useState('primary');
   const [primaryIndicators, setPrimaryIndicators] = useState(() => loadChartIndicators('primary'));
   const [secondaryIndicators, setSecondaryIndicators] = useState(() => loadChartIndicators('secondary'));
 
   // Backtest panel state: result (signals/trades/metrics) lives here so both charts can draw markers
-  const [showBacktest, setShowBacktest] = useState(false);
+  const [showBacktest, setShowBacktest] = useState(() => {
+    try { return localStorage.getItem('signalscript_show_backtest') === 'true'; } catch (_) { return false; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem('signalscript_show_backtest', showBacktest ? 'true' : 'false'); } catch (_) {}
+  }, [showBacktest]);
+
+  useEffect(() => {
+    try { localStorage.setItem('signalscript_show_ai_copilot', showAICopilot ? 'true' : 'false'); } catch (_) {}
+  }, [showAICopilot]);
+
+  useEffect(() => {
+    try { localStorage.setItem('signalscript_show_journal', showDecisionJournal ? 'true' : 'false'); } catch (_) {}
+  }, [showDecisionJournal]);
+
+  useEffect(() => {
+    try { localStorage.setItem('signalscript_active_symbol', symbol); } catch (_) {}
+  }, [symbol]);
+
+  useEffect(() => {
+    try { localStorage.setItem('signalscript_active_tf', timeframe); } catch (_) {}
+  }, [timeframe]);
   const [btResult, setBtResult] = useState(null);
   const [showBtSignals, setShowBtSignals] = useState(true);
   const [activeStrategyProfile, setActiveStrategyProfile] = useState('density_bounce');
