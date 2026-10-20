@@ -539,11 +539,11 @@ export default function TerminalDockview({
         try {
           api.clear();
           const sanitizedLayout = sanitizeDockviewLayout(dockviewJson);
-          if (!sanitizedLayout) {
+          if (sanitizedLayout) {
+            api.fromJSON(sanitizedLayout);
+          } else {
             buildDefaultLayout(api, workspaceDetail.id);
-            return;
           }
-          api.fromJSON(sanitizedLayout);
           // Auto-migrate: If trades_main is not yet in the saved layout, add it tabbed within signals_main
           if (!api.getPanel('trades_main')) {
             const ref = api.getPanel('signals_main') || api.getPanel('orderbook_main') || api.getPanel('chart_main');
