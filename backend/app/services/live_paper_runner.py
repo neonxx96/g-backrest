@@ -21,6 +21,16 @@ from backend.app.engine.trade_contract import UnifiedTradeSignal
 
 logger = logging.getLogger("SignalScript.LivePaperRunner")
 
+# These profiles are evaluated from the same real OHLCV frame in historical
+# backtest, forecast, and live paper mode. Keep the list explicit so a new
+# diagnostic profile cannot silently stop at the live execution boundary.
+PAPER_HISTORICAL_STRATEGIES = frozenset({
+    "confluence_ema",
+    "cvd_absorption",
+    "cluster_volume_bounce",
+    "diagnostics_lenient",
+})
+
 
 class LivePaperRunner:
     """
@@ -581,7 +591,7 @@ class LivePaperRunner:
 
         # These are the three strategies used by the overnight pilot. Their
         # live decisions must remain aligned with the historical OHLCV engine.
-        if self.strategy_type in ("confluence_ema", "cvd_absorption", "cluster_volume_bounce"):
+        if self.strategy_type in PAPER_HISTORICAL_STRATEGIES:
             if indicator_context is None:
                 return None
             from backend.app.services.orderflow_backtester import OrderFlowBacktester

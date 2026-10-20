@@ -87,6 +87,24 @@ def test_diagnostics_lenient_signal_uses_real_ema_and_delta_without_production_f
     assert signal["direction"] == "LONG"
 
 
+def test_diagnostics_lenient_signal_does_not_block_on_low_volume_ratio():
+    frame = pd.DataFrame(
+        [
+            {"timestamp": 1, "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 10.0, "ema20": 100.0, "vol_ratio": 0.1, "delta": -1.0, "low_min10": 99.0},
+            {"timestamp": 2, "open": 100.0, "high": 102.0, "low": 99.0, "close": 101.0, "volume": 10.0, "ema20": 100.0, "vol_ratio": 0.1, "delta": 1.0, "low_min10": 99.0},
+        ]
+    )
+
+    signal = OrderFlowBacktester().evaluate_latest_signal(
+        frame,
+        strategy_type="diagnostics_lenient",
+        volume_multiplier=0.5,
+    )
+
+    assert signal is not None
+    assert signal["direction"] == "LONG"
+
+
 def test_ohlcv_integrity_rejects_non_finite_required_price_values():
     frame = make_oscillating_df()
     frame.loc[3, "close"] = np.nan

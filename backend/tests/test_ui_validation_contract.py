@@ -9,6 +9,7 @@ from backend.app.routers.backtest import (
     BacktestRequest,
     BacktestParams,
     OptimizeRequest,
+    STRATEGIES,
     build_response,
     _ensure_delta_column,
     _read_cached_history,
@@ -168,4 +169,8 @@ def test_pydantic_days_bounds_validation(invalid_days):
 def test_flat_backtest_overrides_are_strictly_validated(field, value):
     with pytest.raises(ValidationError):
         BacktestRequest(**{field: value})
+
+
+def test_backtest_strategy_whitelist_allows_diagnostics_lenient_profile():
+    assert "diagnostics_lenient" in STRATEGIES
 

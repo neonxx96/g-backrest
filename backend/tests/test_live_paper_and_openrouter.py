@@ -1,6 +1,6 @@
 import pytest
 from backend.app.services.openrouter_client import openrouter_client
-from backend.app.services.live_paper_runner import LivePaperRunner, live_paper_runner
+from backend.app.services.live_paper_runner import LivePaperRunner, live_paper_runner, PAPER_HISTORICAL_STRATEGIES
 from backend.app.services.paper_trading import PaperTradingSession, paper_trading_session
 
 
@@ -109,6 +109,10 @@ def test_live_runner_reuses_historical_filter_contract():
     assert runner._passes_live_indicator_filters(context, 1) is True
     context["latest"]["oi_delta"] = -1.0
     assert runner._passes_live_indicator_filters(context, 1) is False
+
+
+def test_live_runner_routes_diagnostics_lenient_through_historical_signal_adapter():
+    assert "diagnostics_lenient" in PAPER_HISTORICAL_STRATEGIES
 
 
 def test_live_runner_status_exposes_margin_and_funding_accounting():

@@ -94,6 +94,7 @@ STRATEGIES = {
     "cvd_absorption",
     "ema_trend",
     "confluence_ema",
+    "diagnostics_lenient",
 }
 
 

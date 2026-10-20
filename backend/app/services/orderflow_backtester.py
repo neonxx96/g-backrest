@@ -187,7 +187,7 @@ class OrderFlowBacktester:
         volume = float(cur.get("volume", 0.0))
         turnover = close * volume
         passes_wall = min_density_usd <= 0 or turnover >= min_density_usd
-        volume_ok = float(cur.get("vol_ratio", 0.0)) >= float(volume_multiplier)
+        volume_ok = profile == "diagnostics_lenient" or float(cur.get("vol_ratio", 0.0)) >= float(volume_multiplier)
         delta = float(cur.get("delta", 0.0))
         rsi = float(cur.get("rsi", 50.0))
         direction = 0
@@ -300,7 +300,7 @@ class OrderFlowBacktester:
         if min_density_usd > 0 and turnover < min_density_usd:
             reject("minimum_turnover", round(turnover, 2), ">=", float(min_density_usd))
 
-        if volume_ratio < float(volume_multiplier):
+        if profile != "diagnostics_lenient" and volume_ratio < float(volume_multiplier):
             reject("volume_multiplier", round(volume_ratio, 4), ">=", float(volume_multiplier))
         if profile == "confluence_ema":
             cross_up = previous_close <= float(prev.get("ema20", 0.0)) and close > float(cur.get("ema20", 0.0))
@@ -529,7 +529,7 @@ class OrderFlowBacktester:
                         raw_signal = -1
 
             elif eff_strategy == "diagnostics_lenient":
-                if passes_wall and passes_lifetime and v_rat >= volume_multiplier and delta != 0:
+                if passes_wall and passes_lifetime and delta != 0:
                     raw_signal = 1 if c >= ema else -1
 
             elif eff_strategy in ("wall_breakout", "breakout"):
