@@ -17,7 +17,7 @@ from backend.app.db.models import OvernightPilotRun
 from sqlalchemy import select
 
 
-HISTORICAL_STRATEGIES = {"confluence_ema", "cvd_absorption", "cluster_volume_bounce", "diagnostics_lenient"}
+HISTORICAL_STRATEGIES = {"confluence_ema", "cvd_absorption", "cluster_volume_bounce", "diagnostics_lenient", "naked_test"}
 
 
 class OvernightPilotConfig(BaseModel):
@@ -32,7 +32,7 @@ class OvernightPilotConfig(BaseModel):
     leverage: float = Field(2.0, ge=1, le=125)
     duration_hours: float = Field(24.0, gt=0, le=168)
     min_density_usd: float = Field(500000.0, ge=0)
-    volume_multiplier: float = Field(1.3, ge=0.5, le=20)
+    volume_multiplier: float = Field(1.3, ge=0, le=20)
     use_atr_filter: bool = True
     use_cvd_filter: bool = True
     use_oi_filter: bool = False
@@ -103,6 +103,28 @@ class OvernightPilotManager:
             "duration_hours": 1.5,
             "min_density_usd": 0.0,
             "volume_multiplier": 0.5,
+            "use_atr_filter": False,
+            "use_cvd_filter": False,
+            "use_oi_filter": False,
+            "use_rsi_filter": False,
+            "ai_control": False,
+        }
+        return [OvernightPilotConfig(symbol=symbol, **common) for symbol in ("BTCUSDT", "ETHUSDT", "SOLUSDT")]
+
+    @staticmethod
+    def naked_test_configs() -> List[OvernightPilotConfig]:
+        """15-minute paper-only EMA-cross probe with every confirmation gate disabled."""
+        common = {
+            "strategy_type": "naked_test",
+            "timeframe": "5m",
+            "days": 7,
+            "risk_per_trade_pct": 0.25,
+            "stop_loss_pct": 0.5,
+            "take_profit_pct": 0.75,
+            "leverage": 1.0,
+            "duration_hours": 0.25,
+            "min_density_usd": 0.0,
+            "volume_multiplier": 0.0,
             "use_atr_filter": False,
             "use_cvd_filter": False,
             "use_oi_filter": False,
@@ -373,6 +395,7 @@ class OvernightPilotManager:
                 "paper_data_status": paper.get("data_status", "unknown"),
                 "paper_errors": paper.get("data_error_count", 0),
                 "paper_no_trade_count": paper.get("no_trade_count", 0),
+                "paper_rejection_counts": paper.get("rejection_counts", {}),
                 "paper_last_decision_reason": paper.get("last_decision_reason"),
                 "paper_last_decision_checks": paper.get("last_decision_checks", []),
                 "paper_last_decision_at": paper.get("last_decision_at"),
@@ -463,6 +486,10 @@ class OvernightPilotManager:
             if row.get("forecast_direction") == "NO_TRADE" and row.get("forecast_reason")
         }
         paper_no_trade = sum(int(row.get("paper_no_trade_count", 0) or 0) for row in rows)
+        paper_rejection_counts: Dict[str, int] = {}
+        for row in rows:
+            for reason, count in (row.get("paper_rejection_counts") or {}).items():
+                paper_rejection_counts[str(reason)] = paper_rejection_counts.get(str(reason), 0) + int(count or 0)
         error_count = sum(int(row.get("paper_errors", 0) or 0) for row in rows)
         paper_rows = [
             row
@@ -505,6 +532,7 @@ class OvernightPilotManager:
                 "max_drawdown_pct": round(paper_drawdown, 4) if paper_drawdown is not None else None,
                 "average_risk_pct": round(sum(paper_risk_values) / len(paper_risk_values), 4) if paper_risk_values else None,
                 "no_trade_count": paper_no_trade,
+                "rejection_counts": dict(sorted(paper_rejection_counts.items(), key=lambda item: (-item[1], item[0]))),
                 "losing_trade_reasons": paper_losing_trade_reasons[-20:],
             },
             "data": {"error_count": error_count, "statuses": {row["symbol"]: row.get("paper_data_status") or row.get("forecast_data_status") for row in rows}},

@@ -173,3 +173,20 @@ def test_live_runner_records_structured_no_entry_reason(caplog):
     assert "volume_multiplier (0.20 < 0.50)" in runner.logs[0]["message"]
     assert runner.logs[0]["meta"]["rejections"] == diagnostic["rejections"]
     assert "Blocked by: volume_multiplier (0.20 < 0.50)" in caplog.text
+
+
+def test_live_runner_aggregates_rejection_counts_for_runtime_telemetry():
+    runner = LivePaperRunner(session=PaperTradingSession(initial_balance=1000.0, session_id="rejection-counts"))
+    diagnostic = {
+        "reason": "NO_TRADE",
+        "failed_checks": ["ema20_cross", "volume_multiplier"],
+        "rejections": [
+            {"filter": "ema20_cross", "actual": 99.0, "operator": "crosses", "threshold": 100.0},
+            {"filter": "volume_multiplier", "actual": 0.2, "operator": ">=", "threshold": 1.25},
+        ],
+    }
+
+    runner._record_no_entry(diagnostic)
+    runner._record_no_entry(diagnostic)
+
+    assert runner.get_status()["rejection_counts"] == {"ema20_cross": 2, "volume_multiplier": 2}

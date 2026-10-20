@@ -95,6 +95,7 @@ STRATEGIES = {
     "ema_trend",
     "confluence_ema",
     "diagnostics_lenient",
+    "naked_test",
 }
 
 
@@ -104,7 +105,7 @@ class BacktestParams(BaseModel):
     stop_loss_pct: float = Field(0.8, gt=0, le=50)
     take_profit_pct: float = Field(1.5, gt=0, le=200)
     min_density_usd: float = Field(100000.0, ge=0)
-    volume_multiplier: float = Field(1.3, ge=0.5, le=20)
+    volume_multiplier: float = Field(1.3, ge=0, le=20)
     leverage: float = Field(1.0, ge=1, le=125)
     # Confluence Filter Suite
     use_atr_filter: bool = False

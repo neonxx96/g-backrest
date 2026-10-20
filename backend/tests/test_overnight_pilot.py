@@ -25,6 +25,33 @@ def test_diagnostics_lenient_preset_uses_short_low_risk_real_data_sessions():
     assert all(not config.use_atr_filter and not config.use_cvd_filter and not config.use_oi_filter and not config.use_rsi_filter for config in configs)
 
 
+def test_naked_test_preset_is_a_short_unfiltered_ema_cross_probe():
+    configs = OvernightPilotManager.naked_test_configs()
+
+    assert [config.symbol for config in configs] == ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+    assert {config.strategy_type for config in configs} == {"naked_test"}
+    assert all(config.duration_hours == 0.25 for config in configs)
+    assert all(config.min_density_usd == 0 and config.volume_multiplier == 0 for config in configs)
+    assert all(not config.use_atr_filter and not config.use_cvd_filter and not config.use_oi_filter and not config.use_rsi_filter for config in configs)
+
+
+def test_pilot_summary_exposes_aggregated_paper_rejection_counts():
+    manager = OvernightPilotManager()
+    manager.set_preflight("BTCUSDT", {"summary": {"total_trades": 0}, "trades": []}, {"base_scenario": {"direction": "NO_TRADE"}})
+    manager.sessions["BTCUSDT"].paper_snapshot = {
+        "initial_capital": 1000.0,
+        "current_equity": 1000.0,
+        "realized_pnl": 0.0,
+        "closed_trades": [],
+        "rejection_counts": {"ema20_cross": 9, "volume_multiplier": 4},
+    }
+
+    status = manager.status()
+
+    assert status["summary"][0]["paper_rejection_counts"] == {"ema20_cross": 9, "volume_multiplier": 4}
+    assert status["aggregate"]["paper"]["rejection_counts"] == {"ema20_cross": 9, "volume_multiplier": 4}
+
+
 def test_production_robust_preset_has_fee_aware_geometry_and_neutral_rsi_filter():
     configs = OvernightPilotManager.production_robust_configs()
 

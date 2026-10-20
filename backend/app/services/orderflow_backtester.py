@@ -187,7 +187,7 @@ class OrderFlowBacktester:
         volume = float(cur.get("volume", 0.0))
         turnover = close * volume
         passes_wall = min_density_usd <= 0 or turnover >= min_density_usd
-        volume_ok = profile == "diagnostics_lenient" or float(cur.get("vol_ratio", 0.0)) >= float(volume_multiplier)
+        volume_ok = profile in {"diagnostics_lenient", "naked_test"} or float(cur.get("vol_ratio", 0.0)) >= float(volume_multiplier)
         delta = float(cur.get("delta", 0.0))
         rsi = float(cur.get("rsi", 50.0))
         direction = 0
@@ -207,6 +207,15 @@ class OrderFlowBacktester:
             if passes_wall and volume_ok and delta != 0:
                 direction = 1 if close >= float(cur.get("ema20", close)) else -1
                 reasons = ["Diagnostics EMA bias", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
+        elif profile == "naked_test":
+            # Deliberately minimal, paper-only pipeline probe. It is not a
+            # production strategy: a completed EMA20 cross is the only gate.
+            if previous_close <= float(prev.get("ema20", 0.0)) and close > float(cur.get("ema20", 0.0)):
+                direction = 1
+                reasons = ["Naked EMA20 cross up"]
+            elif previous_close >= float(prev.get("ema20", 0.0)) and close < float(cur.get("ema20", 0.0)):
+                direction = -1
+                reasons = ["Naked EMA20 cross down"]
         elif profile in ("delta_absorption", "cvd_absorption"):
             if passes_wall and float(cur.get("low", 0.0)) <= float(cur.get("low_min10", 0.0)) and float(cur.get("cvd", 0.0)) > float(cur.get("cvd_min10", 0.0)) and delta > 0 and rsi < 42 and volume_ok:
                 direction = 1
@@ -304,7 +313,7 @@ class OrderFlowBacktester:
         if min_density_usd > 0 and turnover < min_density_usd:
             reject("minimum_turnover", round(turnover, 2), ">=", float(min_density_usd))
 
-        if profile != "diagnostics_lenient" and volume_ratio < float(volume_multiplier):
+        if profile not in {"diagnostics_lenient", "naked_test"} and volume_ratio < float(volume_multiplier):
             reject("volume_multiplier", round(volume_ratio, 4), ">=", float(volume_multiplier))
         if profile == "confluence_ema":
             cross_up = previous_close <= float(prev.get("ema20", 0.0)) and close > float(cur.get("ema20", 0.0))
@@ -337,6 +346,11 @@ class OrderFlowBacktester:
         elif profile == "diagnostics_lenient":
             if delta == 0:
                 reject("delta_direction", round(delta, 4), "!=", 0.0)
+        elif profile == "naked_test":
+            cross_up = previous_close <= float(prev.get("ema20", 0.0)) and close > float(cur.get("ema20", 0.0))
+            cross_down = previous_close >= float(prev.get("ema20", 0.0)) and close < float(cur.get("ema20", 0.0))
+            if not (cross_up or cross_down):
+                reject("ema20_cross", round(close, 8), "crosses", round(float(cur.get("ema20", 0.0)), 8), previous_close=round(previous_close, 8), previous_ema20=round(float(prev.get("ema20", 0.0)), 8))
 
         if use_atr_filter and float(cur.get("atr_ema20", 0.0)) > 0 and float(cur.get("atr", 0.0)) > 2.0 * float(cur.get("atr_ema20", 0.0)):
             reject("atr_filter", round(float(cur.get("atr", 0.0)), 8), "<=", round(2.0 * float(cur.get("atr_ema20", 0.0)), 8))
@@ -347,7 +361,7 @@ class OrderFlowBacktester:
         if use_rsi_filter:
             if profile == "confluence_ema" and not 42 <= rsi <= 58:
                 reject("rsi_filter", round(rsi, 4), "within", [42.0, 58.0])
-            elif profile != "confluence_ema" and not (rsi <= 42 or rsi >= 58):
+            elif profile not in {"confluence_ema", "naked_test"} and not (rsi <= 42 or rsi >= 58):
                 reject("rsi_filter", round(rsi, 4), "outside", [42.0, 58.0])
 
         signal = self.evaluate_latest_signal(
@@ -538,6 +552,12 @@ class OrderFlowBacktester:
             elif eff_strategy == "diagnostics_lenient":
                 if passes_wall and passes_lifetime and delta != 0:
                     raw_signal = 1 if c >= ema else -1
+
+            elif eff_strategy == "naked_test":
+                if prev_c <= prev_ema and c > ema:
+                    raw_signal = 1
+                elif prev_c >= prev_ema and c < ema:
+                    raw_signal = -1
 
             elif eff_strategy in ("wall_breakout", "breakout"):
                 # Пробой плотности (Wall Breakout): импульсный пробой локального экстремума/стенки на повышенном объёме и дельте

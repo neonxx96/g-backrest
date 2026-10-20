@@ -29,6 +29,7 @@ PAPER_HISTORICAL_STRATEGIES = frozenset({
     "cvd_absorption",
     "cluster_volume_bounce",
     "diagnostics_lenient",
+    "naked_test",
 })
 
 
@@ -86,6 +87,7 @@ class LivePaperRunner:
         self._indicator_context_at: float = 0.0
         self._last_rejection_signature: Optional[str] = None
         self._last_rejection_log_at: float = 0.0
+        self.rejection_counts: Dict[str, int] = {}
 
         # Logs & Real-Time Equity Curve
         self.logs: List[Dict[str, Any]] = []
@@ -136,6 +138,7 @@ class LivePaperRunner:
         self._indicator_context_at = 0.0
         self._last_rejection_signature = None
         self._last_rejection_log_at = 0.0
+        self.rejection_counts = {}
 
         # Reset wallet to initial capital
         self.session.reset_wallet(initial_balance=self.initial_capital)
@@ -194,6 +197,9 @@ class LivePaperRunner:
     def _record_no_entry(self, diagnostic: Dict[str, Any]) -> None:
         """Publish a rate-limited, measured rejection trace for paper diagnostics."""
         rejections = list(diagnostic.get("rejections") or [])
+        for item in rejections:
+            filter_name = str(item.get("filter") or "strategy_conditions")
+            self.rejection_counts[filter_name] = self.rejection_counts.get(filter_name, 0) + 1
         fragments: List[str] = []
         for item in rejections[:4]:
             name = item.get("filter", "strategy_conditions")
@@ -277,6 +283,7 @@ class LivePaperRunner:
             "last_data_error": self.last_data_error,
             "data_error_count": self.data_error_count,
             "no_trade_count": self.no_trade_count,
+            "rejection_counts": dict(sorted(self.rejection_counts.items(), key=lambda item: (-item[1], item[0]))),
             "last_decision_reason": self.last_decision_reason,
             "last_decision_checks": self.last_decision_checks,
             "last_decision_at": self.last_decision_at,

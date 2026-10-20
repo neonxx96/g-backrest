@@ -61,6 +61,28 @@ async def start_diagnostics_lenient():
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@router.post("/naked-test/preflight")
+async def preflight_naked_test():
+    """Prepare the intentionally unfiltered, paper-only EMA-cross probe."""
+    try:
+        result = await overnight_pilot_manager.preflight(overnight_pilot_manager.naked_test_configs())
+        await overnight_pilot_manager.persist()
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/naked-test/start")
+async def start_naked_test():
+    """Run the 15-minute virtual-only EMA-cross probe; no live order path exists."""
+    try:
+        result = await overnight_pilot_manager.start(overnight_pilot_manager.naked_test_configs())
+        await overnight_pilot_manager.persist()
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @router.post("/production-robust/preflight")
 async def preflight_production_robust():
     """Prepare the calibrated fee-aware paper preset without placing paper orders."""
