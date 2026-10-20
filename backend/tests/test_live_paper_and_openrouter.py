@@ -2,6 +2,7 @@ import pytest
 from backend.app.services.openrouter_client import openrouter_client
 from backend.app.services.live_paper_runner import LivePaperRunner, live_paper_runner, PAPER_HISTORICAL_STRATEGIES
 from backend.app.services.paper_trading import PaperPosition, PaperTradingSession, paper_trading_session
+from backend.app.services.deep_intent_logger import DeepIntentLogger
 
 
 @pytest.mark.anyio
@@ -170,8 +171,9 @@ def test_live_runner_status_exposes_margin_and_funding_accounting():
     runner.stop()
 
 
-def test_live_runner_records_structured_no_entry_reason(caplog):
+def test_live_runner_records_structured_no_entry_reason(caplog, tmp_path):
     runner = LivePaperRunner(session=PaperTradingSession(initial_balance=1000.0, session_id="trace-contract"))
+    runner.intent_logger = DeepIntentLogger(path=tmp_path / "deep_intent_log.jsonl")
     diagnostic = {
         "reason": "NO_TRADE: не пройдены условия — volume_multiplier",
         "failed_checks": ["volume_multiplier"],
@@ -190,8 +192,9 @@ def test_live_runner_records_structured_no_entry_reason(caplog):
     assert "Blocked by: volume_multiplier (0.20 < 0.50)" in caplog.text
 
 
-def test_live_runner_aggregates_rejection_counts_for_runtime_telemetry():
+def test_live_runner_aggregates_rejection_counts_for_runtime_telemetry(tmp_path):
     runner = LivePaperRunner(session=PaperTradingSession(initial_balance=1000.0, session_id="rejection-counts"))
+    runner.intent_logger = DeepIntentLogger(path=tmp_path / "deep_intent_log.jsonl")
     diagnostic = {
         "reason": "NO_TRADE",
         "failed_checks": ["ema20_cross", "volume_multiplier"],
