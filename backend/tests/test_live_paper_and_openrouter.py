@@ -208,3 +208,4 @@ def test_live_runner_aggregates_rejection_counts_for_runtime_telemetry(tmp_path)
     runner._record_no_entry(diagnostic)
 
     assert runner.get_status()["rejection_counts"] == {"ema20_cross": 1, "volume_multiplier": 1}
+    assert runner.get_status()["no_trade_count"] == 1

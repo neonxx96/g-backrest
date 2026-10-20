@@ -226,6 +226,7 @@ class LivePaperRunner:
         signature = json.dumps(rejections or self.last_decision_checks, sort_keys=True, ensure_ascii=False, default=str)
         count_key = f"{self.indicator_last_update}:{signature}"
         if count_key != self._last_rejection_count_key:
+            self.no_trade_count += 1
             for item in rejections:
                 filter_name = str(item.get("filter") or "strategy_conditions")
                 self.rejection_counts[filter_name] = self.rejection_counts.get(filter_name, 0) + 1
@@ -396,7 +397,6 @@ class LivePaperRunner:
         indicator_context = await self._load_indicator_context()
         candidate_signal = await self._detect_setup(data, indicator_context)
         if not candidate_signal:
-            self.no_trade_count += 1
             if indicator_context is not None:
                 from backend.app.services.orderflow_backtester import OrderFlowBacktester
 
