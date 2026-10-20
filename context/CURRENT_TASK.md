@@ -15,9 +15,10 @@ Initial project setup and architecture baseline.
 - [x] Initial coordination files created.
 - [x] S0 read-only audit of legacy recorder and recorded Parquet completed.
 - [x] S0 lake architecture and integrity rules recorded in `DECISIONS.md`.
-- [ ] S1 standalone recorder implementation.
+- [ ] S1 standalone recorder implementation (in progress).
 
 ### Execution Log
 - Coordination environment successfully initialized.
 - S0 completed on branch `agent/codex/recorder`; no source code or legacy data changed.
 - Next session/step: implement S1 in a separate process/package and keep the existing recorder running in parallel.
+- S1 progress: canonical envelope, Binance trade/ticker/mark/liquidation/closed-kline normalizers, fsync spool journal, immutable zstd Parquet writer with SHA-256 manifests, gap journal, and YAML config are implemented and covered by six tests.

@@ -1,9 +1,9 @@
 {
   "status": "IN_PROGRESS",
   "activeAgent": "codex",
-  "currentTask": "S0 audit and architecture for standalone market-data recorder",
-  "nextAction": "Implement S1 standalone recorder with spool, norm Parquet, manifests and gap journal",
-  "updatedAtUtc": "2026-10-20T04:35:00Z",
+  "currentTask": "S1 standalone market-data recorder core",
+  "nextAction": "Add Binance WebSocket process, status CLI, disk policy and S1 integration tests",
+  "updatedAtUtc": "2026-10-20T04:45:00Z",
   "requiresUserDecision": false,
   "decisionQuestion": null
 }
