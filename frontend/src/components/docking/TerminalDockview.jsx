@@ -13,6 +13,7 @@ import TradesWidget from './TradesWidget';
 import WidgetHubModal from './WidgetHubModal';
 import TradeHistoryWidget from './TradeHistoryWidget';
 import { FootprintPlaceholderWidget, CvdPlaceholderWidget } from './Placeholders';
+import { sanitizeDockviewLayout } from './layoutSanitizer';
 import ChannelSelector from './ChannelSelector';
 import PresetBar from './PresetBar';
 import { Radio, SlidersHorizontal, Sparkles, Zap, Loader2, Eye, EyeOff } from 'lucide-react';
@@ -537,7 +538,12 @@ export default function TerminalDockview({
       if (dockviewJson && typeof dockviewJson === 'object' && dockviewJson.grid) {
         try {
           api.clear();
-          api.fromJSON(dockviewJson);
+          const sanitizedLayout = sanitizeDockviewLayout(dockviewJson);
+          if (!sanitizedLayout) {
+            buildDefaultLayout(api, workspaceDetail.id);
+            return;
+          }
+          api.fromJSON(sanitizedLayout);
           // Auto-migrate: If trades_main is not yet in the saved layout, add it tabbed within signals_main
           if (!api.getPanel('trades_main')) {
             const ref = api.getPanel('signals_main') || api.getPanel('orderbook_main') || api.getPanel('chart_main');
