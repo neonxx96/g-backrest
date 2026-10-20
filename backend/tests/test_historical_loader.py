@@ -96,11 +96,12 @@ def test_schema_and_cluster_columns(synthetic_6m_1h_data):
     for col in required_cols:
         assert col in df.columns, f"Missing required column: {col}"
 
-    # Footprint calculations
+    # Kline-only data has no real price-level profile.  It must never invent
+    # a POC or delta proxy from OHLC values.
     assert np.all(df["sell_volume"] >= 0.0)
-    expected_delta = 2.0 * df["taker_buy_base_volume"] - df["volume"]
-    np.testing.assert_allclose(df["volume_delta"], expected_delta, rtol=1e-5)
-    assert np.all(df["poc_price"] > 0.0)
+    assert df["volume_delta"].isna().all()
+    assert df["poc_price"].isna().all()
+    assert (df["cluster_profile"] == "").all()
 
 
 def test_parquet_cache_save_and_fast_read(temp_history_dir, synthetic_6m_1h_data):

@@ -121,16 +121,13 @@ class HistoricalDataLoader:
             }
         )
 
-        # Footprint & Order Flow metrics
+        # Kline-only order-flow fields.  POC and cluster delta may only be
+        # populated by the aggTrades footprint pipeline; a candle has no
+        # defensible price-level profile on its own.
         df["sell_volume"] = (df["volume"] - df["taker_buy_base_volume"]).clip(lower=0.0)
-        df["volume_delta"] = 2.0 * df["taker_buy_base_volume"] - df["volume"]
-
-        # Approximate Point of Control (POC) for candle based on typical price weighted
-        # In full tick recorder mode, this is populated from real depth/tape prints
-        df["poc_price"] = (df["high"] + df["low"] + df["close"] * 2.0) / 4.0
-
-        # Cluster profile initialized as empty string/JSON representation
-        df["cluster_profile"] = "{}"
+        df["volume_delta"] = np.nan
+        df["poc_price"] = np.nan
+        df["cluster_profile"] = ""
 
         # Clean duplicates and sort ascending
         df = df.drop_duplicates(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
@@ -144,6 +141,17 @@ class HistoricalDataLoader:
         try:
             df = pd.read_parquet(path, engine="pyarrow")
             if not df.empty and "timestamp" in df.columns:
+                # Caches written before the truth-first footprint contract used
+                # an OHLC proxy for POC.  Empty profiles must remain visibly
+                # empty rather than leak a fabricated price-level metric.
+                if "cluster_profile" not in df.columns:
+                    df["cluster_profile"] = ""
+                empty_profiles = df["cluster_profile"].fillna("").astype(str).isin(["", "{}"])
+                if "poc_price" in df.columns:
+                    df.loc[empty_profiles, "poc_price"] = np.nan
+                if "volume_delta" in df.columns:
+                    df.loc[empty_profiles, "volume_delta"] = np.nan
+                df.loc[empty_profiles, "cluster_profile"] = ""
                 return df.sort_values("timestamp").reset_index(drop=True)
         except Exception as e:
             logger.warning(f"Failed reading cache for {path}: {e}")
@@ -158,7 +166,7 @@ class HistoricalDataLoader:
         for col in ["open", "high", "low", "close", "volume", "taker_buy_base_volume", "sell_volume", "volume_delta", "poc_price"]:
             if col in df_sorted.columns:
                 df_sorted[col] = df_sorted[col].astype(np.float64)
-        df_sorted["cluster_profile"] = df_sorted["cluster_profile"].astype(str)
+        df_sorted["cluster_profile"] = df_sorted["cluster_profile"].fillna("").astype(str)
 
         df_sorted.to_parquet(path, engine="pyarrow", compression="snappy", index=False)
         return path
