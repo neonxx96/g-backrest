@@ -17,6 +17,7 @@ class RecorderConfig:
     tier1_symbols: tuple[str, ...] = ("BTCUSDT", "ETHUSDT", "SOLUSDT")
     tier2_symbols: tuple[str, ...] = ()
     enabled_streams: tuple[str, ...] = ("trades", "book_ticker", "mark_price", "liquidation", "kline_1m")
+    binance_ws_url: str = ""
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -31,5 +32,6 @@ def load_config(path: Path) -> RecorderConfig:
         tier1_symbols=tuple(str(s).upper() for s in raw.get("tier1_symbols", ["BTCUSDT", "ETHUSDT", "SOLUSDT"])),
         tier2_symbols=tuple(str(s).upper() for s in raw.get("tier2_symbols", [])),
         enabled_streams=tuple(str(s) for s in raw.get("enabled_streams", ["trades", "book_ticker", "mark_price", "liquidation", "kline_1m"])),
+        binance_ws_url=str(raw.get("binance_ws_url", "")),
         extra=raw,
     )

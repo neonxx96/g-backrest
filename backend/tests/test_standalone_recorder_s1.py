@@ -8,6 +8,7 @@ from recorder.events import normalize_agg_trade, normalize_message
 from recorder.config import load_config
 from recorder.gaps import GapJournal
 from recorder.storage import LakeWriter, SpoolJournal
+from recorder.service import DiskPolicy, RecorderService
 
 
 def test_binance_buyer_maker_maps_to_sell_aggressor():
@@ -96,3 +97,21 @@ def test_config_loads_explicit_50_gib_limit(tmp_path: Path):
 
     assert config.node_id == "node-a"
     assert config.max_storage_gib == 50
+
+
+def test_disk_policy_preserves_tier_one_when_limit_is_reached():
+    policy = DiskPolicy(max_storage_gib=50)
+
+    assert policy.allows("tier1", used_bytes=60 * 1024**3) is True
+    assert policy.allows("tier2", used_bytes=49 * 1024**3) is False
+    assert policy.allows("tier3", used_bytes=45 * 1024**3) is False
+
+
+def test_service_processes_wrapped_binance_message_without_network(tmp_path: Path):
+    service = RecorderService(lake_root=tmp_path / "lake", spool_root=tmp_path / "spool", node_id="node-a", session_id="session-a")
+    service.process_message({"stream": "btcusdt@aggTrade", "data": {"e": "aggTrade", "s": "BTCUSDT", "a": 1, "p": "100", "q": "1", "f": 1, "l": 1, "T": 1700000000000, "m": False}})
+
+    assert service.counters["trades"] == 1
+    service.spool.flush()
+    assert list(SpoolJournal.replay(service.spool.path))[0]["trade_id"] == 1
+    service.close()

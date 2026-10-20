@@ -1,0 +1,16 @@
+node_id: recorder-node-1
+lake_root: /app/data/lake
+max_storage_gib: 50
+spool_flush_seconds: 3
+raw_retention_days: 7
+tier1_symbols:
+  - BTCUSDT
+  - ETHUSDT
+  - SOLUSDT
+tier2_symbols: []
+enabled_streams:
+  - trades
+  - book_ticker
+  - mark_price
+  - liquidation
+  - kline_1m
