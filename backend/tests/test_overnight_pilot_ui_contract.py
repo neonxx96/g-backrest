@@ -15,3 +15,10 @@ def test_overnight_pilot_exposes_explained_trailing_controls():
     assert "update(index, 'trailing_pct'" in source
     assert "update(index, 'trailing_activation_pct'" in source
     assert "Трейлинг" in source
+
+
+def test_overnight_pilot_can_load_the_diversified_three_strategy_plan():
+    source = PANEL_PATH.read_text(encoding="utf-8")
+
+    assert 'data-testid="btn-load-diversified-paper"' in source
+    assert 'fetch(`${API}/diversified-paper/defaults`)' in source

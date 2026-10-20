@@ -305,6 +305,19 @@ export default function OvernightPilotPanel({ onClose }) {
 
   const update = (index, key, value) => setConfigs((prev) => prev.map((item, i) => i === index ? { ...item, [key]: value } : item));
 
+  const loadDiversifiedPaper = async () => {
+    if (pilotRunning) return;
+    setBusy(true); setError('');
+    try {
+      const res = await fetch(`${API}/diversified-paper/defaults`);
+      const payload = await res.json();
+      if (!res.ok || !Array.isArray(payload.sessions)) throw new Error(payload.detail || 'Не удалось загрузить диверсифицированный план');
+      setConfigs(payload.sessions);
+      setOptimization({});
+      setError('Загружен диверсифицированный план: BTC EMA, ETH CVD Absorption, SOL Cluster Bounce. Выполните preflight перед запуском.');
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+
   const start = async () => {
     setBusy(true); setError('');
     try {
@@ -441,7 +454,7 @@ export default function OvernightPilotPanel({ onClose }) {
         </div>
       </div>}
       {error && <div className="mx-3 rounded border border-red-500/30 bg-red-950/20 p-2 text-[10px] text-red-300">{error}</div>}
-      <div className="flex flex-wrap gap-2 px-3 pb-3"><button data-testid="btn-overnight-preflight" disabled={busy || pilotRunning} onClick={preflight} className="rounded border border-cyan-400/50 bg-cyan-950/30 px-3 py-1.5 text-[10px] font-bold text-cyan-200 disabled:opacity-50">{busy ? 'Расчёт…' : pilotRunning ? '1. Сначала остановите paper' : '1. Подготовить backtest + forecast'}</button><button data-testid="btn-overnight-start" disabled={busy || pilotRunning} onClick={start} className="rounded bg-amber-300 px-3 py-1.5 text-[10px] font-bold text-neutral-950 disabled:opacity-50">{pilotRunning ? 'Paper уже запущен' : '2. Запустить paper'}</button><button disabled={busy} onClick={stop} className="rounded border border-red-400/40 px-3 py-1.5 text-[10px] text-red-300 disabled:opacity-50">Остановить все</button></div>
+      <div className="flex flex-wrap gap-2 px-3 pb-3"><button data-testid="btn-load-diversified-paper" disabled={busy || pilotRunning} onClick={loadDiversifiedPaper} title="Загрузить BTC EMA, ETH CVD Absorption и SOL Cluster Bounce с отдельными параметрами; активную paper-сессию не изменяет." className="rounded border border-violet-400/50 bg-violet-950/30 px-3 py-1.5 text-[10px] font-bold text-violet-200 disabled:opacity-50">Загрузить 3 стратегии</button><button data-testid="btn-overnight-preflight" disabled={busy || pilotRunning} onClick={preflight} className="rounded border border-cyan-400/50 bg-cyan-950/30 px-3 py-1.5 text-[10px] font-bold text-cyan-200 disabled:opacity-50">{busy ? 'Расчёт…' : pilotRunning ? '1. Сначала остановите paper' : '1. Подготовить backtest + forecast'}</button><button data-testid="btn-overnight-start" disabled={busy || pilotRunning} onClick={start} className="rounded bg-amber-300 px-3 py-1.5 text-[10px] font-bold text-neutral-950 disabled:opacity-50">{pilotRunning ? 'Paper уже запущен' : '2. Запустить paper'}</button><button disabled={busy} onClick={stop} className="rounded border border-red-400/40 px-3 py-1.5 text-[10px] text-red-300 disabled:opacity-50">Остановить все</button></div>
     </div>
   );
 }

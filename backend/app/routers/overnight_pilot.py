@@ -12,6 +12,11 @@ async def get_overnight_defaults():
     return {"sessions": [config.model_dump() for config in overnight_pilot_manager.default_configs()]}
 
 
+@router.get("/diversified-paper/defaults")
+async def get_diversified_paper_defaults():
+    return {"sessions": [config.model_dump() for config in overnight_pilot_manager.diversified_paper_configs()]}
+
+
 @router.get("/status")
 async def get_overnight_status():
     await overnight_pilot_manager.persist()
