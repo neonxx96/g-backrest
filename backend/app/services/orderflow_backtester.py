@@ -209,13 +209,15 @@ class OrderFlowBacktester:
                 reasons = ["Diagnostics EMA bias", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
         elif profile == "naked_test":
             # Deliberately minimal, paper-only pipeline probe. It is not a
-            # production strategy: a completed EMA20 cross is the only gate.
-            if previous_close <= float(prev.get("ema20", 0.0)) and close > float(cur.get("ema20", 0.0)):
+            # production strategy: the current EMA20 side is the only gate.
+            # Unlike an event-only cross, this lets a short run prove that
+            # entry -> exit -> PnL plumbing works in a quiet market.
+            if close >= float(cur.get("ema20", 0.0)):
                 direction = 1
-                reasons = ["Naked EMA20 cross up"]
-            elif previous_close >= float(prev.get("ema20", 0.0)) and close < float(cur.get("ema20", 0.0)):
+                reasons = ["Naked EMA20 bullish side"]
+            else:
                 direction = -1
-                reasons = ["Naked EMA20 cross down"]
+                reasons = ["Naked EMA20 bearish side"]
         elif profile in ("delta_absorption", "cvd_absorption"):
             if passes_wall and float(cur.get("low", 0.0)) <= float(cur.get("low_min10", 0.0)) and float(cur.get("cvd", 0.0)) > float(cur.get("cvd_min10", 0.0)) and delta > 0 and rsi < 42 and volume_ok:
                 direction = 1
@@ -347,10 +349,9 @@ class OrderFlowBacktester:
             if delta == 0:
                 reject("delta_direction", round(delta, 4), "!=", 0.0)
         elif profile == "naked_test":
-            cross_up = previous_close <= float(prev.get("ema20", 0.0)) and close > float(cur.get("ema20", 0.0))
-            cross_down = previous_close >= float(prev.get("ema20", 0.0)) and close < float(cur.get("ema20", 0.0))
-            if not (cross_up or cross_down):
-                reject("ema20_cross", round(close, 8), "crosses", round(float(cur.get("ema20", 0.0)), 8), previous_close=round(previous_close, 8), previous_ema20=round(float(prev.get("ema20", 0.0)), 8))
+            # A naked probe always yields a direction from a valid candle;
+            # remaining NO_TRADE states are data-integrity failures above.
+            pass
 
         if use_atr_filter and float(cur.get("atr_ema20", 0.0)) > 0 and float(cur.get("atr", 0.0)) > 2.0 * float(cur.get("atr_ema20", 0.0)):
             reject("atr_filter", round(float(cur.get("atr", 0.0)), 8), "<=", round(2.0 * float(cur.get("atr_ema20", 0.0)), 8))
@@ -554,10 +555,7 @@ class OrderFlowBacktester:
                     raw_signal = 1 if c >= ema else -1
 
             elif eff_strategy == "naked_test":
-                if prev_c <= prev_ema and c > ema:
-                    raw_signal = 1
-                elif prev_c >= prev_ema and c < ema:
-                    raw_signal = -1
+                raw_signal = 1 if c >= ema else -1
 
             elif eff_strategy in ("wall_breakout", "breakout"):
                 # Пробой плотности (Wall Breakout): импульсный пробой локального экстремума/стенки на повышенном объёме и дельте

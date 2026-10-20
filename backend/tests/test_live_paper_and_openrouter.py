@@ -189,4 +189,4 @@ def test_live_runner_aggregates_rejection_counts_for_runtime_telemetry():
     runner._record_no_entry(diagnostic)
     runner._record_no_entry(diagnostic)
 
-    assert runner.get_status()["rejection_counts"] == {"ema20_cross": 2, "volume_multiplier": 2}
+    assert runner.get_status()["rejection_counts"] == {"ema20_cross": 1, "volume_multiplier": 1}

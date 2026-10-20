@@ -105,7 +105,7 @@ def test_diagnostics_lenient_signal_does_not_block_on_low_volume_ratio():
     assert signal["direction"] == "LONG"
 
 
-def test_naked_test_requires_only_a_real_ema_cross():
+def test_naked_test_requires_only_the_current_ema_side():
     frame = pd.DataFrame(
         [
             {"timestamp": 1, "open": 100.0, "high": 101.0, "low": 99.0, "close": 99.0, "volume": 1.0, "ema20": 100.0, "vol_ratio": 0.0, "delta": 0.0, "low_min10": 99.0},
@@ -115,6 +115,13 @@ def test_naked_test_requires_only_a_real_ema_cross():
 
     signal = OrderFlowBacktester().evaluate_latest_signal(frame, strategy_type="naked_test", volume_multiplier=0)
 
+    assert signal is not None
+    assert signal["direction"] == "LONG"
+
+    # The pipeline probe deliberately does not wait for a new cross: an
+    # already-established EMA side must still exercise paper entry lifecycle.
+    frame.loc[0, "close"] = 101.0
+    signal = OrderFlowBacktester().evaluate_latest_signal(frame, strategy_type="naked_test", volume_multiplier=0)
     assert signal is not None
     assert signal["direction"] == "LONG"
 

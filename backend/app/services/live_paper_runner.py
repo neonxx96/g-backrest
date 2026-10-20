@@ -87,6 +87,7 @@ class LivePaperRunner:
         self._indicator_context_at: float = 0.0
         self._last_rejection_signature: Optional[str] = None
         self._last_rejection_log_at: float = 0.0
+        self._last_rejection_count_key: Optional[str] = None
         self.rejection_counts: Dict[str, int] = {}
 
         # Logs & Real-Time Equity Curve
@@ -138,6 +139,7 @@ class LivePaperRunner:
         self._indicator_context_at = 0.0
         self._last_rejection_signature = None
         self._last_rejection_log_at = 0.0
+        self._last_rejection_count_key = None
         self.rejection_counts = {}
 
         # Reset wallet to initial capital
@@ -197,9 +199,6 @@ class LivePaperRunner:
     def _record_no_entry(self, diagnostic: Dict[str, Any]) -> None:
         """Publish a rate-limited, measured rejection trace for paper diagnostics."""
         rejections = list(diagnostic.get("rejections") or [])
-        for item in rejections:
-            filter_name = str(item.get("filter") or "strategy_conditions")
-            self.rejection_counts[filter_name] = self.rejection_counts.get(filter_name, 0) + 1
         fragments: List[str] = []
         for item in rejections[:4]:
             name = item.get("filter", "strategy_conditions")
@@ -217,6 +216,12 @@ class LivePaperRunner:
         self.last_decision_reason = diagnostic.get("reason") or message
         self.last_decision_at = self._last_tick_time
         signature = json.dumps(rejections or self.last_decision_checks, sort_keys=True, ensure_ascii=False, default=str)
+        count_key = f"{self.indicator_last_update}:{signature}"
+        if count_key != self._last_rejection_count_key:
+            for item in rejections:
+                filter_name = str(item.get("filter") or "strategy_conditions")
+                self.rejection_counts[filter_name] = self.rejection_counts.get(filter_name, 0) + 1
+            self._last_rejection_count_key = count_key
         now = time.time()
         if signature != self._last_rejection_signature or now - self._last_rejection_log_at >= 30.0:
             self._add_log("NO_ENTRY", message, meta={"rejections": rejections, "observed": diagnostic.get("observed") or {}})
