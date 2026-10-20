@@ -11,6 +11,7 @@ import {
   Layers,
   Radar
 } from 'lucide-react';
+import AIEngineSettings from './AIEngineSettings';
 
 const API_BASE = '/api';
 const TIMEFRAMES = ['1m', '5m', '15m', '30m', '45m', '1h', '4h', '6h'];
@@ -153,10 +154,11 @@ export default function SettingsModal({
   onClose,
   userId = '0',
   uiConfig,
-  onUiConfigChange
+  onUiConfigChange,
+  onAiConfigChange
 }) {
   const [settings, setSettings] = useState(null);
-  const [activeTab, setActiveTab] = useState('appearance'); // appearance | charts | orderflow | scanner
+  const [activeTab, setActiveTab] = useState('appearance'); // appearance | charts | orderflow | scanner | ai
   const [selectedCoin, setSelectedCoin] = useState('BTCUSDT');
   const [coinOverrides, setCoinOverrides] = useState({});
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -292,7 +294,8 @@ export default function SettingsModal({
             { id: 'appearance', label: 'Внешний вид & Тема', icon: Palette },
             { id: 'charts', label: 'Графики & Индикаторы', icon: TrendingUp },
             { id: 'orderflow', label: 'Order Flow & Стакан', icon: Layers },
-            { id: 'scanner', label: 'Сканер & Диск', icon: Radar }
+            { id: 'scanner', label: 'Сканер & Диск', icon: Radar },
+            { id: 'ai', label: 'AI Engine', icon: Flame }
           ].map(tab => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;
@@ -881,6 +884,8 @@ export default function SettingsModal({
               </div>
             </div>
           )}
+
+          {activeTab === 'ai' && <AIEngineSettings onConfigChange={onAiConfigChange} />}
         </div>
 
         {/* Footer */}

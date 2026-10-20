@@ -1,6 +1,6 @@
 # AI Handoff & Project State
 Last Updated: 2026-10-21 00:05:26 MSK
-Phase: 3 - Production Paper Trading & Fee Drag Optimization
+Phase: 3 - Production Paper Trading, Fee Drag Optimization & OpenRouter Model Hub
 
 ## 1. Current Architecture State
 
@@ -21,3 +21,9 @@ Core: Внедрить пресет production_robust в overnight_pilot.py (vol
 Scripts: Обновить scripts/night-pilot.ps1 для запуска пресета production_robust на порту 8002 для BTC, ETH, SOL.
 
 Logging: Добавить вывод WinRate, Net PnL по монетам и алерты (Warning Sentinel) при блокировке входов.
+
+## 4. OpenRouter Model Hub
+
+- Добавлен каталог моделей с шестичасовым дисковым кешем и флагом `is_free`.
+- Настройки AI сохраняются в `backend/data/ai_config.json`; UI находится в Settings → AI Engine.
+- Runtime 8002 не перезапускается во время ночного пилота: новые API будут доступны после следующего штатного перезапуска backend.

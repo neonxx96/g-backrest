@@ -158,6 +158,11 @@ export default function App() {
     applyUiConfigToDOM(initial);
     return initial;
   });
+  const [activeAiModel, setActiveAiModel] = useState('');
+
+  useEffect(() => {
+    fetch('/api/ai/config').then((r) => r.ok ? r.json() : null).then((data) => setActiveAiModel(data?.selected_model || '')).catch(() => {});
+  }, []);
 
   useEffect(() => {
     applyUiConfigToDOM(uiConfig);
@@ -940,6 +945,7 @@ export default function App() {
           >
             <Bell size={13} />
           </button>
+          {activeAiModel && <span title={activeAiModel} className="px-1.5 py-0.5 rounded border border-[#818cf860] bg-[#1e1b4b] text-[#a5b4fc] text-[10px] font-mono truncate max-w-36">AI: {activeAiModel.split('/').pop().replace(':free', '')}{activeAiModel.endsWith(':free') ? ' [FREE]' : ''}</span>}
 
           <button
             onClick={toggleSound}
@@ -1434,6 +1440,7 @@ export default function App() {
         userId={userId}
         uiConfig={uiConfig}
         onUiConfigChange={setUiConfig}
+        onAiConfigChange={(config) => setActiveAiModel(config?.selected_model || '')}
       />
 
       {/* Hotkeys Quick Reference Modal */}
