@@ -91,6 +91,15 @@ class OvernightPilotManager:
         ]
 
     @staticmethod
+    def diversified_paper_configs() -> List[OvernightPilotConfig]:
+        """24-hour virtual-only version of the three-strategy night plan."""
+        return [
+            OvernightPilotConfig(symbol="BTCUSDT", strategy_type="confluence_ema", timeframe="15m", days=14, initial_capital=1000.0, risk_per_trade_pct=1.0, stop_loss_pct=0.8, take_profit_pct=1.6, leverage=2),
+            OvernightPilotConfig(symbol="ETHUSDT", strategy_type="cvd_absorption", timeframe="15m", days=14, initial_capital=1000.0, risk_per_trade_pct=0.75, stop_loss_pct=0.65, take_profit_pct=1.8, leverage=2),
+            OvernightPilotConfig(symbol="SOLUSDT", strategy_type="cluster_volume_bounce", timeframe="5m", days=14, initial_capital=1000.0, risk_per_trade_pct=0.5, stop_loss_pct=1.0, take_profit_pct=2.2, leverage=1),
+        ]
+
+    @staticmethod
     def diagnostics_lenient_configs() -> List[OvernightPilotConfig]:
         """Short, paper-only execution diagnostic using real Binance OHLCV."""
         common = {

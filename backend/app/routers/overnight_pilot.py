@@ -39,6 +39,28 @@ async def preflight_overnight_pilot(configs: Optional[List[OvernightPilotConfig]
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@router.post("/diversified-paper/preflight")
+async def preflight_diversified_paper():
+    """Prepare the BTC/ETH/SOL three-strategy paper plan without placing orders."""
+    try:
+        result = await overnight_pilot_manager.preflight(overnight_pilot_manager.diversified_paper_configs())
+        await overnight_pilot_manager.persist()
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/diversified-paper/start")
+async def start_diversified_paper():
+    """Start the virtual-only three-strategy paper plan; real orders are never sent."""
+    try:
+        result = await overnight_pilot_manager.start(overnight_pilot_manager.diversified_paper_configs())
+        await overnight_pilot_manager.persist()
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @router.post("/diagnostics-lenient/preflight")
 async def preflight_diagnostics_lenient():
     """Prepare the explicitly non-production short execution diagnostic preset."""

@@ -25,6 +25,23 @@ def test_diagnostics_lenient_preset_uses_short_low_risk_real_data_sessions():
     assert all(not config.use_atr_filter and not config.use_cvd_filter and not config.use_oi_filter and not config.use_rsi_filter for config in configs)
 
 
+def test_diversified_paper_preset_matches_the_three_strategy_night_plan():
+    configs = OvernightPilotManager.diversified_paper_configs()
+
+    assert [(config.symbol, config.strategy_type) for config in configs] == [
+        ("BTCUSDT", "confluence_ema"),
+        ("ETHUSDT", "cvd_absorption"),
+        ("SOLUSDT", "cluster_volume_bounce"),
+    ]
+    assert all(config.initial_capital == 1000.0 and config.duration_hours == 24.0 for config in configs)
+    assert [(config.timeframe, config.days) for config in configs] == [("15m", 14), ("15m", 14), ("5m", 14)]
+    assert [(config.risk_per_trade_pct, config.stop_loss_pct, config.take_profit_pct, config.leverage) for config in configs] == [
+        (1.0, 0.8, 1.6, 2.0),
+        (0.75, 0.65, 1.8, 2.0),
+        (0.5, 1.0, 2.2, 1.0),
+    ]
+
+
 def test_naked_test_preset_is_a_short_unfiltered_ema_cross_probe():
     configs = OvernightPilotManager.naked_test_configs()
 
