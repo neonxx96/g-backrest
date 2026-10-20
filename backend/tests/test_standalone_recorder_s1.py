@@ -99,10 +99,10 @@ def test_config_loads_explicit_50_gib_limit(tmp_path: Path):
     assert config.max_storage_gib == 50
 
 
-def test_disk_policy_preserves_tier_one_when_limit_is_reached():
+def test_disk_policy_hard_stops_all_tiers_at_50_gib():
     policy = DiskPolicy(max_storage_gib=50)
 
-    assert policy.allows("tier1", used_bytes=60 * 1024**3) is True
+    assert policy.allows("tier1", used_bytes=60 * 1024**3) is False
     assert policy.allows("tier2", used_bytes=49 * 1024**3) is False
     assert policy.allows("tier3", used_bytes=45 * 1024**3) is False
 
@@ -114,4 +114,14 @@ def test_service_processes_wrapped_binance_message_without_network(tmp_path: Pat
     assert service.counters["trades"] == 1
     service.spool.flush()
     assert list(SpoolJournal.replay(service.spool.path))[0]["trade_id"] == 1
+    service.close()
+
+
+def test_service_records_disk_full_gap_before_spooling(tmp_path: Path):
+    service = RecorderService(lake_root=tmp_path / "lake", spool_root=tmp_path / "spool", node_id="node-a", session_id="session-a", max_storage_gib=0)
+    result = service.process_message({"stream": "btcusdt@aggTrade", "data": {"e": "aggTrade", "s": "BTCUSDT", "a": 1, "p": "100", "q": "1", "f": 1, "l": 1, "T": 1700000000000, "m": False}})
+
+    assert result["ignored"] is True
+    assert "disk_full" in service.status()["alerts"]
+    assert "disk_full" in service.gaps.path.read_text(encoding="utf-8")
     service.close()

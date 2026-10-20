@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 import uuid
 from pathlib import Path
@@ -19,14 +20,14 @@ class DiskPolicy:
         self.max_bytes = int(max_storage_gib * 1024**3)
 
     def allows(self, tier: str, *, used_bytes: int) -> bool:
-        if tier == "tier1":
-            return True
         ratio = used_bytes / self.max_bytes if self.max_bytes else 1.0
+        if tier == "tier1":
+            return ratio < 1.0
         return ratio < (0.90 if tier == "tier3" else 0.95)
 
 
 class RecorderService:
-    def __init__(self, *, lake_root: Path, spool_root: Path, node_id: str, session_id: str | None = None):
+    def __init__(self, *, lake_root: Path, spool_root: Path, node_id: str, session_id: str | None = None, max_storage_gib: int = 50):
         self.node_id = node_id
         self.session_id = session_id or uuid.uuid4().hex
         self.spool = SpoolJournal(Path(spool_root) / f"{node_id}-{self.session_id}.jsonl")
@@ -35,6 +36,10 @@ class RecorderService:
         self.buffers: dict[str, list[dict[str, Any]]] = {}
         self.counters: dict[str, int] = {}
         self.started_ns = time.time_ns()
+        self.disk_policy = DiskPolicy(max_storage_gib=max_storage_gib)
+        self.data_root = Path(lake_root).parent
+        self.alerts: set[str] = set()
+        self.disk_full = False
 
     def process_message(self, frame: dict[str, Any]) -> dict[str, Any]:
         stream_name = str(frame.get("stream", ""))
@@ -42,6 +47,20 @@ class RecorderService:
         stream = self._stream_name(stream_name, payload)
         if stream == "kline_1m" and not bool(payload.get("k", {}).get("x", False)):
             return {"ignored": True, "reason": "kline_not_closed"}
+        if not self.disk_policy.allows("tier1", used_bytes=self._data_size_bytes()):
+            self.disk_full = True
+            self.alerts.add("disk_full")
+            self.gaps.record(
+                exchange="binance",
+                market="usd-m",
+                symbol=str(payload.get("s", "*")),
+                stream=stream,
+                gap_start_ts=int(payload.get("E", 0)),
+                gap_end_ts=int(payload.get("E", 0)),
+                reason="disk_full",
+                node_id=self.node_id,
+            )
+            return {"ignored": True, "reason": "disk_full"}
         if stream == "liquidation" and "s" not in payload:
             payload = {**payload, "s": payload.get("o", {}).get("s", "")}
         event = normalize_message(payload, stream=stream, node_id=self.node_id, session_id=self.session_id)
@@ -58,11 +77,16 @@ class RecorderService:
                 self.buffers[stream] = []
 
     def status(self) -> dict[str, Any]:
-        return {"node_id": self.node_id, "session_id": self.session_id, "uptime_s": round((time.time_ns() - self.started_ns) / 1e9, 3), "counters": dict(self.counters), "spool": str(self.spool.path)}
+        return {"node_id": self.node_id, "session_id": self.session_id, "uptime_s": round((time.time_ns() - self.started_ns) / 1e9, 3), "counters": dict(self.counters), "spool": str(self.spool.path), "disk_full": self.disk_full, "alerts": sorted(self.alerts)}
 
     def close(self) -> None:
         self.flush()
         self.spool.close()
+
+    def _data_size_bytes(self) -> int:
+        if not self.data_root.exists():
+            return 0
+        return sum(item.stat().st_size for item in self.data_root.rglob("*") if item.is_file())
 
     @staticmethod
     def _stream_name(name: str, payload: dict[str, Any]) -> str:
