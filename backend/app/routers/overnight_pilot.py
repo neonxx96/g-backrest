@@ -39,6 +39,28 @@ async def preflight_overnight_pilot(configs: Optional[List[OvernightPilotConfig]
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@router.post("/diagnostics-lenient/preflight")
+async def preflight_diagnostics_lenient():
+    """Prepare the explicitly non-production short execution diagnostic preset."""
+    try:
+        result = await overnight_pilot_manager.preflight(overnight_pilot_manager.diagnostics_lenient_configs())
+        await overnight_pilot_manager.persist()
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/diagnostics-lenient/start")
+async def start_diagnostics_lenient():
+    """Start the 90-minute paper-only diagnostic preset against live Binance data."""
+    try:
+        result = await overnight_pilot_manager.start(overnight_pilot_manager.diagnostics_lenient_configs())
+        await overnight_pilot_manager.persist()
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @router.post("/stop")
 async def stop_overnight_pilot():
     result = await overnight_pilot_manager.stop()

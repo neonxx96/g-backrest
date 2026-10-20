@@ -7,6 +7,7 @@ and integrates OpenRouter AI Risk Control veto logic.
 """
 
 import asyncio
+import json
 import logging
 import time
 from typing import Dict, Any, List, Optional
@@ -71,6 +72,8 @@ class LivePaperRunner:
         self.indicator_last_update: int = 0
         self._indicator_context: Optional[Dict[str, Any]] = None
         self._indicator_context_at: float = 0.0
+        self._last_rejection_signature: Optional[str] = None
+        self._last_rejection_log_at: float = 0.0
 
         # Logs & Real-Time Equity Curve
         self.logs: List[Dict[str, Any]] = []
@@ -117,6 +120,8 @@ class LivePaperRunner:
         self.indicator_last_update = 0
         self._indicator_context = None
         self._indicator_context_at = 0.0
+        self._last_rejection_signature = None
+        self._last_rejection_log_at = 0.0
 
         # Reset wallet to initial capital
         self.session.reset_wallet(initial_balance=self.initial_capital)
@@ -171,6 +176,33 @@ class LivePaperRunner:
         self.logs.insert(0, entry)
         if len(self.logs) > 100:
             self.logs = self.logs[:100]
+
+    def _record_no_entry(self, diagnostic: Dict[str, Any]) -> None:
+        """Publish a rate-limited, measured rejection trace for paper diagnostics."""
+        rejections = list(diagnostic.get("rejections") or [])
+        fragments: List[str] = []
+        for item in rejections[:4]:
+            name = item.get("filter", "strategy_conditions")
+            actual = item.get("actual")
+            operator = item.get("operator", "")
+            threshold = item.get("threshold")
+            if operator == ">=" and isinstance(actual, (int, float)) and isinstance(threshold, (int, float)):
+                fragments.append(f"{name} ({actual:.2f} < {threshold:.2f})")
+            elif operator == "<=" and isinstance(actual, (int, float)) and isinstance(threshold, (int, float)):
+                fragments.append(f"{name} ({actual:.2f} > {threshold:.2f})")
+            else:
+                fragments.append(f"{name} ({actual} {operator} {threshold})")
+        message = "Blocked by: " + ("; ".join(fragments) if fragments else diagnostic.get("reason", "strategy_conditions"))
+        self.last_decision_checks = list(dict.fromkeys(diagnostic.get("failed_checks") or []))
+        self.last_decision_reason = diagnostic.get("reason") or message
+        self.last_decision_at = self._last_tick_time
+        signature = json.dumps(rejections or self.last_decision_checks, sort_keys=True, ensure_ascii=False, default=str)
+        now = time.time()
+        if signature != self._last_rejection_signature or now - self._last_rejection_log_at >= 30.0:
+            self._add_log("NO_ENTRY", message, meta={"rejections": rejections, "observed": diagnostic.get("observed") or {}})
+            logger.info("[%s] %s", self.symbol, message)
+            self._last_rejection_signature = signature
+            self._last_rejection_log_at = now
 
     def get_status(self) -> Dict[str, Any]:
         """Returns live status of runner, current wallet snapshot, and equity curve."""
@@ -340,11 +372,21 @@ class LivePaperRunner:
                 failed_checks = list(diagnostic.get("failed_checks") or [])
                 if self.strategy_type == "cluster_volume_bounce" and diagnostic.get("status") == "SIGNAL":
                     failed_checks.append("live_orderbook_wall")
-                self.last_decision_checks = list(dict.fromkeys(failed_checks))
-                self.last_decision_reason = diagnostic.get("reason") or "NO_TRADE: условия стратегии не выполнены."
                 if self.strategy_type == "cluster_volume_bounce" and diagnostic.get("status") == "SIGNAL":
-                    self.last_decision_reason = "NO_TRADE: OHLCV-сигнал есть, но live-плотность стакана не подтверждена."
-                self.last_decision_at = self._last_tick_time
+                    diagnostic = {
+                        **diagnostic,
+                        "reason": "NO_TRADE: OHLCV-сигнал есть, но live-плотность стакана не подтверждена.",
+                        "failed_checks": failed_checks,
+                        "rejections": [*(diagnostic.get("rejections") or []), {"filter": "live_orderbook_wall", "actual": "no matching wall", "operator": "requires", "threshold": f"${self.min_density_usd:,.0f}"}],
+                    }
+                self._record_no_entry(diagnostic)
+            else:
+                self._record_no_entry({
+                    "reason": "NO_TRADE: OHLCV-индикаторы недоступны или не прошли проверку целостности.",
+                    "failed_checks": ["indicator_data"],
+                    "rejections": [{"filter": "indicator_data", "actual": self.indicator_data_status, "operator": "requires", "threshold": "connected"}],
+                    "observed": {"last_data_error": self.last_data_error},
+                })
             return
 
         self._last_signal_time = now_sec
@@ -441,8 +483,11 @@ class LivePaperRunner:
             from backend.app.services.orderflow_backtester import OrderFlowBacktester
 
             frame = await fetch_history(self.symbol, self.timeframe, days=2)
-            if frame is None or frame.empty or len(frame) < 60:
-                self.indicator_data_status = "stale"
+            validation = OrderFlowBacktester.validate_ohlcv_integrity(frame, min_bars=60)
+            if not validation["valid"]:
+                self.indicator_data_status = "invalid"
+                self.last_data_error = "OHLCV integrity: " + "; ".join(validation["issues"][:2])
+                self._add_log("INDICATOR_ERROR", self.last_data_error, meta=validation)
                 return None
 
             enriched = OrderFlowBacktester(initial_capital=self.initial_capital).calculate_indicators(frame)

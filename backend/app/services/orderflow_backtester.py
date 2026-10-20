@@ -56,6 +56,28 @@ class OrderFlowBacktester:
         # On impulse/liquidation cascades, 1 effective slippage tick is at least 1.5 bps (0.015%) of price
         return max(base_tick, price * 0.00015)
 
+    @staticmethod
+    def validate_ohlcv_integrity(data: pd.DataFrame, min_bars: int = 2) -> Dict[str, Any]:
+        """Validate the real OHLCV contract before indicators or signals run."""
+        if data is None or data.empty:
+            return {"valid": False, "issues": ["OHLCV is empty"], "bars": 0}
+        issues: List[str] = []
+        required = ("timestamp", "open", "high", "low", "close", "volume")
+        for column in required:
+            if column not in data.columns:
+                issues.append(f"missing required column: {column}")
+                continue
+            values = pd.to_numeric(data[column], errors="coerce")
+            if not np.isfinite(values.to_numpy(dtype=float)).all():
+                issues.append(f"{column} contains non-finite values")
+        if len(data) < min_bars:
+            issues.append(f"insufficient bars: {len(data)} < {min_bars}")
+        if "timestamp" in data.columns and len(data) >= 2:
+            timestamps = pd.to_numeric(data["timestamp"], errors="coerce")
+            if timestamps.notna().all() and not timestamps.is_monotonic_increasing:
+                issues.append("timestamp is not monotonic")
+        return {"valid": not issues, "issues": issues, "bars": len(data)}
+
     def calculate_indicators(
         self,
         df: pd.DataFrame,
@@ -151,6 +173,9 @@ class OrderFlowBacktester:
         """
         if data is None or len(data) < 2:
             return None
+        integrity = self.validate_ohlcv_integrity(data)
+        if not integrity["valid"]:
+            return None
         frame = data if "low_min10" in data.columns else self.calculate_indicators(data)
         if len(frame) < 2:
             return None
@@ -175,6 +200,13 @@ class OrderFlowBacktester:
             elif passes_wall and previous_close >= float(prev.get("ema20", 0.0)) and close < float(cur.get("ema20", 0.0)) and volume_ok and delta < 0 and 35 <= rsi <= 60:
                 direction = -1
                 reasons = ["EMA20 cross down", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
+        elif profile == "diagnostics_lenient":
+            # Diagnostic-only profile: keeps real OHLCV/EMA/delta inputs but
+            # intentionally drops production-only confirmation gates so the
+            # paper execution lifecycle can be exercised in a short run.
+            if passes_wall and volume_ok and delta != 0:
+                direction = 1 if close >= float(cur.get("ema20", close)) else -1
+                reasons = ["Diagnostics EMA bias", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
         elif profile in ("delta_absorption", "cvd_absorption"):
             if passes_wall and float(cur.get("low", 0.0)) <= float(cur.get("low_min10", 0.0)) and float(cur.get("cvd", 0.0)) > float(cur.get("cvd_min10", 0.0)) and delta > 0 and rsi < 42 and volume_ok:
                 direction = 1
@@ -235,10 +267,19 @@ class OrderFlowBacktester:
         observable gates that prevented a signal instead of fabricating one.
         """
         if data is None or len(data) < 2:
-            return {"status": "NO_TRADE", "reason": "NO_TRADE: недостаточно свечей для проверки.", "failed_checks": ["history"], "observed": {}}
+            return {"status": "NO_TRADE", "reason": "NO_TRADE: недостаточно свечей для проверки.", "failed_checks": ["history"], "rejections": [], "observed": {}}
+        integrity = self.validate_ohlcv_integrity(data)
+        if not integrity["valid"]:
+            return {
+                "status": "NO_TRADE",
+                "reason": "NO_TRADE: некорректный OHLCV — " + "; ".join(integrity["issues"][:2]),
+                "failed_checks": ["data_integrity"],
+                "rejections": [{"filter": "data_integrity", "actual": integrity["bars"], "operator": "valid", "threshold": False, "issues": integrity["issues"]}],
+                "observed": {"bars": integrity["bars"]},
+            }
         frame = data if "low_min10" in data.columns else self.calculate_indicators(data)
         if len(frame) < 2:
-            return {"status": "NO_TRADE", "reason": "NO_TRADE: индикаторы ещё не готовы.", "failed_checks": ["indicators"], "observed": {}}
+            return {"status": "NO_TRADE", "reason": "NO_TRADE: индикаторы ещё не готовы.", "failed_checks": ["indicators"], "rejections": [], "observed": {}}
 
         cur = frame.iloc[-1]
         prev = frame.iloc[-2]
@@ -250,20 +291,26 @@ class OrderFlowBacktester:
         rsi = float(cur.get("rsi", 50.0))
         turnover = close * float(cur.get("volume", 0.0))
         failed: List[str] = []
+        rejections: List[Dict[str, Any]] = []
+
+        def reject(name: str, actual: Any, operator: str, threshold: Any, **extra: Any) -> None:
+            failed.append(name)
+            rejections.append({"filter": name, "actual": actual, "operator": operator, "threshold": threshold, **extra})
+
         if min_density_usd > 0 and turnover < min_density_usd:
-            failed.append("minimum_turnover")
+            reject("minimum_turnover", round(turnover, 2), ">=", float(min_density_usd))
 
         if volume_ratio < float(volume_multiplier):
-            failed.append("volume_multiplier")
+            reject("volume_multiplier", round(volume_ratio, 4), ">=", float(volume_multiplier))
         if profile == "confluence_ema":
             cross_up = previous_close <= float(prev.get("ema20", 0.0)) and close > float(cur.get("ema20", 0.0))
             cross_down = previous_close >= float(prev.get("ema20", 0.0)) and close < float(cur.get("ema20", 0.0))
             if not (cross_up or cross_down):
-                failed.append("ema20_cross")
+                reject("ema20_cross", round(close, 8), "crosses", round(float(cur.get("ema20", 0.0)), 8), previous_close=round(previous_close, 8), previous_ema20=round(float(prev.get("ema20", 0.0)), 8))
             if delta == 0:
-                failed.append("delta_direction")
+                reject("delta_direction", round(delta, 4), "!=", 0.0)
             if not (35 <= rsi <= 65):
-                failed.append("base_rsi_band")
+                reject("base_rsi_band", round(rsi, 4), "within", [35.0, 65.0])
         elif profile in ("delta_absorption", "cvd_absorption"):
             absorption = (
                 float(cur.get("low", 0.0)) <= float(cur.get("low_min10", 0.0))
@@ -277,21 +324,24 @@ class OrderFlowBacktester:
                 and rsi > 58
             )
             if not absorption:
-                failed.append("cvd_absorption_structure")
+                reject("cvd_absorption_structure", round(delta, 4), "requires", "local price extreme + opposing CVD divergence", rsi=round(rsi, 4), cvd=round(float(cur.get("cvd", 0.0)), 4))
         elif profile in ("density_bounce", "limit_bounce"):
             bullish_pin = (close - float(cur.get("low", 0.0))) > 1.8 * (float(cur.get("high", 0.0)) - close) and delta > 0
             bearish_pin = (float(cur.get("high", 0.0)) - close) > 1.8 * (close - float(cur.get("low", 0.0))) and delta < 0
             if not (bullish_pin and rsi < 44 or bearish_pin and rsi > 56):
-                failed.append("pinbar_and_rsi")
+                reject("pinbar_and_rsi", round(rsi, 4), "requires", "pinbar + RSI extreme", delta=round(delta, 4))
+        elif profile == "diagnostics_lenient":
+            if delta == 0:
+                reject("delta_direction", round(delta, 4), "!=", 0.0)
 
         if use_atr_filter and float(cur.get("atr_ema20", 0.0)) > 0 and float(cur.get("atr", 0.0)) > 2.0 * float(cur.get("atr_ema20", 0.0)):
-            failed.append("atr_filter")
+            reject("atr_filter", round(float(cur.get("atr", 0.0)), 8), "<=", round(2.0 * float(cur.get("atr_ema20", 0.0)), 8))
         if use_oi_filter and float(cur.get("oi_delta", 0.0)) < 0:
-            failed.append("oi_filter")
+            reject("oi_filter", round(float(cur.get("oi_delta", 0.0)), 4), ">=", 0.0)
         if use_cvd_filter and delta == 0:
-            failed.append("cvd_filter")
+            reject("cvd_filter", round(delta, 4), "!=", 0.0)
         if use_rsi_filter and not (rsi <= 42 or rsi >= 58):
-            failed.append("rsi_filter")
+            reject("rsi_filter", round(rsi, 4), "outside", [42.0, 58.0])
 
         signal = self.evaluate_latest_signal(
             frame,
@@ -305,12 +355,13 @@ class OrderFlowBacktester:
         )
         observed = {"close": close, "volume_ratio": round(volume_ratio, 4), "delta": round(delta, 4), "rsi": round(rsi, 4), "turnover": round(turnover, 2)}
         if signal:
-            return {"status": "SIGNAL", "direction": signal["direction"], "reason": "SIGNAL: все фильтры пройдены.", "failed_checks": [], "observed": observed}
+            return {"status": "SIGNAL", "direction": signal["direction"], "reason": "SIGNAL: все фильтры пройдены.", "failed_checks": [], "rejections": [], "observed": observed}
         unique_failed = list(dict.fromkeys(failed)) or ["strategy_conditions"]
         return {
             "status": "NO_TRADE",
             "reason": "NO_TRADE: не пройдены условия — " + ", ".join(unique_failed[:4]),
             "failed_checks": unique_failed,
+            "rejections": rejections,
             "observed": observed,
         }
 
@@ -476,6 +527,10 @@ class OrderFlowBacktester:
                         raw_signal = 1
                     elif is_pinbar_bear and v_rat >= volume_multiplier and rsi > 56:
                         raw_signal = -1
+
+            elif eff_strategy == "diagnostics_lenient":
+                if passes_wall and passes_lifetime and v_rat >= volume_multiplier and delta != 0:
+                    raw_signal = 1 if c >= ema else -1
 
             elif eff_strategy in ("wall_breakout", "breakout"):
                 # Пробой плотности (Wall Breakout): импульсный пробой локального экстремума/стенки на повышенном объёме и дельте

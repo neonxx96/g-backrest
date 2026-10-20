@@ -17,7 +17,7 @@ from backend.app.db.models import OvernightPilotRun
 from sqlalchemy import select
 
 
-HISTORICAL_STRATEGIES = {"confluence_ema", "cvd_absorption", "cluster_volume_bounce"}
+HISTORICAL_STRATEGIES = {"confluence_ema", "cvd_absorption", "cluster_volume_bounce", "diagnostics_lenient"}
 
 
 class OvernightPilotConfig(BaseModel):
@@ -86,6 +86,28 @@ class OvernightPilotManager:
             OvernightPilotConfig(symbol="ETHUSDT", strategy_type="cvd_absorption", timeframe="15m", risk_per_trade_pct=0.75, stop_loss_pct=0.65, take_profit_pct=1.8, leverage=2),
             OvernightPilotConfig(symbol="SOLUSDT", strategy_type="cluster_volume_bounce", timeframe="5m", risk_per_trade_pct=0.5, stop_loss_pct=1.0, take_profit_pct=2.2, leverage=1),
         ]
+
+    @staticmethod
+    def diagnostics_lenient_configs() -> List[OvernightPilotConfig]:
+        """Short, paper-only execution diagnostic using real Binance OHLCV."""
+        common = {
+            "strategy_type": "diagnostics_lenient",
+            "timeframe": "5m",
+            "days": 7,
+            "risk_per_trade_pct": 0.25,
+            "stop_loss_pct": 0.5,
+            "take_profit_pct": 0.75,
+            "leverage": 1.0,
+            "duration_hours": 1.5,
+            "min_density_usd": 0.0,
+            "volume_multiplier": 0.5,
+            "use_atr_filter": False,
+            "use_cvd_filter": False,
+            "use_oi_filter": False,
+            "use_rsi_filter": False,
+            "ai_control": False,
+        }
+        return [OvernightPilotConfig(symbol=symbol, **common) for symbol in ("BTCUSDT", "ETHUSDT", "SOLUSDT")]
 
     def set_preflight(self, symbol: str, backtest: Dict[str, Any], forecast: Dict[str, Any]) -> None:
         key = symbol.upper()

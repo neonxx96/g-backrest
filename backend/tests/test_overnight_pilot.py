@@ -14,6 +14,17 @@ def test_pilot_config_rejects_unknown_strategy_and_limits_three_sessions():
     assert manager.default_configs()[0].duration_hours == 24.0
 
 
+def test_diagnostics_lenient_preset_uses_short_low_risk_real_data_sessions():
+    configs = OvernightPilotManager.diagnostics_lenient_configs()
+
+    assert [config.symbol for config in configs] == ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+    assert {config.strategy_type for config in configs} == {"diagnostics_lenient"}
+    assert all(config.duration_hours == 1.5 for config in configs)
+    assert all(config.min_density_usd == 0 for config in configs)
+    assert all(config.volume_multiplier == 0.5 for config in configs)
+    assert all(not config.use_atr_filter and not config.use_cvd_filter and not config.use_oi_filter and not config.use_rsi_filter for config in configs)
+
+
 def test_pilot_detects_running_sessions_before_restart():
     manager = OvernightPilotManager()
     assert manager._has_running_sessions() is False

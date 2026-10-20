@@ -129,3 +129,23 @@ def test_live_runner_status_exposes_margin_and_funding_accounting():
     assert status["duration_remaining_seconds"] is not None
     assert status["duration_remaining_seconds"] > 0
     runner.stop()
+
+
+def test_live_runner_records_structured_no_entry_reason(caplog):
+    runner = LivePaperRunner(session=PaperTradingSession(initial_balance=1000.0, session_id="trace-contract"))
+    diagnostic = {
+        "reason": "NO_TRADE: не пройдены условия — volume_multiplier",
+        "failed_checks": ["volume_multiplier"],
+        "rejections": [
+            {"filter": "volume_multiplier", "actual": 0.2, "operator": ">=", "threshold": 0.5}
+        ],
+        "observed": {"close": 100.0},
+    }
+
+    with caplog.at_level("INFO", logger="SignalScript.LivePaperRunner"):
+        runner._record_no_entry(diagnostic)
+
+    assert runner.logs[0]["category"] == "NO_ENTRY"
+    assert "volume_multiplier (0.20 < 0.50)" in runner.logs[0]["message"]
+    assert runner.logs[0]["meta"]["rejections"] == diagnostic["rejections"]
+    assert "Blocked by: volume_multiplier (0.20 < 0.50)" in caplog.text

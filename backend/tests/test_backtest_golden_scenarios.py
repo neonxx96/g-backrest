@@ -54,6 +54,49 @@ def test_latest_signal_explanation_is_diagnostic_only():
     assert explanation["observed"]["close"] > 0
 
 
+def test_latest_signal_explanation_includes_measured_rejection_values():
+    frame = make_oscillating_df()
+
+    explanation = OrderFlowBacktester(initial_capital=10000.0).explain_latest_signal(
+        frame,
+        strategy_type="confluence_ema",
+        volume_multiplier=1.3,
+    )
+
+    volume_rejection = next(item for item in explanation["rejections"] if item["filter"] == "volume_multiplier")
+    assert volume_rejection["actual"] == pytest.approx(1.0)
+    assert volume_rejection["threshold"] == pytest.approx(1.3)
+    assert volume_rejection["operator"] == ">="
+
+
+def test_diagnostics_lenient_signal_uses_real_ema_and_delta_without_production_filters():
+    frame = pd.DataFrame(
+        [
+            {"timestamp": 1, "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0, "volume": 10.0, "ema20": 100.0, "vol_ratio": 0.6, "delta": -1.0, "low_min10": 99.0},
+            {"timestamp": 2, "open": 100.0, "high": 102.0, "low": 99.0, "close": 101.0, "volume": 10.0, "ema20": 100.0, "vol_ratio": 0.6, "delta": 1.0, "low_min10": 99.0},
+        ]
+    )
+
+    signal = OrderFlowBacktester().evaluate_latest_signal(
+        frame,
+        strategy_type="diagnostics_lenient",
+        volume_multiplier=0.5,
+    )
+
+    assert signal is not None
+    assert signal["direction"] == "LONG"
+
+
+def test_ohlcv_integrity_rejects_non_finite_required_price_values():
+    frame = make_oscillating_df()
+    frame.loc[3, "close"] = np.nan
+
+    validation = OrderFlowBacktester.validate_ohlcv_integrity(frame)
+
+    assert validation["valid"] is False
+    assert "close contains non-finite values" in validation["issues"]
+
+
 # ==============================================================================
 # 1. ZERO LOOK-AHEAD BIAS TEST
 # ==============================================================================
