@@ -2,7 +2,7 @@
 param(
     [ValidateSet('preflight', 'start', 'status', 'report', 'stop')]
     [string]$Action = 'start',
-    [ValidateSet('production_robust', 'diagnostics_lenient', 'naked_test', 'default')]
+    [ValidateSet('production_robust', 'diagnostics_lenient', 'naked_test', 'optimal_live', 'default')]
     [string]$Preset = 'production_robust',
     [ValidateRange(1, 65535)]
     [int]$Port = 8002,

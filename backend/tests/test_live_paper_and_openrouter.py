@@ -75,6 +75,7 @@ def test_live_paper_runner_start_stop_lifecycle():
     assert start_res["ai_control"] is True
     assert len(start_res["equity_curve"]) >= 1
     assert live_paper_runner.session.risk_per_trade_pct == pytest.approx(0.01)
+    assert any("Deep Intent Logging: ACTIVE" in item["message"] for item in start_res["logs"])
 
     status = live_paper_runner.get_status()
     assert status["is_running"] is True
@@ -133,6 +134,20 @@ def test_live_runner_trailing_stop_only_tightens_an_open_long_position():
     runner._update_open_positions(102.0)
 
     assert runner.session.positions["BTCUSDT"].stop_price == pytest.approx(101.49)
+
+
+def test_live_runner_trailing_waits_for_configured_activation_threshold():
+    session = PaperTradingSession(initial_balance=1000.0, session_id="trailing-activation")
+    runner = LivePaperRunner(session=session)
+    runner.start({"symbol": "BTCUSDT", "use_trailing": True, "trailing_pct": 0.5, "trailing_activation_pct": 0.5})
+    session.positions["BTCUSDT"] = PaperPosition(
+        symbol="BTCUSDT", side="LONG", qty=1.0, avg_entry_price=100.0,
+        stop_price=99.2, initial_stop_price=99.2, target_price=102.2,
+    )
+
+    runner._update_open_positions(100.3)
+
+    assert session.positions["BTCUSDT"].stop_price == pytest.approx(99.2)
 
 
 def test_live_runner_status_exposes_margin_and_funding_accounting():

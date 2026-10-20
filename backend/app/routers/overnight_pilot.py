@@ -105,6 +105,28 @@ async def start_production_robust():
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@router.post("/optimal-live/preflight")
+async def preflight_optimal_live():
+    """Prepare the 1,000-USDT-per-symbol optimal paper preset without orders."""
+    try:
+        result = await overnight_pilot_manager.preflight(overnight_pilot_manager.optimal_live_configs())
+        await overnight_pilot_manager.persist()
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/optimal-live/start")
+async def start_optimal_live():
+    """Start the virtual-only optimal preset with deep intent logging."""
+    try:
+        result = await overnight_pilot_manager.start(overnight_pilot_manager.optimal_live_configs())
+        await overnight_pilot_manager.persist()
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @router.post("/stop")
 async def stop_overnight_pilot():
     result = await overnight_pilot_manager.stop()

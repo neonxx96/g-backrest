@@ -17,6 +17,7 @@ from backend.app.services.market_data_factory import market_data_provider
 from backend.app.services.quant_engine import quant_engine
 from backend.app.services.openrouter_client import openrouter_client
 from backend.app.services.paper_trading import paper_trading_session
+from backend.app.services.deep_intent_logger import DeepIntentLogger
 from backend.app.engine.trade_contract import UnifiedTradeSignal
 
 logger = logging.getLogger("SignalScript.LivePaperRunner")
@@ -69,6 +70,7 @@ class LivePaperRunner:
         self.use_multi_tp: bool = True
         self.use_trailing: bool = True
         self.trailing_pct: float = 0.5
+        self.trailing_activation_pct: float = 0.0
         self.tp1_rr_ratio: float = 1.5
         self.tp2_rr_ratio: float = 2.8
         self._last_funding_timestamp: int = 0
@@ -89,6 +91,7 @@ class LivePaperRunner:
         self._last_rejection_log_at: float = 0.0
         self._last_rejection_count_key: Optional[str] = None
         self.rejection_counts: Dict[str, int] = {}
+        self.intent_logger = DeepIntentLogger()
 
         # Logs & Real-Time Equity Curve
         self.logs: List[Dict[str, Any]] = []
@@ -121,6 +124,7 @@ class LivePaperRunner:
         self.use_multi_tp = bool(config.get("use_multi_tp", True))
         self.use_trailing = bool(config.get("use_trailing", True))
         self.trailing_pct = float(config.get("trailing_pct", 0.5))
+        self.trailing_activation_pct = float(config.get("trailing_activation_pct", 0.0))
         self.tp1_rr_ratio = float(config.get("tp1_rr_ratio", 1.5))
         self.tp2_rr_ratio = float(config.get("tp2_rr_ratio", 2.8))
         self._last_funding_timestamp = 0
@@ -163,6 +167,10 @@ class LivePaperRunner:
         ]
 
         self._add_log("SYSTEM", f"Симулятор Paper Trading запущен для {self.symbol} (${self.initial_capital:,.2f})")
+        self._add_log(
+            "SYSTEM",
+            f"🚀 LIVE PAPER TRADING STARTED | Balance: ${self.initial_capital:,.2f} | Deep Intent Logging: ACTIVE",
+        )
         if self.ai_control:
             self._add_log("AI_COPILOT", "Режим «AI Контроль сделок» АКТИВЕН (OpenRouter Sentinel)")
 
@@ -222,6 +230,13 @@ class LivePaperRunner:
                 filter_name = str(item.get("filter") or "strategy_conditions")
                 self.rejection_counts[filter_name] = self.rejection_counts.get(filter_name, 0) + 1
             self._last_rejection_count_key = count_key
+            self.intent_logger.record(
+                intent="SKIPPED",
+                symbol=self.symbol,
+                session_id=self.session.session_id,
+                reason=message,
+                context={"rejections": rejections, "observed": diagnostic.get("observed") or {}},
+            )
         now = time.time()
         if signature != self._last_rejection_signature or now - self._last_rejection_log_at >= 30.0:
             self._add_log("NO_ENTRY", message, meta={"rejections": rejections, "observed": diagnostic.get("observed") or {}})
@@ -484,6 +499,21 @@ class LivePaperRunner:
 
         try:
             order_res = self.session.execute_unified_signal(signal_obj)
+            risk_budget = self.session.available_margin * self.risk_per_trade_pct / 100.0
+            self.intent_logger.record(
+                intent="ENTERED",
+                symbol=self.symbol,
+                session_id=self.session.session_id,
+                reason="; ".join(candidate_signal["reason"]),
+                context={
+                    "direction": candidate_signal["direction"],
+                    "entry_price": candidate_signal["entry_price"],
+                    "stop_loss": candidate_signal["sl"],
+                    "take_profit": candidate_signal["tp1"],
+                    "risk_budget_usdt": round(risk_budget, 4),
+                    "order": order_res,
+                },
+            )
             self._add_log(
                 "TRADE_ENTRY",
                 f"Вход в виртуальную сделку {candidate_signal['direction']} @ ${candidate_signal['entry_price']:,.2f} "
@@ -751,7 +781,15 @@ class LivePaperRunner:
 
     def _update_open_positions(self, current_price: float):
         """Simulates price ticks against open positions: triggers Stop Loss / Take Profit / Trailing."""
-        self.session.check_dynamic_breakeven(self.symbol, current_price)
+        closed_before = len(self.session.closed_trades)
+        if self.session.check_dynamic_breakeven(self.symbol, current_price):
+            pos = self.session.positions.get(self.symbol)
+            if pos:
+                self._record_management_intent(
+                    "BREAKEVEN",
+                    "Price reached +0.5R; stop moved to fee-aware breakeven",
+                    {"price": current_price, "new_stop_price": pos.stop_price},
+                )
         for symbol, pos in list(self.session.positions.items()):
             if symbol != self.symbol:
                 continue
@@ -766,14 +804,20 @@ class LivePaperRunner:
                 trail_fraction = self.trailing_pct / 100.0
                 if pos.side == "LONG":
                     pos.trailing_high_price = max(pos.trailing_high_price or entry, current_price)
+                    activated = current_price >= entry * (1.0 + self.trailing_activation_pct / 100.0)
                     trailing_stop = pos.trailing_high_price * (1.0 - trail_fraction)
-                    if trailing_stop > pos.stop_price:
+                    if activated and trailing_stop > pos.stop_price:
+                        previous_stop = pos.stop_price
                         pos.stop_price = trailing_stop
+                        self._record_management_intent("TRAILING_STOP", "Long trailing stop tightened", {"price": current_price, "old_stop_price": previous_stop, "new_stop_price": trailing_stop})
                 elif pos.side == "SHORT":
                     pos.trailing_low_price = min(pos.trailing_low_price or entry, current_price)
+                    activated = current_price <= entry * (1.0 - self.trailing_activation_pct / 100.0)
                     trailing_stop = pos.trailing_low_price * (1.0 + trail_fraction)
-                    if pos.stop_price <= 0 or trailing_stop < pos.stop_price:
+                    if activated and (pos.stop_price <= 0 or trailing_stop < pos.stop_price):
+                        previous_stop = pos.stop_price
                         pos.stop_price = trailing_stop
+                        self._record_management_intent("TRAILING_STOP", "Short trailing stop tightened", {"price": current_price, "old_stop_price": previous_stop, "new_stop_price": trailing_stop})
 
             # Check Long
             if pos.side == "LONG":
@@ -802,6 +846,33 @@ class LivePaperRunner:
                         pos.target_price = pos.tp2_price
                     else:
                         self.session.close_position(symbol, current_price, order_type="LIMIT", reason="TAKE_PROFIT", signal_ts=self._last_tick_time)
+
+        self._record_new_closed_intents(closed_before)
+
+    def _record_management_intent(self, action: str, reason: str, context: Dict[str, Any]) -> None:
+        self.intent_logger.record(
+            intent="MANAGED",
+            symbol=self.symbol,
+            session_id=self.session.session_id,
+            reason=reason,
+            context={"action": action, **context},
+        )
+
+    def _record_new_closed_intents(self, start_index: int) -> None:
+        for trade in self.session.closed_trades[start_index:]:
+            self.intent_logger.record(
+                intent="CLOSED",
+                symbol=str(trade.get("symbol", self.symbol)),
+                session_id=self.session.session_id,
+                reason=str(trade.get("reason", "EXIT")),
+                context={
+                    "entry_price": trade.get("entry_price"),
+                    "exit_price": trade.get("exit_price"),
+                    "gross_pnl": trade.get("gross_pnl"),
+                    "net_pnl": trade.get("net_pnl"),
+                    "fee_drag": trade.get("fee_drag"),
+                },
+            )
 
 # Global singleton runner
 live_paper_runner = LivePaperRunner()
