@@ -145,3 +145,14 @@ def test_service_records_disk_full_gap_before_spooling(tmp_path: Path):
     assert "disk_full" in service.status()["alerts"]
     assert "disk_full" in service.gaps.path.read_text(encoding="utf-8")
     service.close()
+
+
+def test_service_caches_disk_usage_scan_between_checks(tmp_path: Path):
+    service = RecorderService(lake_root=tmp_path / "lake", spool_root=tmp_path / "spool", node_id="node-a", session_id="session-a")
+    calls = []
+    service._scan_data_size_bytes = lambda: calls.append(1) or 123
+
+    assert service._data_size_bytes() == 123
+    assert service._data_size_bytes() == 123
+    assert len(calls) == 1
+    service.close()

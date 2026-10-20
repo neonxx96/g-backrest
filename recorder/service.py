@@ -42,6 +42,9 @@ class RecorderService:
         self.data_root = Path(lake_root).parent
         self.alerts: set[str] = set()
         self.disk_full = False
+        self._data_size_cache_bytes = 0
+        self._data_size_cache_mono = 0.0
+        self._data_size_check_interval_s = 30.0
 
     def process_message(self, frame: dict[str, Any]) -> dict[str, Any]:
         stream_name = str(frame.get("stream", ""))
@@ -86,6 +89,14 @@ class RecorderService:
         self.spool.close()
 
     def _data_size_bytes(self) -> int:
+        now = time.monotonic()
+        if now - self._data_size_cache_mono < self._data_size_check_interval_s:
+            return self._data_size_cache_bytes
+        self._data_size_cache_bytes = self._scan_data_size_bytes()
+        self._data_size_cache_mono = now
+        return self._data_size_cache_bytes
+
+    def _scan_data_size_bytes(self) -> int:
         if not self.data_root.exists():
             return 0
         return sum(item.stat().st_size for item in self.data_root.rglob("*") if item.is_file())
@@ -120,14 +131,14 @@ class RecorderService:
                             self.alerts.add("message_processing_error")
                             self.gaps.record(exchange="binance", market="usd-m", symbol="*", stream="message", gap_start_ts=0, gap_end_ts=int(time.time() * 1000), reason=f"message_processing_error:{type(exc).__name__}", node_id=self.node_id)
                         if sum(len(items) for items in self.buffers.values()) >= 1000:
-                            self.flush()
+                            await asyncio.to_thread(self.flush)
                     LOGGER.warning("Binance stream closed normally: code=%s reason=%s", socket.close_code, socket.close_reason)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 LOGGER.exception("Binance connection loop failed; reconnecting")
                 self.gaps.record(exchange="binance", market="usd-m", symbol="*", stream="connection", gap_start_ts=0, gap_end_ts=int(time.time() * 1000), reason="disconnect", node_id=self.node_id)
-                self.flush()
+                await asyncio.to_thread(self.flush)
                 await asyncio.sleep(reconnect_delay)
 
     @staticmethod
