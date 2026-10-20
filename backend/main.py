@@ -123,6 +123,9 @@ app.include_router(system_monitoring_router)
 app.include_router(paper_trading_router)
 app.include_router(adaptive_router)
 
+from backend.app.routers.quant_router import router as quant_router
+app.include_router(quant_router)
+
 if __name__ == "__main__":
 
     uvicorn.run("backend.main:app", host=BACKEND_HOST, port=BACKEND_PORT, reload=False)

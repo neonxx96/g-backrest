@@ -47,6 +47,17 @@ const MODULES = [
     defaultLocation: 'Правая панель'
   },
   {
+    id: 'liq_analytics',
+    type: 'liq_analytics',
+    title: 'Ликвидации & Квант-карантин',
+    badge: 'Quant Engine',
+    badgeColor: 'text-[#a855f7] bg-[#a855f715] border-[#a855f730]',
+    icon: Activity,
+    iconColor: 'text-[#a855f7]',
+    description: 'Аналитика пулов ликвидаций, консилиум 3 ядер, расчет R:R, спотовые стены и фиксация сигналов в Shadow Quarantine.',
+    defaultLocation: 'Правая панель (вкладка или рядом)'
+  },
+  {
     id: 'trades',
     type: 'trades',
     title: 'Лента сделок (Tape)',

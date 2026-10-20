@@ -49,11 +49,16 @@ import {
   Plus,
   Check,
   RotateCcw,
-  LayoutGrid
+  LayoutGrid,
+  Target
 } from 'lucide-react';
 import { useLayoutStore } from './stores/layoutStore';
 import { useAlertsStore } from './stores/alertsStore';
 import AlertsModal from './components/docking/AlertsModal';
+import LayerToolbar from './components/design-previews/LayerToolbar';
+import LiqAnalyticsPanel from './components/design-previews/LiqAnalyticsPanel';
+import QuantDecisionConsilium from './components/design-previews/QuantDecisionConsilium';
+import { useQuantStore } from './stores/quantStore';
 
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1D'];
 const POPULAR_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'DOGEUSDT', 'XRPUSDT', 'BNBUSDT', 'SUIUSDT', 'NEARUSDT'];
@@ -98,6 +103,35 @@ export default function App() {
   const [userId] = useState(initialUserId);
   const [denomination, setDenomination] = useState('USDT');
   const [isAddWidgetDropdownOpen, setIsAddWidgetDropdownOpen] = useState(false);
+
+  // Quant Analytics, Spot Walls & Liquidation Store
+  const showLiqLayers = useQuantStore((s) => s.showLiqLayers);
+  const showLiqPanel = useQuantStore((s) => s.showLiqPanel);
+  const toggleLiqLayers = useQuantStore((s) => s.toggleLiqLayers);
+  const toggleLiqPanel = useQuantStore((s) => s.toggleLiqPanel);
+  const setShowLiqPanel = useQuantStore((s) => s.setShowLiqPanel);
+  const layers = useQuantStore((s) => s.layers);
+  const toggleLayer = useQuantStore((s) => s.toggleLayer);
+  const leverages = useQuantStore((s) => s.leverages);
+  const toggleLeverage = useQuantStore((s) => s.toggleLeverage);
+  const minWallMultiplier = useQuantStore((s) => s.minWallMultiplier);
+  const setMinWallMultiplier = useQuantStore((s) => s.setMinWallMultiplier);
+  const wallLineThickness = useQuantStore((s) => s.wallLineThickness);
+  const setWallLineThickness = useQuantStore((s) => s.setWallLineThickness);
+  const layerOpacity = useQuantStore((s) => s.layerOpacity);
+  const setLayerOpacity = useQuantStore((s) => s.setLayerOpacity);
+  const unifiedData = useQuantStore((s) => s.unifiedData);
+  const core3Report = useQuantStore((s) => s.core3Report);
+  const promptData = useQuantStore((s) => s.promptData);
+  const isCommitting = useQuantStore((s) => s.isCommitting);
+  const quarantineSaved = useQuantStore((s) => s.quarantineSaved);
+  const commitQuarantine = useQuantStore((s) => s.commitQuarantine);
+  const fetchMarketData = useQuantStore((s) => s.fetchMarketData);
+  const loadingQuant = useQuantStore((s) => s.loading);
+
+  useEffect(() => {
+    useQuantStore.getState().setSymbol(symbol);
+  }, [symbol]);
 
   // Synchronize App symbol with Channel 1 (c1) of Color Links
   const c1Symbol = useColorLinksStore((s) => s.channels.c1);
@@ -691,6 +725,10 @@ export default function App() {
         setShowIndicatorsModal((v) => !v);
       } else if (e.key.toLowerCase() === 'f' || e.key.toLowerCase() === 'а') {
         toggleFocusMode();
+      } else if (e.key.toLowerCase() === 'q' || e.key.toLowerCase() === 'й') {
+        useQuantStore.getState().toggleLiqPanel();
+      } else if (e.key.toLowerCase() === 'l' || e.key.toLowerCase() === 'д') {
+        useQuantStore.getState().toggleLiqLayers();
       } else if (e.key === '?') {
         setShowHotkeyHelp((v) => !v);
       }
@@ -1139,6 +1177,36 @@ export default function App() {
             <span>Сигн [S]</span>
           </button>
 
+          {/* Spot Limit Walls & Liq Heatmap Layers Toggle */}
+          <button
+            data-testid="btn-toggle-liq-layers"
+            onClick={toggleLiqLayers}
+            className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition cursor-pointer ${
+              showLiqLayers
+                ? 'bg-[#1e1b4b] text-[#c084fc] border-[#c084fc60] font-bold'
+                : 'text-[#60697b] border-transparent hover:bg-[#141720] hover:text-[#c084fc]'
+            }`}
+            title="Слои спотовых стен и тепловой карты ликвидаций (Клавиша 'L')"
+          >
+            <Layers size={11} className={showLiqLayers ? 'text-[#c084fc]' : ''} />
+            <span>Слои стен [L]</span>
+          </button>
+
+          {/* Liquidation Analytics & Quarantine Drawer Toggle */}
+          <button
+            data-testid="btn-toggle-liq-panel"
+            onClick={toggleLiqPanel}
+            className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition cursor-pointer ${
+              showLiqPanel
+                ? 'bg-[#3b0764] text-[#e879f9] border-[#e879f960] font-bold'
+                : 'text-[#60697b] border-transparent hover:bg-[#141720] hover:text-[#e879f9]'
+            }`}
+            title="Панель ликвидаций и фиксация в Shadow Quarantine (Клавиша 'Q')"
+          >
+            <Target size={11} className={showLiqPanel ? 'animate-pulse text-[#e879f9]' : ''} />
+            <span>Карантин [Q]</span>
+          </button>
+
           {/* Collapse/Expand entire right dock */}
           <button
             onClick={toggleAllRightPanels}
@@ -1173,6 +1241,22 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      {/* Interactive Layer Toolbar for Spot Walls & Liquidations */}
+      {showLiqLayers && (
+        <LayerToolbar
+          layers={layers}
+          onLayerToggle={toggleLayer}
+          leverages={leverages}
+          onLeverageToggle={toggleLeverage}
+          minWallMultiplier={minWallMultiplier}
+          onMinWallChange={setMinWallMultiplier}
+          wallLineThickness={wallLineThickness}
+          onWallThicknessChange={setWallLineThickness}
+          layerOpacity={layerOpacity}
+          onOpacityChange={setLayerOpacity}
+        />
+      )}
 
       {/* Main Responsive Workspace Layout with Dockview (dockview-react) */}
       <main className="flex-1 flex overflow-hidden relative min-w-0">
@@ -1215,6 +1299,52 @@ export default function App() {
           onStrategyChange={setActiveStrategyProfile}
           onProjectPositionSetup={handleProjectPositionSetup}
         />
+
+        {/* Liquidation Analytics & Quarantine Consilium Drawer */}
+        {showLiqPanel && (
+          <aside
+            data-testid="panel-liq-analytics"
+            className="w-[450px] max-w-full bg-[#0c0e12] border-l border-[#1b2130] flex flex-col shrink-0 z-30 font-sans shadow-2xl overflow-hidden transition-all duration-200"
+          >
+            <div className="h-9 px-3 border-b border-[#1b2130] flex items-center justify-between bg-[#0e121a] shrink-0 font-mono text-xs">
+              <div className="flex items-center space-x-2">
+                <Target size={14} className="text-[#e879f9]" />
+                <span className="font-bold text-white text-xs">Ликвидации & Карантин</span>
+                <span className="text-[#38bdf8] font-bold text-xs">{symbol}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLiqPanel(false)}
+                className="p-1 rounded text-[#64748b] hover:text-white hover:bg-[#1f293d] transition cursor-pointer"
+                title="Закрыть панель (Клавиша 'Q')"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-2.5 flex flex-col gap-2.5 min-h-0">
+              <QuantDecisionConsilium
+                symbol={symbol}
+                core3Report={core3Report}
+                promptData={promptData}
+                onCommitQuarantine={() => commitQuarantine(symbol)}
+                isCommitting={isCommitting}
+                quarantineSaved={quarantineSaved}
+              />
+
+              <div className="rounded border border-[#1b2130] overflow-hidden flex-1 min-h-[380px]">
+                <LiqAnalyticsPanel
+                  symbol={symbol}
+                  currentPrice={unifiedData?.snapshot?.price || 82000}
+                  liqData={unifiedData?.liq_estimates}
+                  depthData={unifiedData?.orderbook_depth}
+                  isLoading={loadingQuant}
+                  onRefresh={() => fetchMarketData(symbol)}
+                />
+              </div>
+            </div>
+          </aside>
+        )}
       </main>
 
       {/* Real-time Push Toast Notifications (Top Right) */}
@@ -1297,6 +1427,14 @@ export default function App() {
             </div>
 
             <div className="space-y-1.5 font-mono text-[11px]">
+              <div className="flex justify-between py-0.5 border-b border-[#13161f]">
+                <span className="text-[#787f91]">Ликвидации & Карантин:</span>
+                <span className="text-[#e879f9] font-bold">Q</span>
+              </div>
+              <div className="flex justify-between py-0.5 border-b border-[#13161f]">
+                <span className="text-[#787f91]">Слои спотовых стен:</span>
+                <span className="text-[#c084fc] font-bold">L</span>
+              </div>
               <div className="flex justify-between py-0.5 border-b border-[#13161f]">
                 <span className="text-[#787f91]">Центр настроек:</span>
                 <span className="text-white font-bold">, (Запятая)</span>

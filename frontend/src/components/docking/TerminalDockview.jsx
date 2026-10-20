@@ -18,6 +18,10 @@ import PresetBar from './PresetBar';
 import { Radio, SlidersHorizontal, Sparkles, Zap, Loader2, Eye, EyeOff } from 'lucide-react';
 import { useBacktestStore } from '../../stores/backtestStore';
 import { useTradeOverlayStore } from '../../stores/tradeOverlayStore';
+import { useQuantStore } from '../../stores/quantStore';
+import ChartCanvasOverlay from '../design-previews/ChartCanvasOverlay';
+import LiqAnalyticsPanel from '../design-previews/LiqAnalyticsPanel';
+import QuantDecisionConsilium from '../design-previews/QuantDecisionConsilium';
 
 /**
  * Chart Panel Component for Dockview
@@ -44,6 +48,38 @@ function ChartDockPanel(props) {
   const activeSetup = useTradeOverlayStore((s) => s.activeSetup);
 
   const isCurrentSymbolResult = activeBtResult && activeBtResult.symbol === currentSymbol.toUpperCase();
+
+  // Quant Overlays & Live Data
+  const containerRef = useRef(null);
+  const [dimensions, setDimensions] = React.useState({ width: 0, height: 0 });
+
+  const showLiqLayers = useQuantStore((s) => s.showLiqLayers);
+  const layers = useQuantStore((s) => s.layers);
+  const leverages = useQuantStore((s) => s.leverages);
+  const minWallMultiplier = useQuantStore((s) => s.minWallMultiplier);
+  const wallLineThickness = useQuantStore((s) => s.wallLineThickness);
+  const layerOpacity = useQuantStore((s) => s.layerOpacity);
+  const liqPalette = useQuantStore((s) => s.liqPalette);
+  const unifiedData = useQuantStore((s) => s.unifiedData);
+  const fetchMarketData = useQuantStore((s) => s.fetchMarketData);
+
+  useEffect(() => {
+    fetchMarketData(currentSymbol);
+  }, [currentSymbol, fetchMarketData]);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      for (let entry of entries) {
+        const { width, height } = entry.contentRect;
+        setDimensions({ width: Math.round(width), height: Math.round(height) });
+      }
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  const currentPrice = unifiedData?.snapshot?.price || 82000;
 
   const handleQuickBt = async () => {
     try {
@@ -138,7 +174,7 @@ function ChartDockPanel(props) {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 relative">
+      <div className="flex-1 min-h-0 relative" ref={containerRef}>
         <Chart
           chartId={panelId}
           symbol={currentSymbol}
@@ -151,6 +187,76 @@ function ChartDockPanel(props) {
           uiConfig={uiConfig}
           onOpenIndicators={onOpenIndicators}
         />
+        {showLiqLayers && dimensions.width > 0 && dimensions.height > 0 && (
+          <ChartCanvasOverlay
+            width={dimensions.width}
+            height={dimensions.height}
+            currentPrice={currentPrice}
+            liqData={unifiedData?.liq_estimates}
+            depthData={unifiedData?.orderbook_depth}
+            layers={layers}
+            leverages={leverages}
+            minWallMultiplier={minWallMultiplier}
+            wallLineThickness={wallLineThickness}
+            liqPalette={liqPalette}
+            layerOpacity={layerOpacity / 100}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Liquidation Analytics & Quarantine Dock Panel Component for Dockview
+ */
+function LiqAnalyticsDockPanel(props) {
+  const panelId = props.api.id;
+  const currentSymbol = useColorLinksStore((s) => s.getPanelSymbol(panelId, 'BTCUSDT'));
+  const unifiedData = useQuantStore((s) => s.unifiedData);
+  const core3Report = useQuantStore((s) => s.core3Report);
+  const promptData = useQuantStore((s) => s.promptData);
+  const isCommitting = useQuantStore((s) => s.isCommitting);
+  const quarantineSaved = useQuantStore((s) => s.quarantineSaved);
+  const commitQuarantine = useQuantStore((s) => s.commitQuarantine);
+  const fetchMarketData = useQuantStore((s) => s.fetchMarketData);
+  const loading = useQuantStore((s) => s.loading);
+
+  React.useEffect(() => {
+    fetchMarketData(currentSymbol);
+  }, [currentSymbol, fetchMarketData]);
+
+  const currentPrice = unifiedData?.snapshot?.price || 82000;
+
+  return (
+    <div className="h-full w-full flex flex-col overflow-hidden bg-[#0c0e12]">
+      <div className="h-6 px-2 bg-[#0d1017] border-b border-[#1b2130] flex items-center justify-between text-[10px] shrink-0 font-mono">
+        <div className="flex items-center space-x-1.5">
+          <span className="font-bold text-white text-[11px]">Ликвидации & Карантин</span>
+          <span className="text-[#38bdf8] font-bold">{currentSymbol}</span>
+        </div>
+        <ChannelSelector panelId={panelId} />
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto p-2 flex flex-col gap-2">
+        <QuantDecisionConsilium
+          symbol={currentSymbol}
+          core3Report={core3Report}
+          promptData={promptData}
+          onCommitQuarantine={() => commitQuarantine(currentSymbol)}
+          isCommitting={isCommitting}
+          quarantineSaved={quarantineSaved}
+        />
+        <div className="rounded border border-[#1b2130] overflow-hidden">
+          <LiqAnalyticsPanel
+            symbol={currentSymbol}
+            currentPrice={currentPrice}
+            liqData={unifiedData?.liq_estimates}
+            depthData={unifiedData?.orderbook_depth}
+            isLoading={loading}
+            onRefresh={() => fetchMarketData(currentSymbol)}
+          />
+        </div>
       </div>
     </div>
   );
@@ -321,7 +427,9 @@ export default function TerminalDockview({
       footprint_placeholder: FootprintPlaceholderWidget,
       cvd_placeholder: CvdPlaceholderWidget,
       papertrade: TradeHistoryWidget,
-      tradehistory: TradeHistoryWidget
+      tradehistory: TradeHistoryWidget,
+      liq_analytics: LiqAnalyticsDockPanel,
+      liquidations: LiqAnalyticsDockPanel
     }),
     []
   );

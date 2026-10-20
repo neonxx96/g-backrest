@@ -5,9 +5,9 @@
 ## 🚦 Текущий статус
 
 - **ACTIVE_AGENT:** `none`
-- **Текущая ветка:** `agent/deepseek/adaptive-quant`
-- **Базовый коммит:** `284b1d1` — Walk-Forward Optimizer, динамические веса стратегий и защита от токсичного режима.
-- **Последняя подтверждённая полная проверка:** `2026-10-20`, `scripts/check.ps1` — **PASS**: 86/86 pytest, frontend production build, 7/7 critical API smoke, blocking и live Playwright smoke.
+- **Текущая ветка:** `agent/antigravity/integrate-quant-design`
+- **Базовый коммит:** `bbb2f8e` — Deep History & Quant Design Integration.
+- **Последняя подтверждённая полная проверка:** `2026-10-20`, `scripts/check.ps1` — **PASS**: 93/93 pytest, frontend production build, 8/8 critical API smoke, blocking и live Playwright smoke.
 
 ## ✅ Подтверждённое состояние
 
@@ -15,6 +15,8 @@
 2. **Forecast bands:** вероятностный прогноз и контракт валидации покрыты тестами.
 3. **RegimeClassifier + Walk-Forward:** режимы `FLAT_DENSE`, `TREND_IMPULSE`, `TOXIC_VOLATILITY`; последний блокирует новые paper-входы.
 4. **UnifiedTradeSignal:** background worker и ручной Paper API создают/исполняют единый контракт; reason нормализуется в список условий.
+5. **Quant Analytics & 3 Cores Engine:** `FreeBinanceSelfCollector`, `MarketDataProvider`, `quant_engine.py` (Core 3 Cold Quant, R:R расчет, VETO логика), `quant_router.py` подключены к боевому FastAPI (порт 8000). Эндпоинты `/api/quant/unified`, `/api/quant/evaluate`, `/api/quant/prompt`, `/api/quant/quarantine` протестированы.
+6. **UI Overlays & Quarantine Consilium:** В боевой `App.jsx` и `TerminalDockview` интегрированы `LayerToolbar` (фильтры слоев, плеч 25x-100x, слайдер плотностей), `ChartCanvasOverlay` (прозрачный 60 FPS Canvas-оверлей со спотовыми стенами и синтетической тепловой картой ликвидаций), `LiqAnalyticsPanel` и `QuantDecisionConsilium` с кнопкой «Зафиксировать в карантин» (Shadow Quarantine) и хоткеями `Q` и `L`.
 
 ## 🐞 Диагностика Quality Gate
 
