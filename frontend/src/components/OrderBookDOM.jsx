@@ -354,7 +354,7 @@ export default function OrderBookDOM({
           const price = parseFloat(t.p);
           const qty = parseFloat(t.q);
           return {
-            id: t.a || `${t.T}-${Math.random()}`,
+            id: t.a ?? `${t.T}-${t.p}-${t.q}`,
             price,
             qty,
             usd: price * qty,
@@ -514,7 +514,7 @@ export default function OrderBookDOM({
             }
 
             recentTicksRef.current.push({
-              id: t.a || `${ts}-${Math.random()}`,
+              id: t.a ?? `${ts}-${t.p}-${t.q}`,
               price,
               qty,
               usd,

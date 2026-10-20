@@ -178,3 +178,18 @@ class StrategyPreset(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+
+class OvernightPilotRun(Base):
+    """Durable metadata and last snapshot for a three-strategy paper run."""
+    __tablename__ = "overnight_pilot_runs"
+
+    session_id = Column(String, primary_key=True)
+    symbol = Column(String, index=True, nullable=False)
+    strategy_type = Column(String, nullable=False)
+    config_json = Column(Text, nullable=False, default="{}")
+    backtest_json = Column(Text, nullable=True)
+    forecast_json = Column(Text, nullable=True)
+    paper_json = Column(Text, nullable=True)
+    is_running = Column(Boolean, default=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+

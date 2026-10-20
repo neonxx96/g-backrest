@@ -1170,9 +1170,66 @@ class ForecastRequest(BaseModel):
     symbol: str = Field(default="BTCUSDT")
     timeframe: str = Field(default="15m")
     horizon_bars: int = Field(default=16, ge=4, le=64)
+    strategy_type: str = Field(default="confluence_ema")
+    strategy_params: Optional[Dict[str, Any]] = None
 
 
-async def compute_probabilistic_forecast(symbol: str, timeframe: str, horizon_bars: int = 16) -> Dict[str, Any]:
+def classify_forecast_regime(frame: pd.DataFrame) -> tuple[str, Dict[str, Any]]:
+    """Return the shared market-regime label used by the adaptive execution layer."""
+    from backend.app.engine.regime_classifier import RegimeClassifier
+
+    regime, metrics = RegimeClassifier().classify_current(frame)
+    return regime.value, metrics
+
+
+def build_forecast_signal(
+    *,
+    symbol: str,
+    timeframe: str,
+    timestamp: int,
+    direction: str,
+    entry_price: float,
+    sl: float,
+    tp1: float,
+    tp2: float,
+    leverage: float,
+    risk_per_trade_pct: float,
+    expected_rr: float,
+    confidence: float,
+    reason: str,
+    strategy_type: str,
+):
+    """Create the canonical forecast signal while preserving user parameters."""
+    from backend.app.engine.trade_contract import UnifiedTradeSignal
+
+    return UnifiedTradeSignal(
+        symbol=symbol,
+        timeframe=timeframe,
+        timestamp=timestamp,
+        direction=direction,
+        entry_type="FORECAST_CONE",
+        entry_price=entry_price,
+        sl=sl,
+        tp1=tp1,
+        tp2=tp2,
+        leverage=float(leverage),
+        risk_pct=float(risk_per_trade_pct) / 100.0,
+        expected_rr=expected_rr,
+        confidence=confidence,
+        reason=reason,
+        strategy_type=strategy_type,
+        data_source="realtime_binance",
+        invalidation_condition="Bar close outside 1-sigma cone boundary",
+    )
+
+
+async def compute_probabilistic_forecast(
+    symbol: str,
+    timeframe: str,
+    horizon_bars: int = 16,
+    strategy_type: str = "confluence_ema",
+    strategy_params: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     from backend.app.engine.trade_contract import UnifiedTradeSignal
     from backend.app.db.database import AsyncSessionLocal
     from backend.app.db.models import DecisionLog
@@ -1229,25 +1286,48 @@ async def compute_probabilistic_forecast(symbol: str, timeframe: str, horizon_ba
     cvd_ema14 = float(cvd_ema14_s.iloc[-1])
     recent_delta_sum = float(delta_s.iloc[-14:].sum())
 
-    # Direction bias
-    bullish_signals = int(current_price > ema20) + int(ema20 > ema50) + int(cvd_current > cvd_ema14) + int(recent_delta_sum > 0)
-    bearish_signals = int(current_price < ema20) + int(ema20 < ema50) + int(cvd_current < cvd_ema14) + int(recent_delta_sum < 0)
-
-    if bullish_signals >= 3:
-        direction = "LONG"
-        bias = "BULLISH"
-        drift_direction = 1.0
-        reasoning = "Восходящий импульс: цена выше EMA(20/50), кумулятивная дельта CVD подтверждает преобладание покупателей."
-    elif bearish_signals >= 3:
-        direction = "SHORT"
-        bias = "BEARISH"
-        drift_direction = -1.0
-        reasoning = "Нисходящий импульс: цена ниже EMA(20/50), давление рыночных продаж по дельте CVD."
+    profile = str(strategy_type or "confluence_ema")
+    params = dict(strategy_params or {})
+    use_atr_filter = bool(params.get("use_atr_filter", False))
+    use_cvd_filter = bool(params.get("use_cvd_filter", False))
+    use_oi_filter = bool(params.get("use_oi_filter", False))
+    use_rsi_filter = bool(params.get("use_rsi_filter", False))
+    volume_multiplier = float(params.get("volume_multiplier", 1.3) or 1.3)
+    min_density_usd = float(params.get("min_density_usd", 0.0) or 0.0)
+    forecast_engine = OrderFlowBacktester(initial_capital=float(params.get("initial_capital", 10000.0) or 10000.0))
+    indicator_frame = forecast_engine.calculate_indicators(df)
+    market_regime, regime_metrics = classify_forecast_regime(indicator_frame)
+    latest_signal = forecast_engine.evaluate_latest_signal(
+        indicator_frame,
+        strategy_type=profile,
+        volume_multiplier=volume_multiplier,
+        min_density_usd=min_density_usd,
+        use_atr_filter=use_atr_filter,
+        use_cvd_filter=use_cvd_filter,
+        use_oi_filter=use_oi_filter,
+        use_rsi_filter=use_rsi_filter,
+    )
+    decision_diagnostic = None
+    if latest_signal:
+        direction = latest_signal["direction"]
+        bias = "BULLISH" if direction == "LONG" else "BEARISH"
+        drift_direction = 1.0 if direction == "LONG" else -1.0
+        reasoning = " · ".join(latest_signal["reasons"])
     else:
-        direction = "LONG" if current_price >= ema20 else "SHORT"
+        direction = "NO_TRADE"
         bias = "NEUTRAL"
-        drift_direction = 0.2 if current_price >= ema20 else -0.2
-        reasoning = "Сбалансированная консолидация: нейтральное соотношение сил покупателей и продавцов."
+        drift_direction = 0.0
+        decision_diagnostic = forecast_engine.explain_latest_signal(
+            indicator_frame,
+            strategy_type=profile,
+            volume_multiplier=volume_multiplier,
+            min_density_usd=min_density_usd,
+            use_atr_filter=use_atr_filter,
+            use_cvd_filter=use_cvd_filter,
+            use_oi_filter=use_oi_filter,
+            use_rsi_filter=use_rsi_filter,
+        )
+        reasoning = decision_diagnostic.get("reason") or "NO_TRADE: условия стратегии не выполнены."
 
     sigma_1_bar = float(atr * 0.9)
     drift_per_bar = drift_direction * (sigma_1_bar * 0.12)
@@ -1294,38 +1374,43 @@ async def compute_probabilistic_forecast(symbol: str, timeframe: str, horizon_ba
         "fan_points": fan_points
     }
 
-    # Stop Loss & Take Profit targets
-    sl_dist = 1.2 * atr
-    tp1_dist = 1.5 * atr
-    tp2_dist = 2.8 * atr
+    # Stop Loss & Take Profit targets use the same explicit percentages passed
+    # to the historical backtest whenever the overnight pilot supplies them.
+    sl_pct = float(params.get("stop_loss_pct", 0.0) or 0.0)
+    tp_pct = float(params.get("take_profit_pct", 0.0) or 0.0)
+    sl_dist = current_price * sl_pct / 100.0 if sl_pct > 0 else 1.2 * atr
+    tp2_dist = current_price * tp_pct / 100.0 if tp_pct > 0 else 2.8 * atr
+    tp1_rr = float(params.get("tp1_rr_ratio", 1.5) or 1.5)
+    tp1_dist = min(tp2_dist, sl_dist * max(1.0, tp1_rr))
     if direction == "LONG":
         sl_price = round(current_price - sl_dist, price_dec)
         tp1_price = round(current_price + tp1_dist, price_dec)
         tp2_price = round(current_price + tp2_dist, price_dec)
+        breakeven_price = round(current_price + current_price * 0.001, price_dec)
     else:
         sl_price = round(current_price + sl_dist, price_dec)
         tp1_price = round(current_price - tp1_dist, price_dec)
         tp2_price = round(current_price - tp2_dist, price_dec)
+        breakeven_price = round(current_price - current_price * 0.001, price_dec)
 
-    unified_signal = UnifiedTradeSignal(
-        symbol=sym,
-        timeframe=tf,
-        timestamp=anchor_timestamp,
-        direction=direction,
-        entry_type="FORECAST_CONE",
-        entry_price=round(current_price, price_dec),
-        sl=sl_price,
-        tp1=tp1_price,
-        tp2=tp2_price,
-        leverage=1.0,
-        risk_pct=0.02,
-        expected_rr=2.33,
-        confidence=0.72,
-        reason=reasoning,
-        strategy_type="probabilistic_forecast",
-        data_source="realtime_binance",
-        invalidation_condition="Bar close outside 1-sigma cone boundary",
-    )
+    unified_signal = None
+    if latest_signal:
+        unified_signal = build_forecast_signal(
+            symbol=sym,
+            timeframe=tf,
+            timestamp=anchor_timestamp,
+            direction=direction,
+            entry_price=round(current_price, price_dec),
+            sl=sl_price,
+            tp1=tp1_price,
+            tp2=tp2_price,
+            leverage=float(params.get("leverage", 1.0) or 1.0),
+            risk_per_trade_pct=float(params.get("risk_per_trade_pct", 2.0) or 2.0),
+            expected_rr=round(tp2_dist / max(1e-9, sl_dist), 2),
+            confidence=0.72,
+            reason=reasoning,
+            strategy_type=profile,
+        )
 
     # Log into Decision Journal (consultative log)
     try:
@@ -1344,7 +1429,7 @@ async def compute_probabilistic_forecast(symbol: str, timeframe: str, horizon_ba
                 ai_reason=reasoning,
                 context_json=json.dumps({
                     "cone": cone_dict,
-                    "unified_signal": unified_signal.model_dump(),
+                    "unified_signal": unified_signal.model_dump() if unified_signal else None,
                     "atr": atr,
                     "sigma_1s_pct": sigma_1s_pct,
                     "sigma_2s_pct": sigma_2s_pct,
@@ -1361,6 +1446,10 @@ async def compute_probabilistic_forecast(symbol: str, timeframe: str, horizon_ba
         "status": "success",
         "symbol": sym,
         "timeframe": tf,
+        "strategy_type": profile,
+        "strategy_params": params,
+        "data_status": "connected",
+        "data_source": "binance_futures_klines",
         "is_probabilistic_forecast": True,
         "disclaimer": "Вероятностный прогноз волатильности (±1σ / ±2σ). Не является гарантированной доходностью или инвестиционной рекомендацией.",
         "anchor_price": round(current_price, price_dec),
@@ -1369,35 +1458,40 @@ async def compute_probabilistic_forecast(symbol: str, timeframe: str, horizon_ba
         "base_scenario": {
             "direction": direction,
             "bias": bias,
+            "market_regime": market_regime,
             "drift_direction": drift_direction,
             "expected_drift_pct": expected_drift_pct,
             "reason": reasoning,
         },
+        "decision_diagnostic": decision_diagnostic,
         "bands": fan_points,
         "expected_move_cone": cone_dict,
-        "unified_signal": unified_signal.model_dump(),
+        "unified_signal": unified_signal.model_dump() if unified_signal else None,
         "trading_idea": {
             "direction": direction,
-            "order_type": "BUY LIMIT" if direction == "LONG" else "SELL LIMIT",
+            "order_type": "BUY LIMIT" if direction == "LONG" else "SELL LIMIT" if direction == "SHORT" else "WAIT",
             "entry_price": round(current_price, price_dec),
             "sl_price": sl_price,
             "tp1_price": tp1_price,
             "tp2_price": tp2_price,
+            "breakeven_price": breakeven_price,
             "risk_reward_ratio": "1:2.33",
             "reasoning": reasoning,
-        }
+        },
+        "market_regime": market_regime,
+        "regime_metrics": regime_metrics,
     }
 
 
 @ai_router.get("/forecast")
 @ai_router.get("/copilot-analysis")
-async def get_forecast_query(symbol: str = "BTCUSDT", timeframe: str = "15m", horizon_bars: int = 16):
+async def get_forecast_query(symbol: str = "BTCUSDT", timeframe: str = "15m", horizon_bars: int = 16, strategy_type: str = "confluence_ema"):
     """
     Probabilistic Forecast Endpoint (GET):
     Returns expected volatility cone (±1σ / ±2σ), anchor price/timestamp,
     horizon, and UnifiedTradeSignal.
     """
-    return await compute_probabilistic_forecast(symbol=symbol, timeframe=timeframe, horizon_bars=horizon_bars)
+    return await compute_probabilistic_forecast(symbol=symbol, timeframe=timeframe, horizon_bars=horizon_bars, strategy_type=strategy_type)
 
 
 @ai_router.post("/forecast")
@@ -1407,7 +1501,7 @@ async def post_forecast(req: ForecastRequest):
     Returns expected volatility cone (±1σ / ±2σ), anchor price/timestamp,
     horizon, and UnifiedTradeSignal.
     """
-    return await compute_probabilistic_forecast(symbol=req.symbol, timeframe=req.timeframe, horizon_bars=req.horizon_bars)
+    return await compute_probabilistic_forecast(symbol=req.symbol, timeframe=req.timeframe, horizon_bars=req.horizon_bars, strategy_type=req.strategy_type, strategy_params=req.strategy_params)
 
 
 

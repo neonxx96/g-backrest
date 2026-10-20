@@ -385,6 +385,9 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
   const initialCapital = status?.initial_capital ?? config.initialCapital ?? 10000;
   const currentEquity = status?.current_equity ?? initialCapital;
   const balance = status?.balance ?? initialCapital;
+  const availableMargin = status?.available_margin ?? balance;
+  const usedMargin = status?.used_margin ?? 0;
+  const fundingRate = status?.funding_rate ?? 0;
   const realizedPnl = status?.realized_pnl ?? 0.0;
   const unrealizedPnl = status?.unrealized_pnl ?? 0.0;
   const totalPnl = currentEquity - initialCapital;
@@ -450,6 +453,13 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
           </span>
           <span className="text-[8px] text-neutral-500 font-mono">Исполнено</span>
         </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[8px] font-mono">
+        <div className="border border-neutral-800 rounded-md px-2 py-1.5 bg-[#0d1117]"><span className="text-neutral-500 uppercase">Available margin</span><b className="ml-2 text-neutral-200">${Number(availableMargin).toFixed(2)}</b></div>
+        <div className="border border-neutral-800 rounded-md px-2 py-1.5 bg-[#0d1117]"><span className="text-neutral-500 uppercase">Used margin</span><b className="ml-2 text-blue-300">${Number(usedMargin).toFixed(2)}</b></div>
+        <div className="border border-neutral-800 rounded-md px-2 py-1.5 bg-[#0d1117]"><span className="text-neutral-500 uppercase">Funding rate</span><b className="ml-2 text-amber-200">{(Number(fundingRate) * 100).toFixed(4)}%</b></div>
+        <div className="border border-neutral-800 rounded-md px-2 py-1.5 bg-[#0d1117]"><span className="text-neutral-500 uppercase">Data</span><b className={`ml-2 ${status?.data_status === 'connected' ? 'text-emerald-300' : 'text-amber-200'}`}>{status?.data_status || 'unknown'}</b></div>
       </div>
 
       {/* Real-time SVG Equity Curve */}

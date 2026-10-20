@@ -131,6 +131,189 @@ class OrderFlowBacktester:
 
         return data
 
+    def evaluate_latest_signal(
+        self,
+        data: pd.DataFrame,
+        strategy_type: str = "confluence_ema",
+        volume_multiplier: float = 1.3,
+        min_density_usd: float = 0.0,
+        use_atr_filter: bool = False,
+        use_cvd_filter: bool = False,
+        use_oi_filter: bool = False,
+        use_rsi_filter: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        """Evaluate the latest fully formed candle with the backtest signal rules.
+
+        This is intentionally a pure signal evaluator shared by forecast and
+        live paper mode. It does not execute an order and does not look ahead.
+        ``cluster_volume_bounce`` maps to the historical ``density_bounce``
+        profile because historical OHLCV has no L2 wall stream.
+        """
+        if data is None or len(data) < 2:
+            return None
+        frame = data if "low_min10" in data.columns else self.calculate_indicators(data)
+        if len(frame) < 2:
+            return None
+        cur = frame.iloc[-1]
+        prev = frame.iloc[-2]
+        profile = "density_bounce" if strategy_type == "cluster_volume_bounce" else strategy_type
+        close = float(cur.get("close", 0.0))
+        previous_close = float(prev.get("close", 0.0))
+        volume = float(cur.get("volume", 0.0))
+        turnover = close * volume
+        passes_wall = min_density_usd <= 0 or turnover >= min_density_usd
+        volume_ok = float(cur.get("vol_ratio", 0.0)) >= float(volume_multiplier)
+        delta = float(cur.get("delta", 0.0))
+        rsi = float(cur.get("rsi", 50.0))
+        direction = 0
+        reasons: List[str] = []
+
+        if profile == "confluence_ema":
+            if passes_wall and previous_close <= float(prev.get("ema20", 0.0)) and close > float(cur.get("ema20", 0.0)) and volume_ok and delta > 0 and 40 <= rsi <= 65:
+                direction = 1
+                reasons = ["EMA20 cross up", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
+            elif passes_wall and previous_close >= float(prev.get("ema20", 0.0)) and close < float(cur.get("ema20", 0.0)) and volume_ok and delta < 0 and 35 <= rsi <= 60:
+                direction = -1
+                reasons = ["EMA20 cross down", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
+        elif profile in ("delta_absorption", "cvd_absorption"):
+            if passes_wall and float(cur.get("low", 0.0)) <= float(cur.get("low_min10", 0.0)) and float(cur.get("cvd", 0.0)) > float(cur.get("cvd_min10", 0.0)) and delta > 0 and rsi < 42 and volume_ok:
+                direction = 1
+                reasons = ["CVD absorption at local low", f"CVD {float(cur.get('cvd', 0.0)):+.2f}", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x"]
+            elif passes_wall and float(cur.get("high", 0.0)) >= float(cur.get("high_max10", 0.0)) and float(cur.get("cvd", 0.0)) < float(cur.get("cvd_max10", 0.0)) and delta < 0 and rsi > 58 and volume_ok:
+                direction = -1
+                reasons = ["CVD absorption at local high", f"CVD {float(cur.get('cvd', 0.0)):+.2f}", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x"]
+        elif profile in ("density_bounce", "limit_bounce"):
+            bullish_pin = (close - float(cur.get("low", 0.0))) > 1.8 * (float(cur.get("high", 0.0)) - close) and delta > 0
+            bearish_pin = (float(cur.get("high", 0.0)) - close) > 1.8 * (close - float(cur.get("low", 0.0))) and delta < 0
+            if passes_wall and bullish_pin and volume_ok and rsi < 44:
+                direction = 1
+                reasons = ["OHLCV bullish pinbar", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
+            elif passes_wall and bearish_pin and volume_ok and rsi > 56:
+                direction = -1
+                reasons = ["OHLCV bearish pinbar", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
+
+        if not direction:
+            return None
+        if use_atr_filter and float(cur.get("atr_ema20", 0.0)) > 0 and float(cur.get("atr", 0.0)) > 2.0 * float(cur.get("atr_ema20", 0.0)):
+            return None
+        if use_cvd_filter:
+            cvd = float(cur.get("cvd", 0.0))
+            cvd_ema = float(cur.get("cvd_ema14", 0.0))
+            if direction > 0:
+                bull_div = (float(cur.get("low", 0.0)) <= float(cur.get("low_min6", 0.0)) and cvd > float(cur.get("cvd_min6", 0.0))) or (close < previous_close and cvd > float(prev.get("cvd", 0.0)))
+                if not (delta > 0 and (cvd >= cvd_ema or bull_div)):
+                    return None
+            else:
+                bear_div = (float(cur.get("high", 0.0)) >= float(cur.get("high_max6", 0.0)) and cvd < float(cur.get("cvd_max6", 0.0))) or (close > previous_close and cvd < float(prev.get("cvd", 0.0)))
+                if not (delta < 0 and (cvd <= cvd_ema or bear_div)):
+                    return None
+        if use_oi_filter and float(cur.get("oi_delta", 0.0)) < 0:
+            return None
+        if use_rsi_filter:
+            previous_rsi = float(prev.get("rsi", 50.0))
+            if direction > 0 and not (rsi <= 42 or (previous_rsi <= 36 and rsi >= 30)):
+                return None
+            if direction < 0 and not (rsi >= 58 or (previous_rsi >= 64 and rsi <= 70)):
+                return None
+        return {"direction": "LONG" if direction > 0 else "SHORT", "reasons": reasons, "timestamp": int(cur.get("timestamp", 0))}
+
+    def explain_latest_signal(
+        self,
+        data: pd.DataFrame,
+        strategy_type: str = "confluence_ema",
+        volume_multiplier: float = 1.3,
+        min_density_usd: float = 0.0,
+        use_atr_filter: bool = False,
+        use_cvd_filter: bool = False,
+        use_oi_filter: bool = False,
+        use_rsi_filter: bool = False,
+    ) -> Dict[str, Any]:
+        """Explain the latest decision without changing signal semantics.
+
+        This is a diagnostics-only companion to ``evaluate_latest_signal`` for
+        live paper UI. It never creates orders and deliberately reports the
+        observable gates that prevented a signal instead of fabricating one.
+        """
+        if data is None or len(data) < 2:
+            return {"status": "NO_TRADE", "reason": "NO_TRADE: недостаточно свечей для проверки.", "failed_checks": ["history"], "observed": {}}
+        frame = data if "low_min10" in data.columns else self.calculate_indicators(data)
+        if len(frame) < 2:
+            return {"status": "NO_TRADE", "reason": "NO_TRADE: индикаторы ещё не готовы.", "failed_checks": ["indicators"], "observed": {}}
+
+        cur = frame.iloc[-1]
+        prev = frame.iloc[-2]
+        profile = "density_bounce" if strategy_type == "cluster_volume_bounce" else strategy_type
+        close = float(cur.get("close", 0.0))
+        previous_close = float(prev.get("close", 0.0))
+        volume_ratio = float(cur.get("vol_ratio", 0.0))
+        delta = float(cur.get("delta", 0.0))
+        rsi = float(cur.get("rsi", 50.0))
+        turnover = close * float(cur.get("volume", 0.0))
+        failed: List[str] = []
+        if min_density_usd > 0 and turnover < min_density_usd:
+            failed.append("minimum_turnover")
+
+        if volume_ratio < float(volume_multiplier):
+            failed.append("volume_multiplier")
+        if profile == "confluence_ema":
+            cross_up = previous_close <= float(prev.get("ema20", 0.0)) and close > float(cur.get("ema20", 0.0))
+            cross_down = previous_close >= float(prev.get("ema20", 0.0)) and close < float(cur.get("ema20", 0.0))
+            if not (cross_up or cross_down):
+                failed.append("ema20_cross")
+            if delta == 0:
+                failed.append("delta_direction")
+            if not (35 <= rsi <= 65):
+                failed.append("base_rsi_band")
+        elif profile in ("delta_absorption", "cvd_absorption"):
+            absorption = (
+                float(cur.get("low", 0.0)) <= float(cur.get("low_min10", 0.0))
+                and float(cur.get("cvd", 0.0)) > float(cur.get("cvd_min10", 0.0))
+                and delta > 0
+                and rsi < 42
+            ) or (
+                float(cur.get("high", 0.0)) >= float(cur.get("high_max10", 0.0))
+                and float(cur.get("cvd", 0.0)) < float(cur.get("cvd_max10", 0.0))
+                and delta < 0
+                and rsi > 58
+            )
+            if not absorption:
+                failed.append("cvd_absorption_structure")
+        elif profile in ("density_bounce", "limit_bounce"):
+            bullish_pin = (close - float(cur.get("low", 0.0))) > 1.8 * (float(cur.get("high", 0.0)) - close) and delta > 0
+            bearish_pin = (float(cur.get("high", 0.0)) - close) > 1.8 * (close - float(cur.get("low", 0.0))) and delta < 0
+            if not (bullish_pin and rsi < 44 or bearish_pin and rsi > 56):
+                failed.append("pinbar_and_rsi")
+
+        if use_atr_filter and float(cur.get("atr_ema20", 0.0)) > 0 and float(cur.get("atr", 0.0)) > 2.0 * float(cur.get("atr_ema20", 0.0)):
+            failed.append("atr_filter")
+        if use_oi_filter and float(cur.get("oi_delta", 0.0)) < 0:
+            failed.append("oi_filter")
+        if use_cvd_filter and delta == 0:
+            failed.append("cvd_filter")
+        if use_rsi_filter and not (rsi <= 42 or rsi >= 58):
+            failed.append("rsi_filter")
+
+        signal = self.evaluate_latest_signal(
+            frame,
+            strategy_type=strategy_type,
+            volume_multiplier=volume_multiplier,
+            min_density_usd=min_density_usd,
+            use_atr_filter=use_atr_filter,
+            use_cvd_filter=use_cvd_filter,
+            use_oi_filter=use_oi_filter,
+            use_rsi_filter=use_rsi_filter,
+        )
+        observed = {"close": close, "volume_ratio": round(volume_ratio, 4), "delta": round(delta, 4), "rsi": round(rsi, 4), "turnover": round(turnover, 2)}
+        if signal:
+            return {"status": "SIGNAL", "direction": signal["direction"], "reason": "SIGNAL: все фильтры пройдены.", "failed_checks": [], "observed": observed}
+        unique_failed = list(dict.fromkeys(failed)) or ["strategy_conditions"]
+        return {
+            "status": "NO_TRADE",
+            "reason": "NO_TRADE: не пройдены условия — " + ", ".join(unique_failed[:4]),
+            "failed_checks": unique_failed,
+            "observed": observed,
+        }
+
     def run_backtest(
         self,
         df: pd.DataFrame,
@@ -171,6 +354,7 @@ class OrderFlowBacktester:
         min_wall_lifetime_sec: int = 30,           # Spoofing filter: min wall hold time (10..60 sec)
         use_dynamic_breakeven: bool = False,       # Move SL to Breakeven (+2*Fee+1tick) when MFE >= +0.5R
         dynamic_be_trigger_r: float = 0.5,
+        risk_per_trade_pct: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Executes realistic institutional order-flow backtest with:
@@ -536,6 +720,8 @@ class OrderFlowBacktester:
                 pos_dir = int(sig)
                 entry_price = close_p
                 entry_time = cur_time
+                # Preserve legacy fixed-notional behavior unless an explicit
+                # risk budget is supplied by the unified overnight config.
                 initial_pos_size = capital * safe_lev
                 remaining_fraction = 1.0
                 tp1_filled = False
@@ -636,6 +822,20 @@ class OrderFlowBacktester:
                     sl_dist = min(sl_dist, entry_price * 0.025)
                 else:
                     sl_dist = entry_price * (max(0.05, float(stop_loss_pct)) / 100.0)
+
+                if risk_per_trade_pct is not None:
+                    risk_budget = capital * (float(risk_per_trade_pct) / 100.0)
+                    # `initial_pos_size` is quote-currency notional throughout
+                    # the execution engine. Convert the absolute stop distance
+                    # to a price fraction before sizing; dividing by the raw
+                    # price distance would size in base units and make PnL
+                    # artificially tiny for high-priced instruments.
+                    stop_fraction = max(sl_dist / max(entry_price, 1e-9), 1e-9)
+                    initial_pos_size = min(
+                        capital * safe_lev,
+                        risk_budget / stop_fraction,
+                    )
+                    entry_fee_usd = initial_pos_size * maker_rate
 
                 # TP2 distance: either explicit take_profit_pct or opposite_wall / R:R target
                 base_tp2_dist = entry_price * (max(0.1, float(take_profit_pct)) / 100.0)
@@ -1096,6 +1296,8 @@ class OrderFlowBacktester:
         baseline_params: Optional[Dict[str, Any]] = None,
         population_size: int = 14,
         generations: int = 5,
+        oos_ratio: float = 0.30,
+        min_oos_candles: int = 100,
     ) -> Dict[str, Any]:
         """
         ТАКТ 2: Fast Heuristic Genetic / Bayesian Optimizer (50-100 evaluations in < 3 seconds).
@@ -1111,6 +1313,19 @@ class OrderFlowBacktester:
         t0 = time.perf_counter()
         rng = random.Random(42)
 
+        # Never let the genetic search see the future.  The selected genome is
+        # evaluated once more on the chronologically later OOS slice below.
+        ratio = min(0.5, max(0.1, float(oos_ratio)))
+        split_idx = int(len(df) * (1.0 - ratio))
+        train_df = df.iloc[:split_idx].reset_index(drop=True)
+        oos_df = df.iloc[split_idx:].reset_index(drop=True)
+        oos_warning: Optional[str] = None
+        if len(train_df) < 20 or len(oos_df) < int(min_oos_candles):
+            oos_warning = (
+                f"Недостаточно данных для OOS-проверки: train={len(train_df)}, "
+                f"oos={len(oos_df)}, требуется минимум {int(min_oos_candles)} OOS-свечей."
+            )
+
         sl_lo, sl_hi = min(sl_range), max(sl_range)
         tp_lo, tp_hi = min(tp_range), max(tp_range)
         w_lo, w_hi = min(wall_range_usd), max(wall_range_usd)
@@ -1121,7 +1336,7 @@ class OrderFlowBacktester:
         df_cache: Dict[Tuple[int, int], pd.DataFrame] = {}
         for ap in atr_choices:
             for cp in cvd_choices:
-                df_cache[(ap, cp)] = self.calculate_indicators(df, atr_period=ap, cvd_ema_period=cp)
+                df_cache[(ap, cp)] = self.calculate_indicators(train_df, atr_period=ap, cvd_ema_period=cp)
 
         # 1. Evaluate Baseline ("Before Optimization")
         base_cfg = baseline_params or {}
@@ -1132,7 +1347,7 @@ class OrderFlowBacktester:
         base_atr_p = int(base_cfg.get("atr_period", 14))
 
         baseline_raw = self.run_backtest(
-            df_cache.get((14, 14), df),
+            df_cache.get((14, 14), train_df),
             strategy_type=strategy_type,
             take_profit_pct=base_tp,
             stop_loss_pct=base_sl,
@@ -1380,6 +1595,61 @@ class OrderFlowBacktester:
                 fast_eval=False,
             )
 
+        def metric_card(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+            raw = raw or {}
+            return {
+                "total_pnl_pct": round(float(raw.get("roi_pct", 0.0)), 2),
+                "net_pnl_usd": round(float(raw.get("net_pnl", 0.0)), 2),
+                "gross_pnl_usd": round(float(raw.get("gross_pnl", 0.0)), 2),
+                "total_fees_usd": round(float(raw.get("total_fees_usd", 0.0)), 2),
+                "win_rate_pct": round(float(raw.get("win_rate_pct", 0.0)), 2),
+                "profit_factor": round(float(raw.get("profit_factor", 0.0)), 2),
+                "max_drawdown_pct": round(float(raw.get("max_drawdown_pct", 0.0)), 2),
+                "recovery_factor": round(float(raw.get("recovery_factor", 0.0)), 2),
+                "sharpe_ratio": round(float(raw.get("sharpe_ratio", 0.0)), 2),
+                "sortino_ratio": round(float(raw.get("sortino_ratio", 0.0)), 2),
+                "total_trades": int(raw.get("total_trades", 0)),
+            }
+
+        oos_result: Dict[str, Any] = {
+            "available": not bool(oos_warning),
+            "train_candles": len(train_df),
+            "oos_candles": len(oos_df),
+            "train_from_time": int(train_df["timestamp"].iloc[0]) if not train_df.empty and "timestamp" in train_df else None,
+            "train_to_time": int(train_df["timestamp"].iloc[-1]) if not train_df.empty and "timestamp" in train_df else None,
+            "oos_from_time": int(oos_df["timestamp"].iloc[0]) if not oos_df.empty and "timestamp" in oos_df else None,
+            "oos_to_time": int(oos_df["timestamp"].iloc[-1]) if not oos_df.empty and "timestamp" in oos_df else None,
+            "metrics": None,
+            "warning": oos_warning,
+        }
+        if not oos_warning and best_row is not None:
+            oos_df_cache = self.calculate_indicators(
+                oos_df,
+                atr_period=best_row["atr_period"],
+                cvd_ema_period=best_row["cvd_ema_period"],
+            )
+            oos_raw = self.run_backtest(
+                oos_df_cache,
+                strategy_type=strategy_type,
+                take_profit_pct=best_row["take_profit_pct"],
+                stop_loss_pct=best_row["stop_loss_pct"],
+                use_trailing=False,
+                trailing_pct=0.5,
+                leverage=leverage,
+                volume_multiplier=volume_multiplier,
+                min_density_usd=best_row["min_density_usd"],
+                use_cvd_filter=best_row["use_cvd_filter"],
+                maker_fee_pct=maker_fee_pct,
+                taker_fee_pct=taker_fee_pct,
+                slippage_ticks=slippage_ticks,
+                use_multi_tp=use_multi_tp,
+                atr_period=best_row["atr_period"],
+                cvd_ema_period=best_row["cvd_ema_period"],
+                compute_monte_carlo=False,
+                fast_eval=False,
+            )
+            oos_result["metrics"] = metric_card(oos_raw)
+
         elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 1)
 
         before_card = {
@@ -1412,6 +1682,7 @@ class OrderFlowBacktester:
             "iterations_count": len(all_rows),
             "generations": generations,
             "elapsed_ms": elapsed_ms,
+            "oos": oos_result,
         }
 
     def calculate_confluence_matrix(self, trades: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

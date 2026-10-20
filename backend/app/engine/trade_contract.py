@@ -45,6 +45,7 @@ class UnifiedTradeSignal(BaseModel):
         description="Conditions under which the signal is canceled"
     )
     unique_id: str = Field(default="", description="Deterministic SHA256 / UUID fingerprint")
+    context_snapshot: Optional[Dict[str, Any]] = Field(default=None, description="Structured market context captured at signal time")
 
     model_config = {
         "extra": "ignore",

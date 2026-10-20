@@ -21,7 +21,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from backend.app.services.early_exit_engine import EarlyExitEngine
 from backend.app.services.execution_simulator import (
@@ -55,10 +55,15 @@ class PaperPosition:
     stop_price: float = 0.0
     initial_stop_price: float = 0.0
     target_price: float = 0.0
+    tp2_price: float = 0.0
+    tp1_filled: bool = False
     fees_paid: float = 0.0
     closed: bool = False
     breakeven_triggered: bool = False
     reason: str = "Technical Signal"
+    context_snapshot: Optional[Dict[str, Any]] = None
+    leverage: float = 1.0
+    margin_used: float = 0.0
 
     @property
     def risk_amount(self) -> float:
@@ -88,8 +93,11 @@ class PaperOrder:
     created_ts: int
     last_fill_idx: int = 0  # how many sim.state.fills already accounted
     reason: str = "Technical Signal"
+    context_snapshot: Optional[Dict[str, Any]] = None
+    tp2_price: float = 0.0
     stop_price: float = 0.0
     target_price: float = 0.0
+    leverage: float = 1.0
 
 
 @dataclass
@@ -106,6 +114,7 @@ class PaperSessionState:
     active_orders: List[dict] = field(default_factory=list)
     closed_trades: List[dict] = field(default_factory=list)
     total_fees_paid: float = 0.0
+    total_funding_paid: float = 0.0
     uptime_seconds: int = 0
     is_halted: bool = False
     halt_reason: Optional[str] = None
@@ -124,6 +133,7 @@ class PaperSessionState:
             "active_orders": self.active_orders,
             "closed_trades": self.closed_trades,
             "total_fees_paid": self.total_fees_paid,
+            "total_funding_paid": self.total_funding_paid,
             "uptime_seconds": self.uptime_seconds,
             "is_halted": self.is_halted,
             "halt_reason": self.halt_reason,
@@ -154,6 +164,7 @@ class PaperTradingSession:
         self.start_time = time.time()
         self.initial_balance = float(initial_balance)
         self.risk_per_trade_pct = float(risk_per_trade_pct)
+        self.leverage = 1.0
         self.maker_fee = maker_fee
         self.taker_fee = taker_fee
         self.signal_lag_ms = signal_lag_ms
@@ -164,6 +175,7 @@ class PaperTradingSession:
         self.available_margin = float(initial_balance)
         self.locked_margin = 0.0
         self.total_fees_paid = 0.0
+        self.total_funding_paid = 0.0
 
         # Live state
         self.orders: Dict[str, PaperOrder] = {}
@@ -186,6 +198,7 @@ class PaperTradingSession:
         entry_price: float,
         stop_price: float = 0.0,
         risk_pct: Optional[float] = None,
+        leverage: Optional[float] = None,
     ) -> float:
         """
         Calculate trade position size using institutional risk management:
@@ -205,7 +218,8 @@ class PaperTradingSession:
             sl_distance = entry_price * 0.015
 
         qty = risk_budget / sl_distance
-        max_qty = max(0.0, self.available_margin / entry_price)
+        effective_leverage = max(1.0, float(leverage if leverage is not None else self.leverage))
+        max_qty = max(0.0, self.available_margin * effective_leverage / entry_price)
         return min(qty, max_qty)
 
     # ------------------------------------------------------------------ #
@@ -224,6 +238,9 @@ class PaperTradingSession:
         reason: str = "Technical Signal",
         signal_ts: Optional[int] = None,
         regime: Optional[str] = None,
+        context_snapshot: Optional[Dict[str, Any]] = None,
+        tp2_price: float = 0.0,
+        leverage: float = 1.0,
     ) -> dict:
         """
         Create a virtual order. Returns an order info dict.
@@ -262,6 +279,9 @@ class PaperTradingSession:
             reason=reason,
             stop_price=float(stop_price),
             target_price=float(target_price),
+            tp2_price=float(tp2_price),
+            leverage=max(1.0, float(leverage)),
+            context_snapshot=context_snapshot,
         )
         self.orders[order_id] = po
 
@@ -297,6 +317,8 @@ class PaperTradingSession:
             "reason": po.reason,
             "stop_price": po.stop_price,
             "target_price": po.target_price,
+            "tp2_price": po.tp2_price,
+            "context_snapshot": po.context_snapshot,
         }
 
     @staticmethod
@@ -412,6 +434,51 @@ class PaperTradingSession:
             if po.sim.state.filled_qty > prev_filled + 1e-12:
                 self._on_order_fill(po)
 
+    def process_market_tick(
+        self,
+        symbol: str,
+        price: float,
+        bids: Optional[List[tuple]] = None,
+        asks: Optional[List[tuple]] = None,
+        timestamp: Optional[int] = None,
+    ) -> None:
+        """Feed one real live price/depth observation into the paper engine.
+
+        The live adapter does not invent a candle or quote. It forwards the
+        observed Binance price and current L2 snapshot to the same execution
+        simulator used by replay/backtest paper tests.
+        """
+        if price <= 0:
+            return
+        from types import SimpleNamespace
+
+        ts = int(timestamp if timestamp is not None else time.time() * 1000)
+        def _book_levels(levels):
+            normalized = []
+            for level in levels or []:
+                if hasattr(level, "price") and hasattr(level, "size"):
+                    normalized.append((float(level.price), float(level.size)))
+                else:
+                    normalized.append((float(level[0]), float(level[1])))
+            return normalized
+
+        self.process_event(SimpleNamespace(
+            timestamp=ts,
+            kind="depth",
+            symbol=symbol,
+            payload={"bids": _book_levels(bids), "asks": _book_levels(asks)},
+        ))
+        self.process_event(SimpleNamespace(
+            timestamp=ts,
+            kind="trade",
+            symbol=symbol,
+            payload={"price": float(price), "quantity": max(1.0, sum(
+                float(po.sim.state.remaining_qty)
+                for po in self.orders.values()
+                if po.symbol == symbol and po.sim.state.remaining_qty > 0
+            ))},
+        ))
+
     def _on_order_fill(self, po: PaperOrder) -> None:
         """Account for newly appeared fills of an order."""
         st = po.sim.state
@@ -449,6 +516,7 @@ class PaperTradingSession:
                 target_price=float(getattr(po, "target_price", 0.0)),
                 reason=getattr(po, "reason", "Technical Signal"),
                 breakeven_triggered=False,
+                leverage=max(1.0, float(getattr(po, "leverage", 1.0))),
             )
             self.positions[symbol] = pos
         else:
@@ -458,6 +526,10 @@ class PaperTradingSession:
                 pos.initial_stop_price = float(po.stop_price)
             if getattr(po, "target_price", 0.0) > 0:
                 pos.target_price = float(po.target_price)
+            if getattr(po, "tp2_price", 0.0) > 0:
+                pos.tp2_price = float(po.tp2_price)
+            if getattr(po, "context_snapshot", None):
+                pos.context_snapshot = po.context_snapshot
 
         if pos.side != pos_side:
             logger.warning(f"[PaperSession] conflicting side for {symbol}: {pos.side} vs {pos_side}")
@@ -471,7 +543,8 @@ class PaperTradingSession:
         pos.entry_ts = pos.entry_ts or po.created_ts
 
         # Lock margin for the position (entry notional as margin)
-        margin_used = price * qty
+        margin_used = price * qty / max(1.0, pos.leverage)
+        pos.margin_used += margin_used
         self.locked_margin += margin_used
         self.available_margin -= margin_used
         self.total_fees_paid += fee
@@ -543,6 +616,8 @@ class PaperTradingSession:
             "profit_bleed": bool(track and track.mfe_r >= 0.5 and net <= 0.0),
             "reason": exit_reason,
             "entry_reason": getattr(pos, "reason", "Technical Signal"),
+            "context_snapshot": getattr(pos, "context_snapshot", None),
+            "tp1_filled": bool(getattr(pos, "tp1_filled", False)),
             "entry_ts": pos.entry_ts,
             "exit_ts": self._last_event_ts,
         })
@@ -552,7 +627,8 @@ class PaperTradingSession:
             self.closed_trades = self.closed_trades[-1000:]
 
         # Release margin
-        margin_released = pos.avg_entry_price * close_qty
+        margin_released = pos.margin_used * (close_qty / open_qty_before_exit) if open_qty_before_exit > 0 else 0.0
+        pos.margin_used = max(0.0, pos.margin_used - margin_released)
         self.locked_margin = max(0.0, self.locked_margin - margin_released)
         self.available_margin += margin_released + net
 
@@ -584,6 +660,9 @@ class PaperTradingSession:
         reason: str = "Algorithm Signal",
         signal_ts: Optional[int] = None,
         regime: Optional[str] = None,
+        context_snapshot: Optional[Dict[str, Any]] = None,
+        tp2_price: float = 0.0,
+        leverage: float = 1.0,
     ) -> dict:
         """
         Executes a trade signal applying risk position sizing, stop/target, reason, and margin rules.
@@ -612,7 +691,7 @@ class PaperTradingSession:
             return {"status": "REJECTED", "reason": "toxic_volatility_blocked"}
 
         if quantity is None or quantity <= 0:
-            quantity = self.calculate_position_size(symbol, price, stop_price)
+            quantity = self.calculate_position_size(symbol, price, stop_price, leverage=leverage)
 
         if quantity <= 0:
             logger.warning(f"[TRADE] Rejected signal for {symbol}: insufficient margin or zero size | reason='{reason}'")
@@ -629,6 +708,9 @@ class PaperTradingSession:
             target_price=target_price,
             reason=reason,
             signal_ts=signal_ts,
+            context_snapshot=context_snapshot,
+            tp2_price=tp2_price,
+            leverage=leverage,
         )
 
     def execute_unified_signal(self, signal, regime: Optional[str] = None) -> dict:
@@ -643,6 +725,9 @@ class PaperTradingSession:
         return self.execute_trade_signal(
             **payload,
             signal_ts=signal.timestamp,
+            context_snapshot=getattr(signal, "context_snapshot", None),
+            tp2_price=float(getattr(signal, "tp2", None) or 0.0),
+            leverage=max(1.0, float(getattr(signal, "leverage", 1.0) or 1.0)),
         )
 
     def close_position(
@@ -652,6 +737,7 @@ class PaperTradingSession:
         order_type: str = "LIMIT",
         reason: str = "Position Exit",
         signal_ts: Optional[int] = None,
+        quantity: Optional[float] = None,
     ) -> Optional[dict]:
         """
         Closes an existing virtual position for a given symbol.
@@ -665,7 +751,7 @@ class PaperTradingSession:
             side=exit_side,
             order_type=order_type,
             price=price,
-            quantity=pos.qty,
+            quantity=min(pos.qty, float(quantity)) if quantity is not None else pos.qty,
             role=PaperOrderRole.EXIT.value,
             reason=reason,
             signal_ts=signal_ts,
@@ -790,6 +876,21 @@ class PaperTradingSession:
         last = self.last_prices.get(symbol, 0.0)
         return pos.unrealized_pnl(last)
 
+    def apply_funding(self, symbol: str, funding_rate: float, timestamp: Optional[int] = None) -> float:
+        """Apply one funding settlement to the virtual balance."""
+        pos = self.positions.get(symbol)
+        if not pos or pos.closed or pos.qty <= 0 or not funding_rate:
+            return 0.0
+        payment = pos.avg_entry_price * pos.qty * float(funding_rate)
+        if pos.side == "SHORT":
+            payment = -payment
+        self.realized_pnl -= payment
+        self.available_margin -= payment
+        self.total_funding_paid += payment
+        self.total_fees_paid += abs(payment)
+        self._last_event_ts = max(self._last_event_ts, int(timestamp or time.time() * 1000))
+        return payment
+
     def total_unrealized_pnl(self) -> float:
         return sum(self.unrealized_pnl_for(sym) for sym in self.positions)
 
@@ -811,6 +912,9 @@ class PaperTradingSession:
                 "initial_stop_price": pos.initial_stop_price,
                 "breakeven_triggered": pos.breakeven_triggered,
                 "target_price": getattr(pos, "target_price", 0.0),
+                "tp2_price": getattr(pos, "tp2_price", 0.0),
+                "tp1_filled": bool(getattr(pos, "tp1_filled", False)),
+                "context_snapshot": getattr(pos, "context_snapshot", None),
                 "reason": getattr(pos, "reason", "Technical Signal"),
                 "fees_paid": pos.fees_paid,
                 "risk_amount": pos.risk_amount,
@@ -840,6 +944,7 @@ class PaperTradingSession:
             active_orders=active_orders,
             closed_trades=list(self.closed_trades),
             total_fees_paid=self.total_fees_paid,
+            total_funding_paid=self.total_funding_paid,
             uptime_seconds=uptime,
             is_halted=self.is_halted,
             halt_reason=self.halt_reason,

@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from backend.app.db.database import get_db
 from backend.app.db.models import DrawingData
+from backend.app.services.drawing_persistence import choose_latest_drawing
 
 drawings_router = APIRouter(prefix="/api/drawings", tags=["drawings"])
 
@@ -34,7 +35,7 @@ async def get_drawings(
         DrawingData.symbol == symbol.upper(),
         DrawingData.timeframe == timeframe
     ))
-    drawing = res.scalar_one_or_none()
+    drawing = choose_latest_drawing(res.scalars().all())
     return {"elements_json": drawing.elements_json if drawing else "[]"}
 
 @drawings_router.post("")
@@ -49,7 +50,7 @@ async def save_drawings(
         DrawingData.symbol == sym,
         DrawingData.timeframe == payload.timeframe
     ))
-    drawing = res.scalar_one_or_none()
+    drawing = choose_latest_drawing(res.scalars().all())
 
     if drawing:
         drawing.elements_json = payload.elements_json
@@ -80,9 +81,10 @@ async def delete_drawings(
         DrawingData.symbol == symbol.upper(),
         DrawingData.timeframe == timeframe
     ))
-    drawing = res.scalar_one_or_none()
-    if drawing:
-        await db.delete(drawing)
+    drawings = res.scalars().all()
+    if drawings:
+        for drawing in drawings:
+            await db.delete(drawing)
         await db.commit()
         return {"status": "cleared"}
     return {"status": "none"}

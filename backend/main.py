@@ -17,7 +17,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-from backend.app.config import BACKEND_HOST, BACKEND_PORT, LOG_LEVEL
+from backend.app.config import BACKEND_HOST, BACKEND_PORT, DATA_DIR, ENV_PATH, LOG_LEVEL
+from backend.app.services.runtime_binding import find_available_port, persist_runtime_port
 from backend.app.db.database import init_db
 from backend.app.api.routes import router as api_router
 from backend.app.api.data_routes import data_router
@@ -63,6 +64,8 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Initializing Signal Script Backend...")
     await init_db()
+    from backend.app.services.overnight_pilot import overnight_pilot_manager
+    await overnight_pilot_manager.restore()
     
     # 1. Start Binance Liquidations WebSocket
     liq_task = asyncio.create_task(binance_service.start_liquidation_listener())
@@ -111,6 +114,7 @@ from backend.app.routers.journal import journal_router
 from backend.app.routers.monitoring import router as monitoring_router, system_monitoring_router
 from backend.app.routers.paper_trading_router import router as paper_trading_router
 from backend.app.routers.adaptive_router import adaptive_router
+from backend.app.routers.overnight_pilot import router as overnight_pilot_router
 
 app.include_router(api_router)
 app.include_router(data_router)
@@ -122,10 +126,24 @@ app.include_router(monitoring_router)
 app.include_router(system_monitoring_router)
 app.include_router(paper_trading_router)
 app.include_router(adaptive_router)
+app.include_router(overnight_pilot_router)
 
 from backend.app.routers.quant_router import router as quant_router
 app.include_router(quant_router)
 
 if __name__ == "__main__":
-
-    uvicorn.run("backend.main:app", host=BACKEND_HOST, port=BACKEND_PORT, reload=False)
+    active_port = find_available_port(BACKEND_HOST, BACKEND_PORT)
+    if active_port != BACKEND_PORT:
+        logger.warning(
+            "Configured backend port %s is busy; selecting the next free port %s.",
+            BACKEND_PORT,
+            active_port,
+        )
+    persist_runtime_port(
+        ENV_PATH,
+        DATA_DIR / "backend_runtime.json",
+        BACKEND_HOST,
+        active_port,
+    )
+    logger.info("SignalScript backend listening on http://%s:%s", BACKEND_HOST, active_port)
+    uvicorn.run("backend.main:app", host=BACKEND_HOST, port=active_port, reload=False)

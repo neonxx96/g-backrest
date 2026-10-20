@@ -24,6 +24,8 @@ import {
   Zap
 } from 'lucide-react';
 import { LivePaperTradingControls, LivePaperTradingResults } from './LivePaperTradingView';
+import OvernightPilotPanel from './OvernightPilotPanel';
+import BacktestTradeTimeline from './BacktestTradeTimeline';
 
 const API_BASE = '/api';
 
@@ -657,9 +659,33 @@ export default function BacktestPanel({
     setForecastLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        `${API_BASE}/api/ai/forecast?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`
-      );
+      const res = await fetch(`${API_BASE}/api/ai/forecast`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol,
+          timeframe,
+          strategy_type: strategy,
+          strategy_params: {
+            stop_loss_pct: Number(sl),
+            take_profit_pct: Number(tp),
+            leverage: Number(leverage),
+            min_density_usd: (Number(minWallK) || 0) * 1000,
+            volume_multiplier: Number(volMult) || 1.0,
+            use_atr_filter: Boolean(filterAtr),
+            use_atr_sl: Boolean(filterAtrSl),
+            atr_multiplier: Number(atrMultiplier) || 1.5,
+            use_cvd_filter: Boolean(filterCvd),
+            use_oi_filter: Boolean(filterOi),
+            use_rsi_filter: Boolean(filterRsi),
+            entry_mode: entryMode,
+            sl_mode: slMode,
+            tp1_rr_ratio: Number(tp1RrRatio) || 1.5,
+            tp2_mode: tp2Mode,
+            tp2_rr_ratio: Number(tp2RrRatio) || 2.8,
+          },
+        }),
+      });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         throw new Error(errData.detail || `Ошибка расчёта прогноза (${res.status})`);
@@ -687,13 +713,14 @@ export default function BacktestPanel({
     } finally {
       setForecastLoading(false);
     }
-  }, [symbol, timeframe]);
+  }, [symbol, timeframe, strategy, sl, tp, leverage, minWallK, volMult, filterAtr, filterAtrSl, atrMultiplier, filterCvd, filterOi, filterRsi, entryMode, slMode, tp1RrRatio, tp2Mode, tp2RrRatio]);
 
   // Stage 3: Fast 1-Click Strategy Parameter Presets
   const [presets, setPresets] = useState([]);
   const [selectedPresetId, setSelectedPresetId] = useState('');
   const [newPresetName, setNewPresetName] = useState('');
   const [showSavePresetInput, setShowSavePresetInput] = useState(false);
+  const [showOvernightPilot, setShowOvernightPilot] = useState(false);
 
   const fetchPresets = useCallback(async () => {
     try {
@@ -1259,6 +1286,7 @@ export default function BacktestPanel({
   const mc = result?.monte_carlo;
   const beforeOpt = result?.before_optimization;
   const afterOpt = result?.after_optimization;
+  const oosOpt = result?.oos;
   const pnlTone = s ? (s.total_pnl_pct > 0 ? 'pos' : s.total_pnl_pct < 0 ? 'neg' : null) : null;
   const gridRows = result?.grid_results || [];
   const confluenceMatrix = result?.confluence_matrix || [];
@@ -1282,6 +1310,7 @@ export default function BacktestPanel({
   // Stage 2: Full Trades Log with Multi-column Sorting and CSV Export
   const [tradeSortField, setTradeSortField] = useState('id');
   const [tradeSortAsc, setTradeSortAsc] = useState(false);
+  const [selectedTradeId, setSelectedTradeId] = useState(null);
 
   const allTrades = useMemo(() => {
     if (!result?.trades || !Array.isArray(result.trades)) return [];
@@ -1308,6 +1337,12 @@ export default function BacktestPanel({
       setTradeSortAsc(true);
     }
   };
+
+  const focusTradeFromTimeline = useCallback((trade) => {
+    if (!trade) return;
+    setSelectedTradeId(trade.id);
+    window.dispatchEvent(new CustomEvent('focus-backtest-trade', { detail: trade }));
+  }, []);
 
   const handleExportCSV = useCallback(() => {
     if (!allTrades || allTrades.length === 0) return;
@@ -1418,6 +1453,14 @@ export default function BacktestPanel({
                 : ''}
             </span>
           )}
+            <button
+              data-testid="btn-open-overnight-pilot"
+              onClick={() => setShowOvernightPilot(true)}
+              className="rounded border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[9px] font-bold text-amber-300 hover:bg-amber-400/20"
+              title="Запустить BTC, ETH и SOL в независимом ночном paper-пилоте"
+            >
+              🌙 Ночной пилот
+            </button>
         </div>
         <button onClick={onClose} className="text-neutral-500 hover:text-neutral-200 shrink-0 cursor-pointer" title="Закрыть (B)">
           <X size={14} />
@@ -2187,6 +2230,12 @@ export default function BacktestPanel({
                   <span className="px-1.5 py-0.2 rounded bg-neutral-800 text-sky-400 font-bold border border-sky-500/30">
                     HISTORICAL BACKTEST
                   </span>
+                  <span
+                    className="px-1.5 py-0.2 rounded bg-sky-950/40 text-sky-300 border border-sky-700/40"
+                    title="Результат рассчитан на исторических свечах OHLCV; это не поток реального времени"
+                  >
+                    SOURCE: OHLCV
+                  </span>
                   <span className="font-bold text-white tracking-wide">
                     {result?.symbol || symbol}
                   </span>
@@ -2511,6 +2560,31 @@ export default function BacktestPanel({
                       </div>
                     )}
 
+                    {oosOpt && (
+                      <div
+                        data-testid="card-oos-validation"
+                        className={`rounded border p-2 font-mono text-[10px] ${oosOpt.available ? 'border-cyan-900/60 bg-cyan-950/10' : 'border-amber-900/60 bg-amber-950/10'}`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold uppercase text-[9px] text-cyan-300">Проверка OOS · данные после периода подбора</span>
+                          <span className={oosOpt.available ? 'text-cyan-200' : 'text-amber-300'}>
+                            {oosOpt.available ? 'НЕ ИСПОЛЬЗОВАЛАСЬ В ОПТИМИЗАЦИИ' : 'НЕДОСТАТОЧНО ДАННЫХ'}
+                          </span>
+                        </div>
+                        {oosOpt.available && oosOpt.metrics ? (
+                          <div className="mt-1 grid grid-cols-5 gap-2 text-neutral-300">
+                            <span>Свечи <b className="text-white">{oosOpt.oos_candles}</b></span>
+                            <span>PnL <b className={oosOpt.metrics.total_pnl_pct >= 0 ? 'text-emerald-300' : 'text-red-300'}>{oosOpt.metrics.total_pnl_pct}%</b></span>
+                            <span>WinRate <b className="text-white">{oosOpt.metrics.win_rate_pct}%</b></span>
+                            <span>PF <b className="text-white">{oosOpt.metrics.profit_factor}</b></span>
+                            <span>Trades <b className="text-white">{oosOpt.metrics.total_trades}</b></span>
+                          </div>
+                        ) : (
+                          <div className="mt-1 text-amber-200">{oosOpt.warning || 'OOS-проверка недоступна.'}</div>
+                        )}
+                      </div>
+                    )}
+
                     {/* Genetic Leaderboard Table */}
                     {gridRows.length > 0 && (
                       <table className="w-full text-[10px] font-mono-numbers">
@@ -2602,6 +2676,12 @@ export default function BacktestPanel({
                       </button>
                     </div>
 
+                    <BacktestTradeTimeline
+                      trades={allTrades}
+                      selectedId={selectedTradeId}
+                      onSelect={focusTradeFromTimeline}
+                    />
+
                     <div className="flex-1 overflow-auto">
                       <table className="w-full text-[10px] font-mono-numbers">
                         <thead
@@ -2640,7 +2720,7 @@ export default function BacktestPanel({
                         </thead>
                         <tbody className="divide-y divide-[#13161f]">
                           {allTrades.map((t) => (
-                            <tr key={t.id} data-testid="backtest-trade-row" onClick={() => window.dispatchEvent(new CustomEvent('focus-backtest-trade', { detail: t }))} className="hover:bg-[#161922] transition-colors cursor-pointer">
+                            <tr key={t.id} data-testid="backtest-trade-row" onClick={() => focusTradeFromTimeline(t)} className={`hover:bg-[#161922] transition-colors cursor-pointer ${String(selectedTradeId) === String(t.id) ? 'bg-sky-500/10' : ''}`}>
                               <td className="px-2 py-0.5 text-[#60697b]">{t.id}</td>
                               <td
                                 className={`px-2 font-bold ${
@@ -2720,6 +2800,7 @@ export default function BacktestPanel({
           )}
         </div>
       </div>
+      {showOvernightPilot && <OvernightPilotPanel onClose={() => setShowOvernightPilot(false)} />}
     </div>
   );
 }

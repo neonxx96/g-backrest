@@ -39,6 +39,21 @@ def make_oscillating_df(n: int = 70, base_price: float = 100.0) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def test_latest_signal_explanation_is_diagnostic_only():
+    frame = make_oscillating_df()
+    explanation = OrderFlowBacktester(initial_capital=10000.0).explain_latest_signal(
+        frame,
+        strategy_type="confluence_ema",
+        volume_multiplier=1.3,
+        use_cvd_filter=True,
+    )
+
+    assert explanation["status"] == "NO_TRADE"
+    assert explanation["reason"].startswith("NO_TRADE:")
+    assert "observed" in explanation
+    assert explanation["observed"]["close"] > 0
+
+
 # ==============================================================================
 # 1. ZERO LOOK-AHEAD BIAS TEST
 # ==============================================================================
@@ -208,6 +223,34 @@ def test_risk_based_position_sizing_and_leverage():
     # Fees scale linearly with total traded notional
     assert round(t_2x["fee_paid_usd"], 2) == round(t_1x["fee_paid_usd"] * 2.0, 2)
     assert round(t_5x["fee_paid_usd"], 2) == round(t_1x["fee_paid_usd"] * 5.0, 2)
+
+
+def test_explicit_risk_budget_sizes_notional_instead_of_base_units():
+    """A 1% risk budget on a 1% stop must create roughly $10k notional."""
+    df = make_oscillating_df(70)
+    df.loc[65, "close"] = 101.0
+    df.loc[65, "high"] = 101.2
+    df.loc[65, "volume"] = 5000.0
+    df.loc[65, "taker_buy_volume"] = 4500.0
+    df.loc[66, "high"] = 105.0
+    df.loc[66, "close"] = 104.0
+    df.loc[66, "low"] = 100.5
+
+    result = OrderFlowBacktester(initial_capital=10000.0, maker_fee_pct=0.02, taker_fee_pct=0.05, slippage_ticks=0).run_backtest(
+        df,
+        strategy_type="wall_breakout",
+        take_profit_pct=2.0,
+        stop_loss_pct=1.0,
+        leverage=2.0,
+        risk_per_trade_pct=1.0,
+        use_trailing=False,
+        use_multi_tp=False,
+        fast_eval=True,
+    )
+
+    trade = result["trades"][0]
+    assert trade["gross_pnl_usd"] == pytest.approx(200.0, abs=5.0)
+    assert trade["gross_pnl_usd"] > 100.0
 
 
 # ==============================================================================

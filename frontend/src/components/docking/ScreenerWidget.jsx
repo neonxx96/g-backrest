@@ -115,25 +115,9 @@ export default function ScreenerWidget({ panelId = 'watchlist_main' }) {
       return sparklineCache.get(sym);
     }
 
-    // 1. Synthesize smooth spline based on 24h metrics immediately
-    const open = ticker.open24h || ticker.price;
-    const high = ticker.high24h || ticker.price;
-    const low = ticker.low24h || ticker.price;
-    const close = ticker.price || 1;
-    const isUp = close >= open;
-
-    const synthetic = [
-      open,
-      open + (isUp ? (high - open) * 0.2 : (low - open) * 0.3),
-      open + (isUp ? (high - open) * 0.5 : (low - open) * 0.6),
-      isUp ? low + (high - low) * 0.3 : high - (high - low) * 0.3,
-      isUp ? high * 0.99 : low * 1.01,
-      close
-    ];
-
-    sparklineCache.set(sym, synthetic);
-
-    // 2. Fetch real 24h mini klines asynchronously (throttled to max 4 concurrent requests)
+    // Fetch real 1h klines only.  A 24h OHLC summary cannot reconstruct a
+    // price path defensibly; while the request is pending (or unavailable),
+    // Sparkline renders an explicit empty state instead of synthetic candles.
     if (!pendingFetches.has(sym) && pendingFetches.size < 4 && sparklineCache.size < 50) {
       pendingFetches.add(sym);
       fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${sym}&interval=1h&limit=24`, {
@@ -153,7 +137,7 @@ export default function ScreenerWidget({ panelId = 'watchlist_main' }) {
         });
     }
 
-    return synthetic;
+    return [];
   };
 
   // Filter and sort items with Volatility metric

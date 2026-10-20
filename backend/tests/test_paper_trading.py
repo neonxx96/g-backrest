@@ -344,6 +344,73 @@ class TestPaperTradingSessionLifecycle(unittest.TestCase):
         self.assertAlmostEqual(closed["fee"], 0.0021, places=5)
         self.assertEqual(closed["reason"], "Take Profit Hit")
 
+    def test_process_market_tick_forwards_real_price_and_l2(self):
+        session = PaperTradingSession(
+            initial_balance=1000.0,
+            maker_fee=0.0002,
+            taker_fee=0.0005,
+            signal_lag_ms=0,
+            order_rtt_ms=0,
+            session_id="live_tick_test",
+        )
+        session.place_order(
+            symbol="BTCUSDT",
+            side="BUY",
+            order_type="LIMIT",
+            price=100.0,
+            quantity=1.0,
+            role=PaperOrderRole.ENTRY.value,
+            stop_price=98.0,
+            target_price=104.0,
+            signal_ts=1000,
+        )
+        session.process_market_tick(
+            "BTCUSDT",
+            100.0,
+            bids=[(99.9, 2.0)],
+            asks=[(100.1, 2.0)],
+            timestamp=1000,
+        )
+        state = session.get_state()
+        self.assertEqual(len(state.positions), 1)
+        self.assertEqual(state.positions[0]["symbol"], "BTCUSDT")
+        self.assertAlmostEqual(session.last_prices["BTCUSDT"], 100.0)
+
+    def test_partial_exit_and_funding_are_accounted_separately(self):
+        session = PaperTradingSession(
+            initial_balance=1000.0,
+            maker_fee=0.0002,
+            taker_fee=0.0005,
+            signal_lag_ms=0,
+            order_rtt_ms=0,
+            session_id="partial_funding_test",
+        )
+        session.place_order("BTCUSDT", "BUY", "LIMIT", 100.0, 1.0, PaperOrderRole.ENTRY.value, stop_price=98.0, signal_ts=1000)
+        session.process_event(MockEvent(1000, "depth", {"bids": [(99.9, 2.0)], "asks": [(100.1, 2.0)]}))
+        session.process_event(self._trade(1000, 100.0, 1.0))
+        session.apply_funding("BTCUSDT", 0.001, 2000)
+        session.close_position("BTCUSDT", 102.0, order_type="LIMIT", reason="TP1_PARTIAL", signal_ts=3000, quantity=0.5)
+        session.process_event(MockEvent(3000, "depth", {"bids": [(101.9, 2.0)], "asks": [(102.1, 2.0)]}))
+        session.process_event(self._trade(3000, 102.0, 0.5))
+        state = session.get_state()
+        self.assertEqual(len(state.positions), 1)
+        self.assertAlmostEqual(state.positions[0]["qty"], 0.5)
+        self.assertAlmostEqual(state.total_funding_paid, 0.1, places=6)
+        self.assertEqual(state.closed_trades[0]["reason"], "TP1_PARTIAL")
+
+    def test_position_sizing_uses_leverage_only_for_margin_cap(self):
+        session = PaperTradingSession(initial_balance=1000.0, risk_per_trade_pct=0.01)
+
+        without_leverage = session.calculate_position_size(
+            "BTCUSDT", entry_price=100.0, stop_price=99.99, leverage=1.0
+        )
+        with_leverage = session.calculate_position_size(
+            "BTCUSDT", entry_price=100.0, stop_price=99.99, leverage=5.0
+        )
+
+        self.assertAlmostEqual(without_leverage, 10.0)
+        self.assertAlmostEqual(with_leverage, 50.0)
+
 
 if __name__ == "__main__":
     unittest.main()

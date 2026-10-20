@@ -1,11 +1,13 @@
 import pytest
 from backend.app.services.openrouter_client import openrouter_client
-from backend.app.services.live_paper_runner import live_paper_runner
-from backend.app.services.paper_trading import paper_trading_session
+from backend.app.services.live_paper_runner import LivePaperRunner, live_paper_runner
+from backend.app.services.paper_trading import PaperTradingSession, paper_trading_session
 
 
 @pytest.mark.anyio
-async def test_openrouter_client_fallback_logic():
+async def test_openrouter_client_fallback_logic(monkeypatch):
+    # This contract test must remain offline even when a developer .env has a key.
+    monkeypatch.setattr(openrouter_client, "api_key", "")
     # Setup with good R:R and favorable depth delta -> CONFIRM
     setup = {
         "direction": "LONG",
@@ -72,6 +74,7 @@ def test_live_paper_runner_start_stop_lifecycle():
     assert start_res["initial_capital"] == 10000.0
     assert start_res["ai_control"] is True
     assert len(start_res["equity_curve"]) >= 1
+    assert live_paper_runner.session.risk_per_trade_pct == pytest.approx(0.01)
 
     status = live_paper_runner.get_status()
     assert status["is_running"] is True
@@ -79,3 +82,50 @@ def test_live_paper_runner_start_stop_lifecycle():
 
     stop_res = live_paper_runner.stop()
     assert stop_res["is_running"] is False
+
+
+def test_live_runner_reuses_historical_filter_contract():
+    runner = LivePaperRunner()
+    runner.use_atr_filter = True
+    runner.use_cvd_filter = True
+    runner.use_oi_filter = True
+    runner.use_rsi_filter = True
+    context = {
+        "previous": {"close": 100.0, "cvd": 10.0, "rsi": 35.0},
+        "latest": {
+            "atr": 1.0,
+            "atr_ema20": 1.0,
+            "delta": 2.0,
+            "cvd": 12.0,
+            "cvd_ema14": 11.0,
+            "low": 99.0,
+            "low_min6": 99.0,
+            "cvd_min6": 11.0,
+            "close": 101.0,
+            "oi_delta": 1.0,
+            "rsi": 40.0,
+        },
+    }
+    assert runner._passes_live_indicator_filters(context, 1) is True
+    context["latest"]["oi_delta"] = -1.0
+    assert runner._passes_live_indicator_filters(context, 1) is False
+
+
+def test_live_runner_status_exposes_margin_and_funding_accounting():
+    session = PaperTradingSession(initial_balance=1000.0, session_id="status-contract")
+    runner = LivePaperRunner(session=session)
+    runner.start({"symbol": "BTCUSDT", "initial_capital": 1000.0, "duration_hours": 1.0})
+    runner._last_funding_rate = 0.0001
+
+    status = runner.get_status()
+
+    assert status["available_margin"] == pytest.approx(1000.0)
+    assert status["used_margin"] == pytest.approx(0.0)
+    assert status["funding_rate"] == pytest.approx(0.0001)
+    assert status["closed_trades"] == []
+    assert status["last_decision_reason"] is None
+    assert status["last_decision_checks"] == []
+    assert status["started_at"] is not None
+    assert status["duration_remaining_seconds"] is not None
+    assert status["duration_remaining_seconds"] > 0
+    runner.stop()

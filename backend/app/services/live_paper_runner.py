@@ -26,7 +26,8 @@ class LivePaperRunner:
     Manages live paper trading execution loop over FreeBinanceCollector.
     """
 
-    def __init__(self):
+    def __init__(self, session=None):
+        self.session = session or paper_trading_session
         self.is_running: bool = False
         self._task: Optional[asyncio.Task] = None
         self._last_tick_time: int = 0
@@ -35,6 +36,7 @@ class LivePaperRunner:
 
         # Configuration
         self.symbol: str = "BTCUSDT"
+        self.timeframe: str = "15m"
         self.strategy_type: str = "live_density_bounce"
         self.initial_capital: float = 10000.0
         self.risk_per_trade_pct: float = 1.0  # 1% per trade
@@ -46,6 +48,29 @@ class LivePaperRunner:
         self.maker_fee_pct: float = 0.02
         self.taker_fee_pct: float = 0.05
         self.slippage_ticks: int = 2
+        self.duration_hours: float = 24.0
+        self.volume_multiplier: float = 1.3
+        self.use_atr_filter: bool = False
+        self.use_cvd_filter: bool = False
+        self.use_oi_filter: bool = False
+        self.use_rsi_filter: bool = False
+        self.use_multi_tp: bool = True
+        self.tp1_rr_ratio: float = 1.5
+        self.tp2_rr_ratio: float = 2.8
+        self._last_funding_timestamp: int = 0
+        self._last_funding_rate: float = 0.0
+        self.started_at: float = 0.0
+        self.data_status: str = "disconnected"
+        self.last_data_error: Optional[str] = None
+        self.data_error_count: int = 0
+        self.no_trade_count: int = 0
+        self.last_decision_reason: Optional[str] = None
+        self.last_decision_checks: List[str] = []
+        self.last_decision_at: int = 0
+        self.indicator_data_status: str = "stale"
+        self.indicator_last_update: int = 0
+        self._indicator_context: Optional[Dict[str, Any]] = None
+        self._indicator_context_at: float = 0.0
 
         # Logs & Real-Time Equity Curve
         self.logs: List[Dict[str, Any]] = []
@@ -57,6 +82,7 @@ class LivePaperRunner:
             self.stop()
 
         self.symbol = str(config.get("symbol", "BTCUSDT")).upper()
+        self.timeframe = str(config.get("timeframe", "15m"))
         self.strategy_type = str(config.get("strategy_type", "live_density_bounce"))
         self.initial_capital = float(config.get("initial_capital", 10000.0))
         self.risk_per_trade_pct = float(config.get("risk_per_trade_pct", 1.0))
@@ -68,9 +94,36 @@ class LivePaperRunner:
         self.maker_fee_pct = float(config.get("maker_fee_pct", 0.02))
         self.taker_fee_pct = float(config.get("taker_fee_pct", 0.05))
         self.slippage_ticks = int(config.get("slippage_ticks", 2))
+        self.duration_hours = float(config.get("duration_hours", 24.0))
+        self.volume_multiplier = float(config.get("volume_multiplier", 1.3))
+        self.use_atr_filter = bool(config.get("use_atr_filter", False))
+        self.use_cvd_filter = bool(config.get("use_cvd_filter", False))
+        self.use_oi_filter = bool(config.get("use_oi_filter", False))
+        self.use_rsi_filter = bool(config.get("use_rsi_filter", False))
+        self.use_multi_tp = bool(config.get("use_multi_tp", True))
+        self.tp1_rr_ratio = float(config.get("tp1_rr_ratio", 1.5))
+        self.tp2_rr_ratio = float(config.get("tp2_rr_ratio", 2.8))
+        self._last_funding_timestamp = 0
+        self._last_funding_rate = 0.0
+        self.started_at = time.time()
+        self.data_status = "stale"
+        self.last_data_error = None
+        self.data_error_count = 0
+        self.no_trade_count = 0
+        self.last_decision_reason = None
+        self.last_decision_checks = []
+        self.last_decision_at = 0
+        self.indicator_data_status = "stale"
+        self.indicator_last_update = 0
+        self._indicator_context = None
+        self._indicator_context_at = 0.0
 
         # Reset wallet to initial capital
-        paper_trading_session.reset_wallet(initial_balance=self.initial_capital)
+        self.session.reset_wallet(initial_balance=self.initial_capital)
+        # UI/config values are percentages (1.0 = 1%); PaperTradingSession
+        # stores the fraction used by its position-size formula.
+        self.session.risk_per_trade_pct = self.risk_per_trade_pct / 100.0
+        self.session.leverage = max(1.0, self.leverage)
 
         self.is_running = True
         self.logs = []
@@ -121,29 +174,71 @@ class LivePaperRunner:
 
     def get_status(self) -> Dict[str, Any]:
         """Returns live status of runner, current wallet snapshot, and equity curve."""
-        session_state = paper_trading_session.get_state()
+        session_state = self.session.get_state()
         state_dict = session_state.to_dict()
+        duration_remaining_seconds = None
+        if self.duration_hours > 0 and self.started_at:
+            duration_remaining_seconds = max(
+                0,
+                int(self.duration_hours * 3600 - (time.time() - self.started_at)),
+            )
 
         total_equity = state_dict.get("balance", self.initial_capital) + state_dict.get("unrealized_pnl", 0.0)
+        equity_values = [float(point.get("equity", self.initial_capital)) for point in self.equity_curve]
+        peak_equity = self.initial_capital
+        max_drawdown_pct = 0.0
+        for value in equity_values:
+            peak_equity = max(peak_equity, value)
+            if peak_equity > 0:
+                max_drawdown_pct = max(max_drawdown_pct, (peak_equity - value) / peak_equity * 100.0)
+        closed_trades = state_dict.get("closed_trades", [])
+        losing_trade_reasons = [
+            {"exit_reason": trade.get("exit_reason", "UNKNOWN"), "net_pnl": trade.get("net_pnl", 0.0)}
+            for trade in closed_trades
+            if float(trade.get("net_pnl", 0.0) or 0.0) < 0
+        ][-10:]
 
         return {
             "is_running": self.is_running,
             "symbol": self.symbol,
             "strategy_type": self.strategy_type,
+            "timeframe": self.timeframe,
             "initial_capital": self.initial_capital,
             "risk_per_trade_pct": self.risk_per_trade_pct,
             "min_density_usd": self.min_density_usd,
             "ai_control": self.ai_control,
             "current_equity": round(total_equity, 2),
             "balance": round(state_dict.get("balance", self.initial_capital), 2),
+            "available_margin": round(float(state_dict.get("available_margin", self.initial_capital) or 0.0), 4),
+            "used_margin": round(float(state_dict.get("locked_margin", 0.0) or 0.0), 4),
             "unrealized_pnl": round(state_dict.get("unrealized_pnl", 0.0), 2),
             "realized_pnl": round(state_dict.get("realized_pnl", 0.0), 2),
+            "roi_pct": round((total_equity - self.initial_capital) / max(self.initial_capital, 1e-9) * 100.0, 4),
+            "max_drawdown_pct": round(max_drawdown_pct, 4),
+            "total_fees": round(float(state_dict.get("total_fees_paid", 0.0) or 0.0), 4),
+            "total_funding_paid": round(float(state_dict.get("total_funding_paid", 0.0) or 0.0), 4),
+            "funding_rate": round(self._last_funding_rate, 8),
+            "average_risk_pct": round(self.risk_per_trade_pct, 4),
+            "losing_trade_reasons": losing_trade_reasons,
             "open_positions": state_dict.get("positions", []),
             "closed_trades_count": len(state_dict.get("closed_trades", [])),
             "closed_trades": state_dict.get("closed_trades", [])[-15:],
             "logs": self.logs[:25],
             "equity_curve": self.equity_curve[-80:],
             "last_tick_time": self._last_tick_time,
+            "session_id": state_dict.get("session_id"),
+            "data_status": self.data_status,
+            "last_data_error": self.last_data_error,
+            "data_error_count": self.data_error_count,
+            "no_trade_count": self.no_trade_count,
+            "last_decision_reason": self.last_decision_reason,
+            "last_decision_checks": self.last_decision_checks,
+            "last_decision_at": self.last_decision_at,
+            "indicator_data_status": self.indicator_data_status,
+            "indicator_last_update": self.indicator_last_update,
+            "duration_hours": self.duration_hours,
+            "started_at": int(self.started_at * 1000) if self.started_at else None,
+            "duration_remaining_seconds": duration_remaining_seconds,
         }
 
     async def _runner_loop(self):
@@ -151,11 +246,18 @@ class LivePaperRunner:
         logger.info(f"LivePaperRunner started background loop for {self.symbol}")
         while self.is_running:
             try:
+                if self.duration_hours > 0 and self.started_at and (time.time() - self.started_at) >= self.duration_hours * 3600:
+                    self._add_log("SYSTEM", f"Paper-сессия автоматически остановлена после {self.duration_hours:g} ч")
+                    self.stop()
+                    break
                 await self.tick_cycle()
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Error in LivePaperRunner tick cycle: {e}")
+                self.data_status = "disconnected"
+                self.last_data_error = str(e)[:160]
+                self.data_error_count += 1
                 self._add_log("ERROR", f"Сбой цикла опроса: {str(e)[:80]}")
 
             await asyncio.sleep(4.0)
@@ -166,15 +268,35 @@ class LivePaperRunner:
 
         # 1. Fetch live unified market data (Spot L2 + Futures liqs + ticker)
         data = await market_data_provider.get_unified_data(self.symbol)
+        self.data_status = "connected"
+        self.last_data_error = None
         current_price = data.snapshot.price
         if current_price <= 0:
             return
+
+        # Forward the actual Binance price and current L2 book into the shared
+        # paper execution simulator before strategy/position decisions.
+        self.session.process_market_tick(
+            self.symbol,
+            current_price,
+            bids=data.orderbook_depth.bids,
+            asks=data.orderbook_depth.asks,
+            timestamp=self._last_tick_time,
+        )
+        now_ms = self._last_tick_time
+        if self._last_funding_timestamp == 0:
+            self._last_funding_timestamp = now_ms
+        elif now_ms - self._last_funding_timestamp >= 8 * 60 * 60 * 1000:
+            payment = self.session.apply_funding(self.symbol, float(data.snapshot.funding_rate), now_ms)
+            self._add_log("FUNDING", f"Funding settlement: {payment:+.4f} USDT", meta={"funding_rate": float(data.snapshot.funding_rate), "payment": payment})
+            self._last_funding_timestamp = now_ms
+        self._last_funding_rate = float(data.snapshot.funding_rate)
 
         # 2. Update existing positions against current market price (SL / TP / Breakeven check)
         self._update_open_positions(current_price)
 
         # 3. Record equity curve point
-        state = paper_trading_session.get_state().to_dict()
+        state = self.session.get_state().to_dict()
         equity = state.get("balance", self.initial_capital) + state.get("unrealized_pnl", 0.0)
         self.equity_curve.append(
             {
@@ -198,8 +320,31 @@ class LivePaperRunner:
             return
 
         # 5. Search for trade setups matching selected strategy
-        candidate_signal = await self._detect_setup(data)
+        indicator_context = await self._load_indicator_context()
+        candidate_signal = await self._detect_setup(data, indicator_context)
         if not candidate_signal:
+            self.no_trade_count += 1
+            if indicator_context is not None:
+                from backend.app.services.orderflow_backtester import OrderFlowBacktester
+
+                diagnostic = OrderFlowBacktester(initial_capital=self.initial_capital).explain_latest_signal(
+                    indicator_context["frame"],
+                    strategy_type=self.strategy_type,
+                    volume_multiplier=self.volume_multiplier,
+                    min_density_usd=self.min_density_usd,
+                    use_atr_filter=self.use_atr_filter,
+                    use_cvd_filter=self.use_cvd_filter,
+                    use_oi_filter=self.use_oi_filter,
+                    use_rsi_filter=self.use_rsi_filter,
+                )
+                failed_checks = list(diagnostic.get("failed_checks") or [])
+                if self.strategy_type == "cluster_volume_bounce" and diagnostic.get("status") == "SIGNAL":
+                    failed_checks.append("live_orderbook_wall")
+                self.last_decision_checks = list(dict.fromkeys(failed_checks))
+                self.last_decision_reason = diagnostic.get("reason") or "NO_TRADE: условия стратегии не выполнены."
+                if self.strategy_type == "cluster_volume_bounce" and diagnostic.get("status") == "SIGNAL":
+                    self.last_decision_reason = "NO_TRADE: OHLCV-сигнал есть, но live-плотность стакана не подтверждена."
+                self.last_decision_at = self._last_tick_time
             return
 
         self._last_signal_time = now_sec
@@ -246,18 +391,31 @@ class LivePaperRunner:
         # 7. Execute virtual order into Paper Trading Session
         signal_obj = UnifiedTradeSignal(
             symbol=self.symbol,
+            timeframe=self.timeframe,
             timestamp=int(time.time() * 1000),
             direction=candidate_signal["direction"],
             entry_type="LIMIT",
             entry_price=candidate_signal["entry_price"],
             sl=candidate_signal["sl"],
             tp1=candidate_signal["tp1"],
+            tp2=candidate_signal.get("tp2"),
             expected_rr=candidate_signal["expected_rr"],
+            leverage=self.leverage,
+            risk_pct=self.risk_per_trade_pct,
+            strategy_type=self.strategy_type,
+            data_source="binance_live_l2_ohlcv",
+            context_snapshot={
+                "price": current_price,
+                "funding_rate": float(data.snapshot.funding_rate),
+                "depth_delta_pct": float(data.orderbook_depth.depth_deltas.get("2.5%").delta_pct) if data.orderbook_depth.depth_deltas.get("2.5%") else 0.0,
+                "indicator_timestamp": self.indicator_last_update,
+                "strategy": self.strategy_type,
+            },
             reason=candidate_signal["reason"],
         )
 
         try:
-            order_res = paper_trading_session.execute_unified_signal(signal_obj)
+            order_res = self.session.execute_unified_signal(signal_obj)
             self._add_log(
                 "TRADE_ENTRY",
                 f"Вход в виртуальную сделку {candidate_signal['direction']} @ ${candidate_signal['entry_price']:,.2f} "
@@ -268,7 +426,104 @@ class LivePaperRunner:
             logger.error(f"Paper order execution error: {e}")
             self._add_log("ERROR", f"Ошибка открытия сделки: {e}")
 
-    async def _detect_setup(self, data) -> Optional[Dict[str, Any]]:
+    async def _load_indicator_context(self) -> Optional[Dict[str, Any]]:
+        """Load the same real OHLCV-derived indicators used by the historical engine.
+
+        The live runner may combine this context with live L2 walls, but never
+        substitutes a different strategy when the historical feed is stale.
+        """
+        now = time.time()
+        if self._indicator_context is not None and now - self._indicator_context_at < 60.0:
+            return self._indicator_context
+
+        try:
+            from backend.app.routers.backtest import fetch_history
+            from backend.app.services.orderflow_backtester import OrderFlowBacktester
+
+            frame = await fetch_history(self.symbol, self.timeframe, days=2)
+            if frame is None or frame.empty or len(frame) < 60:
+                self.indicator_data_status = "stale"
+                return None
+
+            enriched = OrderFlowBacktester(initial_capital=self.initial_capital).calculate_indicators(frame)
+            latest = enriched.iloc[-1].to_dict()
+            previous = enriched.iloc[-2].to_dict()
+            self._indicator_context = {"latest": latest, "previous": previous, "frame": enriched}
+            self._indicator_context_at = now
+            self.indicator_data_status = "connected"
+            self.indicator_last_update = int(latest.get("timestamp", time.time() * 1000))
+            return self._indicator_context
+        except Exception as exc:
+            self.indicator_data_status = "disconnected"
+            self._indicator_context = None
+            self._add_log("INDICATOR_ERROR", f"Не удалось обновить OHLCV-индикаторы: {str(exc)[:120]}")
+            return None
+
+    def _passes_live_indicator_filters(self, context: Dict[str, Any], direction: int) -> bool:
+        """Apply the historical backtest filter suite to a live candle context."""
+        latest = context["latest"]
+        previous = context["previous"]
+        if self.use_atr_filter and float(latest.get("atr_ema20", 0.0)) > 0:
+            if float(latest.get("atr", 0.0)) > 2.0 * float(latest["atr_ema20"]):
+                return False
+
+        if self.use_cvd_filter:
+            delta = float(latest.get("delta", 0.0))
+            cvd = float(latest.get("cvd", 0.0))
+            cvd_ema = float(latest.get("cvd_ema14", 0.0))
+            if direction > 0:
+                bull_div = (
+                    float(latest.get("low", 0.0)) <= float(latest.get("low_min6", 0.0))
+                    and cvd > float(latest.get("cvd_min6", 0.0))
+                ) or (
+                    float(latest.get("close", 0.0)) < float(previous.get("close", 0.0))
+                    and cvd > float(previous.get("cvd", 0.0))
+                )
+                if not (delta > 0 and (cvd >= cvd_ema or bull_div)):
+                    return False
+            else:
+                bear_div = (
+                    float(latest.get("high", 0.0)) >= float(latest.get("high_max6", 0.0))
+                    and cvd < float(latest.get("cvd_max6", 0.0))
+                ) or (
+                    float(latest.get("close", 0.0)) > float(previous.get("close", 0.0))
+                    and cvd < float(previous.get("cvd", 0.0))
+                )
+                if not (delta < 0 and (cvd <= cvd_ema or bear_div)):
+                    return False
+
+        if self.use_oi_filter and float(latest.get("oi_delta", 0.0)) < 0:
+            return False
+
+        if self.use_rsi_filter:
+            rsi = float(latest.get("rsi", 50.0))
+            previous_rsi = float(previous.get("rsi", 50.0))
+            if direction > 0:
+                return rsi <= 42 or (previous_rsi <= 36 and rsi >= 30)
+            return rsi >= 58 or (previous_rsi >= 64 and rsi <= 70)
+        return True
+
+    def _historical_signal(self, current_price: float, direction: int, reason: List[str]) -> Dict[str, Any]:
+        sign = 1 if direction > 0 else -1
+        entry = float(current_price)
+        sl = round(entry * (1 - sign * self.stop_loss_pct / 100.0), 8)
+        sl_distance = abs(entry - sl)
+        configured_tp_distance = entry * self.take_profit_pct / 100.0
+        tp1_distance = min(configured_tp_distance, sl_distance * max(1.0, self.tp1_rr_ratio)) if self.use_multi_tp else configured_tp_distance
+        tp2_distance = max(configured_tp_distance, sl_distance * max(self.tp2_rr_ratio, self.tp1_rr_ratio)) if self.use_multi_tp else configured_tp_distance
+        tp = round(entry + sign * tp1_distance, 8)
+        tp2 = round(entry + sign * tp2_distance, 8) if self.use_multi_tp else None
+        return {
+            "direction": "LONG" if direction > 0 else "SHORT",
+            "entry_price": entry,
+            "sl": sl,
+            "tp1": tp,
+            "tp2": tp2,
+            "expected_rr": max(1.0, self.take_profit_pct / max(self.stop_loss_pct, 1e-9)),
+            "reason": reason,
+        }
+
+    async def _detect_setup(self, data, indicator_context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """
         Detects live setups from real-time FreeBinanceCollector feeds:
         - 'live_density_bounce': entry in front of heavy spot wall ($500k+)
@@ -278,6 +533,75 @@ class LivePaperRunner:
         walls = data.orderbook_depth.walls
         dd_2_5 = data.orderbook_depth.depth_deltas.get("2.5%")
         delta_pct = dd_2_5.delta_pct if dd_2_5 else 0.0
+
+        # These are the three strategies used by the overnight pilot. Their
+        # live decisions must remain aligned with the historical OHLCV engine.
+        if self.strategy_type in ("confluence_ema", "cvd_absorption", "cluster_volume_bounce"):
+            if indicator_context is None:
+                return None
+            from backend.app.services.orderflow_backtester import OrderFlowBacktester
+            historical_signal = OrderFlowBacktester(initial_capital=self.initial_capital).evaluate_latest_signal(
+                indicator_context["frame"],
+                strategy_type=self.strategy_type,
+                volume_multiplier=self.volume_multiplier,
+                min_density_usd=self.min_density_usd,
+                use_atr_filter=self.use_atr_filter,
+                use_cvd_filter=self.use_cvd_filter,
+                use_oi_filter=self.use_oi_filter,
+                use_rsi_filter=self.use_rsi_filter,
+            )
+            if historical_signal is None:
+                return None
+            if self.strategy_type == "cluster_volume_bounce":
+                candidate_walls = [wall for wall in walls if wall.price > 0 and wall.size * wall.price >= self.min_density_usd]
+                wall = min(candidate_walls, key=lambda item: abs(item.price - current_price), default=None)
+                if wall is None or not (0.05 <= abs(current_price - wall.price) / current_price * 100.0 <= 1.5):
+                    return None
+                wall_direction = "LONG" if wall.price < current_price else "SHORT"
+                if wall_direction != historical_signal["direction"]:
+                    return None
+                historical_signal["reasons"].append(f"Live density wall ${wall.size * wall.price:,.0f}")
+            direction = 1 if historical_signal["direction"] == "LONG" else -1
+            return self._historical_signal(current_price, direction, historical_signal["reasons"])
+
+        # Historical strategy profiles reuse the same live data contract but keep
+        # distinct entry logic so the overnight pilot compares real alternatives.
+        if self.strategy_type == "cvd_absorption":
+            cvd = float(data.snapshot.cvd_value)
+            if abs(delta_pct) >= 8.0 and ((cvd > 0 and delta_pct > 0) or (cvd < 0 and delta_pct < 0)):
+                direction = "LONG" if delta_pct > 0 else "SHORT"
+                sign = 1 if direction == "LONG" else -1
+                entry = current_price
+                sl = round(entry * (1 - sign * self.stop_loss_pct / 100.0), 8)
+                tp = round(entry * (1 + sign * self.take_profit_pct / 100.0), 8)
+                return {
+                    "direction": direction,
+                    "entry_price": entry,
+                    "sl": sl,
+                    "tp1": tp,
+                    "expected_rr": max(1.0, self.take_profit_pct / self.stop_loss_pct),
+                    "reason": [f"CVD absorption confirmation: {cvd:+.2f}", f"Depth delta: {delta_pct:+.2f}%"],
+                }
+
+        if self.strategy_type == "cluster_volume_bounce":
+            candidate_walls = [wall for wall in walls if wall.price > 0 and wall.size * wall.price >= self.min_density_usd]
+            if candidate_walls:
+                wall = min(candidate_walls, key=lambda item: abs(item.price - current_price))
+                direction = "LONG" if wall.price < current_price else "SHORT"
+                distance_pct = abs(current_price - wall.price) / current_price * 100.0
+                if 0.05 <= distance_pct <= 1.5:
+                    sign = 1 if direction == "LONG" else -1
+                    entry = current_price
+                    sl = round(entry * (1 - sign * self.stop_loss_pct / 100.0), 8)
+                    tp = round(entry * (1 + sign * self.take_profit_pct / 100.0), 8)
+                    return {
+                        "direction": direction,
+                        "entry_price": entry,
+                        "sl": sl,
+                        "tp1": tp,
+                        "expected_rr": max(1.0, self.take_profit_pct / self.stop_loss_pct),
+                        "reason": [f"Cluster wall ${wall.size * wall.price:,.0f} @ ${wall.price:,.4f}", f"Distance: {distance_pct:.2f}%"],
+                    }
 
         # Strategy 1: Live Density Bounce (Вход перед стенкой)
         if self.strategy_type in ("live_density_bounce", "spot_wall_bounce"):
@@ -354,8 +678,10 @@ class LivePaperRunner:
 
     def _update_open_positions(self, current_price: float):
         """Simulates price ticks against open positions: triggers Stop Loss / Take Profit / Trailing."""
-        state = paper_trading_session.get_state()
-        for pos in state.positions:
+        self.session.check_dynamic_breakeven(self.symbol, current_price)
+        for symbol, pos in list(self.session.positions.items()):
+            if symbol != self.symbol:
+                continue
             if pos.closed:
                 continue
 
@@ -367,56 +693,29 @@ class LivePaperRunner:
             if pos.side == "LONG":
                 # Check Stop Loss
                 if current_price <= pos.stop_price:
-                    self._close_position_sim(pos, current_price, "STOP_LOSS")
+                    self.session.close_position(symbol, current_price, order_type="MARKET", reason="STOP_LOSS", signal_ts=self._last_tick_time)
                 # Check Take Profit
                 elif current_price >= pos.target_price:
-                    self._close_position_sim(pos, current_price, "TAKE_PROFIT")
+                    if self.use_multi_tp and not pos.tp1_filled and pos.tp2_price > pos.target_price:
+                        self.session.close_position(symbol, current_price, order_type="LIMIT", reason="TP1_PARTIAL", signal_ts=self._last_tick_time, quantity=max(pos.qty * 0.5, 1e-12))
+                        pos.tp1_filled = True
+                        self.session.check_dynamic_breakeven(symbol, current_price)
+                        pos.target_price = pos.tp2_price
+                    else:
+                        self.session.close_position(symbol, current_price, order_type="LIMIT", reason="TAKE_PROFIT", signal_ts=self._last_tick_time)
 
             # Check Short
             elif pos.side == "SHORT":
                 if current_price >= pos.stop_price:
-                    self._close_position_sim(pos, current_price, "STOP_LOSS")
+                    self.session.close_position(symbol, current_price, order_type="MARKET", reason="STOP_LOSS", signal_ts=self._last_tick_time)
                 elif current_price <= pos.target_price:
-                    self._close_position_sim(pos, current_price, "TAKE_PROFIT")
-
-    def _close_position_sim(self, pos, exit_price: float, reason: str):
-        """Closes a position in session and updates accounting."""
-        pos.closed = True
-        is_long = pos.side == "LONG"
-        gross_pnl = (exit_price - pos.avg_entry_price) * pos.qty if is_long else (pos.avg_entry_price - exit_price) * pos.qty
-
-        # Fee: Maker on TP, Taker on SL
-        fee_rate = (self.maker_fee_pct / 100.0) if reason == "TAKE_PROFIT" else (self.taker_fee_pct / 100.0)
-        exit_fee = (exit_price * pos.qty) * fee_rate
-        net_pnl = gross_pnl - pos.fees_paid - exit_fee
-
-        state = paper_trading_session.get_state()
-        state.balance += net_pnl
-        state.realized_pnl += net_pnl
-
-        # Remove from active positions and add to closed trades
-        state.positions = [p for p in state.positions if p != pos]
-
-        closed_rec = {
-            "symbol": pos.symbol,
-            "side": pos.side,
-            "qty": pos.qty,
-            "entry_price": pos.avg_entry_price,
-            "exit_price": exit_price,
-            "net_pnl": round(net_pnl, 2),
-            "exit_reason": reason,
-            "fees_paid": round(pos.fees_paid + exit_fee, 4),
-            "timestamp": int(time.time() * 1000),
-        }
-        state.closed_trades.append(closed_rec)
-
-        pnl_sign = "+" if net_pnl >= 0 else ""
-        self._add_log(
-            "TRADE_EXIT",
-            f"Закрыта сделка {pos.side} по {reason} @ ${exit_price:,.2f} (Net PnL: {pnl_sign}${net_pnl:,.2f})",
-            meta=closed_rec,
-        )
-
+                    if self.use_multi_tp and not pos.tp1_filled and pos.tp2_price < pos.target_price:
+                        self.session.close_position(symbol, current_price, order_type="LIMIT", reason="TP1_PARTIAL", signal_ts=self._last_tick_time, quantity=max(pos.qty * 0.5, 1e-12))
+                        pos.tp1_filled = True
+                        self.session.check_dynamic_breakeven(symbol, current_price)
+                        pos.target_price = pos.tp2_price
+                    else:
+                        self.session.close_position(symbol, current_price, order_type="LIMIT", reason="TAKE_PROFIT", signal_ts=self._last_tick_time)
 
 # Global singleton runner
 live_paper_runner = LivePaperRunner()

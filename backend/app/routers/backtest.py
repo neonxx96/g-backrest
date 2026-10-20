@@ -98,6 +98,8 @@ STRATEGIES = {
 
 
 class BacktestParams(BaseModel):
+    # Percent of equity risked at the stop. None keeps legacy fixed-notional behavior.
+    risk_per_trade_pct: Optional[float] = Field(None, gt=0, le=10)
     stop_loss_pct: float = Field(0.8, gt=0, le=50)
     take_profit_pct: float = Field(1.5, gt=0, le=200)
     min_density_usd: float = Field(100000.0, ge=0)
@@ -141,9 +143,10 @@ class BacktestRequest(BaseModel):
     # Unified Indicators Configuration
     indicators: Optional[Dict[str, Dict[str, Any]]] = None
     # Legacy / flat override fields
-    leverage: Optional[float] = None
-    stop_loss_pct: Optional[float] = None
-    take_profit_pct: Optional[float] = None
+    leverage: Optional[float] = Field(None, ge=1, le=125)
+    risk_per_trade_pct: Optional[float] = Field(None, gt=0, le=10)
+    stop_loss_pct: Optional[float] = Field(None, gt=0, le=50)
+    take_profit_pct: Optional[float] = Field(None, gt=0, le=200)
     sl_pct: Optional[float] = None
     tp_pct: Optional[float] = None
     use_atr_filter: Optional[bool] = None
@@ -188,6 +191,52 @@ _HISTORY_CACHE: Dict[tuple, tuple] = {}
 _HISTORY_CACHE_TTL_SEC = 60.0
 
 
+def _ensure_delta_column(df: pd.DataFrame) -> pd.DataFrame:
+    """Keep real footprint delta and rebuild missing OHLCV delta deterministically.
+
+    Kline-only Parquet rows intentionally store ``volume_delta`` as NaN because
+    they do not contain a price-level footprint.  That must not become a
+    present-but-NaN ``delta`` column: the backtester treats a present delta as
+    authoritative and would otherwise veto every signal.
+    """
+    data = df.copy()
+    if "delta" in data.columns:
+        existing = pd.to_numeric(data["delta"], errors="coerce")
+    elif "volume_delta" in data.columns:
+        existing = pd.to_numeric(data["volume_delta"], errors="coerce")
+    else:
+        existing = pd.Series(np.nan, index=data.index, dtype="float64")
+
+    if "taker_buy_base_volume" in data.columns:
+        fallback = (2.0 * pd.to_numeric(data["taker_buy_base_volume"], errors="coerce")) - pd.to_numeric(data["volume"], errors="coerce")
+    elif "taker_buy_volume" in data.columns:
+        fallback = (2.0 * pd.to_numeric(data["taker_buy_volume"], errors="coerce")) - pd.to_numeric(data["volume"], errors="coerce")
+    elif {"open", "high", "low", "close", "volume"}.issubset(data.columns):
+        candle_range = (data["high"] - data["low"]).replace(0, np.nan)
+        fallback = ((data["close"] - data["open"]) / candle_range).fillna(0.0) * data["volume"]
+    else:
+        fallback = pd.Series(0.0, index=data.index)
+
+    data["delta"] = existing.where(existing.notna(), fallback).fillna(0.0).astype(float)
+    return data
+
+
+def _read_cached_history(symbol: str, timeframe: str, days: int) -> Optional[pd.DataFrame]:
+    """Read the available local period without attempting a network refresh."""
+    from backend.app.services.historical_data_loader import historical_loader
+
+    cached = historical_loader.read_cache(symbol, timeframe)
+    if cached is None or len(cached) < 50:
+        return None
+    cached = cached.sort_values("timestamp").reset_index(drop=True)
+    cache_end = int(cached["timestamp"].max())
+    cache_start = cache_end - int(days * 24 * 60 * 60 * 1000)
+    cached = cached[cached["timestamp"] >= cache_start].reset_index(drop=True)
+    if len(cached) < 50:
+        return None
+    return _ensure_delta_column(cached)
+
+
 async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
     """Paginated Binance klines with multi-endpoint fallback (Futures -> Spot -> Vision) and 60s TTL cache."""
     cache_key = (symbol.upper(), timeframe, int(days))
@@ -206,12 +255,13 @@ async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
     # Fast path: Read from institutional Parquet cache
     if not custom_tf:
         try:
-            from backend.app.services.historical_data_loader import historical_loader
-            df_parquet = await historical_loader.load_dataset_async(symbol, timeframe, days=days)
-            if df_parquet is not None and len(df_parquet) >= 50:
-                df = df_parquet.copy()
-                if "delta" not in df.columns and "volume_delta" in df.columns:
-                    df["delta"] = df["volume_delta"]
+            # Backtests must remain bounded by the locally recorded period.  A
+            # cache that ends a few minutes ago is still valid historical data;
+            # calling the incremental loader first would block on Binance and
+            # make preflight hang when the exchange is unavailable.
+            df_parquet = _read_cached_history(symbol, timeframe, days)
+            if df_parquet is not None:
+                df = df_parquet
                 _HISTORY_CACHE[cache_key] = (now_ts, df.copy())
                 return df
         except Exception as e:
@@ -512,6 +562,7 @@ async def run_backtest(req: BacktestRequest):
 
     p = req.params
     leverage = req.leverage if req.leverage is not None else p.leverage
+    risk_per_trade_pct = req.risk_per_trade_pct if req.risk_per_trade_pct is not None else p.risk_per_trade_pct
     sl = req.stop_loss_pct if req.stop_loss_pct is not None else (req.sl_pct if req.sl_pct is not None else p.stop_loss_pct)
     tp = req.take_profit_pct if req.take_profit_pct is not None else (req.tp_pct if req.tp_pct is not None else p.take_profit_pct)
     use_atr_filter = req.use_atr_filter if req.use_atr_filter is not None else p.use_atr_filter
@@ -595,6 +646,7 @@ async def run_backtest(req: BacktestRequest):
         tp2_mode,
         tp2_rr_ratio,
         min_wall_lifetime_sec,
+        risk_per_trade_pct=risk_per_trade_pct,
     )
     if "error" in raw:
         raise HTTPException(status_code=400, detail=raw["error"])
@@ -613,6 +665,7 @@ async def run_backtest(req: BacktestRequest):
             "taker_fee_pct": taker_fee_pct,
             "slippage_ticks": slippage_ticks,
             "use_multi_tp": use_multi_tp,
+            "risk_per_trade_pct": risk_per_trade_pct,
         },
         "confluence_filters": {
             "atr_filter": use_atr_filter,
@@ -739,12 +792,14 @@ async def optimize_backtest(req: OptimizeRequest):
         "generations": out["generations"],
         "elapsed_ms": out["elapsed_ms"],
         "best_params": out["best_params"],
+        "oos": out.get("oos"),
     }
     resp = build_response(best_raw, req.initial_capital, meta)
     resp["top_setups"] = _clean(top_setups)
     resp["grid_results"] = _clean(rows)
     resp["before_optimization"] = _clean(out["before_optimization"])
     resp["after_optimization"] = _clean(out["after_optimization"])
+    resp["oos"] = _clean(out.get("oos"))
     return resp
 
 

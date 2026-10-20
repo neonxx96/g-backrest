@@ -22,7 +22,8 @@ import pytest
 import pandas as pd
 
 from backend.app.services.paper_trading import PaperTradingSession, PaperPosition, PaperOrderRole
-from backend.app.routers.ai_copilot import compute_probabilistic_forecast
+from backend.app.services.orderflow_backtester import OrderFlowBacktester
+from backend.app.routers.ai_copilot import compute_probabilistic_forecast, build_forecast_signal, classify_forecast_regime
 from fastapi import HTTPException
 
 
@@ -207,13 +208,13 @@ def test_probabilistic_forecast_output_contract():
     first_pt = cone["fan_points"][0]
     assert first_pt["lower_2s"] < first_pt["lower_1s"] <= first_pt["price_mid"] <= first_pt["upper_1s"] < first_pt["upper_2s"]
 
-    # Verify UnifiedTradeSignal compliance
-    sig = res["unified_signal"]
-    assert sig["symbol"] == "BTCUSDT"
-    assert sig["direction"] in ("LONG", "SHORT", "NEUTRAL")
-    assert sig["entry_type"] == "FORECAST_CONE"
-    assert sig["unique_id"] is not None
-    assert len(sig["unique_id"]) == 16  # 16-char hex prefix
+    # A forecast must not manufacture an order when the selected strategy has
+    # no valid latest-candle setup. The cone remains available for context.
+    assert res["base_scenario"]["direction"] == "NO_TRADE"
+    assert res["unified_signal"] is None
+    assert res["decision_diagnostic"]["status"] == "NO_TRADE"
+    assert isinstance(res["decision_diagnostic"]["failed_checks"], list)
+    assert res["base_scenario"]["reason"].startswith("NO_TRADE:")
 
 
 def test_probabilistic_forecast_rejects_insufficient_bars():
@@ -226,3 +227,44 @@ def test_probabilistic_forecast_rejects_insufficient_bars():
             asyncio.run(compute_probabilistic_forecast("BTCUSDT", "15m", horizon_bars=16))
         assert exc_info.value.status_code == 400
         assert "минимум 60 свечей" in exc_info.value.detail
+
+
+def test_forecast_signal_parameters_preserve_leverage_and_risk():
+    signal = build_forecast_signal(
+        symbol="BTCUSDT",
+        timeframe="15m",
+        timestamp=1700000000000,
+        direction="LONG",
+        entry_price=50000.0,
+        sl=49600.0,
+        tp1=50600.0,
+        tp2=50800.0,
+        leverage=3.0,
+        risk_per_trade_pct=0.75,
+        expected_rr=2.0,
+        confidence=0.72,
+        reason="EMA/CVD confirmation",
+        strategy_type="confluence_ema",
+    )
+
+    assert signal.leverage == 3.0
+    assert signal.risk_pct == 0.0075
+
+
+def test_forecast_regime_contract_exposes_classifier_label_and_metrics():
+    rows = [
+        {
+            "open": 100.0,
+            "high": 101.0,
+            "low": 99.0,
+            "close": 100.0,
+            "volume": 1000.0,
+        }
+        for _ in range(10)
+    ]
+
+    regime, metrics = classify_forecast_regime(pd.DataFrame(rows))
+
+    assert regime == "FLAT_DENSE"
+    assert metrics["regime"] == regime
+    assert metrics["is_trade_allowed"] is True

@@ -1757,6 +1757,7 @@ export default function Chart({
   const [showLiquidations, setShowLiquidations] = useState(() => localStorage.getItem('chart_liquidations') !== 'false');
   const [showVwap, setShowVwap] = useState(() => localStorage.getItem('chart_vwap') === 'true');
   const [showWalls, setShowWalls] = useState(() => localStorage.getItem('chart_walls') !== 'false');
+  const [densityMode, setDensityMode] = useState(() => localStorage.getItem('chart_density_mode') || 'auto');
   const [minLiqUsd, setMinLiqUsd] = useState(20000);
   const [heatmapMinUsd, setHeatmapMinUsd] = useState(50000);
   const [storageInfo, setStorageInfo] = useState({ earliest: '', usage: '' });
@@ -1765,6 +1766,28 @@ export default function Chart({
   const activeWallOverlays = useRef([]);
   const vwapLineOverlay = useRef(null);
   const currentKlines = useRef([]);
+
+  const densityBudget = useCallback(() => {
+    if (densityMode === 'compact') return 24;
+    if (densityMode === 'full') return 120;
+    const width = chartContainerRef.current?.clientWidth || 1000;
+    if (width < 700) return 20;
+    if (width < 1100) return 42;
+    return 80;
+  }, [densityMode]);
+
+  const adaptDensityPoints = useCallback((points) => {
+    if (!Array.isArray(points) || points.length <= densityBudget()) return points || [];
+    const budget = densityBudget();
+    const strongest = [...points].sort((a, b) => Number(b.volume_usd || 0) - Number(a.volume_usd || 0)).slice(0, Math.ceil(budget * 0.65));
+    const recent = points.slice(-Math.floor(budget * 0.45));
+    const unique = new Map();
+    [...strongest, ...recent].forEach((point) => {
+      const key = `${point.side || 'bid'}:${point.timestamp}:${Number(point.price).toPrecision(12)}`;
+      if (!unique.has(key)) unique.set(key, point);
+    });
+    return [...unique.values()].slice(0, budget);
+  }, [densityBudget]);
 
   // Context Menu & Level Inspector State (ТАКТ 3)
   const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, price: null });
@@ -2745,7 +2768,7 @@ export default function Chart({
       activeHeatmapOverlays.current = [];
 
       if (Array.isArray(data)) {
-        data.forEach(pt => {
+        adaptDensityPoints(data).forEach(pt => {
           const id = chartRef.current.createOverlay({
             name: 'densityHeatmap',
             points: [{ timestamp: pt.timestamp, value: pt.price }],
@@ -2755,7 +2778,7 @@ export default function Chart({
         });
       }
     } catch (_) {}
-  }, [symbol, showHeatmap, heatmapMinUsd]);
+  }, [symbol, showHeatmap, heatmapMinUsd, adaptDensityPoints]);
 
   // Render parsed orderbook walls on the chart
   const renderOrderBookWalls = useCallback((bidsRaw, asksRaw) => {
@@ -2801,7 +2824,8 @@ export default function Chart({
       bigAsks = asks.slice().sort((a, b) => b.volume_usd - a.volume_usd).slice(0, 2);
     }
 
-    const wallsToRender = [...bigBids, ...bigAsks];
+    const wallBudget = densityMode === 'full' ? 6 : densityMode === 'compact' ? 2 : ((chartContainerRef.current?.clientWidth || 1000) < 900 ? 2 : 4);
+    const wallsToRender = [...bigBids.slice(0, wallBudget), ...bigAsks.slice(0, wallBudget)];
 
     // Remove previous walls
     activeWallOverlays.current.forEach(id => {
@@ -2825,7 +2849,7 @@ export default function Chart({
         if (id) activeWallOverlays.current.push(id);
       } catch (_) {}
     });
-  }, [showWalls]);
+  }, [showWalls, densityMode]);
 
   // Load and render OrderBook Densities (> $1M) as crisp horizontal levels on Chart (HTTP fallback)
   const loadOrderBookWalls = useCallback(async () => {
@@ -4121,6 +4145,28 @@ export default function Chart({
             <span>🧲</span>
             <span className="hidden xl:inline ml-0.5">Стенки</span>
           </button>
+
+          <label
+            data-testid="density-mode-control"
+            className="flex items-center gap-1 px-1 py-0.2 rounded border border-[#1f2937] bg-[#0c1017] text-[9px] text-[#94a3b8] font-mono"
+            title="Адаптивное количество уровней плотности: Auto подстраивается под ширину графика, Compact уменьшает шум, Full показывает больше уровней"
+          >
+            <span className="hidden 2xl:inline">Плотность</span>
+            <select
+              aria-label="Режим плотности графика"
+              value={densityMode}
+              onChange={(event) => {
+                const next = event.target.value;
+                setDensityMode(next);
+                localStorage.setItem('chart_density_mode', next);
+              }}
+              className="bg-transparent text-[#cbd5e1] outline-none cursor-pointer text-[9px]"
+            >
+              <option value="auto" className="bg-[#0f1420]">Auto</option>
+              <option value="compact" className="bg-[#0f1420]">Compact</option>
+              <option value="full" className="bg-[#0f1420]">Full</option>
+            </select>
+          </label>
 
           <button 
             data-testid="btn-toolbar-toggle-cone"

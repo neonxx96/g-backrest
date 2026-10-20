@@ -9,7 +9,7 @@
  */
 
 const API_BASE = '/api';
-const DIRECT_BACKEND_BASE = 'http://127.0.0.1:8000/api';
+const DIRECT_BACKEND_BASE = `http://${import.meta.env.VITE_BACKEND_HOST || '127.0.0.1'}:${import.meta.env.VITE_BACKEND_PORT || '8000'}/api`;
 
 /**
  * Timeframe -> milliseconds (deep-history window math).

@@ -18,6 +18,7 @@ from backend.app.services.scanner import scanner
 from backend.app.services.recorder import recorder
 from backend.app.services.indicators.registry import registry
 from backend.app.services.bot import broadcast_signal
+from backend.app.services.drawing_persistence import choose_latest_drawing
 from backend.app.utils import format_kyiv
 
 router = APIRouter(prefix="/api")
@@ -228,7 +229,7 @@ async def get_drawings(symbol: str, timeframe: str, user_id: str = "0", db: Asyn
         DrawingData.symbol == symbol.upper(),
         DrawingData.timeframe == timeframe
     ))
-    drawing = res.scalar_one_or_none()
+    drawing = choose_latest_drawing(res.scalars().all())
     return {"elements_json": drawing.elements_json if drawing else "[]"}
 
 @router.post("/drawings")
@@ -239,7 +240,7 @@ async def save_drawings(payload: DrawingSaveSchema, db: AsyncSession = Depends(g
         DrawingData.symbol == sym,
         DrawingData.timeframe == payload.timeframe
     ))
-    drawing = res.scalar_one_or_none()
+    drawing = choose_latest_drawing(res.scalars().all())
     
     if drawing:
         drawing.elements_json = payload.elements_json
