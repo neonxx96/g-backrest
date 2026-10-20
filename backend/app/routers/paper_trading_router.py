@@ -194,3 +194,13 @@ async def evaluate_ai_trade_risk(req: AIRiskEvalRequest):
         return {"status": "ok", "evaluation": res}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/ai-model-chain-status")
+async def get_ai_model_chain_status():
+    """Returns telemetry of OpenRouter cascade: spending, daily budget, model availability cache."""
+    return {
+        "status": "ok",
+        "spending": openrouter_client.get_spending_status(),
+        "recent_calls": openrouter_client.call_history[-15:],
+    }

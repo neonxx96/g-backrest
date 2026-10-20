@@ -43,12 +43,16 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
 # OpenRouter LLM Configuration
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash-free")
+OPENROUTER_PRIMARY_MODEL = os.getenv("OPENROUTER_PRIMARY_MODEL", "deepseek/deepseek-v4.1-flash")
+OPENROUTER_FALLBACK_MODEL = os.getenv("OPENROUTER_FALLBACK_MODEL", "openrouter/free")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", OPENROUTER_PRIMARY_MODEL)
 OPENROUTER_FREE_MODELS = [
     m.strip() for m in os.getenv(
         "OPENROUTER_FREE_MODELS",
-        "google/gemini-2.5-flash-free,meta-llama/llama-3-8b-instruct:free,mistralai/mistral-7b-instruct:free,google/gemini-2.0-flash-exp:free,qwen/qwen-2.5-72b-instruct:free"
+        "openrouter/free,meta-llama/llama-3.1-8b-instruct:free,google/gemma-2-9b-it:free,qwen/qwen-2.5-7b-instruct:free"
     ).split(",") if m.strip()
 ]
+OPENROUTER_DAILY_BUDGET_USD = float(os.getenv("OPENROUTER_DAILY_BUDGET_USD", "1.00"))
+OPENROUTER_TIMEOUT_SEC = float(os.getenv("OPENROUTER_TIMEOUT_SEC", "20.0"))
 
 

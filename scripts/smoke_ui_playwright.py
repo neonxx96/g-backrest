@@ -263,9 +263,12 @@ def _ladder_rect(page):
 
 def _ensure_orderbook_visible(page, min_w: int = 100, min_h: int = 40):
     """Make sure the order-book widget is really on screen (not a collapsed strip)."""
-    rect = _ladder_rect(page)
-    if rect and rect["w"] >= min_w and rect["h"] >= min_h:
-        return rect
+    deadline_initial = time.time() + 6
+    while time.time() < deadline_initial:
+        rect = _ladder_rect(page)
+        if rect and rect["w"] >= min_w and rect["h"] >= min_h:
+            return rect
+        time.sleep(0.5)
 
     log("      order-book canvas is collapsed - opening the DOM widget via the widgets menu ...")
     try:

@@ -4385,6 +4385,16 @@ export default function Chart({
               >
                 {secondOpinionData.reason}
               </div>
+              {secondOpinionData.model_used && (
+                <div className="flex items-center justify-between text-[8.5px] text-[#94a3b8] mt-1 px-1">
+                  <span>Модель: <span className="text-white font-mono">{secondOpinionData.model_used}</span></span>
+                  {secondOpinionData.fallback ? (
+                    <span className="text-amber-400 font-bold bg-amber-500/10 px-1 rounded border border-amber-500/30">[Fallback]</span>
+                  ) : (
+                    <span className="text-emerald-400 font-bold bg-emerald-500/10 px-1 rounded border border-emerald-500/30">[Primary]</span>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Factual Market Snapshot Passed */}

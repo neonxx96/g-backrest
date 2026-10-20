@@ -551,20 +551,24 @@ async def ask_openrouter_second_opinion(
                 else:
                     verdict = "НЕЙТРАЛЬНО"
                 reason = str(parsed.get("reason", raw_text)).strip()
+                from backend.app.config import OPENROUTER_PRIMARY_MODEL
                 return {
                     "ai_available": True,
                     "verdict": verdict,
                     "reason": reason,
-                    "model_used": used_model
+                    "model_used": used_model,
+                    "fallback": bool(used_model != OPENROUTER_PRIMARY_MODEL)
                 }
             except Exception:
+                from backend.app.config import OPENROUTER_PRIMARY_MODEL
                 upper = raw_text.upper()
                 verdict = "ЗА" if "ЗА" in upper[:25] else ("ПРОТИВ" if "ПРОТИВ" in upper[:25] else "НЕЙТРАЛЬНО")
                 return {
                     "ai_available": True,
                     "verdict": verdict,
                     "reason": raw_text[:280],
-                    "model_used": used_model
+                    "model_used": used_model,
+                    "fallback": bool(used_model != OPENROUTER_PRIMARY_MODEL)
                 }
     except Exception as e:
         logger.warning(f"OpenRouter Second Opinion error: {e}")
@@ -572,7 +576,9 @@ async def ask_openrouter_second_opinion(
     return {
         "ai_available": False,
         "verdict": "AI НЕДОСТУПЕН",
-        "reason": "AI недоступен (бесплатные модели OpenRouter исчерпаны), принимай решение сам"
+        "reason": "AI недоступен (бесплатные модели OpenRouter исчерпаны), принимай решение сам",
+        "model_used": "local_quant_fallback",
+        "fallback": True
     }
 
 

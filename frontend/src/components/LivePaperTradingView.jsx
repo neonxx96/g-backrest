@@ -579,6 +579,27 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
                     <div className="text-neutral-200 text-[8.5px] leading-snug">
                       {log.message}
                     </div>
+                    {log.meta?.ai_eval && (
+                      <div className="text-[7.5px] font-mono text-neutral-400 flex items-center justify-between pt-0.5 border-t border-neutral-800/40">
+                        <span className="truncate">
+                          Модель: <span className="text-purple-300 font-semibold">{log.meta.ai_eval.model}</span>
+                        </span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {log.meta.ai_eval.fallback ? (
+                            <span className="text-amber-400 bg-amber-500/10 px-1 rounded border border-amber-500/30 font-bold" title={log.meta.ai_eval.fallback_reason || 'Fallback'}>
+                              Fallback
+                            </span>
+                          ) : (
+                            <span className="text-emerald-400 bg-emerald-500/10 px-1 rounded border border-emerald-500/30">
+                              Primary
+                            </span>
+                          )}
+                          {log.meta.ai_eval.latency_ms > 0 && (
+                            <span className="text-neutral-500">{log.meta.ai_eval.latency_ms}ms</span>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })
