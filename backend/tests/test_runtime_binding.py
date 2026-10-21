@@ -1,5 +1,7 @@
 from pathlib import Path
-import socket
+from contextlib import nullcontext
+from types import SimpleNamespace
+import pytest
 
 from backend.app.services.runtime_binding import (
     find_available_port,
@@ -7,16 +9,21 @@ from backend.app.services.runtime_binding import (
 )
 
 
-def test_find_available_port_skips_occupied_port():
-    blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    blocker.bind(("127.0.0.1", 0))
-    blocker.listen(1)
-    occupied_port = blocker.getsockname()[1]
-    try:
-        selected = find_available_port("127.0.0.1", occupied_port, max_attempts=3)
-        assert selected == occupied_port + 1
-    finally:
-        blocker.close()
+def test_find_available_port_skips_occupied_port(monkeypatch):
+    # Windows may allocate adjacent ephemeral ports between bind calls. Model
+    # only the OS boundary so this tests selection, not machine-wide port luck.
+    attempted = []
+
+    def bind(address):
+        attempted.append(address)
+        if address[1] in (8000, 8001):
+            raise OSError("address already in use")
+
+    monkeypatch.setattr("backend.app.services.runtime_binding.socket.socket", lambda *_: nullcontext(SimpleNamespace(setsockopt=lambda *_: None, bind=bind)))
+    assert find_available_port("127.0.0.1", 8000, max_attempts=3) == 8002
+    assert attempted == [("127.0.0.1", 8000), ("127.0.0.1", 8001), ("127.0.0.1", 8002)]
+    with pytest.raises(RuntimeError, match="No free TCP port"):
+        find_available_port("127.0.0.1", 8000, max_attempts=2)
 
 
 def test_persist_runtime_port_updates_env_and_runtime_manifest(tmp_path: Path):
