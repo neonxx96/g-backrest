@@ -203,6 +203,59 @@ def test_live_runner_writes_skip_management_and_close_intents(tmp_path):
     assert events[2]["payload"]["net_pnl"] == 4.25
 
 
+def test_paper_run_lifecycle_links_events_and_closed_trade_accounting(tmp_path):
+    from backend.app.services.deep_intent_logger import DeepIntentLogger
+    from backend.app.services.live_paper_runner import LivePaperRunner
+    from backend.app.services.paper_trading import PaperTradingSession
+    from backend.app.services.execution import PaperSandboxProvider
+
+    runner = LivePaperRunner(session=PaperTradingSession(initial_balance=1000.0, session_id="lifecycle-session"))
+    runner.intent_logger = DeepIntentLogger(tmp_path / "lifecycle.jsonl")
+    runner.start(
+        {"symbol": "BTCUSDT", "timeframe": "5m", "strategy_type": "confluence_ema", "risk_per_trade_pct": 0.5},
+        run_id="lifecycle-run",
+        config_fingerprint="lifecycle-fingerprint",
+    )
+    runner.indicator_candle_close_time = 1_700_000_300_000
+    runner._record_no_entry({
+        "reason": "RSI blocked",
+        "failed_checks": ["rsi_filter"],
+        "rejections": [{"filter": "rsi_filter", "actual": 62, "operator": "within", "threshold": [42, 58]}],
+        "observed": {"rsi": 62},
+    })
+
+    provider = PaperSandboxProvider(initial_balance=1000.0, default_leverage=2.0)
+    provider.open_position("BTCUSDT", "LONG", entry_price=100.0, quantity=0.1)
+    trade_id = "BTCUSDT:1700000300000"
+    runner._active_trade_ids["BTCUSDT"] = trade_id
+    runner._record_event(
+        "POSITION_OPENED", "SIGNAL_ACCEPTED", "EMA cross confirmed", trade_id=trade_id,
+        payload={"entry_price": 100.0, "risk_budget_usdt": 5.0},
+    )
+    trade = provider.close_position("BTCUSDT", 110.0)
+    runner.session.closed_trades.append({
+        "symbol": trade.symbol,
+        "entry_price": trade.entry_price,
+        "exit_price": trade.exit_price,
+        "gross_pnl": trade.gross_pnl,
+        "fee_drag": trade.total_fees,
+        "net_pnl": trade.net_pnl,
+        "reason": "TAKE_PROFIT",
+    })
+    runner._record_new_closed_intents(0)
+    runner.stop()
+
+    events = runner.intent_logger.read_recent(20, run_id="lifecycle-run")
+    lifecycle = [event for event in events if event["trade_id"] == trade_id]
+    assert [event["event_type"] for event in lifecycle] == ["POSITION_OPENED", "POSITION_CLOSED"]
+    assert all(event["run_id"] == "lifecycle-run" for event in events)
+    assert all(event["config_fingerprint"] == "lifecycle-fingerprint" for event in events)
+    closed = lifecycle[-1]["payload"]
+    assert closed["gross_pnl"] == pytest.approx(trade.gross_pnl)
+    assert closed["net_pnl"] == pytest.approx(trade.net_pnl)
+    assert closed["net_pnl"] == pytest.approx(closed["gross_pnl"] - closed["total_fees"])
+
+
 def test_paper_rejection_counts_once_per_closed_candle_and_per_filter(tmp_path):
     runner = LivePaperRunner(session=PaperTradingSession(initial_balance=1000.0, session_id="counter-run"))
     runner.intent_logger = DeepIntentLogger(path=tmp_path / "counter.jsonl")

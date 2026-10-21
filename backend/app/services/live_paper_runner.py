@@ -1120,6 +1120,7 @@ class LivePaperRunner:
                     "entry_price": trade.get("entry_price"),
                     "exit_price": trade.get("exit_price"),
                     "gross_pnl": trade.get("gross_pnl"),
+                    "total_fees": trade.get("fee_drag"),
                     "net_pnl": trade.get("net_pnl"),
                     "fee_drag": trade.get("fee_drag"),
                 },

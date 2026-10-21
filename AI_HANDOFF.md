@@ -22,7 +22,15 @@ Scripts: Обновить scripts/night-pilot.ps1 для запуска прес
 
 Logging: Добавить вывод WinRate, Net PnL по монетам и алерты (Warning Sentinel) при блокировке входов.
 
-## 4. OpenRouter Model Hub
+## 4. Slice 1 — Paper Telemetry & Data Truth (verified 2026-10-21)
+
+- `backend/data/deep_intent_log.jsonl` is append-only and records versioned events with `event_id`, UTC timestamp, `source`, `run_id`, config fingerprint, symbol/strategy/timeframe, reason/checks/observations and optional `trade_id`. Legacy entries remain explicitly unscoped; they are never attributed to a new run.
+- Paper lifecycle and rejection events share run/config identity. Closed paper events include `gross_pnl`, `total_fees` and `net_pnl`; tests verify `net_pnl == gross_pnl - total_fees` against the closed simulator trade. Slippage is not deducted a second time.
+- Runner status distinguishes finalized-candle evaluations, blocked evaluations, per-filter rejection totals, feed/indicator freshness, consecutive/total data errors and telemetry health. Invalid/stale feed observations do not inflate strategy rejection counts; stale data blocks new entries and does not synthesize prices for position management.
+- `GET /api/overnight-pilot/status` is read-only. Controlled lifecycle/background paths own snapshots. `GET /api/overnight-pilot/events` supports `run_id`, `symbol`, `source`, `event_type`, and `limit=1..500`; source totals for Backtest, Forecast, Paper, and System remain separate.
+- Verification: targeted telemetry/feed/provider tests and the full `scripts/check.ps1` gate passed (see current task report). This verifies software contracts, **not strategy profitability**. Runtime 8002 was not restarted or stopped; manual overnight exchange-feed continuity and UI presentation of event history remain outside this backend slice.
+
+## 5. OpenRouter Model Hub
 
 - Добавлен каталог моделей с шестичасовым дисковым кешем и флагом `is_free`.
 - Настройки AI сохраняются в `backend/data/ai_config.json`; UI находится в Settings → AI Engine.
