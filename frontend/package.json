@@ -4,6 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:pilot": "node --test src/features/pilot/pilot.test.js",
+    "prebuild": "npm run test:pilot",
     "dev": "vite",
     "build": "vite build",
     "lint": "oxlint",

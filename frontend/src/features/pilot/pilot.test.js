@@ -61,3 +61,22 @@ test('reload restores only draft, and failed refresh marks last snapshot stale',
   assert.equal(store.getState().connection, 'disconnected');
   assert.equal(store.getState().canStart(), false);
 });
+
+test('status request started before preflight cannot overwrite the new run', async () => {
+  let resolve;
+  const store = createPilotStore({ storage: storage(), api: { status: () => new Promise(r => { resolve = r; }), preflight: async c => ready(c) } });
+  store.getState().setConfigs([config]);
+  const poll = store.getState().refresh();
+  await store.getState().check();
+  resolve({ sessions: {} }); await poll;
+  assert.equal(store.getState().status.preflight_id, 'run-a');
+  assert.equal(store.getState().canStart(), true);
+});
+test('late event response cannot replace the selected run journal', async () => {
+  let resolve;
+  const store = createPilotStore({ storage: storage(), api: { events: id => id === 'old' ? new Promise(r => { resolve = r; }) : Promise.resolve({ events: [{ run_id: 'new', event_id: '2' }] }) } });
+  const old = store.getState().loadEvents('old');
+  await store.getState().loadEvents('new');
+  resolve({ events: [{ run_id: 'old', event_id: '1' }] }); await old;
+  assert.equal(store.getState().events[0].run_id, 'new');
+});

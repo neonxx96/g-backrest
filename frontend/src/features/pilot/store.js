@@ -5,6 +5,8 @@ import { allocateCapital, configKey, validateConfigs, hasRunning, optimizerReque
 
 export function createPilotStore({ api = pilotApi, storage = globalThis.localStorage } = {}) {
   let refreshing = false;
+  let mutationEpoch = 0;
+  let eventRequest = 0;
   return createStore(persist((set, get) => ({
     configs: [], step: 0, status: null, connection: 'unknown', checkedKey: null,
     busy: null, error: '', optimizations: {}, events: [], initialized: false,
@@ -41,8 +43,9 @@ export function createPilotStore({ api = pilotApi, storage = globalThis.localSto
     refresh: async () => {
       if (refreshing || get().busy) return;
       refreshing = true;
-      try { const status = await api.status(); set({ status, connection: 'connected' }); }
-      catch (e) { set({ connection: 'disconnected', checkedKey: null, error: e.message }); }
+      const epoch = mutationEpoch;
+      try { const status = await api.status(); if (epoch === mutationEpoch) set({ status, connection: 'connected' }); }
+      catch (e) { if (epoch === mutationEpoch) set({ connection: 'disconnected', checkedKey: null, error: e.message }); }
       finally { refreshing = false; }
     },
     check: async () => {
@@ -51,6 +54,7 @@ export function createPilotStore({ api = pilotApi, storage = globalThis.localSto
       const errors = validateConfigs(configs);
       if (errors.length) { set({ error: errors.join(' ') }); return; }
       const key = configKey(configs);
+      mutationEpoch += 1;
       set({ busy: 'check', checkedKey: null, error: '' });
       try {
         const status = await api.preflight(configs);
@@ -62,6 +66,7 @@ export function createPilotStore({ api = pilotApi, storage = globalThis.localSto
       if (!get().canStart()) { set({ error: 'Повторите проверку текущей конфигурации.' }); return; }
       const configs = structuredClone(get().configs);
       const id = get().status.preflight_id;
+      mutationEpoch += 1;
       set({ busy: 'start', checkedKey: null, error: '' });
       try { const status = await api.start(configs, id); set({ status, connection: 'connected', step: 3 }); }
       catch (e) { set({ error: `${e.message} Статус запуска неизвестен; обновите состояние.`, connection: 'unknown' }); }
@@ -69,6 +74,7 @@ export function createPilotStore({ api = pilotApi, storage = globalThis.localSto
     },
     stop: async () => {
       if (get().busy) return;
+      mutationEpoch += 1;
       set({ busy: 'stop', error: '' });
       try { set({ status: await api.stop(), connection: 'connected', checkedKey: null }); }
       catch (e) { set({ error: e.message, connection: 'unknown' }); }
@@ -92,14 +98,15 @@ export function createPilotStore({ api = pilotApi, storage = globalThis.localSto
       catch (e) { set({ error: e.message }); }
     },
     loadEvents: async (runId, symbol) => {
+      const requestId = ++eventRequest;
       if (!runId) { set({ events: [] }); return; }
-      try { const payload = await api.events(runId, symbol); set({ events: payload.events.filter(e => e.run_id === runId) }); }
-      catch (e) { set({ error: `Журнал: ${e.message}` }); }
+      try { const payload = await api.events(runId, symbol); if (requestId === eventRequest) set({ events: payload.events.filter(e => e.run_id === runId) }); }
+      catch (e) { if (requestId === eventRequest) set({ error: `Журнал: ${e.message}` }); }
     },
   }), {
     name: 'signalscript_pilot_wizard_v1', version: 1,
     storage: createJSONStorage(() => storage),
     partialize: s => ({ configs: s.configs, step: s.step }),
-    merge: (saved, current) => ({ ...current, configs: Array.isArray(saved?.configs) ? saved.configs : [], step: [0, 1, 2, 3].includes(saved?.step) ? saved.step : 0 }),
+    merge: (saved, current) => ({ ...current, configs: Array.isArray(saved?.configs) ? saved.configs.filter(c => c && typeof c === 'object' && typeof c.symbol === 'string') : [], step: [0, 1, 2, 3].includes(saved?.step) ? saved.step : 0 }),
   }));
 }

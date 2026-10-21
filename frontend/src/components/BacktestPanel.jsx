@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, lazy, Suspense } from 'react';
 import { useBacktestStore } from '../stores/backtestStore';
 import { buildResearchVerdict } from '../utils/researchVerdict';
 import {
@@ -24,7 +24,7 @@ import {
   Zap
 } from 'lucide-react';
 import { LivePaperTradingControls, LivePaperTradingResults } from './LivePaperTradingView';
-import OvernightPilotPanel from './OvernightPilotPanel';
+const PilotDialog = lazy(() => import('../features/pilot/PilotWorkspace.jsx'));
 import BacktestTradeTimeline from './BacktestTradeTimeline';
 
 const API_BASE = '/api';
@@ -1457,9 +1457,9 @@ export default function BacktestPanel({
               data-testid="btn-open-overnight-pilot"
               onClick={() => setShowOvernightPilot(true)}
               className="rounded border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[9px] font-bold text-amber-300 hover:bg-amber-400/20"
-              title="Запустить BTC, ETH и SOL в независимом ночном paper-пилоте"
+              title="Настроить монеты, стратегию, депозит и риск; проверить и запустить paper-сессии"
             >
-              🌙 Ночной пилот
+              🌙 Мастер Night Pilot
             </button>
         </div>
         <button onClick={onClose} className="text-neutral-500 hover:text-neutral-200 shrink-0 cursor-pointer" title="Закрыть (B)">
@@ -1473,7 +1473,7 @@ export default function BacktestPanel({
           className="w-[450px] 2xl:w-[490px] shrink-0 p-2.5 border-r border-neutral-800 space-y-2 overflow-y-auto bg-neutral-950/60 select-none"
         >
           {mode === 'live_paper' ? (
-            <LivePaperTradingControls symbol={symbol} />
+            <div className="space-y-3 text-xs"><h2 className="font-semibold text-cyan-200">Настройка paper-торговли</h2><p className="text-neutral-400">Выберите монеты, стратегии, депозит и риск. Проверьте историю и прогноз перед запуском.</p><button className="rounded border border-cyan-700 bg-cyan-950 px-3 py-2 text-cyan-100" onClick={() => setShowOvernightPilot(true)}>Открыть мастер запуска</button><details><summary className="cursor-pointer text-neutral-500">Предыдущий одноинструментный симулятор</summary><LivePaperTradingControls symbol={symbol} /></details></div>
           ) : mode === 'ai' ? (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -2800,7 +2800,7 @@ export default function BacktestPanel({
           )}
         </div>
       </div>
-      {showOvernightPilot && <OvernightPilotPanel onClose={() => setShowOvernightPilot(false)} />}
+      {showOvernightPilot && <Suspense fallback={<div role="status" className="absolute inset-0 z-50 bg-neutral-950 p-4 text-cyan-200">Загрузка Night Pilot…</div>}><PilotDialog onClose={() => setShowOvernightPilot(false)} /></Suspense>}
     </div>
   );
 }
