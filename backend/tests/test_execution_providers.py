@@ -1,6 +1,7 @@
 import pytest
 
 from backend.app.services.execution import PaperSandboxProvider
+from backend.app.services.paper_trading import PaperTradingSession
 
 
 def test_paper_provider_preserves_net_pnl_accounting_invariant():
@@ -20,3 +21,12 @@ def test_paper_provider_applies_funding_to_total_fees_and_releases_margin():
     trade = provider.close_position("BTCUSDT", exit_price=100)
     assert trade.total_fees > 0
     assert provider.snapshot().used_margin == pytest.approx(0.0)
+
+
+def test_paper_session_fee_configuration_uses_backtest_percentage_convention():
+    session = PaperTradingSession()
+
+    session.set_fee_rates_percent(maker_fee_pct=0.02, taker_fee_pct=0.05)
+
+    assert session.maker_fee == pytest.approx(0.0002)
+    assert session.taker_fee == pytest.approx(0.0005)

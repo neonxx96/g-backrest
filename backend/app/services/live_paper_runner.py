@@ -193,6 +193,7 @@ class LivePaperRunner:
         # stores the fraction used by its position-size formula.
         self.session.risk_per_trade_pct = self.risk_per_trade_pct / 100.0
         self.session.leverage = max(1.0, self.leverage)
+        self.session.set_fee_rates_percent(self.maker_fee_pct, self.taker_fee_pct)
 
         self.is_running = True
         self.logs = []

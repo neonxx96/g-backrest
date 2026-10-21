@@ -199,7 +199,7 @@ class TestPaperTradingSessionLifecycle(unittest.TestCase):
         self.assertEqual(session.initial_balance, 100.0)
         self.assertEqual(session.available_margin, 100.0)
         self.assertEqual(session.risk_per_trade_pct, 0.02)
-        self.assertEqual(session.taker_fee, 0.0004)
+        self.assertEqual(session.taker_fee, 0.0005)
 
         # Risk budget = 100.0 * 0.02 = $2.00
         # Entry = 100.0, Stop = 98.0 -> SL dist = 2.0 -> qty = 2.00 / 2.0 = 1.0

@@ -157,7 +157,7 @@ class PaperTradingSession:
         initial_balance: float = 100.0,
         risk_per_trade_pct: float = 0.02,
         maker_fee: float = DEFAULT_MAKER_FEE,
-        taker_fee: float = 0.0004,
+        taker_fee: float = DEFAULT_TAKER_FEE,
         signal_lag_ms: int = DEFAULT_SIGNAL_LAG_MS,
         order_rtt_ms: int = DEFAULT_ORDER_RTT_MS,
         session_id: Optional[str] = None,
@@ -193,6 +193,11 @@ class PaperTradingSession:
         self.is_halted: bool = False
         self.halt_reason: Optional[str] = None
         self.halt_ts: Optional[int] = None
+
+    def set_fee_rates_percent(self, maker_fee_pct: float, taker_fee_pct: float) -> None:
+        """Apply the API/backtest fee convention (percent, e.g. 0.05 = 5 bps)."""
+        self.maker_fee = max(0.0, float(maker_fee_pct)) / 100.0
+        self.taker_fee = max(0.0, float(taker_fee_pct)) / 100.0
 
     def calculate_position_size(
         self,
