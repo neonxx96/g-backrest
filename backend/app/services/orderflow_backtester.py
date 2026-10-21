@@ -1491,6 +1491,7 @@ class OrderFlowBacktester:
             "net_pnl": sum(float(item.get("net_pnl", 0.0)) for item in baseline_fold_raw),
             "gross_pnl": sum(float(item.get("gross_pnl", 0.0)) for item in baseline_fold_raw),
             "total_fees_usd": sum(float(item.get("total_fees_usd", 0.0)) for item in baseline_fold_raw),
+            "total_slippage_usd": sum(float(item.get("total_slippage_usd", 0.0)) for item in baseline_fold_raw),
         }
         for key in ("roi_pct", "win_rate_pct", "profit_factor", "max_drawdown_pct", "recovery_factor", "sharpe_ratio", "sortino_ratio"):
             baseline_wf_raw[key] = float(np.mean([float(item.get(key, 0.0) or 0.0) for item in baseline_fold_raw])) if baseline_fold_raw else 0.0
@@ -1586,6 +1587,7 @@ class OrderFlowBacktester:
                 "net_pnl": sum(float(item.get("net_pnl", 0.0)) for item in fold_results),
                 "gross_pnl": sum(float(item.get("gross_pnl", 0.0)) for item in fold_results),
                 "total_fees_usd": sum(float(item.get("total_fees_usd", 0.0)) for item in fold_results),
+                "total_slippage_usd": sum(float(item.get("total_slippage_usd", 0.0)) for item in fold_results),
                 "win_rate_pct": wr,
                 "profit_factor": pf,
                 "max_drawdown_pct": max_dd,
@@ -1617,6 +1619,7 @@ class OrderFlowBacktester:
                 "net_pnl_usd": round(float(raw.get("net_pnl", 0.0)), 2),
                 "gross_pnl_usd": round(float(raw.get("gross_pnl", 0.0)), 2),
                 "total_fees_usd": round(float(raw.get("total_fees_usd", 0.0)), 2),
+                "total_slippage_usd": round(float(raw.get("total_slippage_usd", 0.0)), 2),
                 "win_rate_pct": round(wr, 2),
                 "profit_factor": round(float(raw.get("profit_factor", 0.0)), 2),
                 "max_drawdown_pct": round(max_dd, 2),
@@ -1637,6 +1640,8 @@ class OrderFlowBacktester:
                         "candles": fold_bounds[i][1] - fold_bounds[i][0],
                         "total_trades": int(item.get("total_trades", 0)),
                         "net_pnl_usd": round(float(item.get("net_pnl", 0.0)), 2),
+                        "total_fees_usd": round(float(item.get("total_fees_usd", 0.0)), 2),
+                        "total_slippage_usd": round(float(item.get("total_slippage_usd", 0.0)), 2),
                         "win_rate_pct": round(float(item.get("win_rate_pct", 0.0)), 2),
                         "profit_factor": round(float(item.get("profit_factor", 0.0)), 2),
                         "max_drawdown_pct": round(float(item.get("max_drawdown_pct", 0.0)), 2),
@@ -1795,6 +1800,7 @@ class OrderFlowBacktester:
                 "net_pnl_usd": round(float(raw.get("net_pnl", 0.0)), 2),
                 "gross_pnl_usd": round(float(raw.get("gross_pnl", 0.0)), 2),
                 "total_fees_usd": round(float(raw.get("total_fees_usd", 0.0)), 2),
+                "total_slippage_usd": round(float(raw.get("total_slippage_usd", 0.0)), 2),
                 "win_rate_pct": round(float(raw.get("win_rate_pct", 0.0)), 2),
                 "profit_factor": round(float(raw.get("profit_factor", 0.0)), 2),
                 "max_drawdown_pct": round(float(raw.get("max_drawdown_pct", 0.0)), 2),
@@ -1919,6 +1925,7 @@ class OrderFlowBacktester:
             "net_pnl_usd": round(float(baseline_wf_raw.get("net_pnl", 0.0)), 2),
             "gross_pnl_usd": round(float(baseline_wf_raw.get("gross_pnl", 0.0)), 2),
             "total_fees_usd": round(float(baseline_wf_raw.get("total_fees_usd", 0.0)), 2),
+            "total_slippage_usd": round(float(baseline_wf_raw.get("total_slippage_usd", 0.0)), 2),
             "win_rate_pct": round(float(baseline_wf_raw.get("win_rate_pct", 0.0)), 2),
             "profit_factor": round(float(baseline_wf_raw.get("profit_factor", 0.0)), 2),
             "max_drawdown_pct": round(float(baseline_wf_raw.get("max_drawdown_pct", 0.0)), 2),
