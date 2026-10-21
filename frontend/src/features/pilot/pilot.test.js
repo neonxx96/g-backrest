@@ -1,0 +1,63 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { allocateCapital, configKey, validateConfigs, readReport } from './model.js';
+import { createPilotStore } from './store.js';
+
+const config = { symbol: 'BTCUSDT', strategy_type: 'confluence_ema', timeframe: '15m', days: 14, initial_capital: 1000, risk_per_trade_pct: 0.5, stop_loss_pct: 0.8, take_profit_pct: 2.2, leverage: 2, duration_hours: 1 };
+const ready = (configs) => ({ preflight_id: 'run-a', sessions: Object.fromEntries(configs.map(c => [c.symbol, { config: c, run_id: 'run-a', preflight_valid: true, forecast: { data_status: 'connected' }, backtest: {}, paper: null }])) });
+const storage = () => { const data = new Map(); return { getItem: k => data.get(k) ?? null, setItem: (k, v) => data.set(k, v), removeItem: k => data.delete(k) }; };
+
+test('allocating a total does not multiply the virtual deposit by symbol count', () => {
+  assert.deepEqual(allocateCapital(1000, 3), [333.34, 333.33, 333.33]);
+  assert.throws(() => allocateCapital(0, 3));
+});
+test('validation rejects duplicate symbols, missing risk and invalid duration', () => {
+  assert.equal(validateConfigs([config]).length, 0);
+  assert.ok(validateConfigs([config, { ...config }]).length);
+  for (const change of [{ risk_per_trade_pct: '' }, { initial_capital: 0 }, { duration_hours: 13 }, { stop_loss_pct: NaN }]) assert.ok(validateConfigs([{ ...config, ...change }]).length);
+});
+test('configuration key ignores property insertion order but includes risk', () => {
+  assert.equal(configKey([{ a: 1, b: 2 }]), configKey([{ b: 2, a: 1 }]));
+  assert.notEqual(configKey([config]), configKey([{ ...config, risk_per_trade_pct: 1 }]));
+});
+test('OOS missing evidence never falls back to profitable training summary', () => {
+  const report = readReport({ report: { schema_version: 1, status: 'insufficient_evidence', metrics: null, sample: { closed_trades: 3 } }, summary: { net_pnl_usd: 100 } });
+  assert.equal(report.metrics, null);
+  assert.equal(report.status, 'insufficient_evidence');
+  assert.equal(readReport({}).metrics, null);
+});
+test('editing a checked draft invalidates launch; late preflight cannot approve it', async () => {
+  let resolve;
+  const api = { preflight: () => new Promise(r => { resolve = r; }) };
+  const store = createPilotStore({ api, storage: storage() });
+  store.getState().setConfigs([config]);
+  const pending = store.getState().check();
+  store.getState().updateConfig(0, { stop_loss_pct: 1 });
+  resolve(ready([config])); await pending;
+  assert.equal(store.getState().canStart(), false);
+  assert.equal(store.getState().configs[0].stop_loss_pct, 1);
+});
+test('start uses checked configuration and server identity; failure is not success', async () => {
+  let received;
+  const api = { preflight: async c => ready(c), start: async (c, id) => { received = [c, id]; throw new Error('offline'); } };
+  const store = createPilotStore({ api, storage: storage() });
+  store.getState().setConfigs([config]); await store.getState().check();
+  assert.equal(store.getState().canStart(), true);
+  await store.getState().start();
+  assert.equal(received[1], 'run-a'); assert.equal(received[0][0].initial_capital, 1000);
+  assert.match(store.getState().error, /offline/);
+  assert.equal(store.getState().canStart(), false);
+});
+test('reload restores only draft, and failed refresh marks last snapshot stale', async () => {
+  const disk = storage();
+  const api = { preflight: async c => ready(c), status: async () => { throw new Error('offline'); } };
+  const store = createPilotStore({ api, storage: disk });
+  store.getState().setConfigs([config]); await store.getState().check();
+  const restored = createPilotStore({ api, storage: disk });
+  assert.equal(restored.getState().configs[0].symbol, 'BTCUSDT');
+  assert.equal(restored.getState().canStart(), false);
+  assert.equal(restored.getState().status, null);
+  await store.getState().refresh();
+  assert.equal(store.getState().connection, 'disconnected');
+  assert.equal(store.getState().canStart(), false);
+});
