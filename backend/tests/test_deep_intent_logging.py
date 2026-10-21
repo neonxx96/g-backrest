@@ -1,3 +1,7 @@
+from datetime import datetime
+
+import pytest
+
 from backend.app.services.deep_intent_logger import DeepIntentLogger
 from backend.app.services.live_paper_runner import LivePaperRunner
 from backend.app.services.paper_trading import PaperTradingSession
@@ -20,6 +24,111 @@ def test_deep_intent_logger_appends_machine_readable_events(tmp_path):
     assert events[0]["intent"] == "SKIPPED"
     assert events[0]["symbol"] == "BTCUSDT"
     assert events[0]["context"]["rsi"] == 62.0
+
+
+def test_record_event_writes_versioned_identity_and_unique_id(tmp_path):
+    logger = DeepIntentLogger(path=tmp_path / "events.jsonl")
+    values = {
+        "event_type": "DECISION_SKIPPED",
+        "source": "paper",
+        "symbol": "btcusdt",
+        "reason_code": "RSI_OUT_OF_RANGE",
+        "reason": "RSI 62 is above 58",
+        "run_id": "run-1",
+        "session_id": "paper-1",
+        "config_fingerprint": "abc123",
+        "strategy": "confluence_ema",
+        "timeframe": "15m",
+        "checks": [{"name": "rsi_filter", "actual": 62, "operator": "<=", "threshold": 58}],
+        "observed": {"rsi": 62},
+        "trade_id": None,
+        "payload": {"candle_close_time": 900000},
+    }
+
+    first = logger.record_event(**values)
+    second = logger.record_event(**values)
+    decoded_timestamp = datetime.fromisoformat(first["timestamp"])
+
+    assert first["schema_version"] == 1
+    assert first["event_id"] != second["event_id"]
+    assert decoded_timestamp.utcoffset().total_seconds() == 0
+    assert first["source"] == "paper"
+    assert first["run_id"] == "run-1"
+    assert first["config_fingerprint"] == "abc123"
+    assert first["symbol"] == "BTCUSDT"
+    assert first["checks"][0]["actual"] == 62
+    assert first["payload"]["candle_close_time"] == 900000
+    assert len((tmp_path / "events.jsonl").read_text(encoding="utf-8").splitlines()) == 2
+
+
+def test_read_recent_skips_malformed_rows_labels_legacy_and_filters(tmp_path):
+    path = tmp_path / "events.jsonl"
+    logger = DeepIntentLogger(path=path)
+    logger.record(
+        intent="SKIPPED",
+        symbol="ETHUSDT",
+        session_id="legacy-session",
+        reason="old row",
+        context={"rsi": 62},
+    )
+    logger.record_event(
+        event_type="DECISION_SKIPPED",
+        source="paper",
+        symbol="BTCUSDT",
+        reason_code="LOW_VOLUME",
+        reason="volume ratio is too low",
+        run_id="run-btc",
+        session_id="paper-btc",
+        config_fingerprint="fp-btc",
+        strategy="confluence_ema",
+        timeframe="5m",
+        checks=[],
+        observed={},
+        trade_id=None,
+        payload={},
+    )
+    with path.open("a", encoding="utf-8") as stream:
+        stream.write("not valid json\n")
+
+    recent = logger.read_recent(limit=10)
+    scoped = logger.read_recent(limit=10, run_id="run-btc", symbol="btcusdt", source="paper")
+
+    assert len(recent) == 2
+    assert recent[0]["source"] == "legacy"
+    assert recent[0]["run_id"] is None
+    assert recent[1]["event_type"] == "DECISION_SKIPPED"
+    assert len(scoped) == 1
+    assert scoped[0]["run_id"] == "run-btc"
+
+
+def test_record_event_surfaces_disk_write_failure(tmp_path, monkeypatch):
+    logger = DeepIntentLogger(path=tmp_path / "events.jsonl")
+    original_open = type(logger.path).open
+
+    def fail_only_target(path, *args, **kwargs):
+        if path == logger.path:
+            raise OSError("disk is read-only")
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(type(logger.path), "open", fail_only_target)
+
+    with pytest.raises(OSError, match="disk is read-only"):
+        logger.record_event(
+            event_type="RUN_STARTED",
+            source="system",
+            symbol="BTCUSDT",
+            reason_code="RUN_STARTED",
+            reason="paper run started",
+            run_id="run-1",
+            session_id="paper-1",
+            config_fingerprint="fp-1",
+            strategy="confluence_ema",
+            timeframe="15m",
+            checks=[],
+            observed={},
+            trade_id=None,
+            payload={},
+        )
 
 
 def test_optimal_live_preset_allocates_1000_and_five_dollar_risk_budget():
