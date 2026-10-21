@@ -9,6 +9,7 @@ and integrates OpenRouter AI Risk Control veto logic.
 import asyncio
 import json
 import logging
+import math
 import time
 from typing import Dict, Any, List, Optional
 from datetime import datetime
@@ -78,7 +79,14 @@ class LivePaperRunner:
         self.started_at: float = 0.0
         self.data_status: str = "disconnected"
         self.last_data_error: Optional[str] = None
+        self.last_data_error_code: Optional[str] = None
+        self.last_data_error_at: Optional[int] = None
         self.data_error_count: int = 0
+        self.consecutive_data_errors: int = 0
+        self.last_successful_data_at: Optional[int] = None
+        self.reconnect_count: int = 0
+        self.telemetry_status: str = "healthy"
+        self._feed_state: Optional[tuple] = None
         self.no_trade_count: int = 0
         self.evaluations: int = 0
         self.blocked_evaluations: int = 0
@@ -151,7 +159,14 @@ class LivePaperRunner:
         self.started_at = time.time()
         self.data_status = "stale"
         self.last_data_error = None
+        self.last_data_error_code = None
+        self.last_data_error_at = None
         self.data_error_count = 0
+        self.consecutive_data_errors = 0
+        self.last_successful_data_at = None
+        self.reconnect_count = 0
+        self.telemetry_status = "healthy"
+        self._feed_state = None
         self.no_trade_count = 0
         self.evaluations = 0
         self.blocked_evaluations = 0
@@ -236,21 +251,96 @@ class LivePaperRunner:
         payload: Optional[Dict[str, Any]] = None,
         symbol: Optional[str] = None,
     ) -> None:
-        self.intent_logger.record_event(
-            event_type=event_type,
-            source="paper",
-            symbol=symbol or self.symbol,
-            reason_code=reason_code,
-            reason=reason,
-            run_id=self.run_id,
-            session_id=self.session.session_id,
-            config_fingerprint=self.config_fingerprint,
-            strategy=self.strategy_type,
-            timeframe=self.timeframe,
-            checks=checks,
-            observed=observed,
-            trade_id=trade_id,
-            payload=payload,
+        try:
+            self.intent_logger.record_event(
+                event_type=event_type,
+                source="paper",
+                symbol=symbol or self.symbol,
+                reason_code=reason_code,
+                reason=reason,
+                run_id=self.run_id,
+                session_id=self.session.session_id,
+                config_fingerprint=self.config_fingerprint,
+                strategy=self.strategy_type,
+                timeframe=self.timeframe,
+                checks=checks,
+                observed=observed,
+                trade_id=trade_id,
+                payload=payload,
+            )
+            self.telemetry_status = "healthy"
+        except OSError as exc:
+            self.telemetry_status = "degraded"
+            logger.error("Paper telemetry write failed; trading state is unchanged: %s", exc)
+            self._add_log("TELEMETRY_ERROR", "Не удалось записать событие телеметрии", meta={"error": str(exc)[:160]})
+
+    def _record_feed_failure(self, code: str, message: str, *, source: str) -> None:
+        previous_state = (self.data_status, self.indicator_data_status)
+        self.data_error_count += 1
+        self.consecutive_data_errors += 1
+        self.last_data_error = str(message)[:240]
+        self.last_data_error_code = str(code).upper()
+        self.last_data_error_at = int(time.time() * 1000)
+        if source == "transport":
+            self.data_status = "disconnected"
+        else:
+            self.indicator_data_status = "invalid" if source == "ohlcv" else "stale"
+        current_state = (self.data_status, self.indicator_data_status)
+        if current_state != self._feed_state and current_state != previous_state:
+            self._record_event(
+                "FEED_STATUS_CHANGED", str(code).upper(), str(message),
+                payload={"source": source, "from": previous_state, "to": current_state, "error_count": self.data_error_count},
+            )
+            self._feed_state = current_state
+        self._add_log("DATA_ERROR", str(message)[:160], meta={"code": code, "source": source})
+
+    def _record_feed_success(self, timestamp_ms: int) -> None:
+        was_unhealthy = self.data_status != "connected" or self.consecutive_data_errors > 0
+        had_errors = self.consecutive_data_errors > 0
+        previous_state = (self.data_status, self.indicator_data_status)
+        if self.data_status == "disconnected":
+            self.reconnect_count += 1
+        self.data_status = "connected"
+        self.last_successful_data_at = int(time.time() * 1000)
+        self.consecutive_data_errors = 0
+        if had_errors:
+            self.last_data_error = None
+            self.last_data_error_code = None
+        current_state = (self.data_status, self.indicator_data_status)
+        if was_unhealthy and current_state != self._feed_state and current_state != previous_state:
+            self._record_event(
+                "FEED_STATUS_CHANGED", "FEED_RECOVERED", "Validated market snapshot received",
+                payload={"source": "transport", "from": previous_state, "to": current_state},
+            )
+            self._feed_state = current_state
+
+    @staticmethod
+    def _validate_market_snapshot(snapshot, now_ms: int, max_age_ms: int = 30_000):
+        try:
+            price = float(snapshot.price)
+            timestamp = int(snapshot.timestamp)
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            return False, "MARKET_SNAPSHOT_INVALID", "market snapshot is missing a valid price/timestamp"
+        if not math.isfinite(price) or price <= 0:
+            return False, "MARKET_PRICE_INVALID", f"invalid market price: {price}"
+        age_ms = int(now_ms) - timestamp
+        if timestamp <= 0 or age_ms < -5_000 or age_ms > max_age_ms:
+            return False, "MARKET_SNAPSHOT_STALE", f"market snapshot timestamp is stale (age_ms={age_ms})"
+        return True, None, None
+
+    def _indicators_are_fresh(self, now_ms: int) -> bool:
+        if self.indicator_data_status != "connected" or self.indicator_candle_close_time <= 0:
+            return False
+        minutes = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "45m": 45, "1h": 60, "4h": 240, "6h": 360}
+        interval_ms = minutes.get(self.timeframe.lower(), 5) * 60_000
+        age_ms = int(now_ms) - self.indicator_candle_close_time
+        return -5_000 <= age_ms <= interval_ms + 60_000
+
+    def _market_data_is_fresh(self, now_ms: int) -> bool:
+        return bool(
+            self.data_status == "connected"
+            and self.last_successful_data_at is not None
+            and 0 <= int(now_ms) - self.last_successful_data_at <= 30_000
         )
 
     def _add_log(self, category: str, message: str, meta: Optional[Dict[str, Any]] = None):
@@ -417,9 +507,18 @@ class LivePaperRunner:
             "equity_curve": self.equity_curve[-80:],
             "last_tick_time": self._last_tick_time,
             "session_id": state_dict.get("session_id"),
-            "data_status": self.data_status,
+            "data_status": self.data_status if self._market_data_is_fresh(int(time.time() * 1000)) else ("stale" if self.last_successful_data_at else self.data_status),
             "last_data_error": self.last_data_error,
+            "last_data_error_code": self.last_data_error_code,
+            "last_data_error_at": self.last_data_error_at,
             "data_error_count": self.data_error_count,
+            "consecutive_data_errors": self.consecutive_data_errors,
+            "last_successful_data_at": self.last_successful_data_at,
+            "reconnect_count": self.reconnect_count,
+            "telemetry_status": self.telemetry_status,
+            "entry_ready": self._market_data_is_fresh(int(time.time() * 1000)) and self._indicators_are_fresh(int(time.time() * 1000)),
+            "indicator_freshness": "fresh" if self._indicators_are_fresh(int(time.time() * 1000)) else "stale",
+            "indicator_data_age_ms": max(0, int(time.time() * 1000) - self.indicator_candle_close_time) if self.indicator_candle_close_time else None,
             "no_trade_count": self.no_trade_count,
             "evaluations": self.evaluations,
             "blocked_evaluations": self.blocked_evaluations,
@@ -450,10 +549,7 @@ class LivePaperRunner:
                 break
             except Exception as e:
                 logger.error(f"Error in LivePaperRunner tick cycle: {e}")
-                self.data_status = "disconnected"
-                self.last_data_error = str(e)[:160]
-                self.data_error_count += 1
-                self._add_log("ERROR", f"Сбой цикла опроса: {str(e)[:80]}")
+                self._record_feed_failure("TRANSPORT_ERROR", str(e), source="transport")
 
             await asyncio.sleep(4.0)
 
@@ -462,12 +558,19 @@ class LivePaperRunner:
         self._last_tick_time = int(time.time() * 1000)
 
         # 1. Fetch live unified market data (Spot L2 + Futures liqs + ticker)
-        data = await market_data_provider.get_unified_data(self.symbol)
-        self.data_status = "connected"
-        self.last_data_error = None
-        current_price = data.snapshot.price
-        if current_price <= 0:
+        try:
+            data = await market_data_provider.get_unified_data(self.symbol)
+        except Exception as exc:
+            self._record_feed_failure("TRANSPORT_ERROR", str(exc), source="transport")
             return
+
+        valid_snapshot, error_code, error_message = self._validate_market_snapshot(data.snapshot, self._last_tick_time)
+        if not valid_snapshot:
+            self._record_feed_failure(error_code or "MARKET_SNAPSHOT_INVALID", error_message or "invalid market snapshot", source="transport")
+            return
+
+        self._record_feed_success(int(data.snapshot.timestamp))
+        current_price = data.snapshot.price
 
         # Forward the actual Binance price and current L2 book into the shared
         # paper execution simulator before strategy/position decisions.
@@ -516,6 +619,20 @@ class LivePaperRunner:
 
         # 5. Search for trade setups matching selected strategy
         indicator_context = await self._load_indicator_context()
+        if indicator_context is None or not self._indicators_are_fresh(self._last_tick_time):
+            if indicator_context is not None and self.indicator_data_status != "stale":
+                self._record_feed_failure(
+                    "INDICATOR_STALE", "Latest closed-candle indicators are stale", source="history"
+                )
+            elif indicator_context is not None:
+                self.indicator_data_status = "stale"
+            self._record_no_entry({
+                "reason": "NO_TRADE: свежие подтверждённые OHLCV-индикаторы недоступны.",
+                "failed_checks": ["indicator_data"],
+                "rejections": [{"filter": "indicator_data", "actual": self.indicator_data_status, "operator": "requires", "threshold": "fresh"}],
+                "observed": {"indicator_candle_close_time": self.indicator_candle_close_time, "transport": self.data_status},
+            })
+            return
         candidate_signal = await self._detect_setup(data, indicator_context)
         if not candidate_signal:
             if indicator_context is not None:
@@ -666,8 +783,9 @@ class LivePaperRunner:
             frame = self._closed_candle_history(frame, self.timeframe, int(time.time() * 1000))
             validation = OrderFlowBacktester.validate_ohlcv_integrity(frame, min_bars=60)
             if not validation["valid"]:
-                self.indicator_data_status = "invalid"
-                self.last_data_error = "OHLCV integrity: " + "; ".join(validation["issues"][:2])
+                self._record_feed_failure(
+                    "OHLCV_INTEGRITY", "OHLCV integrity: " + "; ".join(validation["issues"][:2]), source="ohlcv"
+                )
                 self._add_log("INDICATOR_ERROR", self.last_data_error, meta=validation)
                 return None
 
@@ -676,13 +794,20 @@ class LivePaperRunner:
             previous = enriched.iloc[-2].to_dict()
             self._indicator_context = {"latest": latest, "previous": previous, "frame": enriched}
             self._indicator_context_at = now
+            previous_state = (self.data_status, self.indicator_data_status)
             self.indicator_data_status = "connected"
             self.indicator_last_update = int(latest.get("timestamp", time.time() * 1000))
             interval_minutes = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "45m": 45, "1h": 60, "4h": 240, "6h": 360}.get(self.timeframe.lower(), 5)
             self.indicator_candle_close_time = self.indicator_last_update + interval_minutes * 60_000
+            if (self.data_status, self.indicator_data_status) != previous_state:
+                self._record_event(
+                    "FEED_STATUS_CHANGED", "INDICATORS_RECOVERED", "Validated closed-candle indicators available",
+                    payload={"source": "ohlcv", "indicator_candle_close_time": self.indicator_candle_close_time},
+                )
+                self._feed_state = (self.data_status, self.indicator_data_status)
             return self._indicator_context
         except Exception as exc:
-            self.indicator_data_status = "disconnected"
+            self._record_feed_failure("HISTORY_FETCH_ERROR", str(exc), source="history")
             self._indicator_context = None
             self._add_log("INDICATOR_ERROR", f"Не удалось обновить OHLCV-индикаторы: {str(exc)[:120]}")
             return None
