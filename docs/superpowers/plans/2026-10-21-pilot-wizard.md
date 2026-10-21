@@ -11,3 +11,5 @@ Spec: ../specs/2026-10-21-pilot-wizard-design.md. Execute inline; user explicitl
 Review focus: old responses approving new drafts; duplicate capital per symbol; absent metrics becoming zero; failed network mutation displaying success; partial sessions and backend outage masquerading as all-running.
 
 Progress: implementation started from b6d09f1. Existing dirty files recorded by git status; commits include only new feature files and scoped changes in initially clean files. Baseline full check.ps1 passed in the preceding audit with localhost permission.
+
+Completed: state/model (aa0796b), deterministic port test (84a5ebb), Wizard and browser contract (c7e0279), feed recovery (315dad7). Vendor/research chunk splitting and production-build browser verification complete. Active backend remains untouched; live mutation acceptance must be repeated after a planned deployment, not against the running legacy pilot. Browser tests deliberately intercept paper API writes.

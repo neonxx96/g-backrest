@@ -1,5 +1,7 @@
 """Browser contract test. Pilot mutations are intercepted; existing runners are untouched."""
 import json
+import sys
+import mimetypes
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
 
@@ -41,6 +43,22 @@ def main():
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1280, "height": 900})
+        if "--build" in sys.argv:
+            # Exercise built chunks without starting or replacing any local server.
+            from urllib.parse import urlsplit
+            dist = (Path(__file__).resolve().parents[1] / "frontend/dist").resolve()
+
+            def serve_build(route):
+                path = urlsplit(route.request.url).path
+                if path.startswith("/api/"):
+                    return route.fallback()
+                target = (dist / (path.lstrip("/") or "index.html")).resolve()
+                if not target.is_relative_to(dist) or not target.is_file():
+                    return route.fulfill(status=404, body="Not found")
+                content_type = "text/javascript" if target.suffix == ".js" else mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+                route.fulfill(status=200, content_type=content_type, body=target.read_bytes())
+
+            page.route("http://127.0.0.1:5173/**", serve_build)
         errors = []
         page.on("pageerror", lambda err: (errors.append(str(err)), print(str(err), flush=True)))
         page.route("**/api/overnight-pilot/**", handle)

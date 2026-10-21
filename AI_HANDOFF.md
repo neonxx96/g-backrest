@@ -1,4 +1,15 @@
 # AI Handoff & Project State
+## Latest continuation — Pilot Wizard (2026-10-21)
+
+- Entry point: Backtest panel → «Мастер Night Pilot». Four steps: configuration, checks, comparison, launch/report. Draft settings persist; server runtime is always re-read after reload, never restored as running from local storage.
+- Per-symbol strategy/timeframe, risk, SL/TP, leverage and duration (1–12 hours); total virtual budget is divided between independent wallets with cent-exact conservation, not multiplied by coin count. No shared cross-margin portfolio is implied.
+- Preflight is invalidated by edits or optimizer application. Late requests cannot approve changed configurations or overwrite newer start results. Direct optimizer reports separate holdout evidence from development results; insufficient evidence is not profitability. Only supported parameters transfer, followed by mandatory recheck.
+- Dashboard separates realized/floating PnL, balance/equity, margin, fees, positions, closed trades and run-scoped decisions. Missing fields from older runtimes remain unavailable, not zero. Stopping a runner does not liquidate open paper positions.
+- Actual accumulated feed failures traced to Binance REST DNS errors. Runner retries now back off to 60s and validate snapshot timestamps against receipt time. MiniTicker detects silent sockets, reconnects with bounded delay and starts without fabricated seeded quotes.
+- Production bundle splits React, chart, Dockview and research UI; Wizard is lazy loaded. Largest JS chunk is approximately 484 kB (previous main approximately 1.42 MB), without raising warning limits.
+- Verification: browser contract test `scripts/test_pilot_wizard_ui.py --build` passes configuration → preflight → optimize → apply → recheck → start → reload at narrow width with no page errors. Paper mutation responses in this test are intercepted: it does not prove live profitability or start real sessions.
+- Runtime 8002 was NOT stopped/restarted. New Python fixes require a planned restart after the existing pilot; old runtime lacks run IDs. Foreign dirty changes remain outside these commits. Do not claim the active pilot has loaded new code.
+
 Last Updated: 2026-10-21 00:05:26 MSK
 Phase: 3 - Production Paper Trading, Fee Drag Optimization & OpenRouter Model Hub
 
