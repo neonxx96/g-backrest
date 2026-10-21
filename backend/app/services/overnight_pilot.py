@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from backend.app.routers.backtest import BacktestRequest, BacktestParams, run_backtest
 from backend.app.routers.ai_copilot import compute_probabilistic_forecast
+from backend.app.services.deep_intent_logger import DeepIntentLogger
 from backend.app.services.live_paper_runner import LivePaperRunner
 from backend.app.services.paper_trading import PaperTradingSession
 from backend.app.db.database import AsyncSessionLocal
@@ -81,6 +82,28 @@ class OvernightPilotManager:
         self.sessions: Dict[str, PilotSession] = {}
         self._forecast_tasks: Dict[str, asyncio.Task] = {}
         self._lock = asyncio.Lock()
+        self.intent_logger = DeepIntentLogger()
+
+    def _record_run_event(self, session: PilotSession, *, event_type: str, source: str, reason_code: str, reason: str, payload: Optional[Dict[str, Any]] = None) -> None:
+        try:
+            self.intent_logger.record_event(
+                event_type=event_type,
+                source=source,
+                symbol=session.config.symbol,
+                reason_code=reason_code,
+                reason=reason,
+                run_id=getattr(session, "run_id", None),
+                session_id=session.session_id,
+                config_fingerprint=getattr(session, "config_fingerprint", None),
+                strategy=session.config.strategy_type,
+                timeframe=session.config.timeframe,
+                checks=[],
+                observed={},
+                trade_id=None,
+                payload=payload,
+            )
+        except OSError:
+            logger.exception("Unable to write %s telemetry for %s", source, session.config.symbol)
 
     @staticmethod
     def default_configs() -> List[OvernightPilotConfig]:
@@ -253,11 +276,23 @@ class OvernightPilotManager:
                     ),
                 )
                 session.backtest = await run_backtest(req)
+                self._record_run_event(
+                    session, event_type="BACKTEST_COMPLETED", source="backtest",
+                    reason_code="BACKTEST_COMPLETED", reason="Historical backtest completed",
+                    payload={"summary": session.backtest.get("summary") or {}, "data_engine": session.backtest.get("data_engine") or {}},
+                )
                 session.forecast = await compute_probabilistic_forecast(
                     session.config.symbol,
                     session.config.timeframe,
                     strategy_type=session.config.strategy_type,
                     strategy_params=session.config.model_dump(),
+                )
+                self._record_run_event(
+                    session, event_type="FORECAST_UPDATED", source="forecast",
+                    reason_code="FORECAST_UPDATED", reason="Preflight forecast generated",
+                    payload={"data_status": session.forecast.get("data_status"),
+                             "direction": (session.forecast.get("base_scenario") or {}).get("direction") or (session.forecast.get("unified_signal") or {}).get("direction"),
+                             "updated_at": session.forecast.get("updated_at") or session.forecast.get("anchor_timestamp")},
                 )
             except Exception as exc:
                 session.error = str(exc)
@@ -295,12 +330,13 @@ class OvernightPilotManager:
                     paper_session = PaperTradingSession(initial_balance=session.config.initial_capital, session_id=f"overnight_{session.config.symbol.lower()}_{int(time.time())}")
                     session.session_id = paper_session.session_id
                     runner = LivePaperRunner(session=paper_session)
+                    runner.intent_logger = self.intent_logger
                     session.runner = runner
                     session.started_at = int(time.time() * 1000)
                     runner.start(
                         session.config.model_dump(),
-                        run_id=session.run_id,
-                        config_fingerprint=session.config_fingerprint,
+                        run_id=getattr(session, "run_id", None),
+                        config_fingerprint=getattr(session, "config_fingerprint", None),
                     )
                     self._forecast_tasks[session.config.symbol.upper()] = asyncio.create_task(
                         self._forecast_loop(session),
@@ -435,8 +471,22 @@ class OvernightPilotManager:
                 "paper_losing_trade_reasons": paper.get("losing_trade_reasons", []),
                 "paper_data_status": paper.get("data_status", "unknown"),
                 "paper_errors": paper.get("data_error_count", 0),
+                "paper_consecutive_data_errors": paper.get("consecutive_data_errors"),
+                "paper_last_data_error": paper.get("last_data_error"),
+                "paper_last_data_error_at": paper.get("last_data_error_at"),
+                "paper_last_successful_data_at": paper.get("last_successful_data_at"),
+                "paper_reconnect_count": paper.get("reconnect_count"),
+                "paper_indicator_status": paper.get("indicator_data_status"),
+                "paper_indicator_freshness": paper.get("indicator_freshness"),
+                "paper_indicator_data_age_ms": paper.get("indicator_data_age_ms"),
+                "paper_entry_ready": paper.get("entry_ready"),
+                "paper_telemetry_status": paper.get("telemetry_status"),
                 "paper_no_trade_count": paper.get("no_trade_count", 0),
+                "paper_evaluations": paper.get("evaluations"),
+                "paper_blocked_evaluations": paper.get("blocked_evaluations"),
+                "paper_filter_rejection_total": paper.get("filter_rejection_total"),
                 "paper_rejection_counts": paper.get("rejection_counts", {}),
+                "telemetry_events_by_source": self.intent_logger.count_by_source(item.get("run_id")),
                 "paper_last_decision_reason": paper.get("last_decision_reason"),
                 "paper_last_decision_checks": paper.get("last_decision_checks", []),
                 "paper_last_decision_at": paper.get("last_decision_at"),
@@ -527,6 +577,10 @@ class OvernightPilotManager:
             if row.get("forecast_direction") == "NO_TRADE" and row.get("forecast_reason")
         }
         paper_no_trade = sum(int(row.get("paper_no_trade_count", 0) or 0) for row in rows)
+        telemetry_sources: Dict[str, int] = {"backtest": 0, "forecast": 0, "paper": 0, "system": 0}
+        for row in rows:
+            for source, count in (row.get("telemetry_events_by_source") or {}).items():
+                telemetry_sources[str(source)] = telemetry_sources.get(str(source), 0) + int(count or 0)
         paper_rejection_counts: Dict[str, int] = {}
         for row in rows:
             for reason, count in (row.get("paper_rejection_counts") or {}).items():
@@ -577,6 +631,7 @@ class OvernightPilotManager:
                 "losing_trade_reasons": paper_losing_trade_reasons[-20:],
             },
             "data": {"error_count": error_count, "statuses": {row["symbol"]: row.get("paper_data_status") or row.get("forecast_data_status") for row in rows}},
+            "telemetry": {"events_by_source": telemetry_sources},
             "best_backtest_symbol": unique_extreme_symbol(rows, "backtest_net_pnl", highest=True),
             "worst_backtest_symbol": unique_extreme_symbol(rows, "backtest_net_pnl", highest=False),
             "best_paper_symbol": unique_extreme_symbol(paper_rows, "paper_pnl", highest=True),

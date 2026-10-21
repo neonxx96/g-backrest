@@ -2,6 +2,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
 
+from backend.app.services.deep_intent_logger import DeepIntentLogger
 from backend.app.services.overnight_pilot import OvernightPilotConfig, overnight_pilot_manager
 
 router = APIRouter(prefix="/api/overnight-pilot", tags=["overnight-pilot"])
@@ -19,8 +20,24 @@ async def get_diversified_paper_defaults():
 
 @router.get("/status")
 async def get_overnight_status():
-    await overnight_pilot_manager.persist()
     return overnight_pilot_manager.status()
+
+
+@router.get("/events")
+def get_paper_events(
+    run_id: Optional[str] = None,
+    symbol: Optional[str] = None,
+    source: Optional[str] = None,
+    event_type: Optional[str] = None,
+    limit: int = 100,
+):
+    """Read bounded run-scoped decision telemetry; legacy rows have no inferred run."""
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=422, detail="limit must be between 1 and 500")
+    intent_logger = getattr(overnight_pilot_manager, "intent_logger", None) or DeepIntentLogger()
+    filters = {"run_id": run_id, "symbol": symbol.upper() if symbol else None, "source": source, "event_type": event_type}
+    events = intent_logger.read_recent(limit=limit, **filters)
+    return {"events": events, "count": len(events), "filters": {**filters, "limit": limit}}
 
 
 @router.post("/start")

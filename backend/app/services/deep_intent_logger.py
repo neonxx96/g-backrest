@@ -159,3 +159,20 @@ class DeepIntentLogger:
                     continue
                 events.append(event)
         return list(events)
+
+    def count_by_source(self, run_id: Optional[str]) -> Dict[str, int]:
+        """Count run-scoped events without loading the append-only log into memory."""
+        counts: Dict[str, int] = {"backtest": 0, "forecast": 0, "paper": 0, "system": 0}
+        if not run_id or not self.path.exists():
+            return counts
+        with self.path.open("r", encoding="utf-8") as stream:
+            for line in stream:
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(event, dict) or event.get("run_id") != run_id:
+                    continue
+                source = str(event.get("source") or "legacy")
+                counts[source] = counts.get(source, 0) + 1
+        return counts
