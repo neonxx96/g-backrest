@@ -297,7 +297,11 @@ class OvernightPilotManager:
                     runner = LivePaperRunner(session=paper_session)
                     session.runner = runner
                     session.started_at = int(time.time() * 1000)
-                    runner.start(session.config.model_dump())
+                    runner.start(
+                        session.config.model_dump(),
+                        run_id=session.run_id,
+                        config_fingerprint=session.config_fingerprint,
+                    )
                     self._forecast_tasks[session.config.symbol.upper()] = asyncio.create_task(
                         self._forecast_loop(session),
                         name=f"overnight-forecast-{session.config.symbol.upper()}",

@@ -131,6 +131,40 @@ def test_record_event_surfaces_disk_write_failure(tmp_path, monkeypatch):
         )
 
 
+def test_paper_runner_events_are_correlated_to_run_and_configuration(tmp_path):
+    from backend.app.services.deep_intent_logger import DeepIntentLogger
+    from backend.app.services.live_paper_runner import LivePaperRunner
+    from backend.app.services.paper_trading import PaperTradingSession
+
+    runner = LivePaperRunner(session=PaperTradingSession(initial_balance=1000.0))
+    runner.intent_logger = DeepIntentLogger(tmp_path / "runner.jsonl")
+    status = runner.start(
+        {"symbol": "BTCUSDT", "timeframe": "5m", "strategy_type": "confluence_ema"},
+        run_id="run-7",
+        config_fingerprint="fingerprint-7",
+    )
+    assert status["run_id"] == "run-7"
+    assert status["config_fingerprint"] == "fingerprint-7"
+
+    runner._last_tick_time = 123456
+    runner._record_no_entry({
+        "reason": "RSI blocked",
+        "failed_checks": ["rsi_filter"],
+        "rejections": [{"filter": "rsi_filter", "actual": 62, "operator": "<=", "threshold": 58}],
+        "observed": {"rsi": 62},
+    })
+    runner.stop()
+
+    events = runner.intent_logger.read_recent(10)
+    assert [event["event_type"] for event in events] == ["RUN_STARTED", "DECISION_SKIPPED", "RUN_STOPPED"]
+    assert all(event["run_id"] == "run-7" for event in events)
+    assert all(event["config_fingerprint"] == "fingerprint-7" for event in events)
+    skipped = events[1]
+    assert skipped["reason_code"] == "RSI_FILTER"
+    assert skipped["checks"] == ["rsi_filter"]
+    assert skipped["observed"] == {"rsi": 62}
+
+
 def test_optimal_live_preset_allocates_1000_and_five_dollar_risk_budget():
     configs = OvernightPilotManager.optimal_live_configs()
 
@@ -158,5 +192,10 @@ def test_live_runner_writes_skip_management_and_close_intents(tmp_path):
     runner.session.closed_trades.append({"symbol": "BTCUSDT", "reason": "TAKE_PROFIT", "net_pnl": 4.25, "fee_drag": 0.10})
     runner._record_new_closed_intents(0)
 
-    intents = [event["intent"] for event in runner.intent_logger.read_recent(limit=10)]
-    assert intents == ["SKIPPED", "MANAGED", "CLOSED"]
+    events = runner.intent_logger.read_recent(limit=10)
+    assert [event["event_type"] for event in events] == [
+        "DECISION_SKIPPED", "POSITION_UPDATED", "POSITION_CLOSED",
+    ]
+    assert events[0]["reason_code"] == "RSI_FILTER"
+    assert events[1]["payload"]["action"] == "BREAKEVEN"
+    assert events[2]["payload"]["net_pnl"] == 4.25

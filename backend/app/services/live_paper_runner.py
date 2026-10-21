@@ -92,12 +92,21 @@ class LivePaperRunner:
         self._last_rejection_count_key: Optional[str] = None
         self.rejection_counts: Dict[str, int] = {}
         self.intent_logger = DeepIntentLogger()
+        self.run_id: Optional[str] = None
+        self.config_fingerprint: Optional[str] = None
+        self._active_trade_ids: Dict[str, str] = {}
 
         # Logs & Real-Time Equity Curve
         self.logs: List[Dict[str, Any]] = []
         self.equity_curve: List[Dict[str, Any]] = []
 
-    def start(self, config: Dict[str, Any]) -> Dict[str, Any]:
+    def start(
+        self,
+        config: Dict[str, Any],
+        *,
+        run_id: Optional[str] = None,
+        config_fingerprint: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Starts live paper trading runner with user configuration."""
         if self.is_running:
             self.stop()
@@ -105,6 +114,9 @@ class LivePaperRunner:
         self.symbol = str(config.get("symbol", "BTCUSDT")).upper()
         self.timeframe = str(config.get("timeframe", "15m"))
         self.strategy_type = str(config.get("strategy_type", "live_density_bounce"))
+        self.run_id = run_id
+        self.config_fingerprint = config_fingerprint
+        self._active_trade_ids = {}
         self.initial_capital = float(config.get("initial_capital", 10000.0))
         self.risk_per_trade_pct = float(config.get("risk_per_trade_pct", 1.0))
         self.min_density_usd = float(config.get("min_density_usd", 500000.0))
@@ -167,6 +179,10 @@ class LivePaperRunner:
         ]
 
         self._add_log("SYSTEM", f"Симулятор Paper Trading запущен для {self.symbol} (${self.initial_capital:,.2f})")
+        self._record_event(
+            "RUN_STARTED", "RUN_STARTED", "Paper session started",
+            payload={"initial_capital": self.initial_capital, "risk_per_trade_pct": self.risk_per_trade_pct},
+        )
         self._add_log(
             "SYSTEM",
             f"🚀 LIVE PAPER TRADING STARTED | Balance: ${self.initial_capital:,.2f} | Deep Intent Logging: ACTIVE",
@@ -188,8 +204,40 @@ class LivePaperRunner:
         if self._task and not self._task.done():
             self._task.cancel()
             self._task = None
+        if self.started_at:
+            self._record_event("RUN_STOPPED", "RUN_STOPPED", "Paper session stopped")
+            self.started_at = 0.0
         self._add_log("SYSTEM", "Симулятор Paper Trading остановлен пользователем")
         return self.get_status()
+
+    def _record_event(
+        self,
+        event_type: str,
+        reason_code: str,
+        reason: str,
+        *,
+        checks: Optional[List[str]] = None,
+        observed: Optional[Dict[str, Any]] = None,
+        trade_id: Optional[str] = None,
+        payload: Optional[Dict[str, Any]] = None,
+        symbol: Optional[str] = None,
+    ) -> None:
+        self.intent_logger.record_event(
+            event_type=event_type,
+            source="paper",
+            symbol=symbol or self.symbol,
+            reason_code=reason_code,
+            reason=reason,
+            run_id=self.run_id,
+            session_id=self.session.session_id,
+            config_fingerprint=self.config_fingerprint,
+            strategy=self.strategy_type,
+            timeframe=self.timeframe,
+            checks=checks,
+            observed=observed,
+            trade_id=trade_id,
+            payload=payload,
+        )
 
     def _add_log(self, category: str, message: str, meta: Optional[Dict[str, Any]] = None):
         """Appends log entry with timestamp."""
@@ -231,12 +279,12 @@ class LivePaperRunner:
                 filter_name = str(item.get("filter") or "strategy_conditions")
                 self.rejection_counts[filter_name] = self.rejection_counts.get(filter_name, 0) + 1
             self._last_rejection_count_key = count_key
-            self.intent_logger.record(
-                intent="SKIPPED",
-                symbol=self.symbol,
-                session_id=self.session.session_id,
-                reason=message,
-                context={"rejections": rejections, "observed": diagnostic.get("observed") or {}},
+            primary_reason = str((rejections[0] if rejections else {}).get("filter") or "strategy_conditions").upper()
+            self._record_event(
+                "DECISION_SKIPPED", primary_reason, message,
+                checks=self.last_decision_checks,
+                observed=diagnostic.get("observed") or {},
+                payload={"rejections": rejections},
             )
         now = time.time()
         if signature != self._last_rejection_signature or now - self._last_rejection_log_at >= 30.0:
@@ -273,6 +321,8 @@ class LivePaperRunner:
 
         return {
             "is_running": self.is_running,
+            "run_id": self.run_id,
+            "config_fingerprint": self.config_fingerprint,
             "symbol": self.symbol,
             "strategy_type": self.strategy_type,
             "timeframe": self.timeframe,
@@ -500,12 +550,12 @@ class LivePaperRunner:
         try:
             order_res = self.session.execute_unified_signal(signal_obj)
             risk_budget = self.session.available_margin * self.risk_per_trade_pct / 100.0
-            self.intent_logger.record(
-                intent="ENTERED",
-                symbol=self.symbol,
-                session_id=self.session.session_id,
-                reason="; ".join(candidate_signal["reason"]),
-                context={
+            trade_id = f"{self.symbol}:{signal_obj.timestamp}"
+            self._active_trade_ids[self.symbol] = trade_id
+            self._record_event(
+                "POSITION_OPENED", "SIGNAL_ACCEPTED", "; ".join(candidate_signal["reason"]),
+                trade_id=trade_id,
+                payload={
                     "direction": candidate_signal["direction"],
                     "entry_price": candidate_signal["entry_price"],
                     "stop_loss": candidate_signal["sl"],
@@ -850,22 +900,21 @@ class LivePaperRunner:
         self._record_new_closed_intents(closed_before)
 
     def _record_management_intent(self, action: str, reason: str, context: Dict[str, Any]) -> None:
-        self.intent_logger.record(
-            intent="MANAGED",
-            symbol=self.symbol,
-            session_id=self.session.session_id,
-            reason=reason,
-            context={"action": action, **context},
+        self._record_event(
+            "POSITION_UPDATED", action.upper(), reason,
+            trade_id=self._active_trade_ids.get(self.symbol),
+            payload={"action": action, **context},
         )
 
     def _record_new_closed_intents(self, start_index: int) -> None:
         for trade in self.session.closed_trades[start_index:]:
-            self.intent_logger.record(
-                intent="CLOSED",
-                symbol=str(trade.get("symbol", self.symbol)),
-                session_id=self.session.session_id,
-                reason=str(trade.get("reason", "EXIT")),
-                context={
+            trade_symbol = str(trade.get("symbol", self.symbol))
+            trade_id = self._active_trade_ids.pop(trade_symbol, None)
+            self._record_event(
+                "POSITION_CLOSED", str(trade.get("reason", "EXIT")).upper(), str(trade.get("reason", "EXIT")),
+                symbol=trade_symbol,
+                trade_id=trade_id,
+                payload={
                     "entry_price": trade.get("entry_price"),
                     "exit_price": trade.get("exit_price"),
                     "gross_pnl": trade.get("gross_pnl"),
