@@ -147,6 +147,7 @@ def test_paper_runner_events_are_correlated_to_run_and_configuration(tmp_path):
     assert status["config_fingerprint"] == "fingerprint-7"
 
     runner._last_tick_time = 123456
+    runner.indicator_candle_close_time = 1_700_000_300_000
     runner._record_no_entry({
         "reason": "RSI blocked",
         "failed_checks": ["rsi_filter"],
@@ -182,6 +183,7 @@ def test_live_runner_writes_skip_management_and_close_intents(tmp_path):
     runner = LivePaperRunner(session=PaperTradingSession(initial_balance=1000.0, session_id="intent-runner"))
     runner.intent_logger = DeepIntentLogger(path=tmp_path / "deep_intent_log.jsonl")
     runner.symbol = "BTCUSDT"
+    runner.indicator_candle_close_time = 1_700_000_300_000
     runner._record_no_entry({
         "reason": "NO_TRADE: filters blocked",
         "failed_checks": ["rsi_filter"],
@@ -199,3 +201,67 @@ def test_live_runner_writes_skip_management_and_close_intents(tmp_path):
     assert events[0]["reason_code"] == "RSI_FILTER"
     assert events[1]["payload"]["action"] == "BREAKEVEN"
     assert events[2]["payload"]["net_pnl"] == 4.25
+
+
+def test_paper_rejection_counts_once_per_closed_candle_and_per_filter(tmp_path):
+    runner = LivePaperRunner(session=PaperTradingSession(initial_balance=1000.0, session_id="counter-run"))
+    runner.intent_logger = DeepIntentLogger(path=tmp_path / "counter.jsonl")
+    runner.run_id = "run-counter"
+    runner.config_fingerprint = "fp-counter"
+    runner.timeframe = "5m"
+    runner.indicator_candle_close_time = 1_700_000_300_000
+
+    diagnostic = {
+        "reason": "NO_TRADE: filters blocked",
+        "failed_checks": ["rsi_filter", "volume_multiplier"],
+        "rejections": [
+            {"filter": "rsi_filter", "actual": 62, "operator": "within", "threshold": [42, 58]},
+            {"filter": "volume_multiplier", "actual": 0.8, "operator": ">=", "threshold": 1.2},
+        ],
+        "observed": {"rsi": 62, "volume_ratio": 0.8},
+    }
+    runner.indicator_candle_close_time = 1_700_000_300_000
+    runner._record_no_entry(diagnostic)
+    runner._record_no_entry(diagnostic)
+    first = runner.get_status()
+    assert first["evaluations"] == 1
+    assert first["blocked_evaluations"] == 1
+    assert first["filter_rejection_total"] == 2
+    assert first["rejection_counts"] == {"rsi_filter": 1, "volume_multiplier": 1}
+
+    runner.indicator_candle_close_time += 300_000
+    runner._record_no_entry(diagnostic)
+    second = runner.get_status()
+    assert second["evaluations"] == 2
+    assert second["blocked_evaluations"] == 2
+    assert second["filter_rejection_total"] == 4
+
+
+def test_paper_data_quality_rejection_does_not_pollute_strategy_filter_counts(tmp_path):
+    runner = LivePaperRunner(session=PaperTradingSession(initial_balance=1000.0, session_id="data-run"))
+    runner.intent_logger = DeepIntentLogger(path=tmp_path / "data.jsonl")
+    runner.indicator_candle_close_time = 1_700_000_300_000
+    runner._record_no_entry({
+        "reason": "OHLCV integrity failed",
+        "failed_checks": ["data_integrity"],
+        "rejections": [{"filter": "data_integrity", "actual": "NaN close", "operator": "valid", "threshold": True}],
+        "observed": {},
+    })
+    status = runner.get_status()
+    assert status["evaluations"] == 0
+    assert status["blocked_evaluations"] == 0
+    assert status["filter_rejection_total"] == 0
+    assert status["rejection_counts"] == {}
+    event = runner.intent_logger.read_recent(1)[0]
+    assert event["reason_code"] == "DATA_INTEGRITY"
+
+
+def test_live_runner_excludes_currently_forming_candle_from_signal_history():
+    import pandas as pd
+
+    frame = pd.DataFrame({"timestamp": [0, 300_000, 600_000], "close": [100, 101, 102]})
+    closed = LivePaperRunner._closed_candle_history(frame, "5m", now_ms=899_999)
+    assert closed["timestamp"].tolist() == [0, 300_000]
+
+    at_boundary = LivePaperRunner._closed_candle_history(frame, "5m", now_ms=900_000)
+    assert at_boundary["timestamp"].tolist() == [0, 300_000, 600_000]

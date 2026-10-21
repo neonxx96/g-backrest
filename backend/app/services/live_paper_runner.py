@@ -80,6 +80,13 @@ class LivePaperRunner:
         self.last_data_error: Optional[str] = None
         self.data_error_count: int = 0
         self.no_trade_count: int = 0
+        self.evaluations: int = 0
+        self.blocked_evaluations: int = 0
+        self.filter_rejection_total: int = 0
+        self.data_quality_count: int = 0
+        self.indicator_candle_close_time: int = 0
+        self._counted_evaluation_keys = set()
+        self._last_data_quality_signature: Optional[str] = None
         self.last_decision_reason: Optional[str] = None
         self.last_decision_checks: List[str] = []
         self.last_decision_at: int = 0
@@ -146,6 +153,13 @@ class LivePaperRunner:
         self.last_data_error = None
         self.data_error_count = 0
         self.no_trade_count = 0
+        self.evaluations = 0
+        self.blocked_evaluations = 0
+        self.filter_rejection_total = 0
+        self.data_quality_count = 0
+        self.indicator_candle_close_time = 0
+        self._counted_evaluation_keys = set()
+        self._last_data_quality_signature = None
         self.last_decision_reason = None
         self.last_decision_checks = []
         self.last_decision_at = 0
@@ -272,26 +286,79 @@ class LivePaperRunner:
         self.last_decision_reason = diagnostic.get("reason") or message
         self.last_decision_at = self._last_tick_time
         signature = json.dumps(rejections or self.last_decision_checks, sort_keys=True, ensure_ascii=False, default=str)
-        count_key = f"{self.indicator_last_update}:{signature}"
-        if count_key != self._last_rejection_count_key:
-            self.no_trade_count += 1
-            for item in rejections:
-                filter_name = str(item.get("filter") or "strategy_conditions")
-                self.rejection_counts[filter_name] = self.rejection_counts.get(filter_name, 0) + 1
-            self._last_rejection_count_key = count_key
-            primary_reason = str((rejections[0] if rejections else {}).get("filter") or "strategy_conditions").upper()
-            self._record_event(
-                "DECISION_SKIPPED", primary_reason, message,
-                checks=self.last_decision_checks,
-                observed=diagnostic.get("observed") or {},
-                payload={"rejections": rejections},
+        data_quality_filters = {"data_integrity", "indicator_data", "history", "indicators"}
+        failed_filters = list(dict.fromkeys(
+            str(item.get("filter") or "strategy_conditions") for item in rejections
+        ))
+        is_data_quality = bool(diagnostic.get("data_quality")) or bool(data_quality_filters.intersection(failed_filters))
+        if is_data_quality:
+            quality_signature = json.dumps(
+                {"filters": failed_filters, "reason": self.last_decision_reason, "observed": diagnostic.get("observed") or {}},
+                sort_keys=True, ensure_ascii=False, default=str,
             )
+            if quality_signature != self._last_data_quality_signature:
+                self.data_quality_count += 1
+                reason_code = str((rejections[0] if rejections else {}).get("filter") or "data_quality").upper()
+                self._record_event(
+                    "DATA_QUALITY_REJECTED", reason_code, str(self.last_decision_reason),
+                    checks=self.last_decision_checks,
+                    observed=diagnostic.get("observed") or {},
+                    payload={"rejections": rejections},
+                )
+                self._last_data_quality_signature = quality_signature
+        else:
+            candle_close_time = int(
+                diagnostic.get("candle_close_time")
+                or self.indicator_candle_close_time
+                or self.indicator_last_update
+                # Legacy/direct diagnostic callers can omit candle identity;
+                # keep their repeated reports deduplicated within this run.
+                or 1
+            )
+            if self._mark_evaluation(candle_close_time):
+                self.evaluations += 1
+                self.blocked_evaluations += 1
+                self.no_trade_count = self.blocked_evaluations
+                unique_filter_names = failed_filters or ["strategy_conditions"]
+                self.filter_rejection_total += len(unique_filter_names)
+                for filter_name in unique_filter_names:
+                    self.rejection_counts[filter_name] = self.rejection_counts.get(filter_name, 0) + 1
+                self._record_event(
+                    "DECISION_SKIPPED", unique_filter_names[0].upper(), message,
+                    checks=self.last_decision_checks,
+                    observed=diagnostic.get("observed") or {},
+                    payload={"rejections": rejections, "candle_close_time": candle_close_time},
+                )
         now = time.time()
         if signature != self._last_rejection_signature or now - self._last_rejection_log_at >= 30.0:
             self._add_log("NO_ENTRY", message, meta={"rejections": rejections, "observed": diagnostic.get("observed") or {}})
             logger.info("[%s] %s", self.symbol, message)
             self._last_rejection_signature = signature
             self._last_rejection_log_at = now
+
+    def _mark_evaluation(self, candle_close_time: int) -> bool:
+        if candle_close_time <= 0:
+            return False
+        evaluation_key = (
+            self.run_id or "unscoped",
+            self.symbol,
+            self.timeframe,
+            int(candle_close_time),
+        )
+        if evaluation_key in self._counted_evaluation_keys:
+            return False
+        self._counted_evaluation_keys.add(evaluation_key)
+        return True
+
+    @staticmethod
+    def _closed_candle_history(frame, timeframe: str, now_ms: int):
+        """Binance kline timestamps are candle-open times; drop any unclosed bar."""
+        minutes = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "45m": 45, "1h": 60, "4h": 240, "6h": 360}
+        interval_ms = minutes.get(str(timeframe).lower(), 5) * 60_000
+        if frame is None or frame.empty or "timestamp" not in frame.columns:
+            return frame.iloc[0:0].copy() if frame is not None else frame
+        closed = frame[frame["timestamp"].astype("int64") + interval_ms <= int(now_ms)]
+        return closed.copy().reset_index(drop=True)
 
     def get_status(self) -> Dict[str, Any]:
         """Returns live status of runner, current wallet snapshot, and equity curve."""
@@ -354,6 +421,10 @@ class LivePaperRunner:
             "last_data_error": self.last_data_error,
             "data_error_count": self.data_error_count,
             "no_trade_count": self.no_trade_count,
+            "evaluations": self.evaluations,
+            "blocked_evaluations": self.blocked_evaluations,
+            "filter_rejection_total": self.filter_rejection_total,
+            "data_quality_count": self.data_quality_count,
             "rejection_counts": dict(sorted(self.rejection_counts.items(), key=lambda item: (-item[1], item[0]))),
             "last_decision_reason": self.last_decision_reason,
             "last_decision_checks": self.last_decision_checks,
@@ -480,6 +551,9 @@ class LivePaperRunner:
                 })
             return
 
+        if self._mark_evaluation(self.indicator_candle_close_time):
+            self.evaluations += 1
+
         self._last_signal_time = now_sec
 
         # 6. AI Risk Control VETO check via OpenRouter (if enabled)
@@ -589,6 +663,7 @@ class LivePaperRunner:
             from backend.app.services.orderflow_backtester import OrderFlowBacktester
 
             frame = await fetch_history(self.symbol, self.timeframe, days=2)
+            frame = self._closed_candle_history(frame, self.timeframe, int(time.time() * 1000))
             validation = OrderFlowBacktester.validate_ohlcv_integrity(frame, min_bars=60)
             if not validation["valid"]:
                 self.indicator_data_status = "invalid"
@@ -603,6 +678,8 @@ class LivePaperRunner:
             self._indicator_context_at = now
             self.indicator_data_status = "connected"
             self.indicator_last_update = int(latest.get("timestamp", time.time() * 1000))
+            interval_minutes = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "45m": 45, "1h": 60, "4h": 240, "6h": 360}.get(self.timeframe.lower(), 5)
+            self.indicator_candle_close_time = self.indicator_last_update + interval_minutes * 60_000
             return self._indicator_context
         except Exception as exc:
             self.indicator_data_status = "disconnected"
