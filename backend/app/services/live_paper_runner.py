@@ -552,7 +552,10 @@ class LivePaperRunner:
                 logger.error(f"Error in LivePaperRunner tick cycle: {e}")
                 self._record_feed_failure("TRANSPORT_ERROR", str(e), source="transport")
 
-            await asyncio.sleep(4.0)
+            # Retry DNS/transport outages without hammering every upstream endpoint.
+            # A validated recovery resets consecutive_data_errors and normal cadence.
+            delay = min(60.0, 4.0 * (2 ** min(self.consecutive_data_errors, 4)))
+            await asyncio.sleep(delay)
 
     async def tick_cycle(self):
         """Single tick cycle: queries FreeBinanceCollector, updates positions, checks for signals."""
@@ -565,6 +568,9 @@ class LivePaperRunner:
             self._record_feed_failure("TRANSPORT_ERROR", str(exc), source="transport")
             return
 
+        # Compare exchange timestamps against receipt time, not request-start time:
+        # a slow request must not make a fresh response appear to be from the future.
+        self._last_tick_time = int(time.time() * 1000)
         valid_snapshot, error_code, error_message = self._validate_market_snapshot(data.snapshot, self._last_tick_time)
         if not valid_snapshot:
             self._record_feed_failure(error_code or "MARKET_SNAPSHOT_INVALID", error_message or "invalid market snapshot", source="transport")

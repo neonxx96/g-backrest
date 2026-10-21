@@ -10,25 +10,13 @@
  */
 
 import { create } from 'zustand';
-import { DEFAULT_FOCUS_LIST } from '../config/coinLibrary';
-import { deterministicSignalId } from '../utils/researchVerdict';
+import { DEFAULT_FOCUS_LIST } from '../config/coinLibrary.js';
+import { deterministicSignalId } from '../utils/researchVerdict.js';
 
 const WS_MINI_TICKER_URL = 'wss://fstream.binance.com/ws/!miniTicker@arr';
 
-const INITIAL_TICKERS = {
-  BTCUSDT: { symbol: 'BTCUSDT', price: 81300.0, open24h: 80100.0, high24h: 82500.0, low24h: 79800.0, change24hPct: 1.5, volumeUsd: 15400000000, ts: Date.now() },
-  ETHUSDT: { symbol: 'ETHUSDT', price: 2610.0, open24h: 2580.0, high24h: 2650.0, low24h: 2540.0, change24hPct: 1.16, volumeUsd: 6800000000, ts: Date.now() },
-  SOLUSDT: { symbol: 'SOLUSDT', price: 162.5, open24h: 158.0, high24h: 165.0, low24h: 155.0, change24hPct: 2.85, volumeUsd: 3200000000, ts: Date.now() },
-  LINKUSDT: { symbol: 'LINKUSDT', price: 18.45, open24h: 17.80, high24h: 18.90, low24h: 17.50, change24hPct: 3.65, volumeUsd: 850000000, ts: Date.now() },
-  ADAUSDT: { symbol: 'ADAUSDT', price: 0.655, open24h: 0.640, high24h: 0.670, low24h: 0.630, change24hPct: 2.34, volumeUsd: 620000000, ts: Date.now() },
-  SUIUSDT: { symbol: 'SUIUSDT', price: 2.15, open24h: 2.05, high24h: 2.25, low24h: 2.00, change24hPct: 4.88, volumeUsd: 610000000, ts: Date.now() },
-  UNIUSDT: { symbol: 'UNIUSDT', price: 9.85, open24h: 9.40, high24h: 10.10, low24h: 9.20, change24hPct: 4.78, volumeUsd: 480000000, ts: Date.now() },
-  ZECUSDT: { symbol: 'ZECUSDT', price: 34.20, open24h: 33.10, high24h: 35.50, low24h: 32.80, change24hPct: 3.32, volumeUsd: 290000000, ts: Date.now() },
-  BNBUSDT: { symbol: 'BNBUSDT', price: 595.0, open24h: 602.0, high24h: 610.0, low24h: 590.0, change24hPct: -1.16, volumeUsd: 850000000, ts: Date.now() },
-  DOGEUSDT: { symbol: 'DOGEUSDT', price: 0.142, open24h: 0.148, high24h: 0.155, low24h: 0.138, change24hPct: -4.05, volumeUsd: 920000000, ts: Date.now() },
-  XRPUSDT: { symbol: 'XRPUSDT', price: 0.548, open24h: 0.540, high24h: 0.560, low24h: 0.535, change24hPct: 1.48, volumeUsd: 740000000, ts: Date.now() },
-  NEARUSDT: { symbol: 'NEARUSDT', price: 4.85, open24h: 4.70, high24h: 5.10, low24h: 4.60, change24hPct: 3.19, volumeUsd: 350000000, ts: Date.now() }
-};
+// Empty until real exchange data arrives; never seed tradable-looking prices.
+const INITIAL_TICKERS = {};
 
 const getInitialMonitored = () => {
   try {
@@ -46,6 +34,18 @@ export const useMarketDataStore = create((set, get) => {
   let reconnectTimer = null;
   let batchBuffer = new Map();
   let flushTimer = null;
+  let watchdog = null;
+  let lastMessageAt = 0;
+  let reconnectAttempts = 0;
+  let stopped = false;
+  const scheduleReconnect = () => {
+    if (stopped || reconnectTimer) return;
+    const delay = Math.min(30000, 2500 * 2 ** Math.min(reconnectAttempts++, 4));
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      get().initMiniTickerStream();
+    }, delay);
+  };
 
   let monitoringWs = null;
   let monitoringReconnectTimer = null;
@@ -55,7 +55,7 @@ export const useMarketDataStore = create((set, get) => {
     tickers: { ...INITIAL_TICKERS },
     tickersList: Object.values(INITIAL_TICKERS),
     isConnected: false,
-    lastUpdateTs: Date.now(),
+    lastUpdateTs: null,
 
     // Monitored Focus Tickers & Background Telemetry
     monitoredTickers: getInitialMonitored(),
@@ -198,15 +198,24 @@ export const useMarketDataStore = create((set, get) => {
     setShowLiveSignals: (show) => set({ showLiveSignals: Boolean(show) }),
 
     initMiniTickerStream: () => {
+      stopped = false;
       if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
         return;
       }
 
       try {
         ws = new WebSocket(WS_MINI_TICKER_URL);
+        const socket = ws;
+        lastMessageAt = Date.now();
+        watchdog = setInterval(() => {
+          if (Date.now() - lastMessageAt > 30000) {
+            set({ isConnected: false });
+            socket.close();
+          }
+        }, 5000);
 
         ws.onopen = () => {
-          set({ isConnected: true });
+          set({ isConnected: false });
         };
 
         ws.onmessage = (event) => {
@@ -215,6 +224,7 @@ export const useMarketDataStore = create((set, get) => {
             if (!Array.isArray(rawArray)) return;
 
             const now = Date.now();
+            let accepted = false;
             for (const item of rawArray) {
               const sym = item.s;
               if (!sym || !sym.endsWith('USDT')) continue;
@@ -224,6 +234,8 @@ export const useMarketDataStore = create((set, get) => {
               const q = parseFloat(item.q) || 0; // 24h turnover in USDT
               const h = parseFloat(item.h) || 0;
               const l = parseFloat(item.l) || 0;
+              if (![c, o, q, h, l].every(Number.isFinite) || c <= 0 || o <= 0 || h <= 0 || l <= 0 || q < 0) continue;
+              accepted = true;
               const changePct = o > 0 ? ((c - o) / o) * 100 : 0;
 
               batchBuffer.set(sym, {
@@ -237,6 +249,10 @@ export const useMarketDataStore = create((set, get) => {
                 ts: now
               });
             }
+            if (!accepted) return;
+            lastMessageAt = now;
+            reconnectAttempts = 0;
+            set({ isConnected: true });
 
             // Flush batched updates every 350ms to keep React UI smooth without micro-re-renders
             if (!flushTimer) {
@@ -261,34 +277,37 @@ export const useMarketDataStore = create((set, get) => {
 
         ws.onerror = () => {
           set({ isConnected: false });
-          try { ws.close(); } catch (_) {}
+          try { socket.close(); } catch (_) {}
         };
 
         ws.onclose = () => {
+          clearInterval(watchdog);
+          watchdog = null;
           ws = null;
           set({ isConnected: false });
-          if (!reconnectTimer) {
-            reconnectTimer = setTimeout(() => {
-              reconnectTimer = null;
-              get().initMiniTickerStream();
-            }, 2500);
-          }
+          scheduleReconnect();
         };
       } catch (err) {
         console.warn('MiniTicker stream error:', err);
+        set({ isConnected: false });
+        scheduleReconnect();
       }
 
       if (typeof window !== 'undefined' && !window.__miniTickerOnlineRegistered) {
         window.__miniTickerOnlineRegistered = true;
         window.addEventListener('online', () => {
-          get().initMiniTickerStream();
+          if (!stopped) get().initMiniTickerStream();
         });
       }
     },
 
     disconnectStream: () => {
+      stopped = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (flushTimer) clearTimeout(flushTimer);
+      if (watchdog) clearInterval(watchdog);
+      reconnectTimer = flushTimer = watchdog = null;
+      batchBuffer.clear();
       if (ws) {
         try {
           ws.onopen = null;
