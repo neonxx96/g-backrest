@@ -35,3 +35,11 @@ Logging: Добавить вывод WinRate, Net PnL по монетам и а�
 - Добавлен каталог моделей с шестичасовым дисковым кешем и флагом `is_free`.
 - Настройки AI сохраняются в `backend/data/ai_config.json`; UI находится в Settings → AI Engine.
 - Runtime 8002 не перезапускается во время ночного пилота: новые API будут доступны после следующего штатного перезапуска backend.
+
+## 6. Slice 2 — Honest Backtest & Optimizer
+
+- Backtest and paper now use the same configurable maker/taker percentage convention; paper config percentages are converted to fractional rates once. Default taker fee is aligned at 0.05%.
+- Missing historical OI remains unavailable (`NaN` with provenance) instead of being synthesized from volume/delta. An enabled OI filter rejects missing data, and the backtest API fails early when the selected history has no OI.
+- The optimizer selects parameters using three chronological expanding development validation windows and reserves the final chronological holdout from candidate scoring. Holdout metrics are only published as validated when the holdout has at least 100 candles and 20 closed trades; otherwise `evidence_status=insufficient_evidence` and holdout metrics are null.
+- Optimizer passes common risk, fee/slippage, ATR/CVD/OI/RSI, trailing, breakeven and partial-TP settings into each fold and holdout evaluation. Run and optimize endpoints expose a versioned `report` envelope while retaining legacy fields.
+- `scripts/check.ps1` passed after the fee/OI/walk-forward changes: backend tests, frontend unit/build, critical component smoke, blocking Playwright UI smoke and live Binance WS check. Focused backtest/optimizer/report tests also pass. These checks establish contract/math consistency, not profitability; the outer holdout and paper results are not evidence of future returns.

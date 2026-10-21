@@ -191,6 +191,58 @@ def _clean(v: Any) -> Any:
     return v
 
 
+def _report_metrics(values: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if values is None:
+        return None
+    return {
+        "net_pnl_usd": values.get("net_pnl_usd", values.get("net_pnl", 0.0)),
+        "net_pnl_pct": values.get("net_pnl_pct", values.get("total_pnl_pct", values.get("roi_pct", 0.0))),
+        "gross_pnl_usd": values.get("gross_pnl_usd", values.get("gross_pnl", 0.0)),
+        "total_fees_usd": values.get("total_fees_usd", 0.0),
+        "total_slippage_usd": values.get("total_slippage_usd", 0.0),
+        "win_rate_pct": values.get("win_rate_pct", 0.0),
+        "profit_factor": values.get("profit_factor", 0.0),
+        "max_drawdown_pct": values.get("max_drawdown_pct", 0.0),
+        "total_trades": values.get("total_trades", 0),
+    }
+
+
+def _build_optimizer_report(oos: Dict[str, Any], walk_forward: Dict[str, Any], data_availability: Dict[str, Any], candles: int) -> Dict[str, Any]:
+    return _clean({
+        "schema_version": 1,
+        "status": oos.get("evidence_status", "insufficient_evidence"),
+        "metrics": _report_metrics(oos.get("metrics")),
+        "sample": {
+            "candles": oos.get("oos_candles", 0),
+            "closed_trades": oos.get("trade_count", 0),
+            "source_candles": candles,
+        },
+        "validation": {"walk_forward": walk_forward, "holdout": oos},
+        "data_availability": _data_availability({"data_availability": data_availability}),
+    })
+
+
+def _historical_oi_column(df: pd.DataFrame) -> Optional[str]:
+    for column in ("oi", "open_interest"):
+        if column in df.columns and pd.to_numeric(df[column], errors="coerce").notna().sum() >= 2:
+            return column
+    return None
+
+
+def _data_availability(meta: Dict[str, Any]) -> Dict[str, Any]:
+    availability = dict(meta.get("data_availability") or {})
+    availability.setdefault("open_interest", {
+        "available": False,
+        "reason": "Historical open-interest data is not present in the selected dataset.",
+    })
+    availability["l2_history"] = {
+        "available": False,
+        "label": "No data (OHLCV only)",
+        "reason": "Historical L2 order-book snapshots are not supplied to this backtest.",
+    }
+    return availability
+
+
 _HISTORY_CACHE: Dict[tuple, tuple] = {}
 _HISTORY_CACHE_TTL_SEC = 60.0
 
@@ -500,23 +552,28 @@ def build_response(raw: Dict[str, Any], initial_capital: float, meta: Dict[str, 
         "data_availability": {
             "ohlcv": {
                 "available": True,
-                "source": "Binance Futures OHLCV + taker-buy volume",
+                "source": meta.get("data_availability", {}).get("ohlcv_source", "Binance Futures OHLCV"),
             },
-            "l2_history": {
-                "available": False,
-                "label": "No data (OHLCV only)",
-                "reason": "Historical L2 order-book snapshots are not supplied to this backtest.",
-            },
+            "open_interest": _data_availability(meta)["open_interest"],
+            "l2_history": _data_availability(meta)["l2_history"],
         },
         "active_position_setup": raw.get("active_position_setup"),
         "meta": meta,
+        "report": {
+            "schema_version": 1,
+            "status": "descriptive_backtest",
+            "metrics": _report_metrics(summary),
+            "sample": {"candles": meta.get("candles"), "closed_trades": total},
+            "validation": {"walk_forward": None, "holdout": None},
+            "data_availability": _data_availability(meta),
+        },
         # legacy keys (test_e2e.py / BacktestModal / AICopilotSidebar)
         "net_pnl": raw.get("net_pnl", 0.0),
         "total_pnl_usd": raw.get("net_pnl", 0.0),
         "data_engine": {
             "class": "Historical Flow & Volume Engine",
             "status": "Verified Real History",
-            "historical_sources": ["Binance Futures OHLCV", "Taker Buy Base Volume (Delta)", "Open Interest 1h Delta"],
+            "historical_sources": ["Binance Futures OHLCV"] + (["Taker Buy Base Volume (Delta)"] if meta.get("data_availability", {}).get("taker_buy_volume", False) else []) + (["Open Interest"] if meta.get("data_availability", {}).get("open_interest", {}).get("available") else []),
             "l2_orderbook_available_on_history": False,
             "disclaimer": "Биржа Binance не хранит историческую книгу заявок L2. Симуляция основана на реальном тиковом объёме покупок/продаж (CVD) и свечных кластерах."
         },
@@ -595,6 +652,11 @@ async def run_backtest(req: BacktestRequest):
         raise HTTPException(status_code=502, detail=f"History load failed: {e}")
     if df.empty:
         raise HTTPException(status_code=400, detail=f"No candles for {symbol}")
+
+    oi_column = _historical_oi_column(df)
+    oi_available = oi_column is not None
+    if use_oi_filter and not oi_available:
+        raise HTTPException(status_code=422, detail="OI filter requires real historical open-interest data; this dataset is OHLCV-only.")
 
     custom_indicators = req.indicators or p.indicators
     if custom_indicators:
@@ -681,7 +743,12 @@ async def run_backtest(req: BacktestRequest):
             "oi_filter": use_oi_filter,
             "rsi_filter": use_rsi_filter,
         },
-        "source_setup": req.source_setup
+        "source_setup": req.source_setup,
+        "data_availability": {
+            "ohlcv_source": "Binance Futures OHLCV" + (" + taker-buy volume" if "taker_buy_volume" in df.columns or "taker_buy_base_volume" in df.columns else ""),
+            "taker_buy_volume": "taker_buy_volume" in df.columns or "taker_buy_base_volume" in df.columns,
+            "open_interest": {"available": oi_available, "source_column": oi_column if oi_available else None},
+        }
     }
     return build_response(raw, req.initial_capital, meta)
 
@@ -721,6 +788,13 @@ class OptimizeRequest(BaseModel):
     use_cvd_filter: bool = False
     use_oi_filter: bool = False
     use_rsi_filter: bool = False
+    risk_per_trade_pct: Optional[float] = Field(default=None, gt=0, le=10)
+    use_trailing: bool = True
+    trailing_pct: float = Field(0.5, ge=0.0, le=20.0)
+    use_dynamic_breakeven: bool = False
+    dynamic_be_trigger_r: float = Field(0.5, gt=0.0, le=10.0)
+    tp1_pct: float = Field(0.6, ge=0.0, le=100.0)
+    tp1_atr_mult: float = Field(1.5, gt=0.0, le=20.0)
     population_size: int = Field(14, ge=6, le=30)
     generations: int = Field(5, ge=2, le=10)
 
@@ -750,6 +824,11 @@ async def optimize_backtest(req: OptimizeRequest):
     if df.empty:
         raise HTTPException(status_code=400, detail=f"No candles for {symbol}")
 
+    oi_column = _historical_oi_column(df)
+    oi_available = oi_column is not None
+    if req.use_oi_filter and not oi_available:
+        raise HTTPException(status_code=422, detail="OI filter requires real historical open-interest data; this dataset is OHLCV-only.")
+
     engine = OrderFlowBacktester(
         initial_capital=req.initial_capital,
         maker_fee_pct=req.maker_fee_pct,
@@ -775,6 +854,18 @@ async def optimize_backtest(req: OptimizeRequest):
             "take_profit_pct": req.current_tp_pct,
             "min_density_usd": req.current_wall_usd,
             "use_cvd_filter": req.use_cvd_filter,
+            "use_atr_filter": req.use_atr_filter,
+            "use_oi_filter": req.use_oi_filter,
+            "use_rsi_filter": req.use_rsi_filter,
+            "use_trailing": req.use_trailing,
+            "trailing_pct": req.trailing_pct,
+            "use_dynamic_breakeven": req.use_dynamic_breakeven,
+            "dynamic_be_trigger_r": req.dynamic_be_trigger_r,
+            "use_atr_sl": req.use_atr_sl,
+            "atr_multiplier": req.atr_multiplier,
+            "tp1_pct": req.tp1_pct,
+            "tp1_atr_mult": req.tp1_atr_mult,
+            "risk_per_trade_pct": req.risk_per_trade_pct,
             "atr_period": 14,
         },
         int(req.population_size),
@@ -799,6 +890,11 @@ async def optimize_backtest(req: OptimizeRequest):
         "elapsed_ms": out["elapsed_ms"],
         "best_params": out["best_params"],
         "oos": out.get("oos"),
+        "data_availability": {
+            "ohlcv_source": "Binance Futures OHLCV" + (" + taker-buy volume" if "taker_buy_volume" in df.columns or "taker_buy_base_volume" in df.columns else ""),
+            "taker_buy_volume": "taker_buy_volume" in df.columns or "taker_buy_base_volume" in df.columns,
+            "open_interest": {"available": oi_available, "source_column": oi_column if oi_available else None},
+        },
     }
     resp = build_response(best_raw, req.initial_capital, meta)
     resp["top_setups"] = _clean(top_setups)
@@ -806,6 +902,10 @@ async def optimize_backtest(req: OptimizeRequest):
     resp["before_optimization"] = _clean(out["before_optimization"])
     resp["after_optimization"] = _clean(out["after_optimization"])
     resp["oos"] = _clean(out.get("oos"))
+    resp["report"] = _build_optimizer_report(
+        out.get("oos") or {}, out.get("walk_forward") or {},
+        _data_availability(meta), int(len(df)),
+    )
     return resp
 
 
