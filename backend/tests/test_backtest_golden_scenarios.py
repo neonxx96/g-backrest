@@ -288,6 +288,42 @@ def test_commissions_maker_on_tp_taker_on_sl():
     assert t_sl["pnl_usd"] == -100.0 - expected_sl_total_fee - t_sl["slippage_cost_usd"]
 
 
+def test_missing_open_interest_is_not_synthesized_and_oi_filter_rejects_it():
+    data = make_oscillating_df(120)
+    engine = OrderFlowBacktester()
+
+    enriched = engine.calculate_indicators(data)
+
+    assert enriched["oi"].isna().all()
+    assert enriched["oi_delta"].isna().all()
+    assert enriched["oi_available"].eq(False).all()
+    assert engine.evaluate_latest_signal(
+        enriched, strategy_type="naked_test", use_oi_filter=True
+    ) is None
+    explanation = engine.explain_latest_signal(
+        enriched, strategy_type="naked_test", use_oi_filter=True
+    )
+    assert "oi_filter" in explanation["failed_checks"]
+    assert explanation["rejections"][-1]["actual"] is None
+
+
+def test_historical_context_does_not_invent_l2_walls_or_open_interest():
+    raw = OrderFlowBacktester().run_backtest(
+        make_oscillating_df(120),
+        strategy_type="naked_test",
+        compute_monte_carlo=False,
+        fast_eval=False,
+    )
+
+    context = raw["data_feed_context"]
+    assert context["orderbook_walls"]["available"] is False
+    assert "Historical L2" in context["orderbook_walls"]["reason"]
+    assert context["top_bid_wall_usd"] is None
+    assert context["open_interest"]["available"] is False
+    assert context["open_interest"]["oi_1h_delta_pct"] is None
+    assert context["open_interest"]["flow_status"] == "Unavailable (no historical OI)"
+
+
 # ==============================================================================
 # 3. POSITION SIZING AND LEVERAGE SCALING TEST
 # ==============================================================================
