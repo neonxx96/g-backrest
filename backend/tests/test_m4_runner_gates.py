@@ -118,3 +118,20 @@ def test_execute_unified_signal_forwards_quantity():
     with patch.object(session, "execute_trade_signal", return_value={"status": "OK"}) as mocked:
         session.execute_unified_signal(signal)
         assert mocked.call_args.kwargs["quantity"] is None
+
+
+def test_pilot_config_carries_m4_fields_default_off():
+    from backend.app.services.overnight_pilot import OvernightPilotConfig
+
+    cfg = OvernightPilotConfig(symbol="BTCUSDT", strategy_type="confluence_ema")
+    dump = cfg.model_dump()
+    assert dump["use_m4_risk_gates"] is False
+    assert dump["max_portfolio_heat_pct"] == 6.0
+    assert dump["daily_dd_limit_pct"] == 3.0
+    assert dump["confluence_threshold"] == 0.65
+
+    # Включённый флаг проходит через model_dump -> конфиг раннера
+    cfg_on = OvernightPilotConfig(
+        symbol="BTCUSDT", strategy_type="confluence_ema", use_m4_risk_gates=True
+    )
+    assert cfg_on.model_dump()["use_m4_risk_gates"] is True

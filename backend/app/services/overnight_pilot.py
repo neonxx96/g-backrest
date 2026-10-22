@@ -57,6 +57,11 @@ class OvernightPilotConfig(BaseModel):
     tp1_rr_ratio: float = Field(1.5, ge=0.5, le=10)
     tp2_rr_ratio: float = Field(2.8, ge=1, le=15)
     ai_control: bool = False
+    # M4 Risk Manager (SRS M4) — default OFF; сравнение sizing-режимов (Фаза 5.6)
+    use_m4_risk_gates: bool = False
+    max_portfolio_heat_pct: float = Field(6.0, gt=0, le=100)
+    daily_dd_limit_pct: float = Field(3.0, gt=0, le=100)
+    confluence_threshold: float = Field(0.65, gt=0, le=1)
 
     def model_post_init(self, __context: Any) -> None:
         if self.strategy_type not in HISTORICAL_STRATEGIES:
