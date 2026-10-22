@@ -195,6 +195,7 @@ class PaperTradingSession:
         self.positions: Dict[str, PaperPosition] = {}  # key: symbol
         self.closed_trades: List[dict] = []
         self.last_prices: Dict[str, float] = {}
+        self.last_market_slippage_bps: Dict[str, float] = {}
         self._last_event_ts = 0
         self._closure_sequence = 0
         self._lifecycle_listener: Optional[Callable[[str, Dict[str, Any]], None]] = None
@@ -547,6 +548,7 @@ class PaperTradingSession:
         from types import SimpleNamespace
 
         ts = int(timestamp if timestamp is not None else time.time() * 1000)
+        self.last_market_slippage_bps[symbol] = max(0.0, float(market_slippage_bps))
         def _book_levels(levels):
             normalized = []
             for level in levels or []:
@@ -885,8 +887,15 @@ class PaperTradingSession:
         now_ts = int(time.time() * 1000)
         for sym, pos in list(self.positions.items()):
             if pos.qty > 0 and not pos.closed:
-                market_price = self.last_prices.get(sym, pos.avg_entry_price)
+                observed_price = self.last_prices.get(sym, pos.avg_entry_price)
+                slippage_bps = self.last_market_slippage_bps.get(sym, 0.0)
+                market_price = observed_price * (
+                    1.0 - slippage_bps / 10_000.0
+                    if pos.side == "LONG"
+                    else 1.0 + slippage_bps / 10_000.0
+                )
                 close_qty = pos.qty
+                slippage_cost = close_qty * abs(observed_price - market_price)
                 fee = market_price * close_qty * self.taker_fee
                 if pos.side == "LONG":
                     gross = (market_price - pos.avg_entry_price) * close_qty
@@ -895,11 +904,14 @@ class PaperTradingSession:
                     gross = (pos.avg_entry_price - market_price) * close_qty
                     pnl_pct = ((pos.avg_entry_price - market_price) / pos.avg_entry_price * 100.0) if pos.avg_entry_price > 0 else 0.0
                 entry_fee = pos.fees_paid
+                entry_slippage = pos.slippage_paid
                 net = gross - entry_fee - fee
 
                 self.realized_pnl += net
                 pos.fees_paid = 0.0
+                pos.slippage_paid = 0.0
                 self.total_fees_paid += fee
+                self.total_slippage_paid += slippage_cost
                 pos.qty = 0.0
                 pos.closed = True
 
@@ -916,6 +928,7 @@ class PaperTradingSession:
                     "pnl_percent": round(pnl_pct, 2),
                     "fee": fee,
                     "fee_drag": entry_fee + fee,
+                    "slippage_cost": entry_slippage + slippage_cost,
                     "mfe": track.mfe if (track := self.early_exit_engine.tracks.get(sym)) else 0.0,
                     "mae": track.mae if track else 0.0,
                     "mfe_r": round(track.mfe_r, 4) if track else 0.0,
@@ -925,7 +938,6 @@ class PaperTradingSession:
                     "entry_ts": pos.entry_ts,
                     "exit_ts": now_ts,
                     "is_final_exit": True,
-                    "slippage_cost": 0.0,
                 })
 
                 margin_released = pos.margin_used
@@ -974,6 +986,7 @@ class PaperTradingSession:
         self.positions.clear()
         self.orders.clear()
         self.closed_trades.clear()
+        self.last_market_slippage_bps.clear()
         self.early_exit_engine.tracks.clear()
         logger.info(f"[TRADE] Virtual wallet reset strictly to ${self.initial_balance:.2f} USD | reason='Admin Reset'")
 

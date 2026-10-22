@@ -213,6 +213,38 @@ def test_runner_market_slippage_uses_atr_when_it_exceeds_tick_floor():
     assert runner._market_slippage_bps(1_000.0) == pytest.approx(5.0)
 
 
+def test_kill_switch_market_exit_uses_last_observed_slippage_penalty():
+    session = PaperTradingSession(
+        initial_balance=1_000.0,
+        signal_lag_ms=0,
+        order_rtt_ms=0,
+    )
+    session.place_order(
+        "BTCUSDT", "BUY", "LIMIT", 100.0, 1.0,
+        stop_price=98.0, target_price=104.0, signal_ts=1_000,
+    )
+    session.process_event(SimpleNamespace(
+        timestamp=1_000, kind="depth", symbol="BTCUSDT",
+        payload={"bids": [(99.9, 2.0)], "asks": [(100.1, 2.0)]},
+    ))
+    session.process_event(SimpleNamespace(
+        timestamp=1_001, kind="trade", symbol="BTCUSDT",
+        payload={"price": 99.9, "quantity": 1.0},
+    ))
+    session.process_market_tick(
+        "BTCUSDT", 100.0,
+        bids=[(99.9, 2.0)], asks=[(100.1, 2.0)], timestamp=2_000,
+        market_slippage_bps=10.0,
+    )
+
+    session.kill_switch("risk limit")
+
+    closed = session.get_state().closed_trades[-1]
+    assert closed["exit_price"] == pytest.approx(99.9)
+    assert closed["slippage_cost"] == pytest.approx(0.1)
+    assert closed["net_pnl"] == pytest.approx(closed["gross_pnl"] - closed["fee_drag"])
+
+
 def test_runner_does_not_resubmit_signal_from_same_closed_candle(monkeypatch):
     session = PaperTradingSession(initial_balance=1000.0, risk_per_trade_pct=0.005)
     runner = LivePaperRunner(session=session)
