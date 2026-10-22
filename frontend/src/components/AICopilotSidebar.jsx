@@ -14,8 +14,11 @@ import {
   Cpu,
   Magnet,
   Scale,
-  TrendingUp
+  TrendingUp,
+  Trophy
 } from 'lucide-react';
+
+import { useBacktestStore } from '../stores/backtestStore';
 
 const AI_MODELS = [
   {
@@ -66,6 +69,12 @@ export default function AICopilotSidebar({
   // Backtest quick runner state
   const [btLoading, setBtLoading] = useState(false);
   const [btResultInline, setBtResultInline] = useState(null);
+
+  // M5.2 (task 6.2): Quant Sweep leaderboard + Apply Strategy #X
+  const [sweepArtifact, setSweepArtifact] = useState(null);
+  const [sweepLoading, setSweepLoading] = useState(false);
+  const [sweepRunning, setSweepRunning] = useState(false);
+  const [sweepNote, setSweepNote] = useState(null);
 
   // Chat state
   const [messages, setMessages] = useState([
@@ -323,6 +332,94 @@ export default function AICopilotSidebar({
     } finally {
       setBtLoading(false);
     }
+  };
+
+  // M5.2: загрузка последнего Top-10 артефакта Quant Sweep для текущего инструмента
+  const loadSweepLeaderboard = useCallback(async () => {
+    setSweepLoading(true);
+    setSweepNote(null);
+    try {
+      const res = await fetch(
+        `/api/sweep/leaderboard?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setSweepArtifact(data.found ? data.artifact : null);
+    } catch (err) {
+      setSweepArtifact(null);
+      setSweepNote(`Не удалось загрузить лидерборд sweep: ${err.message}`);
+    } finally {
+      setSweepLoading(false);
+    }
+  }, [symbol, timeframe]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    loadSweepLeaderboard();
+  }, [isOpen, symbol, timeframe, loadSweepLeaderboard]);
+
+  // M5.2: запуск grid-sweep (ema_cross, Train/OOS) для текущего инструмента
+  const handleRunSweep = async () => {
+    setSweepRunning(true);
+    setSweepNote(null);
+    try {
+      const res = await fetch('/api/sweep/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol,
+          timeframe,
+          days: 30,
+          strategy_type: 'ema_cross',
+          train_ratio: 0.7,
+          top_n: 10
+        })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+      const artifact = await res.json();
+      setSweepArtifact(artifact);
+      setSweepNote(
+        `Sweep завершён: ${artifact.combinations_tested ?? '?'} комбинаций • train ${artifact.train_bars ?? '?'} баров / OOS ${artifact.oos_bars ?? '?'} баров`
+      );
+    } catch (err) {
+      setSweepNote(`Sweep не выполнен: ${err.message}`);
+    } finally {
+      setSweepRunning(false);
+    }
+  };
+
+  // M5.2: «Apply Strategy #X» в 1 клик — инъекция параметров в форму бэктеста (строго advisory)
+  const applySweepEntry = (entry) => {
+    if (!entry) return;
+    const fast = Number(entry.params?.fast_period) || 20;
+    const slow = Number(entry.params?.slow_period) || 50;
+    const btStore = useBacktestStore.getState();
+    btStore.setStrategyType('ema_trend');
+    btStore.setParamsForSymbol(symbol, {
+      strategy_type: 'ema_trend',
+      timeframe,
+      fast_period: fast,
+      slow_period: slow
+    });
+    window.dispatchEvent(
+      new CustomEvent('apply-sweep-strategy', {
+        detail: { symbol, timeframe, strategy_type: 'ema_trend', fast_period: fast, slow_period: slow, rank: entry.rank }
+      })
+    );
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: 'assistant',
+        content:
+          `🏆 Применён Sweep #${entry.rank}: **EMA Trend** fast ${fast} / slow ${slow} ` +
+          `(OOS Sharpe ${entry.oos_sharpe ?? '—'}, вердикт ${entry.verdict ?? 'UNKNOWN'}, win rate ${entry.oos_win_rate ?? '—'}%). ` +
+          `Параметры внедрены в форму бэктеста для **#${symbol}**. AI строго advisory: реальные ордера не создаются, ` +
+          `перед запуском перепроверьте риск-настройки.`
+      }
+    ]);
   };
 
   // Submit chat message
@@ -607,6 +704,129 @@ export default function AICopilotSidebar({
               </>
             )}
           </button>
+        </div>
+
+        {/* M5.2 (task 6.2): Quant Sweep Leaderboard + кнопка «Apply Strategy #X» */}
+        <div
+          data-testid="ai-sweep-leaderboard"
+          className="p-2.5 rounded-lg border border-[#f59e0b30] bg-[#141007]/90 space-y-1.5"
+        >
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-white text-[11px] flex items-center space-x-1">
+              <Trophy size={13} className="text-[#fbbf24]" />
+              <span>Quant Sweep Leaderboard</span>
+            </span>
+            <div className="flex items-center space-x-1">
+              <button
+                type="button"
+                data-testid="btn-run-sweep"
+                onClick={handleRunSweep}
+                disabled={sweepRunning || sweepLoading}
+                className="px-1.5 py-0.5 rounded bg-[#f59e0b20] hover:bg-[#f59e0b30] text-[#fbbf24] border border-[#f59e0b50] text-[9px] font-bold transition cursor-pointer disabled:opacity-50"
+                title="Grid-оптимизация EMA Cross (Train/OOS, ~30 дней истории) для текущего инструмента"
+              >
+                {sweepRunning ? 'Sweep…' : '▶ Запустить sweep'}
+              </button>
+              <button
+                type="button"
+                data-testid="btn-refresh-sweep"
+                onClick={loadSweepLeaderboard}
+                disabled={sweepLoading || sweepRunning}
+                className="p-1 rounded text-[#787f91] hover:text-white hover:bg-[#1f2430] transition cursor-pointer disabled:opacity-50"
+                title="Обновить лидерборд"
+              >
+                <RefreshCw size={12} className={sweepLoading ? 'animate-spin' : ''} />
+              </button>
+            </div>
+          </div>
+
+          <div className="text-[9px] text-[#787f91] font-mono">
+            {symbol} ({timeframe}) • Top-10 по OOS-скору • вердикт ROBUST/MODERATE/OVERFITTED из walk-forward
+          </div>
+
+          {sweepLoading ? (
+            <div className="flex items-center space-x-1.5 text-[#787f91] text-[10px] py-1 font-mono">
+              <RefreshCw size={11} className="animate-spin text-[#fbbf24]" />
+              <span>Загрузка лидерборда…</span>
+            </div>
+          ) : !sweepArtifact ? (
+            <div className="space-y-1">
+              <div className="p-1.5 rounded bg-[#090c14] border border-[#191f2e] text-[10px] text-[#94a3b8] leading-snug">
+                Прогонов sweep для <span className="text-white font-bold">{symbol} ({timeframe})</span> пока нет —
+                лидерборд не синтезируется, пока не будет реального прогона. Нажмите «▶ Запустить sweep».
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {(sweepArtifact.entries || []).slice(0, 10).map((entry) => (
+                <div
+                  key={entry.rank}
+                  data-testid={`sweep-entry-${entry.rank}`}
+                  className="p-1.5 rounded bg-[#090c14] border border-[#191f2e] space-y-1"
+                >
+                  <div className="flex items-center justify-between font-mono text-[10px]">
+                    <span className="text-white font-bold">
+                      #{entry.rank} • EMA {entry.params?.fast_period ?? '?'}/{entry.params?.slow_period ?? '?'}
+                    </span>
+                    <span
+                      className={`px-1.5 py-0.2 rounded text-[8.5px] font-bold ${
+                        entry.verdict === 'ROBUST'
+                          ? 'bg-[#10b98125] text-[#10b981] border border-[#10b98150]'
+                          : entry.verdict === 'OVERFITTED'
+                          ? 'bg-[#ef444425] text-[#ef4444] border border-[#ef444450]'
+                          : 'bg-[#f59e0b25] text-[#fbbf24] border border-[#f59e0b50]'
+                      }`}
+                    >
+                      {entry.verdict || 'UNKNOWN'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1 text-center text-[9px]">
+                    <div className="p-0.5 rounded bg-[#0d1119]">
+                      <div className="text-[#64748b]">OOS Sharpe</div>
+                      <div className="font-bold text-[#38bdf8]">{entry.oos_sharpe ?? '—'}</div>
+                    </div>
+                    <div className="p-0.5 rounded bg-[#0d1119]">
+                      <div className="text-[#64748b]">WinRate</div>
+                      <div className="font-bold text-[#10b981]">
+                        {entry.oos_win_rate != null ? `${Math.round(entry.oos_win_rate * (entry.oos_win_rate <= 1 ? 100 : 1))}%` : '—'}
+                      </div>
+                    </div>
+                    <div className="p-0.5 rounded bg-[#0d1119]">
+                      <div className="text-[#64748b]">Max DD</div>
+                      <div className="font-bold text-[#ef4444]">
+                        {entry.oos_max_drawdown_pct != null ? `${entry.oos_max_drawdown_pct}%` : '—'}
+                      </div>
+                    </div>
+                    <div className="p-0.5 rounded bg-[#0d1119]">
+                      <div className="text-[#64748b]">Сделок</div>
+                      <div className="font-bold text-white">{entry.oos_trade_count ?? '—'}</div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    data-testid={`btn-apply-sweep-${entry.rank}`}
+                    onClick={() => applySweepEntry(entry)}
+                    disabled={sweepRunning}
+                    className="w-full py-0.5 px-2 rounded bg-[#f59e0b20] hover:bg-[#f59e0b30] text-[#fbbf24] border border-[#f59e0b50] font-semibold text-[9.5px] flex items-center justify-center space-x-1 transition cursor-pointer disabled:opacity-50"
+                  >
+                    <Trophy size={11} />
+                    <span>Apply Strategy #{entry.rank} → форма бэктеста</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {sweepNote && (
+            <div className="p-1.5 rounded bg-[#090c14] border border-[#191f2e] text-[9.5px] text-[#94a3b8] leading-snug">
+              {sweepNote}
+            </div>
+          )}
+
+          <div className="text-[8.5px] text-[#64748b] leading-snug">
+            Результат консультативный: кнопка применяет параметры только к форме бэктеста (EMA Trend), реальные ордера
+            не создаются. Sweep оптимизирует чистый EMA Cross; перенос fast/slow в форму — ближайший честный аналог.
+          </div>
         </div>
 
         {/* ТАКТ 1.1: Блок «Источники и метрики» (Data Feed Context) */}

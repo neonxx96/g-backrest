@@ -446,6 +446,9 @@ export default function BacktestPanel({
   const [minWallK, setMinWallK] = useState(100);
   const [volMult, setVolMult] = useState(1.0);
   const [leverage, setLeverage] = useState(2);
+  // M5.2: EMA-периоды для ema_trend (Quant Sweep apply); 20/50 — legacy-поведение движка
+  const [fastEma, setFastEma] = useState(20);
+  const [slowEma, setSlowEma] = useState(50);
 
   // Sync isolated parameters per symbol when symbol changes
   useEffect(() => {
@@ -472,7 +475,32 @@ export default function BacktestPanel({
     if (p.use_cvd_filter != null) setFilterCvd(Boolean(p.use_cvd_filter));
     if (p.use_oi_filter != null) setFilterOi(Boolean(p.use_oi_filter));
     if (p.use_rsi_filter != null) setFilterRsi(Boolean(p.use_rsi_filter));
+    if (p.fast_period != null) setFastEma(Number(p.fast_period));
+    if (p.slow_period != null) setSlowEma(Number(p.slow_period));
   }, [symbol, getParamsForSymbol]);
+
+  // M5.2: 1-клик apply из Quant Sweep (AI Copilot sidebar → сюда)
+  useEffect(() => {
+    const handler = (e) => {
+      const d = e.detail || {};
+      if (!d.symbol || d.symbol.toUpperCase() !== (symbol || '').toUpperCase()) return;
+      if (d.strategy_type) setStrategy(d.strategy_type);
+      if (d.timeframe && TIMEFRAMES.includes(d.timeframe)) setTimeframe(d.timeframe);
+      if (d.fast_period != null) {
+        setFastEma(Number(d.fast_period));
+        updateSymbolParam({ fast_period: Number(d.fast_period) });
+      }
+      if (d.slow_period != null) {
+        setSlowEma(Number(d.slow_period));
+        updateSymbolParam({ slow_period: Number(d.slow_period) });
+      }
+      setAppliedFeedback(
+        `🏆 Sweep #${d.rank ?? '?'} применён: стратегия ${d.strategy_type || 'ema_trend'} • EMA ${d.fast_period}/${d.slow_period}`
+      );
+    };
+    window.addEventListener('apply-sweep-strategy', handler);
+    return () => window.removeEventListener('apply-sweep-strategy', handler);
+  }, [symbol, updateSymbolParam]);
 
   // ТАКТ 1.2: Расширенные параметры стратегии (Entry Mode, Dynamic SL, Multi-TP, Wall Lifetime)
   const [entryMode, setEntryMode] = useState('limit_bounce'); // 'limit_bounce' | 'breakout' | 'cvd_absorption'
@@ -537,6 +565,18 @@ export default function BacktestPanel({
     const n = Number(v);
     setVolMult(n);
     updateSymbolParam({ volume_multiplier: n });
+  }, [updateSymbolParam]);
+
+  const handleFastEmaChange = useCallback((v) => {
+    const n = Number(v);
+    setFastEma(n);
+    updateSymbolParam({ fast_period: n });
+  }, [updateSymbolParam]);
+
+  const handleSlowEmaChange = useCallback((v) => {
+    const n = Number(v);
+    setSlowEma(n);
+    updateSymbolParam({ slow_period: n });
   }, [updateSymbolParam]);
 
   const handleDaysChange = useCallback((v) => {
@@ -1754,6 +1794,14 @@ export default function BacktestPanel({
                       <NumField label="TP от" value={tpMin} onChange={setTpMin} step={0.2} min={0.2} suffix="%" tooltip="Минимальный Take-Profit для перебора" />
                       <NumField label="TP до" value={tpMax} onChange={setTpMax} step={0.2} min={0.5} suffix="%" tooltip="Максимальный Take-Profit для перебора" />
                     </div>
+                  </div>
+                )}
+
+                {/* M5.2: EMA-периоды для ema_trend (заполняются вручную или кнопкой Apply из Quant Sweep) */}
+                {strategy === 'ema_trend' && mode === 'single' && (
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <NumField testId="input-fast-ema" label="Fast EMA" value={fastEma} onChange={handleFastEmaChange} step={1} min={2} max={300} tooltip="Период быстрой EMA для стратегии EMA Trend (20 = legacy)" />
+                    <NumField testId="input-slow-ema" label="Slow EMA" value={slowEma} onChange={handleSlowEmaChange} step={1} min={5} max={500} tooltip="Период медленной EMA, строго больше Fast (50 = legacy)" />
                   </div>
                 )}
 

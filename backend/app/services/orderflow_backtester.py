@@ -448,6 +448,9 @@ class OrderFlowBacktester:
         time_stop_minutes: int = 45,
         time_stop_min_r: float = 0.3,
         use_maker_exits: bool = False,             # Fix 4: trailing exits as limit orders (maker, no slippage)
+        # EMA Trend periods (M5.2 sweep apply): defaults 20/50 keep legacy behavior
+        fast_period: int = 20,                     # EMA fast span used by ema_trend/confluence baseline
+        slow_period: int = 50,                     # EMA slow span; must be strictly greater than fast_period
     ) -> Dict[str, Any]:
         """
         Executes realistic institutional order-flow backtest with:
@@ -460,6 +463,14 @@ class OrderFlowBacktester:
         """
         if df is None or df.empty or len(df) < 60:
             return {"error": "Недостаточно свечей для бэктеста (минимум 60)"}
+
+        fast_ema_span = int(fast_period)
+        slow_ema_span = int(slow_period)
+        if fast_ema_span < 2 or slow_ema_span <= fast_ema_span:
+            raise ValueError(
+                f"EMA periods invalid: fast_period={fast_ema_span} must be >= 2 and "
+                f"strictly less than slow_period={slow_ema_span}"
+            )
 
         # Map entry_mode aliases to canonical strategy_type if specified
         eff_strategy = strategy_type
@@ -487,6 +498,13 @@ class OrderFlowBacktester:
             and int(df['_cvd_p'].iloc[0]) == int(cvd_ema_period)
         )
         data = df if already_enriched else self.calculate_indicators(df, atr_period=atr_period, cvd_ema_period=cvd_ema_period)
+
+        # M5.2: переопределение EMA-периодов для sweep-apply (по умолчанию 20/50 — код не изменён).
+        # Copy before mutation: already_enriched path reuses the caller-owned dataframe.
+        if (fast_ema_span, slow_ema_span) != (20, 50):
+            data = data.copy()
+            data['ema20'] = data['close'].ewm(span=fast_ema_span, adjust=False).mean()
+            data['ema50'] = data['close'].ewm(span=slow_ema_span, adjust=False).mean()
 
         signals = np.zeros(len(data), dtype=np.int8)
 

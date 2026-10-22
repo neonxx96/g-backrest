@@ -14,7 +14,7 @@ import aiohttp
 import numpy as np
 import pandas as pd
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from backend.app.adapters.exchange.binance import BINANCE_FUTURES_REST
 from backend.app.services.binance_service import binance_service
@@ -134,6 +134,15 @@ class BacktestParams(BaseModel):
     min_wall_lifetime_sec: int = Field(30, ge=10, le=60)
     # Unified Indicators Configuration { "indicator_id": { "params": {...} } }
     indicators: Optional[Dict[str, Dict[str, Any]]] = None
+    # M5.2: EMA Trend periods (Quant Sweep apply); 20/50 = legacy behavior
+    fast_period: int = Field(20, ge=2, le=300)
+    slow_period: int = Field(50, ge=5, le=500)
+
+    @model_validator(mode="after")
+    def _validate_ema_periods(self):
+        if self.fast_period >= self.slow_period:
+            raise ValueError("fast_period must be strictly less than slow_period")
+        return self
 
 
 class BacktestRequest(BaseModel):
@@ -803,6 +812,8 @@ async def run_backtest(req: BacktestRequest):
         tp2_rr_ratio,
         min_wall_lifetime_sec,
         risk_per_trade_pct=risk_per_trade_pct,
+        fast_period=p.fast_period,
+        slow_period=p.slow_period,
     )
     if "error" in raw:
         raise HTTPException(status_code=400, detail=raw["error"])
