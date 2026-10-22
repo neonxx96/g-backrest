@@ -2,6 +2,13 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-3.1 confluence — 2026-10-22
+
+- **ACTIVE_AGENT:** `kimi` (работаем в `main`, тег `stable-20261022` после слияния фаз 1–2)
+- **3.1 (M2.3) Weighted Confluence:** `backend/app/engine/confluence.py` — Strict AND (обязательные факторы, дефолт `wall`) + взвешенный скор мягких факторов; валидация Σw=1, порог по SRS 0.65; `ConfluenceConfigStore` persist `data/confluence_weights.json` per-symbol. Поле `confluence_score` добавлено в `UnifiedTradeSignal` (опциональное, обратная совместимость подтверждена тестами контракта). API `/api/confluence/*` (factors, weights GET/PUT, score). UI: вкладка **Confluence** в SettingsModal (`ConfluenceWeightsEditor.jsx`) — редактор весов с клиентской проверкой Σw=1, нормализацией, порогом, Strict-AND чекбоксами.
+- **Важно:** скоринг пока НЕ подключён к OrderFlowBacktester/LivePaperRunner — это отдельный шаг (кандидат на expert-модель, тесты сначала). Эндпоинты появятся в живом backend после штатного рестарта (идёт paper-марафон, не перезапускать).
+- **Gate:** `check.ps1` PASS; `pytest backend/tests` — **242 passed, 28 skipped**; frontend build PASS.
+
 ## Kimi phase-2 recorder — 2026-10-22
 
 - **ACTIVE_AGENT:** `kimi`

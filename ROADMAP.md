@@ -78,7 +78,7 @@
 - [ ] 2.6 L2-honest бэктест density/wall стратегий после ≥7 дней lake
 
 ### ⚙️ ФАЗА 3 — Strategy Engine: M2.3 + M3.3 + правки по квантовому отчёту
-- [ ] 3.1 **M2.3:** Weighted Confluence engine — веса wᵢ (Σ=1), динамический порог (≈0.65), скор в `UnifiedTradeSignal`; в UI — редактор весов
+- [x] 3.1 **M2.3:** Weighted Confluence engine — веса wᵢ (Σ=1), динамический порог (≈0.65), скор в `UnifiedTradeSignal`; в UI — редактор весов (2026-10-22, main: `engine/confluence.py` Strict AND + weighted, поле `confluence_score`, API `/api/confluence/*`, persist `data/confluence_weights.json`, редактор — вкладка Confluence в SettingsModal; 12 тестов)
 - [ ] 3.2 **M3.3:** Verdict v2 traffic-light (PASS/WARNING/BLOCK) как формальный контракт + API + плашки в wizard; WARNING при PF 1.0–1.2, малой выборке
 - [ ] 3.3 Правки по STRATEGY_WEAKNESSES: авто-BE при +0.5R, adaptive wall, time-stop 45 мин, maker-выходы; матрица «было/стало» по 8×3
 - [ ] 3.4 Limit-order fill simulator для «Тест сетапа» (ветка `agent/cline/limit-fill-simulator`)

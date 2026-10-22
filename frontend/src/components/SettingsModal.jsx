@@ -9,9 +9,11 @@ import {
   Flame,
   TrendingUp,
   Layers,
-  Radar
+  Radar,
+  Scale
 } from 'lucide-react';
 import AIEngineSettings from './AIEngineSettings';
+import ConfluenceWeightsEditor from './ConfluenceWeightsEditor';
 
 const API_BASE = '/api';
 const TIMEFRAMES = ['1m', '5m', '15m', '30m', '45m', '1h', '4h', '6h'];
@@ -295,7 +297,8 @@ export default function SettingsModal({
             { id: 'charts', label: 'Графики & Индикаторы', icon: TrendingUp },
             { id: 'orderflow', label: 'Order Flow & Стакан', icon: Layers },
             { id: 'scanner', label: 'Сканер & Диск', icon: Radar },
-            { id: 'ai', label: 'AI Engine', icon: Flame }
+            { id: 'ai', label: 'AI Engine', icon: Flame },
+            { id: 'confluence', label: 'Confluence', icon: Scale }
           ].map(tab => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;
@@ -886,6 +889,8 @@ export default function SettingsModal({
           )}
 
           {activeTab === 'ai' && <AIEngineSettings onConfigChange={onAiConfigChange} />}
+
+          {activeTab === 'confluence' && <ConfluenceWeightsEditor />}
         </div>
 
         {/* Footer */}

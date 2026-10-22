@@ -34,6 +34,7 @@ class UnifiedTradeSignal(BaseModel):
     risk_pct: float = Field(default=2.0, gt=0, le=100.0, description="Max portfolio equity risked (%)")
     expected_rr: float = Field(default=1.5, gt=0, description="Expected Risk/Reward ratio")
     confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="Signal confidence score (0.0 - 1.0)")
+    confluence_score: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Weighted confluence score (SRS M2.3); None when scoring is disabled")
     reason: List[str] = Field(
         default_factory=lambda: ["Quant Algorithmic Signal"],
         description="Ordered, human-readable conditions that produced the signal"
