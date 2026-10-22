@@ -24,6 +24,14 @@
 - **5.5 (M4.1):** `backend/app/services/hedge_ledger.py::HedgeLedger` — изолированные суб-кошельки маржи для одновременных LONG/SHORT суб-стратегий: `create_wallet(name, side)`, `allocate/deallocate` (нельзя превысить пул, нельзя снять занятую маржу), `open_position/close_position` резервируют/освобождают маржу внутри кошелька, realized PnL пишется в свой кошелёк. Isolated margin по-честному: убыток ноги клампится её маржой (`booked = max(pnl, -margin)`), излишек не перетекает в пул или чужие кошельки. `summary()` для UI. 8 тестов (`test_hedge_ledger.py`).
 - **НЕ подключено:** LivePaperRunner/paper_trading остаются one-way — интеграция hedge-режима в раннер = задача 5.6 (вместе с sizer, quality multiplier, kill switch).
 - **Gate:** `check.ps1` PASS; `pytest backend/tests` — **327 passed, 28 skipped**.
+
+## Kimi phase-5.6 M4 интеграция в LivePaperRunner — 2026-10-22
+
+- **ACTIVE_AGENT:** `kimi` (main)
+- **5.6:** флаг `use_m4_risk_gates` (default OFF) в LivePaperRunner. Гейт 6.9 перед исполнением входа: `_m4_check_entry()` — дневной DD-лимит → kill switch (новые срабатывания логируются M4_KILL_SWITCH) → portfolio heat (open risk из `PaperPosition.risk_amount`); блок только входов, событие `ENTRY_BLOCKED/M4_RISK_GATE` в журнал. Quality multiplier: при наличии `confluence_score` у сигнала qty считается через `PositionSizer.adjusted_risk_budget` (база — `session.available_margin`, как у штатного сайзинга) и передаётся явно: `execute_unified_signal(signal, quantity=...)` — новый опциональный параметр в paper_trading (None → старое поведение, контракт не сломан). В статусе раннера блок `m4_risk_gates` (enabled, kill_switch_level/action, daily_dd_halted). Equity для гейтов = initial + realized (без unrealized — консервативно). M4-дефолты также в `__init__` (раньше только в start). Тесты: `test_m4_runner_gates.py` (7): default-off пропускает, три гейта блокируют, здоровое состояние пропускает, статус-блок, quantity-passthrough.
+- **Осталось по 5.6:** сравнение sizing-режимов на живом марафоне — после штатного рестарта backend (пост-soak 24.10), вместе с критериями Фазы 1.3/1.4. Конфиги марафона флаг не включают — поведение текущих сессий неизменно.
+- **Gate:** `check.ps1` PASS; `pytest backend/tests` — **334 passed, 28 skipped**; frontend build PASS.
+- **Фаза 5 закрыта по коду (5.1–5.6).** Следующее по роадмапу: Фаза 6 (Quant Sweep leaderboard M5.1, AI Copilot Apply M5.2, help-tooltips M6.4) или 4.5 WebGL-heatmap.
 - **Gate:** `check.ps1` PASS; `pytest backend/tests` — **306 passed, 28 skipped**.
 - **Напоминание:** backend не перезапускать (марафон + soak до 24.10).
 

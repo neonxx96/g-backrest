@@ -20,6 +20,8 @@ from backend.app.services.openrouter_client import openrouter_client
 from backend.app.services.paper_trading import paper_trading_session
 from backend.app.services.deep_intent_logger import DeepIntentLogger
 from backend.app.engine.trade_contract import UnifiedTradeSignal
+from backend.app.services.position_sizer import PositionSizer
+from backend.app.services.risk_manager import DailyDrawdownGuard, MultiLevelKillSwitch
 
 logger = logging.getLogger("SignalScript.LivePaperRunner")
 
@@ -118,6 +120,15 @@ class LivePaperRunner:
         self.logs: List[Dict[str, Any]] = []
         self.equity_curve: List[Dict[str, Any]] = []
 
+        # M4 Risk Manager (SRS M4) — default-off; компоненты поднимает start()
+        self.use_m4_risk_gates: bool = False
+        self.max_portfolio_heat_pct: float = 6.0
+        self.daily_dd_limit_pct: float = 3.0
+        self.confluence_threshold: float = 0.65
+        self._m4_kill_switch: Optional[MultiLevelKillSwitch] = None
+        self._m4_day_guard: Optional[DailyDrawdownGuard] = None
+        self._m4_sizer: Optional[PositionSizer] = None
+
     def start(
         self,
         config: Dict[str, Any],
@@ -159,6 +170,14 @@ class LivePaperRunner:
         self.trailing_activation_pct = float(config.get("trailing_activation_pct", 0.0))
         self.tp1_rr_ratio = float(config.get("tp1_rr_ratio", 1.5))
         self.tp2_rr_ratio = float(config.get("tp2_rr_ratio", 2.8))
+        # M4 Risk Manager gates (SRS M4) — все default-off, марафон не затрагивается
+        self.use_m4_risk_gates = bool(config.get("use_m4_risk_gates", False))
+        self.max_portfolio_heat_pct = float(config.get("max_portfolio_heat_pct", 6.0))
+        self.daily_dd_limit_pct = float(config.get("daily_dd_limit_pct", 3.0))
+        self.confluence_threshold = float(config.get("confluence_threshold", 0.65))
+        self._m4_kill_switch: Optional[MultiLevelKillSwitch] = None
+        self._m4_day_guard: Optional[DailyDrawdownGuard] = None
+        self._m4_sizer: Optional[PositionSizer] = None
         self._last_funding_timestamp = 0
         self._last_funding_rate = 0.0
         self.started_at = time.time()
@@ -199,6 +218,12 @@ class LivePaperRunner:
         self.session.risk_per_trade_pct = self.risk_per_trade_pct / 100.0
         self.session.leverage = max(1.0, self.leverage)
         self.session.set_fee_rates_percent(self.maker_fee_pct, self.taker_fee_pct)
+
+        # M4 Risk Manager: компоненты поднимаются только при включённом флаге
+        if self.use_m4_risk_gates:
+            self._m4_kill_switch = MultiLevelKillSwitch()
+            self._m4_day_guard = DailyDrawdownGuard(self.daily_dd_limit_pct)
+            self._m4_sizer = PositionSizer(max_portfolio_heat_pct=self.max_portfolio_heat_pct)
 
         self.is_running = True
         self.logs = []
@@ -493,6 +518,13 @@ class LivePaperRunner:
             "risk_per_trade_pct": self.risk_per_trade_pct,
             "min_density_usd": self.min_density_usd,
             "ai_control": self.ai_control,
+            "m4_risk_gates": {
+                "enabled": self.use_m4_risk_gates,
+                "kill_switch_level": self._m4_kill_switch.active_level if self._m4_kill_switch else None,
+                "kill_switch_action": self._m4_kill_switch.current_action if self._m4_kill_switch else "none",
+                "daily_dd_halted": (not self._m4_day_guard.is_entry_allowed) if self._m4_day_guard else False,
+                "max_portfolio_heat_pct": self.max_portfolio_heat_pct,
+            },
             "current_equity": round(total_equity, 2),
             "balance": round(state_dict.get("balance", self.initial_capital), 2),
             "available_margin": round(float(state_dict.get("available_margin", self.initial_capital) or 0.0), 4),
@@ -730,6 +762,20 @@ class LivePaperRunner:
                     meta={"ai_eval": ai_eval},
                 )
 
+        # 6.9 M4 Risk Manager gates (flag-gated, default OFF): дневной DD-лимит,
+        # многоуровневый kill switch, max portfolio heat — блокируют ТОЛЬКО входы.
+        if self.use_m4_risk_gates:
+            block = self._m4_check_entry()
+            if block is not None:
+                gate, reason = block
+                self.blocked_evaluations += 1
+                self._add_log("M4_BLOCK", reason, meta={"gate": gate})
+                self._record_event(
+                    "ENTRY_BLOCKED", "M4_RISK_GATE", reason,
+                    payload={"gate": gate, "equity": self._m4_equity()},
+                )
+                return
+
         # 7. Execute virtual order into Paper Trading Session
         signal_obj = UnifiedTradeSignal(
             symbol=self.symbol,
@@ -757,7 +803,25 @@ class LivePaperRunner:
         )
 
         try:
-            order_res = self.session.execute_unified_signal(signal_obj)
+            # M4.2b: quality multiplier по confluence_score (только при включённом флаге
+            # и наличии скора) — явный quantity через PositionSizer; без скора сайзинг
+            # остаётся штатным (session.risk_per_trade_pct).
+            quantity = None
+            m4_mult = None
+            if self.use_m4_risk_gates and self._m4_sizer is not None:
+                score = getattr(signal_obj, "confluence_score", None)
+                if score is not None:
+                    budget, m4_mult = self._m4_sizer.adjusted_risk_budget(
+                        float(self.session.available_margin),
+                        self.risk_per_trade_pct,
+                        float(score),
+                        self.confluence_threshold,
+                    )
+                    sl_dist = abs(signal_obj.entry_price - signal_obj.sl)
+                    if sl_dist > 0:
+                        quantity = budget / sl_dist
+
+            order_res = self.session.execute_unified_signal(signal_obj, quantity=quantity)
             if order_res.get("status") == "REJECTED":
                 self._add_log("ORDER_REJECTED", f"Заявка {self.symbol} отклонена: {order_res.get('reason', 'risk guard')}")
                 return
@@ -774,6 +838,7 @@ class LivePaperRunner:
                     "stop_loss": candidate_signal["sl"],
                     "take_profit": candidate_signal["tp1"],
                     "risk_budget_usdt": round(risk_budget, 4),
+                    "m4_quality_multiplier": m4_mult,
                     "order": order_res,
                 },
             )
@@ -786,6 +851,50 @@ class LivePaperRunner:
         except Exception as e:
             logger.error(f"Paper order execution error: {e}")
             self._add_log("ERROR", f"Ошибка открытия сделки: {e}")
+
+    # --- M4 Risk Manager helpers (SRS M4; активны только при use_m4_risk_gates) ---
+
+    def _m4_equity(self) -> float:
+        """Equity сессии для M4-гейтов: initial + realized (без unrealized —
+        консервативно, чтобы открытый плюс не разблокировал лимиты)."""
+        return float(self.session.initial_balance) + float(self.session.realized_pnl)
+
+    def _m4_check_entry(self) -> Optional[tuple]:
+        """(gate, reason) если вход заблокирован, иначе None. Порядок: дневной
+        DD-лимит → kill switch (с логом новых срабатываний) → portfolio heat."""
+        now_ms = int(time.time() * 1000)
+        equity = self._m4_equity()
+
+        if self._m4_day_guard is not None and not self._m4_day_guard.update(equity, now_ms):
+            return (
+                "daily_dd_limit",
+                f"⛔ M4: дневной DD-лимит {self.daily_dd_limit_pct}% от начала UTC-дня — входы заблокированы",
+            )
+
+        if self._m4_kill_switch is not None:
+            event = self._m4_kill_switch.update(equity, now_ms)
+            if event is not None:
+                self._add_log(
+                    "M4_KILL_SWITCH",
+                    f"⚠️ Kill switch {event.level}: просадка {event.drawdown_pct}% от HWM — {event.action}",
+                    meta={"level": event.level, "drawdown_pct": event.drawdown_pct, "action": event.action},
+                )
+            if not self._m4_kill_switch.is_entry_allowed:
+                return (
+                    "kill_switch",
+                    f"⛔ M4: kill switch {self._m4_kill_switch.active_level} активен — входы заблокированы",
+                )
+
+        if self._m4_sizer is not None:
+            open_risks = [p.risk_amount for p in self.session.positions.values() if not p.closed]
+            new_risk = equity * (self.risk_per_trade_pct / 100.0)
+            allowed, heat_after = self._m4_sizer.check_heat(open_risks, equity, new_risk)
+            if not allowed:
+                return (
+                    "portfolio_heat",
+                    f"⛔ M4: portfolio heat {heat_after:.2f}% > лимита {self.max_portfolio_heat_pct}% — вход заблокирован",
+                )
+        return None
 
     async def _load_indicator_context(self) -> Optional[Dict[str, Any]]:
         """Load the same real OHLCV-derived indicators used by the historical engine.
