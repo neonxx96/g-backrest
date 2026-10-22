@@ -440,6 +440,14 @@ class OrderFlowBacktester:
         use_dynamic_breakeven: bool = False,       # Move SL to Breakeven (+2*Fee+1tick) when MFE >= +0.5R
         dynamic_be_trigger_r: float = 0.5,
         risk_per_trade_pct: Optional[float] = None,
+        # STRATEGY_WEAKNESSES fixes (docs/STRATEGY_WEAKNESSES_AND_UPGRADES.md), all default-off
+        use_adaptive_wall: bool = False,           # Fix 2: dynamic_wall = rolling median(turnover, window) * mult
+        adaptive_wall_mult: float = 2.5,
+        adaptive_wall_window: int = 50,
+        use_time_stop: bool = False,               # Fix 3: market exit if trade < +min_r after N minutes
+        time_stop_minutes: int = 45,
+        time_stop_min_r: float = 0.3,
+        use_maker_exits: bool = False,             # Fix 4: trailing exits as limit orders (maker, no slippage)
     ) -> Dict[str, Any]:
         """
         Executes realistic institutional order-flow backtest with:
@@ -513,6 +521,19 @@ class OrderFlowBacktester:
         if effective_min_wall > 0 and median_turnover > 0 and effective_min_wall > median_turnover * 4.5:
             effective_min_wall = median_turnover * min(3.5, 0.8 + (effective_min_wall / 3_000_000.0) * 2.2)
 
+        # Fix 2 (STRATEGY_WEAKNESSES): per-bar adaptive wall threshold from a rolling
+        # median of bar turnover. Warmup bars have no median -> honestly no wall gate.
+        adaptive_wall_vals: Optional[np.ndarray] = None
+        if use_adaptive_wall:
+            turnover_series = close_vals * volume_vals
+            adaptive_wall_vals = (
+                pd.Series(turnover_series)
+                .rolling(window=max(2, int(adaptive_wall_window)), min_periods=max(2, int(adaptive_wall_window)))
+                .median()
+                .values
+                * max(0.1, float(adaptive_wall_mult))
+            )
+
         # Spoofing & Wall Lifetime filter: higher min_wall_lifetime_sec (e.g. 45-60s) requires sustained multi-bar volume
         lifetime_factor = 1.0 + max(0.0, (wall_life_sec - 30.0) / 150.0)
 
@@ -527,7 +548,11 @@ class OrderFlowBacktester:
             delta = float(delta_vals[i])
 
             turnover = c * float(volume_vals[i])
-            passes_wall = (effective_min_wall <= 0) or (turnover >= effective_min_wall)
+            if adaptive_wall_vals is not None:
+                bar_wall = float(adaptive_wall_vals[i])
+                passes_wall = np.isfinite(bar_wall) and turnover >= bar_wall
+            else:
+                passes_wall = (effective_min_wall <= 0) or (turnover >= effective_min_wall)
             # Wall hold verification: if min_wall_lifetime_sec > 35s, ensure previous bar was not an isolated spoof flash
             passes_lifetime = True if wall_life_sec <= 35 else ((v_rat + prev_v_rat) * 0.5 >= volume_multiplier * 0.75 * lifetime_factor)
 
@@ -642,6 +667,7 @@ class OrderFlowBacktester:
         remaining_fraction = 1.0
         tp1_filled = False
         dynamic_be_triggered = False
+        entry_sl_dist = 0.0
         realized_leg1_gross_usd = 0.0
         realized_leg1_fee_usd = 0.0
         entry_fee_usd = 0.0
@@ -711,7 +737,9 @@ class OrderFlowBacktester:
                             if new_sl > trailing_sl:
                                 trailing_sl = new_sl
                         if low_p <= trailing_sl:
-                            exit_price = max(1e-8, trailing_sl - stop_slippage_abs)
+                            # Fix 4 (STRATEGY_WEAKNESSES): with use_maker_exits the trailing
+                            # exit is a resting limit order at the trail price (maker, no slippage).
+                            exit_price = trailing_sl if use_maker_exits else max(1e-8, trailing_sl - stop_slippage_abs)
                             exit_reason = "Trailing Stop"
                             is_stop_exit = True
                     elif pos_dir == -1:
@@ -721,7 +749,7 @@ class OrderFlowBacktester:
                             if new_sl < trailing_sl:
                                 trailing_sl = new_sl
                         if high_p >= trailing_sl:
-                            exit_price = trailing_sl + stop_slippage_abs
+                            exit_price = trailing_sl if use_maker_exits else trailing_sl + stop_slippage_abs
                             exit_reason = "Trailing Stop"
                             is_stop_exit = True
 
@@ -746,23 +774,40 @@ class OrderFlowBacktester:
                             exit_reason = "TP1 + TP2 (Scaling Out)" if tp1_filled else "Take Profit"
                             is_stop_exit = False
 
+                # Step 1C2: Fix 3 (STRATEGY_WEAKNESSES) — time-stop: market exit when the
+                # trade failed to reach +time_stop_min_r within time_stop_minutes.
+                if exit_price is None and use_time_stop and entry_time is not None and entry_sl_dist > 0:
+                    elapsed_ms = int(cur_time) - int(entry_time)
+                    if elapsed_ms >= int(time_stop_minutes) * 60_000:
+                        unrealized_r = (((close_p - entry_price) * pos_dir) / entry_sl_dist)
+                        if unrealized_r < float(time_stop_min_r):
+                            exit_price = close_p
+                            exit_reason = "Time Stop"
+                            is_stop_exit = True
+
                 # Step 1D: Process Final Exit
                 if exit_price is not None:
                     rem_size = initial_pos_size * remaining_fraction
-                    if is_stop_exit:
-                        # Reference un-slipped stop price to measure exact slippage cost
-                        ref_stop_p = trailing_sl if exit_reason == "Trailing Stop" else sl_price
+                    maker_trailing_exit = is_stop_exit and use_maker_exits and exit_reason == "Trailing Stop"
+                    if is_stop_exit and not maker_trailing_exit:
+                        # Reference un-slipped stop price to measure exact slippage cost;
+                        # a Time Stop exits at the bar close, so its slippage is zero by construction.
+                        ref_stop_p = (
+                            trailing_sl if exit_reason == "Trailing Stop"
+                            else exit_price if exit_reason == "Time Stop"
+                            else sl_price
+                        )
                         unslipped_ret = ((ref_stop_p - entry_price) / entry_price) if pos_dir == 1 else ((entry_price - ref_stop_p) / entry_price)
                         actual_ret = ((exit_price - entry_price) / entry_price) if pos_dir == 1 else ((entry_price - exit_price) / entry_price)
                         leg2_gross_usd = rem_size * unslipped_ret
                         slippage_cost_usd = max(0.0, rem_size * (unslipped_ret - actual_ret))
-                        # Market Stop Loss pays Taker fee
+                        # Market Stop Loss / Time Stop pays Taker fee
                         leg2_fee_usd = rem_size * taker_rate
                     else:
                         actual_ret = ((exit_price - entry_price) / entry_price) if pos_dir == 1 else ((entry_price - exit_price) / entry_price)
                         leg2_gross_usd = rem_size * actual_ret
                         slippage_cost_usd = 0.0
-                        # Limit TP2 exit pays Maker fee
+                        # Limit TP2 / maker trailing exit pays Maker fee
                         leg2_fee_usd = rem_size * maker_rate
 
                     trade_gross_pnl_usd = realized_leg1_gross_usd + leg2_gross_usd
@@ -962,6 +1007,7 @@ class OrderFlowBacktester:
                     trailing_sl = sl_price
                     max_favorable = entry_price
 
+                entry_sl_dist = sl_dist
                 in_pos = True
 
         # Aggregate Statistics (zero-division safe)

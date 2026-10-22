@@ -2,6 +2,16 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-3.3 strategy-weaknesses fixes — 2026-10-22
+
+- **ACTIVE_AGENT:** `kimi` (main)
+- **3.3:** 4 флага в `OrderFlowBacktester.run_backtest`, все **default-off** (марафон не тронут): `use_dynamic_breakeven` (авто-BE +0.5R — уже существовал), `use_adaptive_wall` (+`adaptive_wall_mult=2.5`, `adaptive_wall_window=50`) — per-bar rolling median(turnover)×mult вместо фиксированного $-порога; warmup NaN → сигнал не проходит. `use_time_stop` (+`time_stop_minutes=45`, `time_stop_min_r=0.3`) — market-выход по close, reason "Time Stop", taker fee. `use_maker_exits` — трейлинг лимитом по trailing_sl, maker fee, slippage 0.
+- **Вскрыто:** фиксированный `min_density_usd` уже клампится внутри кода до ~median(turnover)×3.5 (строки 520–522) — «абсурдный» порог ничего не блокирует; adaptive wall убирает этот костыль полностью. Тесты переписаны под фактическое поведение.
+- **Тесты:** `test_strategy_weaknesses_fixes.py` (6): time-stop вход/выкл, maker vs taker трейлинг (slippage/fee), независимость adaptive wall от `min_density_usd` + warmup, BE-флаг не меняет входы, регрессионный якорь golden (11 сделок / net_pnl 261.23 — сверено stash-прогоном с чистым main).
+- **Матрица «было/стало»:** `scripts/strategy_fixes_matrix.py` → `docs/STRATEGY_FIXES_MATRIX.md` — 3×3 (BTC/ETH/SOL bybit 15m кэш × confluence_ema/ema_trend/naked_test) вместо 8×3 (8 стратегий в реестре нет). Вывод: confluence/ema_trend — убыточность режется в 3–9 раз; naked_test на BTC/ETH хуже (time-stop → ре-энтри, 157→456 сделок) — для naked_test включать только после калибровки `time_stop_minutes`.
+- **Gate:** `check.ps1` PASS; `pytest backend/tests` — **278 passed, 28 skipped**.
+- **Не закрыто:** паритет флагов в LivePaperRunner (управление позицией в live пока без time-stop/maker); эндпоинты/флаги активируются после штатного рестарта backend (марафон + soak до 24.10 — не перезапускать).
+
 ## Kimi phase-3.4 limit-fill simulator — 2026-10-22
 
 - **ACTIVE_AGENT:** `kimi` (main)
