@@ -456,6 +456,17 @@ class LimitSetupRequest(BaseModel):
     slippage_ticks: float = Field(default=1.0, ge=0.0)
     tick_size: float = Field(default=0.01, gt=0)
 
+    @model_validator(mode="after")
+    def _check_level_order(self):
+        # BUY: sl < entry < tp; SELL: tp < entry < sl — порядок уровней зависит от стороны.
+        # (Первоначальная версия ветки отвергала ВСЕ шорты: sl >= tp у SELL — норма.)
+        side = self.side.strip().upper()
+        if side == "BUY" and self.sl_price >= self.tp_price:
+            raise ValueError("BUY: sl_price must be below tp_price")
+        if side == "SELL" and self.tp_price >= self.sl_price:
+            raise ValueError("SELL: tp_price must be below sl_price")
+        return self
+
 
 class LimitSetupResponse(BaseModel):
     filled: bool
@@ -485,10 +496,9 @@ async def simulate_limit_box(req: LimitSetupRequest) -> LimitSetupResponse:
     side = req.side.strip().upper()
     if side not in {"BUY", "SELL"}:
         raise HTTPException(status_code=422, detail="side must be BUY or SELL")
-    if req.sl_price >= req.tp_price:
-        raise HTTPException(status_code=422, detail="sl_price must be below tp_price")
+    # Порядок уровней (sl/tp) валидирует LimitSetupRequest._check_level_order → 422.
 
-    # Simulator operates on 1m bars; derive the needed history depth.
+    # Симулятор работает на 1m-барах; выводим нужную глубину истории из max_bars.
     days = max(1, int(math.ceil((req.max_bars + 5) / 1440.0)))
 
     try:
@@ -529,6 +539,7 @@ async def simulate_limit_box(req: LimitSetupRequest) -> LimitSetupResponse:
         net_pnl=result.net_pnl,
         net_pnl_r=result.net_pnl_r,
     )
+
 
 
 def _sharpe(equity_curve: List[Dict[str, float]]) -> float:
