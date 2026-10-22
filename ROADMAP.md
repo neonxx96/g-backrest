@@ -85,7 +85,7 @@
 - [x] 3.5 **M2.1:** довести registry: VWAP, OI-плагины до полного набора SRS + тесты (2026-10-22, main: VWAP был полон; добавлен `plugins/open_interest.py` — truth-first, без OI-колонки ничего не синтезирует; registry покрывает полный набор M2.1: EMA/RSI/ATR/VWAP/CVD/VolumeSpike/OI; 7 тестов)
 
 ### 📊 ФАЗА 4 — Order Flow визуал: M1.2 + M6.2
-- [ ] 4.1 **M1.2a:** TPO/Volume Profile: TVAH/TPOC/TVAL из агрегированных распределений; `poc_price=null` при отсутствии aggTrades (тест-контракт)
+- [x] 4.1 **M1.2a:** TPO/Volume Profile: TVAH/TPOC/TVAL из агрегированных распределений; `poc_price=null` при отсутствии aggTrades (тест-контракт) (2026-10-22, main: `services/tpo_profile.py` — TPO по 30-мин периодам из `data/recorded/<SYM>/trades_*.parquet`, классическая двусторонняя VA-экспансия отдельно по TPO и по объёму, VWAP-тай-брейк POC, авто-tick (~200 строк), truth-first: нет принтов → все границы None; эндпоинт `GET /api/profile/tpo` (+`available_dates`); 8 тестов; проверено на реальных записях BTC 21.10: TPOC 84664, VA [84633.5–84694.5], 174 строки)
 - [ ] 4.2 **M1.2b:** Footprint внутри свечей KLineCharts (влить `FootprintClusters.jsx` в полотно); stacked_imbalance, absorption метрики
 - [ ] 4.3 **M6.2a:** слои-тумблы графика: TPO Profile, Liquidations, Forecast Bands, Regime (часть есть — довести до SRS-набора)
 - [ ] 4.4 **M6.2b:** под-панели CVD / OI / RSI синхронно; тултип сделки: entry reasons, exit trigger, fees, Fee Drag%, MFE, MAE, regime

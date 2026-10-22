@@ -66,6 +66,38 @@ async def get_clusters(symbol: str = Query("BTCUSDT"), limit: int = Query(30)):
     """Returns footprint clusters (price buckets with buy/sell volume and delta)."""
     return recorder.get_clusters_for_chart(symbol=symbol.upper(), limit_candles=limit)
 
+@data_router.get("/profile/tpo")
+async def get_tpo_profile(
+    symbol: str = Query("BTCUSDT"),
+    date: Optional[str] = Query(None, description="YYYY-MM-DD; default — today (UTC)"),
+    tick_size: Optional[float] = Query(None, description="Price bucket; default — auto (~200 rows)"),
+    period_minutes: int = Query(30, ge=1),
+    value_area: float = Query(0.70, gt=0, le=1),
+):
+    """TPO / Volume Profile (SRS M1.2a): TPOC/TVAH/TVAL + POC/VAH/VAL из записанных
+    aggTrades. При отсутствии принтов — poc/tpoc/VA-границы = null (ничего не синтезируется)."""
+    from datetime import datetime, timezone
+
+    from backend.app.services import tpo_profile as tpo
+
+    sym = symbol.upper()
+    date_str = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    trades = tpo.load_recorded_trades(recorder.data_dir, sym, date_str)
+    if trades is None:
+        profile = tpo.build_tpo_profile(
+            None, symbol=sym, date=date_str, tick_size=tick_size or 1.0,
+            period_minutes=period_minutes, value_area_fraction=value_area,
+        )
+    else:
+        effective_tick = tick_size or tpo.infer_tick_size(trades["price"])
+        profile = tpo.build_tpo_profile(
+            trades, symbol=sym, date=date_str, tick_size=effective_tick,
+            period_minutes=period_minutes, value_area_fraction=value_area,
+        )
+    payload = profile.to_dict()
+    payload["available_dates"] = tpo.list_recorded_dates(recorder.data_dir, sym)
+    return payload
+
 @data_router.get("/recorder/export")
 async def export_recorded_data(symbol: Optional[str] = None):
     """Packages recorded Parquet data into a ZIP archive for local download."""

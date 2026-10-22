@@ -2,6 +2,15 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-4.1 TPO / Volume Profile — 2026-10-22
+
+- **ACTIVE_AGENT:** `kimi` (main)
+- **4.1 (M1.2a):** `backend/app/services/tpo_profile.py` — TPO (30-мин периоды, count коснувшихся бакетов) + Volume Profile из реальных записей `data/recorded/<SYM>/trades_*.parquet`. Классическая двусторонняя VA-экспансия (≥70%) отдельно по TPO (TPOC/TVAH/TVAL) и по объёму (POC/VAH/VAL); тай-брейк POC — ближе к VWAP, затем ниже цена. `infer_tick_size` подбирает круглый бакет (~200 строк). Truth-first контракт: нет принтов / все NaN → `poc_price` и все VA-границы = None (JSON null), `data_available=false`.
+- **API:** `GET /api/profile/tpo?symbol&date&tick_size&period_minutes&value_area` в `api/data_routes.py` (+`available_dates` для UI-пикера). Активируется после штатного рестарта backend (марафон + soak до 24.10 — не перезапускать).
+- **Тесты:** `test_tpo_profile.py` (8) — ручной расчёт TPO/VA, расхождение volume-POC и TPOC, null-контракт, валидация, авто-tick, roundtrip parquet в tmp_path. Проверено на реальных записях BTC 2026-10-21: TPOC 84664, TVAH/TVAL 84694.5/84633.5, 174 строки.
+- **Gate:** `check.ps1` PASS; `pytest backend/tests` — **286 passed, 28 skipped**.
+- **Дальше (4.2):** Footprint-слой в Chart.jsx на основе `/api/recorder/clusters` + TPO-оверлей на этом профиле.
+
 ## Kimi phase-3.3 strategy-weaknesses fixes — 2026-10-22
 
 - **ACTIVE_AGENT:** `kimi` (main)
