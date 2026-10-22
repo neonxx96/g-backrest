@@ -17,6 +17,13 @@
 - **НЕ подключено:** оба модуля — чистые state-machine без ордеров; интеграция в LivePaperRunner + UI-индикация = задача 5.6 (вместе с Position Sizer).
 - **Gate:** `check.ps1` PASS; `pytest backend/tests` — **316 passed, 28 skipped**.
 - **Напоминание:** backend не перезапускать (марафон + soak до 24.10).
+
+## Kimi phase-5.5 Hedge Mode ledger — 2026-10-22
+
+- **ACTIVE_AGENT:** `kimi` (main)
+- **5.5 (M4.1):** `backend/app/services/hedge_ledger.py::HedgeLedger` — изолированные суб-кошельки маржи для одновременных LONG/SHORT суб-стратегий: `create_wallet(name, side)`, `allocate/deallocate` (нельзя превысить пул, нельзя снять занятую маржу), `open_position/close_position` резервируют/освобождают маржу внутри кошелька, realized PnL пишется в свой кошелёк. Isolated margin по-честному: убыток ноги клампится её маржой (`booked = max(pnl, -margin)`), излишек не перетекает в пул или чужие кошельки. `summary()` для UI. 8 тестов (`test_hedge_ledger.py`).
+- **НЕ подключено:** LivePaperRunner/paper_trading остаются one-way — интеграция hedge-режима в раннер = задача 5.6 (вместе с sizer, quality multiplier, kill switch).
+- **Gate:** `check.ps1` PASS; `pytest backend/tests` — **324 passed, 28 skipped**.
 - **Gate:** `check.ps1` PASS; `pytest backend/tests` — **306 passed, 28 skipped**.
 - **Напоминание:** backend не перезапускать (марафон + soak до 24.10).
 
