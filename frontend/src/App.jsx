@@ -12,6 +12,7 @@ import SettingsModal, {
 import BacktestPanel from './components/BacktestPanel';
 import AICopilotSidebar from './components/AICopilotSidebar';
 import DecisionJournalModal from './components/DecisionJournalModal';
+import ReplayModal from './components/ReplayModal';
 import IndicatorsModal, {
   loadChartIndicators,
   saveChartIndicators
@@ -199,6 +200,7 @@ export default function App() {
     try { return localStorage.getItem('signalscript_show_journal') === 'true'; } catch (_) { return false; }
   });
   const [showIndicatorsModal, setShowIndicatorsModal] = useState(false);
+  const [showReplay, setShowReplay] = useState(false);
   const [indicatorsTargetChart, setIndicatorsTargetChart] = useState('primary');
   const [primaryIndicators, setPrimaryIndicators] = useState(() => loadChartIndicators('primary'));
   const [secondaryIndicators, setSecondaryIndicators] = useState(() => loadChartIndicators('secondary'));
@@ -1093,6 +1095,21 @@ export default function App() {
             <span>Журнал [J]</span>
           </button>
 
+          {/* Replay lake player toggle (задача 2.5) */}
+          <button
+            data-testid="btn-open-replay"
+            onClick={() => setShowReplay(true)}
+            className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition ${
+              showReplay
+                ? 'bg-[#141720] text-[#38bdf8] border-[#38bdf840]'
+                : 'text-[#60697b] border-transparent hover:bg-[#141720]'
+            }`}
+            title="Replay-плеер записанного lake: Play/Pause/Step/скорость (тики и стакан из recorder'а)"
+          >
+            <span>⏯</span>
+            <span>Replay</span>
+          </button>
+
           {/* Backtest drawer toggle */}
           <button
             data-testid="btn-toggle-backtest-drawer"
@@ -1494,6 +1511,12 @@ export default function App() {
         activeSymbol={symbol}
         activeTimeframe={timeframe}
         activeSetup={activePositionSetup}
+      />
+
+      {/* Replay lake player (задача 2.5) */}
+      <ReplayModal
+        isOpen={showReplay}
+        onClose={() => setShowReplay(false)}
       />
 
       {/* Indicators Catalog Modal */}
