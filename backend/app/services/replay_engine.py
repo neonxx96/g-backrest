@@ -14,11 +14,14 @@ GUARANTEES:
 The engine is intentionally isolated from `orderflow_backtester.py` so the
 existing bar-based backtester remains untouched.
 """
+import json
 import logging
 from pathlib import Path
-from typing import Iterator, List, Optional
+from typing import Any, Iterator, List, Optional
 
 import pandas as pd
+
+from backend.app.config import RECORDED_DATA_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +33,28 @@ logger = logging.getLogger(__name__)
 PRIORITY_TRADE = 0
 PRIORITY_DEPTH = 1
 
-DEFAULT_RECORDER_DIR = Path(__file__).resolve().parents[2] / "data" / "recorder"
+
+def book_to_lists(value: Any) -> List[list]:
+    """Depth-книга из Parquet. Формат зависит от записи:
+    - реальный lake сериализует bids/asks как JSON-строки (dtype str) — парсим;
+    - свежезаписанный DataFrame с list-колонкой читается как numpy array — берём итерируемое.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (ValueError, TypeError):
+            logger.warning("Unparseable book payload (first 80 chars): %.80s", value)
+            return []
+        return [list(level) for level in parsed] if isinstance(parsed, list) else []
+    try:
+        return [list(level) for level in value]
+    except TypeError:
+        return []
+
+# Единый источник истины — реальный каталог recorder'а (фикс merge 2.5: было data/recorder).
+DEFAULT_RECORDER_DIR = RECORDED_DATA_DIR
 
 
 class ReplayEvent:
@@ -136,8 +160,8 @@ class ReplayEngine:
                         seq=-1,
                         kind="depth",
                         payload={
-                            "bids": [list(b) for b in row.bids] if row.bids is not None else [],
-                            "asks": [list(a) for a in row.asks] if row.asks is not None else [],
+                            "bids": book_to_lists(row.bids),
+                            "asks": book_to_lists(row.asks),
                         },
                     )
                 )
