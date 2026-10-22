@@ -8,6 +8,15 @@
 - **5.1 (M4.2a):** `backend/app/services/position_sizer.py` — чистый расчёт поверх execution_simulator (не тронут): `fixed_fractional` (qty = equity×risk% / |entry−stop|), `budgeted_dca_ladder` (ноги против хода по offsets%, суммарный риск лестницы до общего стопа строго ≤ бюджета; доли риска на ногу, weighted_entry; нога за стопом / shares≠1 / offsets не растут → ValueError — truth-first, молча не чиним), `portfolio_heat` + `check_heat` (allowed, heat_after). API `/api/risk/position-size|dca-ladder|heat-check`, зарегистрирован в main.py (после рестарта). Тесты: `test_position_sizer.py` (12).
 - **НЕ подключено:** LivePaperRunner не использует sizer — интеграция sizing-режимов + валидация на марафоне = задача 5.6. Ордеров модуль не создаёт, только расчёты.
 - **5.2 (M4.2b), тот же коммит-след:** `PositionSizer.quality_multiplier(score, threshold=0.65)` — SRS-полоса 0.5–1.2× (ниже порога 0.5×, на пороге 1.0×, линейно до 1.2× при score=1.0); `adjusted_risk_budget` без скора оставляет Fixed Fractional нетронутым (mult=1.0). Опциональный `confluence_score` принимают `/api/risk/position-size` и `/api/risk/dca-ladder` (в лестнице бюджет масштабируется до расчёта ног). 15 тестов в test_position_sizer.py.
+
+## Kimi phase-5.3/5.4 Risk Manager — 2026-10-22
+
+- **ACTIVE_AGENT:** `kimi` (main)
+- **5.4 (M4.3):** `backend/app/services/risk_manager.py::MultiLevelKillSwitch` — уровни WARNING(−3%, alert) / HALT_NEW(−5%, блок новых входов) / FLATTEN(−10%, эскалация) от high-water mark + опциональный абсолютный $-порог. Дисциплина: уровень срабатывает один раз; новый HWM fired-уровни НЕ сбрасывает; `unlock(reason, ts, rebase_hwm)` требует непустую причину (audit), rebase опционален. Валидация: severity уровней обязана эскалировать с глубиной. 7 тестов.
+- **5.3 (M4.2c):** `DailyDrawdownGuard` (просадка от equity начала UTC-дня ≥ лимита → halt до конца дня, отскок halt не снимает, новый день — новая база) + `CompoundingRiskEngine` (бюджет = текущая equity × base%, 0 при halt). 3 теста.
+- **НЕ подключено:** оба модуля — чистые state-machine без ордеров; интеграция в LivePaperRunner + UI-индикация = задача 5.6 (вместе с Position Sizer).
+- **Gate:** `check.ps1` PASS; `pytest backend/tests` — **316 passed, 28 skipped**.
+- **Напоминание:** backend не перезапускать (марафон + soak до 24.10).
 - **Gate:** `check.ps1` PASS; `pytest backend/tests` — **306 passed, 28 skipped**.
 - **Напоминание:** backend не перезапускать (марафон + soak до 24.10).
 
