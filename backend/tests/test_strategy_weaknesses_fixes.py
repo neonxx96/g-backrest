@@ -149,6 +149,23 @@ def test_dynamic_breakeven_flag_moves_stop_after_half_r():
     assert [t["entry_time"] for t in baseline.get("trades", [])] == [t["entry_time"] for t in protected.get("trades", [])]
 
 
+def test_trades_carry_mfe_mae_and_fee_drag():
+    df = pd.read_csv(GOLDEN_CSV)
+    bt = OrderFlowBacktester(initial_capital=10000.0)
+
+    result = bt.run_backtest(df, strategy_type="confluence_ema", compute_monte_carlo=False)
+    trades = result.get("trades", [])
+    assert trades, "golden fixture must produce trades"
+
+    for t in trades:
+        # Поля SRS M6.2b для тултипа сделки присутствуют и согласованы
+        assert "mfe" in t and "mae" in t and "fee_drag_pct" in t
+        assert t["mfe"] >= t["mae"], "лучшая экскурсия не может быть хуже худшей"
+        assert t["fee_drag_pct"] >= 0
+        # MFE/MAE не влияют на финансовый результат — чистая метрика экскурсии
+        assert isinstance(t["mfe"], (int, float)) and isinstance(t["mae"], (int, float))
+
+
 def test_all_fixes_default_off_preserve_golden_baseline():
     df = pd.read_csv(GOLDEN_CSV)
     bt = OrderFlowBacktester(initial_capital=10000.0)

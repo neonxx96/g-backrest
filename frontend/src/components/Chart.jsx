@@ -902,6 +902,87 @@ try {
   });
 } catch (_) {}
 
+// 4c. Register custom 'tpoProfile' (TPO/Volume Profile: гистограмма TPO слева от якоря,
+// подсветка Value Area, маркеры POC/TPOC/TVAH/TVAL — данные /api/profile/tpo, SRS M1.2a/M6.2a)
+try {
+  registerOverlay({
+    name: 'tpoProfile',
+    totalStep: 2,
+    needDefaultPointFigure: false,
+    needDefaultXAxisFigure: false,
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ coordinates, yAxis, overlay }) => {
+      if (!coordinates || coordinates.length === 0) return [];
+      const anchor = coordinates[0];
+      if (!Number.isFinite(anchor?.x)) return [];
+      if (!yAxis || typeof yAxis.convertToPixel !== 'function') return [];
+
+      const data = overlay.extendData || {};
+      const rows = Array.isArray(data.rows) ? data.rows : [];
+      if (rows.length === 0) return [];
+
+      const maxTpo = Math.max(...rows.map(r => r.tpo_count || 0), 1);
+      const maxWidth = 140;
+      const right = anchor.x - 4;
+
+      // Высота строки из соседних уровней
+      let rowHeight = 5;
+      if (rows.length > 1) {
+        const yA = yAxis.convertToPixel(rows[0].price);
+        const yB = yAxis.convertToPixel(rows[1].price);
+        if (Number.isFinite(yA) && Number.isFinite(yB) && yA !== yB) {
+          rowHeight = Math.min(12, Math.max(2.5, Math.abs(yA - yB) - 1));
+        }
+      }
+
+      const figures = [];
+      for (const row of rows) {
+        const y = yAxis.convertToPixel(row.price);
+        if (!Number.isFinite(y)) continue;
+        const share = (row.tpo_count || 0) / maxTpo;
+        if (share <= 0) continue;
+        const w = Math.max(1, maxWidth * share);
+        const inVa = !!row.tpo_in_value_area;
+        const isPoc = data.tpoc_price != null && Math.abs(row.price - data.tpoc_price) < 1e-9;
+        figures.push({
+          type: 'rect',
+          attrs: { x: right - w, y: y - rowHeight / 2, width: w, height: rowHeight },
+          styles: {
+            style: isPoc ? 'stroke_fill' : 'fill',
+            color: isPoc ? 'rgba(245, 158, 11, 0.55)' : (inVa ? 'rgba(56, 189, 248, 0.34)' : 'rgba(56, 189, 248, 0.14)'),
+            ...(isPoc ? { borderColor: '#f59e0b', borderSize: 1.2 } : {})
+          },
+          ignoreEvent: true
+        });
+      }
+
+      // Линии VA и маркеры POC/TPOC
+      const line = (price, color, label) => {
+        if (price == null) return;
+        const y = yAxis.convertToPixel(price);
+        if (!Number.isFinite(y)) return;
+        figures.push({
+          type: 'rect',
+          attrs: { x: right - maxWidth - 30, y: y - 0.75, width: maxWidth + 30, height: 1.5 },
+          styles: { style: 'fill', color },
+          ignoreEvent: true
+        });
+        figures.push({
+          type: 'text',
+          attrs: { x: right - maxWidth - 34, y, text: label, align: 'right', baseline: 'middle' },
+          styles: { color, size: 9 },
+          ignoreEvent: true
+        });
+      };
+      line(data.tvah_price, 'rgba(245, 158, 11, 0.7)', 'TVAH');
+      line(data.tval_price, 'rgba(245, 158, 11, 0.7)', 'TVAL');
+      line(data.poc_price, 'rgba(226, 232, 240, 0.6)', 'POC');
+
+      return figures;
+    }
+  });
+} catch (_) {}
+
 // 5. Register custom 'strategyLevelZone' (Strategy Entry/SL/TP Level + Role-Colored Badge)
 try {
   registerOverlay({
@@ -1863,6 +1944,8 @@ export default function Chart({
   const [showHeatmap, setShowHeatmap] = useState(() => localStorage.getItem('chart_heatmap') === 'true');
   // Footprint-слой внутри свечей (SRS M1.2b), default OFF
   const [showFootprint, setShowFootprint] = useState(() => localStorage.getItem('chart_footprint') === 'true');
+  // TPO/Volume Profile слой (SRS M1.2a), default OFF
+  const [showTpo, setShowTpo] = useState(() => localStorage.getItem('chart_tpo') === 'true');
   const [showLiquidations, setShowLiquidations] = useState(() => localStorage.getItem('chart_liquidations') !== 'false');
   const [showVwap, setShowVwap] = useState(() => localStorage.getItem('chart_vwap') === 'true');
   const [showWalls, setShowWalls] = useState(() => localStorage.getItem('chart_walls') !== 'false');
@@ -1873,6 +1956,7 @@ export default function Chart({
   const activeLiqOverlays = useRef([]);
   const activeHeatmapOverlays = useRef([]);
   const activeFootprintOverlays = useRef([]);
+  const activeTpoOverlays = useRef([]);
   const activeWallOverlays = useRef([]);
   const vwapLineOverlay = useRef(null);
   const currentKlines = useRef([]);
@@ -2944,6 +3028,48 @@ export default function Chart({
     return () => clearInterval(interval);
   }, [showFootprint, loadFootprint]);
 
+  // Load and render TPO/Volume Profile from recorded aggTrades (SRS M1.2a)
+  const loadTpoProfile = useCallback(async () => {
+    if (!chartRef.current || !showTpo) {
+      activeTpoOverlays.current.forEach(id => {
+        try { chartRef.current.removeOverlay({ id }); } catch (_) {}
+      });
+      activeTpoOverlays.current = [];
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/profile/tpo?symbol=${symbol}`);
+      if (!res.ok) return;
+      const data = await res.json();
+
+      activeTpoOverlays.current.forEach(id => {
+        try { chartRef.current.removeOverlay({ id }); } catch (_) {}
+      });
+      activeTpoOverlays.current = [];
+
+      if (!data || data.data_available !== true || !Array.isArray(data.rows) || data.rows.length === 0) return;
+      const klines = currentKlines.current;
+      if (!klines || klines.length === 0) return;
+      const anchorTs = klines[klines.length - 1].timestamp;
+      const anchorPrice = data.tpoc_price ?? data.poc_price ?? klines[klines.length - 1].close;
+
+      const id = chartRef.current.createOverlay({
+        name: 'tpoProfile',
+        lock: true,
+        points: [{ timestamp: anchorTs, value: anchorPrice }],
+        extendData: {
+          rows: data.rows,
+          poc_price: data.poc_price,
+          tpoc_price: data.tpoc_price,
+          tvah_price: data.tvah_price,
+          tval_price: data.tval_price
+        }
+      });
+      if (id) activeTpoOverlays.current.push(id);
+    } catch (_) {}
+  }, [symbol, showTpo]);
+
   // Render parsed orderbook walls on the chart
   const renderOrderBookWalls = useCallback((bidsRaw, asksRaw) => {
     if (!chartRef.current || !showWalls) {
@@ -3161,6 +3287,7 @@ export default function Chart({
           loadLiquidations();
           loadHeatmap();
           loadFootprint();
+          loadTpoProfile();
           setKlinesVersion((v) => v + 1);
         } else {
           setStatusMsg("Свечи отсутствуют");
@@ -4299,6 +4426,20 @@ export default function Chart({
           </button>
 
           <button
+            data-testid="btn-toolbar-toggle-tpo"
+            title="TPO/Volume Profile из записанных принтов: гистограмма TPO, Value Area (TVAH/TVAL), POC"
+            onClick={() => {
+              const next = !showTpo;
+              setShowTpo(next);
+              localStorage.setItem('chart_tpo', next ? 'true' : 'false');
+            }}
+            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition flex items-center ${showTpo ? 'bg-[#38bdf822] text-[#38bdf8] border border-[#38bdf850]' : 'text-[#60697b] hover:text-white'}`}
+          >
+            <span>📊</span>
+            <span className="hidden xl:inline ml-0.5">TPO</span>
+          </button>
+
+          <button
             title="Маркеры ликвидаций Binance Futures"
             onClick={() => {
               const next = !showLiquidations;
@@ -4715,8 +4856,9 @@ export default function Chart({
                   <span>Слиппейдж: -${Number(btTooltip.trade.slippage_cost_usd || 0).toFixed(2)}</span>
                 </div>
                 <div className="text-[8.5px] text-[#94a3b8] mt-0.5 flex justify-between">
-                  <span>MFE: +{Number(btTooltip.trade.mfe || 0).toFixed(2)}</span>
-                  <span>MAE: -{Number(btTooltip.trade.mae || 0).toFixed(2)}</span>
+                  <span>MFE: +{Number(btTooltip.trade.mfe || 0).toFixed(2)}%</span>
+                  <span>MAE: {Number(btTooltip.trade.mae || 0).toFixed(2)}%</span>
+                  <span>Fee Drag: {btTooltip.trade.fee_drag_pct != null ? `${Number(btTooltip.trade.fee_drag_pct).toFixed(2)}%` : 'No data'}</span>
                 </div>
               </>
             ) : (

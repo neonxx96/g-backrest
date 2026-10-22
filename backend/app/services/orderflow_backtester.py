@@ -663,6 +663,8 @@ class OrderFlowBacktester:
         sl_price = 0.0
         trailing_sl = 0.0
         max_favorable = 0.0
+        mfe_price = 0.0   # лучшая цена в сторону позиции за жизнь сделки (SRS M6.2b)
+        mae_price = 0.0   # худшая цена против позиции
         initial_pos_size = 0.0
         remaining_fraction = 1.0
         tp1_filled = False
@@ -685,6 +687,14 @@ class OrderFlowBacktester:
 
             # 1. Check Active Position Exits (TP1 Scaling Out, Breakeven SL, TP2, or Stop Loss with Slippage Ticks)
             if in_pos and entry_price > 0:
+                # MFE/MAE excursion tracking (per-bar extremes against entry)
+                if pos_dir == 1:
+                    mfe_price = max(mfe_price, high_p)
+                    mae_price = min(mae_price, low_p) if mae_price > 0 else low_p
+                else:
+                    mfe_price = min(mfe_price, low_p) if mfe_price > 0 else low_p
+                    mae_price = max(mae_price, high_p)
+
                 tick_unit = self._estimate_tick_size(entry_price)
                 stop_slippage_abs = tick_unit * slip_ticks
 
@@ -834,6 +844,9 @@ class OrderFlowBacktester:
                         "slippage_cost_usd": round(slippage_cost_usd, 2),
                         "pnl_usd": round(trade_net_pnl_usd, 2),
                         "pnl_pct": round(trade_net_pnl_pct, 2),
+                        "mfe": round(((mfe_price - entry_price) / entry_price) * 100.0 * pos_dir, 2) if mfe_price > 0 else 0.0,
+                        "mae": round(((mae_price - entry_price) / entry_price) * 100.0 * pos_dir, 2) if mae_price > 0 else 0.0,
+                        "fee_drag_pct": round(((trade_fee_usd + slippage_cost_usd) / max(1e-9, initial_pos_size / safe_lev)) * 100.0, 2),
                         "tp1_hit": bool(tp1_filled),
                         "exit_reason": exit_reason,
                         "context_snapshot": entry_context_snapshot or {
@@ -866,6 +879,8 @@ class OrderFlowBacktester:
                 remaining_fraction = 1.0
                 tp1_filled = False
                 dynamic_be_triggered = False
+                mfe_price = entry_price
+                mae_price = entry_price
                 realized_leg1_gross_usd = 0.0
                 realized_leg1_fee_usd = 0.0
                 # Limit entry at liquidity density pays Maker fee (0.02% default)

@@ -2,6 +2,14 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-4.3/4.4 слои графика + тултип сделки — 2026-10-22
+
+- **ACTIVE_AGENT:** `kimi` (main)
+- **4.3 (M6.2a):** SRS-набор тумблов закрыт. Добавлен 📊 **TPO** — оверлей `tpoProfile` (гистограмма TPO влево от последней свечи, VA-подсветка, POC/TVAH/TVAL линии и подписи; данные `/api/profile/tpo`, тумбл persist `chart_tpo`, default OFF). Уже были: 🔥 Плотности, 💥 Ликвидации, 👣 Footprint (4.2), конус волатильности, toxic-regime баннер + HUD.
+- **4.4 (M6.2b):** движок `orderflow_backtester` теперь эмитит per-trade `mfe`/`mae` (побарные экскурсии high/low в % от входа, инициализация на баре входа) и `fee_drag_pct` ((fees+slippage)/маржа). Тултип сделки показывает MFE/MAE в % и Fee Drag% (ранее: entry reasons, exit, fees, slippage, regime). OI-панель сознательно не делалась: потока OI нет, статус OI живёт в `context_snapshot.oi_status` (truth-first). Тест `test_trades_carry_mfe_mae_and_fee_drag`; baseline-якорь 11 сделок/261.23 не сдвинулся.
+- **Gate:** `check.ps1` PASS; `pytest backend/tests` — **294 passed, 28 skipped**; frontend build PASS.
+- **Напоминание:** backend не перезапускать (марафон + soak до 24.10); `/api/profile/tpo` заработает в живом UI после штатного рестарта.
+
 ## Kimi phase-4.2 Footprint на графике — 2026-10-22
 
 - **ACTIVE_AGENT:** `kimi` (main)
