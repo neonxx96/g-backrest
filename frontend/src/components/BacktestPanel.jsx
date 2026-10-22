@@ -1590,6 +1590,7 @@ export default function BacktestPanel({
                       data-testid="input-preset-name"
                       type="text"
                       placeholder="Название пресета..."
+                      title="Имя набора текущих параметров (стратегия, SL/TP, фильтры). Сохраняется в браузере и применяется в 1 клик."
                       value={newPresetName}
                       onChange={(e) => setNewPresetName(e.target.value)}
                       className="flex-1 bg-neutral-900 border border-neutral-700 rounded px-1.5 py-0.5 text-[9.5px] text-white outline-none focus:border-neutral-500"
@@ -1651,6 +1652,10 @@ export default function BacktestPanel({
                 </div>
 
                 <div className="space-y-1.5">
+                  <div className="flex items-center text-[8.5px] text-neutral-400">
+                    Стратегия (алгоритм входа)
+                    <InfoTip text="🟢 Зелёная группа — тестируется на реальной истории свечей. 🟠 Оранжевая — работает только по живому стакану L2 в реальном времени (исторический бэктест невозможен: биржа не хранит книгу заявок задним числом)." />
+                  </div>
                   <select
                     data-testid="bt-strategy-select"
                     value={strategy}
@@ -1867,7 +1872,10 @@ export default function BacktestPanel({
                 <div className="pt-0.5 border-t border-neutral-800/80 space-y-1">
                   <div className="flex items-center justify-between">
                     <span className="text-[8.5px] uppercase font-bold text-neutral-300">🎯 Multi-TP & Trailing</span>
-                    <label className="flex items-center space-x-1 text-[8.5px] font-mono text-neutral-300 cursor-pointer">
+                    <label
+                      className="flex items-center space-x-1 text-[8.5px] font-mono text-neutral-300 cursor-pointer"
+                      title="Multi-TP: закрыть 50% позиции на TP1 и перевести стоп остатка в безубыток — сделка перестаёт быть убыточной после первой цели"
+                    >
                       <input
                         data-testid="toggle-multi-tp"
                         type="checkbox"
@@ -1971,14 +1979,19 @@ export default function BacktestPanel({
                   </div>
                   <div className="grid grid-cols-4 gap-1 text-[8.5px] font-mono">
                     {[
-                      { label: 'CVD', active: filterCvd, toggle: () => handleFilterCvdChange(!filterCvd) },
-                      { label: 'OI', active: filterOi, toggle: () => handleFilterOiChange(!filterOi) },
-                      { label: 'ATR', active: filterAtr, toggle: () => handleFilterAtrChange(!filterAtr) },
-                      { label: 'RSI', active: filterRsi, toggle: () => handleFilterRsiChange(!filterRsi) }
+                      { label: 'CVD', active: filterCvd, toggle: () => handleFilterCvdChange(!filterCvd),
+                        help: 'Кумулятивная дельта: вход разрешён только по направлению потока агрессивных маркет-ордеров' },
+                      { label: 'OI', active: filterOi, toggle: () => handleFilterOiChange(!filterOi),
+                        help: 'Открытый интерес: подтверждение, что движение поддержано открытием новых позиций в фьючерсе (требует реальных OI-данных)' },
+                      { label: 'ATR', active: filterAtr, toggle: () => handleFilterAtrChange(!filterAtr),
+                        help: 'Волатильность: пропускает входы только при достаточном размахе свечей — отсеивает плоский рынок' },
+                      { label: 'RSI', active: filterRsi, toggle: () => handleFilterRsiChange(!filterRsi),
+                        help: 'Импульс: входы только в нейтральной зоне RSI, без перекупленности/перепроданности (ловля вершин запрещена)' }
                     ].map((f) => (
                       <button
                         key={f.label}
                         type="button"
+                        title={f.help}
                         onClick={f.toggle}
                         className={`py-0.5 px-1 rounded border text-center transition cursor-pointer ${
                           f.active

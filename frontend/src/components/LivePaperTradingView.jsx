@@ -195,7 +195,10 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
         </div>
 
         <div className="grid grid-cols-2 gap-2">
-          <label className="flex flex-col text-neutral-400">
+          <label
+            className="flex flex-col text-neutral-400"
+            title="Виртуальный депозит симулятора. Реальные средства не используются — терминал строго консультативный."
+          >
             <span className="mb-0.5 text-neutral-300">Стартовый баланс ($):</span>
             <input
               type="number"
@@ -209,7 +212,10 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
             />
           </label>
 
-          <label className="flex flex-col text-neutral-400">
+          <label
+            className="flex flex-col text-neutral-400"
+            title="Сколько процентов виртуального депозита теряется при срабатывании стопа. 1% — классический институциональный лимит; больше 2–3% — агрессивно."
+          >
             <span className="mb-0.5 text-neutral-300">Риск на сделку (%):</span>
             <input
               type="number"
@@ -235,7 +241,9 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
           <span className="text-[8px] text-neutral-500">L2 SENTINEL</span>
         </div>
 
-        <div>
+        <div
+          title="🧱 Вход перед стенкой — лимитный вход впереди крупной плотности стакана ($500k+). 🧬 Quant Confluence — вход только при совпадении трёх независимых факторов (стенка + ликвидации + дельта)."
+        >
           <span className="text-neutral-400 block mb-0.5">Торговый сетап:</span>
           <select
             disabled={isRunning}
@@ -249,7 +257,10 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
         </div>
 
         <div className="grid grid-cols-2 gap-2">
-          <label className="flex flex-col text-neutral-400">
+          <label
+            className="flex flex-col text-neutral-400"
+            title="Минимальный размер лимитной плотности в стакане (в тысячах $), чтобы сигнал считался валидным. Больше = надёжнее, но реже сигналы."
+          >
             <span className="mb-0.5 text-neutral-300">Мин. стенка ($k):</span>
             <input
               type="number"
@@ -263,7 +274,10 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
             />
           </label>
 
-          <label className="flex flex-col text-neutral-400">
+          <label
+            className="flex flex-col text-neutral-400"
+            title="Кредитное плечо виртуальной позиции. Увеличивает требуемую маржу и размер позиции, но не отменяет лимит риска на сделку."
+          >
             <span className="mb-0.5 text-neutral-300">Плечо:</span>
             <input
               type="number"
@@ -278,7 +292,10 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
         </div>
 
         <div className="grid grid-cols-2 gap-2">
-          <label className="flex flex-col text-neutral-400">
+          <label
+            className="flex flex-col text-neutral-400"
+            title="Защитный стоп в % от цены входа. При срабатывании позиция закрывается по рынку с комиссией taker и проскальзыванием."
+          >
             <span className="mb-0.5 text-neutral-300">Stop-Loss (%):</span>
             <input
               type="number"
@@ -292,7 +309,10 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
             />
           </label>
 
-          <label className="flex flex-col text-neutral-400">
+          <label
+            className="flex flex-col text-neutral-400"
+            title="Цель фиксации прибыли в % от цены входа. Лимитный ордер — комиссия maker, без проскальзывания."
+          >
             <span className="mb-0.5 text-neutral-300">Take-Profit (%):</span>
             <input
               type="number"
