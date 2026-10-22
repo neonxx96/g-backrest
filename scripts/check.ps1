@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # SignalScript Quality Gate Check (scripts/check.ps1)
 # MANDATORY: Every agent must run this script and get a green result before committing.
 # ==============================================================================
@@ -75,6 +75,34 @@ if ($backendInstances.Count -gt 1) {
     Write-Host "  Процессы: $info" -ForegroundColor Red
     Write-Host "Остановите лишние: Stop-Process -Id <PID> -Force, затем повторите." -ForegroundColor Yellow
     exit 1
+}
+
+# 0b. Детект зависания startup: backend-процесс есть, но HTTP не поднимается
+#     (инцидент 2026-10-22: процесс крутил CPU без слушающего порта, марафон
+#     простаивал часами). Ждём до 60 c, затем падаем с диагностикой backend.log.
+if ($backendInstances.Count -eq 1) {
+    $hangDeadline = (Get-Date).AddSeconds(60)
+    $backendHealthy = $false
+    while ((Get-Date) -lt $hangDeadline) {
+        if (Test-LocalHttp -Url "http://127.0.0.1:8000/api/health") {
+            $backendHealthy = $true
+            break
+        }
+        Start-Sleep -Seconds 5
+    }
+    if (-not $backendHealthy) {
+        Write-Host "`n❌ [FAIL] Backend-процесс $($backendInstances[0].ProcessId) запущен, но /api/health не отвечает (>60 c)." -ForegroundColor Red
+        Write-Host "  Похоже на зависание startup до bind HTTP. Диагностика:" -ForegroundColor Yellow
+        $logPath = Join-Path $ProjectRoot "backend.log"
+        if (Test-Path $logPath) {
+            Write-Host "  --- backend.log (последние 12 строк) ---" -ForegroundColor DarkGray
+            Get-Content $logPath -Tail 12 | ForEach-Object { Write-Host "  $_" -ForegroundColor DarkGray }
+        } else {
+            Write-Host "  backend.log не найден — процесс мог стартовать не из корня проекта." -ForegroundColor DarkGray
+        }
+        Write-Host "  Проверьте: Get-NetTCPConnection -State Listen | ? OwningProcess -eq $($backendInstances[0].ProcessId)" -ForegroundColor Yellow
+        exit 1
+    }
 }
 
 # 1. Python Unit Tests (pytest backend/tests)

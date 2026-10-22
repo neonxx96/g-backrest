@@ -37,11 +37,19 @@ setup_stress_logging()
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL.upper(), logging.INFO),
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler("backend.log", encoding="utf-8")
-    ]
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
+# basicConfig — no-op, если root-logger уже настроен (например setup_stress_logging
+# импортирован выше), поэтому file-handler подключаем явно: backend.log — единственная
+# диагностика при зависании startup (процесс жив, HTTP не поднялся; инцидент 2026-10-22).
+try:
+    _file_handler = logging.FileHandler("backend.log", encoding="utf-8")
+    _file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+    if not any(isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", "") == _file_handler.baseFilename
+               for h in logging.getLogger().handlers):
+        logging.getLogger().addHandler(_file_handler)
+except OSError:
+    pass  # read-only cwd: остаёмся на stdout
 logger = logging.getLogger("SignalScript")
 
 background_tasks = []
@@ -61,32 +69,42 @@ async def periodic_scanner_worker():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    # Startup. Каждый шаг логируется явно: при зависании startup до bind HTTP
+    # (инцидент 2026-10-22: процесс жив, порт не слушает) последняя запись
+    # показывает проблемный шаг.
     logger.info("Initializing Signal Script Backend...")
     await init_db()
+    logger.info("[startup 1/6] init_db done")
     from backend.app.services.overnight_pilot import overnight_pilot_manager
     await overnight_pilot_manager.restore()
-    
-    # 1. Start Binance Liquidations WebSocket
+    logger.info("[startup 2/6] overnight pilot restore done")
+
+    # 3. Start Binance Liquidations WebSocket
     liq_task = asyncio.create_task(binance_service.start_liquidation_listener())
     background_tasks.append(liq_task)
+    logger.info("[startup 3/6] liquidation listener task created")
 
-    # 2. Start Periodic Scanner
+    # 4. Start Periodic Scanner
     scan_task = asyncio.create_task(periodic_scanner_worker())
     background_tasks.append(scan_task)
+    logger.info("[startup 4/6] periodic scanner task created")
 
-    # 3. Start Telegram Bot Polling
+    # 5. Start Telegram Bot Polling
     bot_task = asyncio.create_task(start_bot_polling())
     background_tasks.append(bot_task)
+    logger.info("[startup 5/6] telegram bot polling task created")
 
-    # 4. Start OrderFlow Recorder (100GB storage manager)
+    # 6. Start OrderFlow Recorder (100GB storage manager)
     await recorder.start()
+    logger.info("[startup 6/6] recorder started")
 
-    # 5. Start Parallel Background Processing Worker for Monitored Coins
+    # 7. Start Parallel Background Processing Worker for Monitored Coins
     from backend.app.engine.background_worker import background_worker
     worker_task = background_worker.start()
     background_tasks.append(worker_task)
+    logger.info("[startup 7/7] background worker started")
 
+    logger.info("Backend startup complete; HTTP server is now serving requests.")
     yield
 
     # Shutdown
