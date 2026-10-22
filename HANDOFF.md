@@ -2,6 +2,17 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-6.3 (M6.4) help-tooltips + фиксы рисков 6.2 — 2026-10-22 (вечер)
+
+- **ACTIVE_AGENT:** `kimi` (main: `4828a87` риски, `cf26d21` тултипы)
+- **6.3:** аудит подсказок всех форм. Добавлено: BacktestPanel (выбор стратегии — объяснение групп 🟢historical/🟠live-L2, Multi-TP, per-filter CVD/OI/ATR/RSI, имя пресета), LivePaperTradingView (все поля конфига симулятора). OvernightPilotPanel (title-атрибуты) и SettingsModal (инлайн-описания) уже были покрыты — подтверждено аудитом, не дублировал.
+- **Фиксы рисков отчёта 6.2:**
+  1. `main.py` — степ-логи startup (`[startup N/7]`) + явный FileHandler для `backend.log`: вскрыто, что `logging.basicConfig` был no-op (root-logger уже настроен импортом `setup_stress_logging` ДО него) — поэтому зависший процесс 21:23 не оставил следов в логе. Теперь лог живой.
+  2. `check.ps1` шаг 0b — детект зависания: 1 backend-процесс, но `/api/health` молчит >60 c → FAIL с хвостом backend.log и подсказкой `Get-NetTCPConnection`. Тихие многочасовые простои марафона больше невозможны.
+  3. `scripts/verify_sweep_apply_ui.py` — E2E проверка Apply Strategy #X в headless-браузере (sweep через UI-кнопку, apply, store, поля формы) — PASS.
+- **⚠️ Кодировка:** `check.ps1` оказался UTF-8 **без BOM** — моя правка с кириллицей сломала парсинг PS 5.1 (та же болезнь, что у `run_app.ps1` из прошлого handoff; самого `run_app.ps1` в scripts/ НЕТ — файл отсутствует, workaround остаётся прямой запуск python). Пофикшено: файл пересохранён UTF-8 with BOM, парсинг проверен AST-парсером. **Правило для всех агентов: любой .ps1 с кириллицей — только UTF-8 with BOM; после правки проверять `[Parser]::ParseFile`.**
+- **Gate:** `check.ps1` PASS — **346 passed, 28 skipped**, build, critical, blocking UI, live WS.
+
 ## Kimi phase-6.2 (M5.2) Apply Strategy #X — 2026-10-22 (вечер)
 
 - **ACTIVE_AGENT:** `kimi` (main, коммит `ca4bb99`)

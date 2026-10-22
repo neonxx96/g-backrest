@@ -47,7 +47,7 @@
 | **M6.1** | Dockview LEGO-layout: floating windows, табы, 2-й монитор, persistence SQLite+localStorage | ✅ | `DCK/TerminalDockview.jsx`, `STO/layoutStore.js`, `API/workspaces.py`; `layoutRecovery.js` (новое) | — |
 | **M6.2** | Chart: слои Heatmap/Densities, Liquidations, TPO, Forecast Bands, Signals, Regime; под-панели CVD/OI/RSI; тултип сделки (entry reasons, exit, fees, Fee Drag%, MFE, MAE, regime) | 🟡 | `CMP/Chart.jsx`: конус, SMC, RR-box, бэктест-трейды есть; TPO-слоя нет, OI под-панели нет, MFE/MAE в тултипе нет | Фаза 4 |
 | **M6.3** | DOM & Tape высокой производительности | ✅ | `CMP/OrderBookDOM.jsx`, `DCK/TradesWidget.jsx` (Canvas 2D) | — |
-| **M6.4** | Эргономика: пресеты, color-linking, help-tooltips (?) на каждый параметр | 🟡 | `STO/colorLinksStore.js`, пресеты есть; help-tooltips — нет | Фаза 6 |
+| **M6.4** | Эргономика: пресеты, color-linking, help-tooltips (?) на каждый параметр | ✅ | `STO/colorLinksStore.js`, пресеты есть; help-tooltips — все формы покрыты (6.3) | — |
 | **QA** | ≥80 pytest, build+gate зелёные | ✅ | 341 passed / 28 skipped; gate зелёный | — |
 
 **Вывод сверки:** фундамент (M2.2, M2.4, M2.5, M3.1, M3.2, M6.1, M6.3, QA) готов. Крупнейшие провалы: **M2.3** (weighted confluence), **M4.1/M4.2** (hedge mode + position sizer) — оба блокируют «institutional-grade» из SRS. Средние: M1.2/M1.3 (TPO + watchlist-recorder), M3.3 (verdict v2), M6.2 (слои графика).
@@ -102,7 +102,7 @@
 ### 🤖 ФАЗА 6 — AI & Quant Sweep: M5 + M6.4
 - [x] 6.1 **M5.1:** Quant Sweep leaderboard Top 1–10 (net expectancy, PF, drawdown) как артефакт отчёта (2026-10-22, main: `engine/sweep_leaderboard.py` — детерминированный grid sweep по сетке параметров, ранжирование Top-N по net expectancy с tie-break по PF/drawdown, persist runs; API `/api/sweep/run|leaderboard|runs`; 6 тестов)
 - [x] 6.2 **M5.2:** «Apply Strategy #X» в AI Copilot в 1 клик (инъекция параметров в форму); AI строго advisory (2026-10-22, main: `orderflow_backtester` — параметризованные EMA-периоды fast/slow (default 20/50 = legacy, невалидные пары → ValueError/422 через валидатор `BacktestParams`); секция «Quant Sweep Leaderboard» в AICopilotSidebar — Top-10 по OOS-скору с вердиктами ROBUST/MODERATE/OVERFITTED, кнопки запуска/обновления sweep и «Apply Strategy #N» → инъекция в форму бэктеста (store + событие `apply-sweep-strategy`); в BacktestPanel поля Fast/Slow EMA для ema_trend; 5 тестов `test_sweep_apply_ema_params.py`; QA 346 passed)
-- [ ] 6.3 **M6.4:** help-tooltips (?) на каждый параметр форм; plain-language подсказки
+- [x] 6.3 **M6.4:** help-tooltips (?) на каждый параметр форм; plain-language подсказки (2026-10-22, main: аудит всех форм — BacktestPanel добит (выбор стратегии с объяснением групп historical/live-L2, тумбл Multi-TP, пер-кнопочные подсказки фильтров CVD/OI/ATR/RSI, имя пресета), LivePaperTradingView полностью (баланс, риск %, сетап, мин. стенка, плечо, SL/TP); OvernightPilotPanel и SettingsModal уже были покрыты (title-атрибуты / инлайн-описания) — подтверждено аудитом; gate 346 passed)
 - [ ] 6.4 Модуляризация по MODULARIZATION_PLAN (сильная модель, golden-тесты); PDF/HTML отчёт бэктеста
 - [ ] 6.5 PDF-отчёт: equity, Monte-Carlo, тепловая карта по дням/часам
 
