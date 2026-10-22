@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 import time
 
 from backend.app.engine.background_worker import background_worker
+from backend.app.services.warning_sentinel import warning_sentinel
 
 SERVER_START_TIME = time.time()
 
@@ -56,6 +57,12 @@ async def get_monitoring_state():
 async def get_system_monitoring_state():
     """Returns system monitoring state including uptime, active workers, statuses, and tickers."""
     return _build_monitoring_payload()
+
+
+@system_monitoring_router.get("/sentinel")
+async def get_sentinel_status():
+    """Warning Sentinel (задача 7.2): состояние сторожа, последние алерты, снапшот."""
+    return warning_sentinel.get_status()
 
 
 @router.post("")

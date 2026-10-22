@@ -104,12 +104,17 @@ async def lifespan(app: FastAPI):
     background_tasks.append(worker_task)
     logger.info("[startup 7/7] background worker started")
 
+    # 8. Warning Sentinel: системные алерты наружу (задача 7.2)
+    warning_sentinel.start()
+    logger.info("[startup 8/8] warning sentinel started")
+
     logger.info("Backend startup complete; HTTP server is now serving requests.")
     yield
 
     # Shutdown
     logger.info("Shutting down Signal Script Backend...")
     binance_service.is_ws_running = False
+    warning_sentinel.stop()
     await recorder.stop()
     await background_worker.stop()
     for task in background_tasks:
@@ -140,6 +145,7 @@ from backend.app.routers.verdict import router as verdict_router
 from backend.app.routers.risk import router as risk_router
 from backend.app.routers.sweep import router as sweep_router
 from backend.app.routers.replay import replay_router
+from backend.app.services.warning_sentinel import warning_sentinel
 
 app.include_router(api_router)
 app.include_router(data_router)
