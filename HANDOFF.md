@@ -2,6 +2,15 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-2.5 (replay engine merge) — 2026-10-22 (ночь)
+
+- **ACTIVE_AGENT:** `kimi` (main: merge `06c4d72`)
+- Влит `agent/cline/replay-engine` (2 коммита, +425 строк): `services/replay_engine.py` — детерминированный event-stream из recorder Parquet (trades+depth merge по (ts, priority, row_index), tie-break trade-before-depth, zero look-ahead, 9 тестов). Конфликт в `routers/backtest.py` — тривиальный (комментарии), разрешён.
+- **Важно:** limit fill simulator (`simulate-limit-box`) уже был в main с 3.4 (`ba83631`) — ветка добавила его же; реально новое — только replay engine.
+- **Баг-фикс:** ручная валидация `sl>=tp` в handler отвергала ВСЕ шорты → перенесена в side-aware `model_validator` `LimitSetupRequest` (BUY: sl<tp, SELL: tp<sl) + 5 контрактных тестов `test_limit_setup_request_validation.py`.
+- **Gate:** 367 passed (+16), build, smoke, live WS — PASS.
+- **Осталось по 2.5:** streaming-эндпоинт `/api/replay/events` (пагинация поверх ReplayEngine) + UI-плеер Play/Pause/Step/скорость (новая dockview-панель или модалка; подписка на эндпоинт, кадры depth → визуализация стакана/ленты).
+
 ## Kimi phase-4.5 + инцидент гибели backend + run_app.ps1 — 2026-10-22 (ночь 23:39+)
 
 - **ACTIVE_AGENT:** `kimi` (main)
