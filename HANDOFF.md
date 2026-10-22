@@ -2,6 +2,15 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-2.5 (Replay-плеер lake) — ЗАКРЫТО — 2026-10-22 (ночь)
+
+- **ACTIVE_AGENT:** `kimi` (main: `5a29623` backend, +UI-коммит этой ночи)
+- Полная цепочка 2.5: engine (merge `06c4d72`) → `GET /api/replay/events` (`5a29623`, offset-курсор, limit≤2000, кэш ReplayEngine на процесс) → UI-плеер (`ReplayModal.jsx`, кнопка «⏯ Replay» в топ-баре, Play/Pause/Step/скорость 100–10k ev/s, буферизация страниц с префетчем, canvas price-series кольцо 600, стакан из последнего depth, CVD). Чистая математика — `features/replay/replayPlayerMath.js` (6 тестов, в test:pilot).
+- **Баги, найденные живым прогоном:** (1) дефолт ReplayEngine указывал на несуществующий `data/recorder` → `RECORDED_DATA_DIR`; (2) bids/asks в lake-parquet — JSON-строки, итерация портила payload → `book_to_lists`; (3) фикстура ветки пишет list-колонку → numpy array при чтении, `book_to_lists` обрабатывает generic iterable.
+- **E2E:** `scripts/verify_replay_ui.py` — PASS (модалка, прогресс, рост trades/depth, Step, смена скорости/символа, закрытие). **Gate:** 376 passed.
+- **Backend перезапущен 2 раза этой ночью** (активация эндпоинта + фикс payload). Марафон — **7-й запуск**: `overnight_{btc,eth,sol}usdt_1792702638`, preflight `4a934e55cbfe4fbf9b1d37f7d9bdaa9d`, BTC m4=true, все connected. (Перезапуск марафона снова обнулил A/B-часы — morning report завтра.)
+- **Не проверялось:** производительность плеера на окнах >1M событий (BTC total ~4.45M за 6 дней; буфер растёт страницами, фолдинг O(событий) за тик — на 10k ev/s CPU стоит посмотреть при живом использовании).
+
 ## Kimi phase-2.5 (replay engine merge) — 2026-10-22 (ночь)
 
 - **ACTIVE_AGENT:** `kimi` (main: merge `06c4d72`)
