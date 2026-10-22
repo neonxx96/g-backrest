@@ -18,6 +18,7 @@ CORE GUARANTEES (Category Invariants):
    every price tick.
 """
 import logging
+import math
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -100,6 +101,8 @@ class PaperOrder:
     stop_price: float = 0.0
     target_price: float = 0.0
     leverage: float = 1.0
+    reserved_margin: float = 0.0
+    reserved_risk: float = 0.0
 
 
 @dataclass
@@ -112,6 +115,8 @@ class PaperSessionState:
     realized_pnl: float
     unrealized_pnl: float
     balance: float
+    reserved_margin: float = 0.0
+    reserved_risk: float = 0.0
     positions: List[dict] = field(default_factory=list)
     active_orders: List[dict] = field(default_factory=list)
     closed_trades: List[dict] = field(default_factory=list)
@@ -131,6 +136,8 @@ class PaperSessionState:
             "realized_pnl": self.realized_pnl,
             "unrealized_pnl": self.unrealized_pnl,
             "balance": self.balance,
+            "reserved_margin": self.reserved_margin,
+            "reserved_risk": self.reserved_risk,
             "positions": self.positions,
             "active_orders": self.active_orders,
             "closed_trades": self.closed_trades,
@@ -273,6 +280,18 @@ class PaperTradingSession:
             ):
                 raise ValueError(f"entry_already_working: {symbol}")
 
+            if not all(math.isfinite(float(value)) for value in (price, quantity, stop_price, leverage)) or price <= 0 or quantity <= 0:
+                raise ValueError(f"invalid_entry_size: {symbol}")
+            effective_leverage = max(1.0, float(leverage))
+            stop_distance = abs(float(price) - float(stop_price)) if stop_price > 0 else float(price) * 0.015
+            risk_amount = float(quantity) * stop_distance
+            risk_budget = max(0.0, self.initial_balance + self.realized_pnl) * max(0.0, self.risk_per_trade_pct)
+            if risk_amount > risk_budget + 1e-9:
+                raise ValueError(f"risk_budget_exceeded: {symbol} ({risk_amount:.4f} > {risk_budget:.4f})")
+            required_margin = float(price) * float(quantity) / effective_leverage
+            if required_margin > self.available_margin + 1e-9:
+                raise ValueError(f"insufficient_margin: {symbol}")
+
         ts = signal_ts if signal_ts is not None else self._last_event_ts
         cfg = OrderConfig(
             signal_ts=int(ts),
@@ -301,8 +320,13 @@ class PaperTradingSession:
             tp2_price=float(tp2_price),
             leverage=max(1.0, float(leverage)),
             context_snapshot=context_snapshot,
+            reserved_margin=required_margin if role == PaperOrderRole.ENTRY.value else 0.0,
+            reserved_risk=risk_amount if role == PaperOrderRole.ENTRY.value else 0.0,
         )
         self.orders[order_id] = po
+        if po.role == PaperOrderRole.ENTRY:
+            self.available_margin -= po.reserved_margin
+            self.locked_margin += po.reserved_margin
 
         # Prune old completed orders if orders buffer exceeds 2000
         if len(self.orders) > 2000:
@@ -338,7 +362,26 @@ class PaperTradingSession:
             "target_price": po.target_price,
             "tp2_price": po.tp2_price,
             "context_snapshot": po.context_snapshot,
+            "reserved_margin": po.reserved_margin,
+            "reserved_risk": po.reserved_risk,
         }
+
+    def _release_entry_reservation(self, po: PaperOrder) -> None:
+        if po.role != PaperOrderRole.ENTRY:
+            return
+        self.available_margin += po.reserved_margin
+        self.locked_margin = max(0.0, self.locked_margin - po.reserved_margin)
+        po.reserved_margin = 0.0
+        po.reserved_risk = 0.0
+
+    def cancel_order(self, order_id: str) -> bool:
+        """Cancel a working virtual order and release unfilled entry collateral."""
+        po = self.orders.get(order_id)
+        if po is None or po.sim.state.status in (OrderStatus.FILLED, OrderStatus.REJECTED, OrderStatus.CANCELLED):
+            return False
+        po.sim.state.status = OrderStatus.CANCELLED
+        self._release_entry_reservation(po)
+        return True
 
     @staticmethod
     def estimate_tick_size(price: float) -> float:
@@ -446,12 +489,16 @@ class PaperTradingSession:
 
         # Forward to all working orders (snapshot — orders may complete mid-loop)
         for po in list(self.orders.values()):
-            if po.sim.state.status in (OrderStatus.FILLED, OrderStatus.REJECTED):
+            if po.sim.state.status in (OrderStatus.FILLED, OrderStatus.REJECTED, OrderStatus.CANCELLED):
+                if po.sim.state.status in (OrderStatus.REJECTED, OrderStatus.CANCELLED):
+                    self._release_entry_reservation(po)
                 continue
             prev_filled = po.sim.state.filled_qty
             po.sim.process_event(event)
             if po.sim.state.filled_qty > prev_filled + 1e-12:
                 self._on_order_fill(po)
+            if po.sim.state.status in (OrderStatus.REJECTED, OrderStatus.CANCELLED):
+                self._release_entry_reservation(po)
 
     def process_market_tick(
         self,
@@ -561,11 +608,17 @@ class PaperTradingSession:
         pos.fees_paid += fee
         pos.entry_ts = pos.entry_ts or po.created_ts
 
+        # Convert only this fill's pending collateral to position margin.
+        reserved_slice = min(po.reserved_margin, po.sim.cfg.price * qty / po.leverage)
+        po.reserved_margin = max(0.0, po.reserved_margin - reserved_slice)
+        risk_distance = abs(po.sim.cfg.price - po.stop_price) if po.stop_price > 0 else po.sim.cfg.price * 0.015
+        po.reserved_risk = max(0.0, po.reserved_risk - risk_distance * qty)
+
         # Lock margin for the position (entry notional as margin)
         margin_used = price * qty / max(1.0, pos.leverage)
         pos.margin_used += margin_used
-        self.locked_margin += margin_used
-        self.available_margin -= margin_used
+        self.locked_margin += margin_used - reserved_slice
+        self.available_margin += reserved_slice - margin_used
         self.total_fees_paid += fee
 
         logger.info(
@@ -792,8 +845,8 @@ class PaperTradingSession:
         cancelled_orders = 0
         for po in list(self.orders.values()):
             if po.sim.state.status in (OrderStatus.PENDING, OrderStatus.ACTIVE, OrderStatus.PARTIALLY_FILLED):
-                po.sim.state.status = OrderStatus.CANCELLED
-                cancelled_orders += 1
+                if self.cancel_order(po.order_id):
+                    cancelled_orders += 1
 
         # 2. Close all open positions at market price
         closed_positions_count = 0
@@ -841,7 +894,8 @@ class PaperTradingSession:
                     "exit_ts": now_ts,
                 })
 
-                margin_released = pos.avg_entry_price * close_qty
+                margin_released = pos.margin_used
+                pos.margin_used = 0.0
                 self.locked_margin = max(0.0, self.locked_margin - margin_released)
                 self.available_margin += margin_released + net
                 self.early_exit_engine.remove_position(sym)
@@ -946,10 +1000,14 @@ class PaperTradingSession:
                 "active_alerts": list(track.active_alerts) if track else [],
             })
         active_orders = []
+        reserved_margin = 0.0
+        reserved_risk = 0.0
         for po in self.orders.values():
             if po.sim.state.status in (OrderStatus.FILLED, OrderStatus.REJECTED, OrderStatus.CANCELLED):
                 continue
             active_orders.append(self._order_info(po))
+            reserved_margin += po.reserved_margin
+            reserved_risk += po.reserved_risk
         uptime = int(time.time() - getattr(self, "start_time", time.time()))
         return PaperSessionState(
             session_id=self.session_id,
@@ -959,6 +1017,8 @@ class PaperTradingSession:
             realized_pnl=self.realized_pnl,
             unrealized_pnl=unrealized,
             balance=balance,
+            reserved_margin=reserved_margin,
+            reserved_risk=reserved_risk,
             positions=positions,
             active_orders=active_orders,
             closed_trades=list(self.closed_trades),

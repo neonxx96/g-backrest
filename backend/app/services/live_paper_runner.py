@@ -758,7 +758,7 @@ class LivePaperRunner:
                 self._add_log("ORDER_REJECTED", f"Заявка {self.symbol} отклонена: {order_res.get('reason', 'risk guard')}")
                 return
             self._last_entry_candle = self.indicator_candle_close_time
-            risk_budget = self.session.available_margin * self.risk_per_trade_pct / 100.0
+            risk_budget = float(order_res.get("reserved_risk", 0.0))
             trade_id = f"{self.symbol}:{signal_obj.timestamp}"
             self._active_trade_ids[self.symbol] = trade_id
             self._record_event(
