@@ -2,6 +2,14 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-7.2 (Warning Sentinel) — 2026-10-23 (ночь)
+
+- **ACTIVE_AGENT:** `kimi` (main: коммит feat(7.2), gate **395 passed**)
+- `services/warning_sentinel.py`: rule engine (PAPER_HALTED critical / FEED_DISCONNECT warning / MARATHON_ERRORS / EQUITY_DRAWDOWN critical / LOSS_STREAK), cooldown 300 с по ключу, цикл 30 с, диспетчеризация `bot.broadcast_alert` → подписчики Telegram. `GET /api/monitoring/sentinel` — статус/алерты/снапшот. env: SENTINEL_ENABLED/INTERVAL_S/COOLDOWN_S.
+- **Ложные срабатывания на старте**: первый прогон дал 3 FEED_DISCONNECT при прогреве раннеров → grace-фильтр (disconnect алертится со 2-го тика подряд, `filter_persistent_disconnects`). Проверено живьём: после рестарта+старта марафона 0 алертов. **⚠️ Ди мог получить 3 тестовых Telegram-сообщения ~00:16 — это был прогон до фикса.**
+- **Backend перезапущен 2 раза за 7.2**; марафон — **10-й запуск**: `overnight_{btc,eth,sol}usdt_1792703946`, BTC m4=true, все connected. (Количество рестартов за ночь — 10; A/B-часы снова обнулились, morning report завтра.)
+- 10 контрактных тестов (rule engine + cooldown + grace).
+
 ## Kimi phase-7.3 (Дневник трейдера v2) — 2026-10-23 (ночь)
 
 - **ACTIVE_AGENT:** `kimi` (main: `377f7fa`)
