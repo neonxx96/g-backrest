@@ -39,6 +39,8 @@ import { useTradesStore } from '../stores/tradesStore';
 import { getAllTemplates, saveCustomTemplate, getStyleMemory, saveStyleMemory } from '../config/drawingTemplates';
 import { renderBacktestTrades, clearBacktestTrades, renderLiveSignals, clearLiveSignals, renderWhaleTrades, clearWhaleTrades } from '../utils/chartAnnotations';
 import AssistantHUD from './AssistantHUD';
+import DepthHeatmapGL from './DepthHeatmapGL';
+import { selectDensityPoints } from './chart/densityHeatmapMath.js';
 
 const API_BASE = "/api";
 
@@ -746,54 +748,8 @@ try {
   });
 } catch (_) {}
 
-// 4. Register custom 'densityHeatmap' (Clean Orderbook Density Line/Shelf)
-try {
-  registerOverlay({
-    name: 'densityHeatmap',
-    totalStep: 2,
-    needDefaultPointFigure: false,
-    needDefaultXAxisFigure: false,
-    needDefaultYAxisFigure: false,
-    createPointFigures: ({ coordinates, yAxis, overlay }) => {
-      if (!coordinates || coordinates.length === 0) return [];
-      let { x, y } = coordinates[0];
-      if (!Number.isFinite(x)) return [];
-
-      const price = Number(overlay.points?.[0]?.value ?? 0);
-      if (yAxis && typeof yAxis.convertToPixel === 'function' && price > 0) {
-        const calcY = yAxis.convertToPixel(price);
-        if (Number.isFinite(calcY)) {
-          y = calcY;
-        }
-      }
-      if (!Number.isFinite(y)) return [];
-
-      const side = overlay.extendData?.side || 'bid';
-      const volUsd = overlay.extendData?.volume_usd || 0;
-      const isBid = side === 'bid';
-      const alpha = Math.min(0.40, Math.max(0.12, (volUsd / 600000) * 0.35));
-      const color = isBid ? `rgba(38, 166, 154, ${alpha})` : `rgba(239, 83, 80, ${alpha})`;
-      const width = 28;
-      const height = 2;
-      return [
-        {
-          type: 'rect',
-          attrs: {
-            x: x - width / 2,
-            y: y - height / 2,
-            width,
-            height
-          },
-          styles: {
-            style: 'fill',
-            color
-          },
-          ignoreEvent: true
-        }
-      ];
-    }
-  });
-} catch (_) {}
+// 4. (задача 4.5) Дискретный overlay 'densityHeatmap' удалён — плотности стакана теперь
+// рендерятся непрерывной WebGL-heatmap (DepthHeatmapGL) поверх главной панели.
 
 // 4b. Register custom 'footprintCandle' (Footprint внутри свечи: buy/sell объёмы по уровням,
 // imbalance-бордеры, stacked imbalance ♦, absorption ▬ — метрики считает backend, SRS M1.2b)
@@ -1755,6 +1711,8 @@ export default function Chart({
   const symbol = (channelSymbol || propSymbol || "BTCUSDT").toUpperCase();
 
   const chartContainerRef = useRef(null);
+  // Инстанс klinecharts в state — чтобы WebGL-heatmap (DepthHeatmapGL) реагировала на re-init
+  const [chartInstance, setChartInstance] = useState(null);
   const chartRef = useRef(null);
   const wsRef = useRef(null);
   const selectedOverlayId = useRef(null);
@@ -1970,18 +1928,8 @@ export default function Chart({
     return 80;
   }, [densityMode]);
 
-  const adaptDensityPoints = useCallback((points) => {
-    if (!Array.isArray(points) || points.length <= densityBudget()) return points || [];
-    const budget = densityBudget();
-    const strongest = [...points].sort((a, b) => Number(b.volume_usd || 0) - Number(a.volume_usd || 0)).slice(0, Math.ceil(budget * 0.65));
-    const recent = points.slice(-Math.floor(budget * 0.45));
-    const unique = new Map();
-    [...strongest, ...recent].forEach((point) => {
-      const key = `${point.side || 'bid'}:${point.timestamp}:${Number(point.price).toPrecision(12)}`;
-      if (!unique.has(key)) unique.set(key, point);
-    });
-    return [...unique.values()].slice(0, budget);
-  }, [densityBudget]);
+  // Точки плотностей для WebGL-heatmap (задача 4.5); бюджетирование — densityHeatmapMath.selectDensityPoints
+  const [densityPoints, setDensityPoints] = useState([]);
 
   // Context Menu & Level Inspector State (ТАКТ 3)
   const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, price: null });
@@ -2326,6 +2274,7 @@ export default function Chart({
 
     const chart = init(chartContainerRef.current);
     chartRef.current = chart;
+    setChartInstance(chart);
     window.__charts = window.__charts || {};
     window.__charts[chartId] = chart;
     if (chartId === 'primary' || !window.__chart) {
@@ -2941,13 +2890,15 @@ export default function Chart({
     } catch (_) {}
   }, [symbol, showLiquidations, minLiqUsd]);
 
-  // Load and render Density Heatmap on Chart
-  const loadHeatmap = useCallback(async () => {
-    if (!chartRef.current || !showHeatmap) {
+  // Load Density Heatmap points (задача 4.5): точки отдаются в WebGL-heatmap поверх графика
+  // force=true — вызов из тумблера: состояние showHeatmap ещё старое, чистим/грузим явно
+  const loadHeatmap = useCallback(async (force = false) => {
+    if (!chartRef.current || (!showHeatmap && !force)) {
       activeHeatmapOverlays.current.forEach(id => {
         try { chartRef.current.removeOverlay({ id }); } catch (_) {}
       });
       activeHeatmapOverlays.current = [];
+      setDensityPoints([]);
       return;
     }
 
@@ -2955,24 +2906,11 @@ export default function Chart({
       const res = await fetch(`${API_BASE}/heatmap?symbol=${symbol}&min_usd=${heatmapMinUsd}&limit=350`);
       if (!res.ok) return;
       const data = await res.json();
-
-      activeHeatmapOverlays.current.forEach(id => {
-        try { chartRef.current.removeOverlay({ id }); } catch (_) {}
-      });
-      activeHeatmapOverlays.current = [];
-
       if (Array.isArray(data)) {
-        adaptDensityPoints(data).forEach(pt => {
-          const id = chartRef.current.createOverlay({
-            name: 'densityHeatmap',
-            points: [{ timestamp: pt.timestamp, value: pt.price }],
-            extendData: { side: pt.side, volume_usd: pt.volume_usd }
-          });
-          if (id) activeHeatmapOverlays.current.push(id);
-        });
+        setDensityPoints(selectDensityPoints(data, densityBudget()));
       }
     } catch (_) {}
-  }, [symbol, showHeatmap, heatmapMinUsd, adaptDensityPoints]);
+  }, [symbol, showHeatmap, heatmapMinUsd, densityBudget]);
 
   // Load and render Footprint clusters inside candles (SRS M1.2b)
   const loadFootprint = useCallback(async () => {
@@ -4398,12 +4336,15 @@ export default function Chart({
             <span>Сигналы</span>
           </button>
           
-          <button 
+          <button
+            data-testid="btn-toolbar-toggle-heatmap"
             title="Тепловая карта плотностей стакана во времени"
             onClick={() => {
               const next = !showHeatmap;
               setShowHeatmap(next);
               localStorage.setItem('chart_heatmap', next ? 'true' : 'false');
+              // Состояние ещё старое — форсируем загрузку/очистку точек (задача 4.5)
+              if (next) loadHeatmap(true);
             }}
             className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition flex items-center ${showHeatmap ? 'bg-[#ff980022] text-[#ff9800] border border-[#ff980050]' : 'text-[#60697b] hover:text-white'}`}
           >
@@ -4569,13 +4510,16 @@ export default function Chart({
         onMouseUp={() => setIsMouseDown(false)}
         onMouseLeave={() => setIsMouseDown(false)}
       >
-        <div 
-          ref={chartContainerRef} 
-          className="w-full h-full" 
+        <div
+          ref={chartContainerRef}
+          className="w-full h-full"
           style={{
             cursor: activeTool ? 'crosshair' : isMouseDown ? 'grabbing' : 'grab'
           }}
         />
+
+        {/* Непрерывная WebGL-heatmap плотностей стакана (задача 4.5) */}
+        <DepthHeatmapGL chart={chartInstance} points={densityPoints} active={showHeatmap && Boolean(chartInstance)} />
 
         {/* Tactical Assistant HUD: Floating Predictive & Market Regime Overlay (Stage 5) */}
         <AssistantHUD
