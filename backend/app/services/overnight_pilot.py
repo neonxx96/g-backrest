@@ -1,14 +1,23 @@
 """Three-symbol overnight orchestration for backtest, forecast and paper mode."""
 
 import asyncio
+import hashlib
 import json
+import logging
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-from backend.app.routers.backtest import BacktestRequest, BacktestParams, run_backtest
+from backend.app.routers.backtest import (
+    BacktestRequest,
+    BacktestParams,
+    OptimizeRequest,
+    optimize_backtest,
+    run_backtest,
+)
 from backend.app.routers.ai_copilot import compute_probabilistic_forecast
 from backend.app.services.deep_intent_logger import DeepIntentLogger
 from backend.app.services.live_paper_runner import LivePaperRunner
@@ -19,6 +28,8 @@ from sqlalchemy import select
 
 
 HISTORICAL_STRATEGIES = {"confluence_ema", "cvd_absorption", "cluster_volume_bounce", "diagnostics_lenient", "naked_test"}
+OPTIMIZABLE_STRATEGIES = {"confluence_ema", "cvd_absorption", "cluster_volume_bounce"}
+logger = logging.getLogger(__name__)
 
 
 class OvernightPilotConfig(BaseModel):
@@ -55,6 +66,9 @@ class OvernightPilotConfig(BaseModel):
 class PilotSession:
     config: OvernightPilotConfig
     session_id: Optional[str] = None
+    run_id: Optional[str] = None
+    config_fingerprint: Optional[str] = None
+    preflight_valid: bool = False
     backtest: Optional[Dict[str, Any]] = None
     forecast: Optional[Dict[str, Any]] = None
     runner: Optional[LivePaperRunner] = None
@@ -68,6 +82,9 @@ class PilotSession:
             "symbol": self.config.symbol.upper(),
             "strategy_type": self.config.strategy_type,
             "config": self.config.model_dump(),
+            "run_id": self.run_id,
+            "config_fingerprint": self.config_fingerprint,
+            "preflight_valid": self.preflight_valid,
             "backtest": self.backtest,
             "forecast": self.forecast,
             "paper": paper,
@@ -81,6 +98,7 @@ class OvernightPilotManager:
     def __init__(self) -> None:
         self.sessions: Dict[str, PilotSession] = {}
         self._forecast_tasks: Dict[str, asyncio.Task] = {}
+        self._snapshot_task: Optional[asyncio.Task] = None
         self._lock = asyncio.Lock()
         self.intent_logger = DeepIntentLogger()
 
@@ -92,9 +110,9 @@ class OvernightPilotManager:
                 symbol=session.config.symbol,
                 reason_code=reason_code,
                 reason=reason,
-                run_id=getattr(session, "run_id", None),
+                run_id=session.run_id,
                 session_id=session.session_id,
-                config_fingerprint=getattr(session, "config_fingerprint", None),
+                config_fingerprint=session.config_fingerprint,
                 strategy=session.config.strategy_type,
                 timeframe=session.config.timeframe,
                 checks=[],
@@ -104,6 +122,11 @@ class OvernightPilotManager:
             )
         except OSError:
             logger.exception("Unable to write %s telemetry for %s", source, session.config.symbol)
+
+    @staticmethod
+    def _config_fingerprint(config: OvernightPilotConfig) -> str:
+        payload = json.dumps(config.model_dump(), sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     @staticmethod
     def default_configs() -> List[OvernightPilotConfig]:
@@ -239,13 +262,51 @@ class OvernightPilotManager:
     def _has_running_sessions(self) -> bool:
         return any(session.runner and session.runner.is_running for session in self.sessions.values())
 
+    @staticmethod
+    def _backtest_matches_config(session: PilotSession) -> bool:
+        result = session.backtest
+        meta = result.get("meta") if isinstance(result, dict) else None
+        if not isinstance(meta, dict):
+            return False
+        try:
+            candles = int(meta.get("candles") or 0)
+        except (TypeError, ValueError):
+            return False
+        return bool(
+            candles > 0
+            and str(meta.get("symbol") or "").upper() == session.config.symbol.upper()
+            and str(meta.get("timeframe") or "").lower() == session.config.timeframe.lower()
+        )
+
+    def _preflight_matches(self, selected: List[OvernightPilotConfig], run_id: Optional[str]) -> bool:
+        if not run_id or set(self.sessions) != {config.symbol.strip().upper() for config in selected}:
+            return False
+        for config in selected:
+            session = self.sessions.get(config.symbol.strip().upper())
+            if (
+                session is None
+                or not session.preflight_valid
+                or session.run_id != run_id
+                or session.config_fingerprint != self._config_fingerprint(config)
+                or session.config.model_dump() != config.model_dump()
+                or session.error
+                or not self._backtest_matches_config(session)
+                or session.forecast is None
+                or session.forecast.get("data_status") != "connected"
+            ):
+                return False
+        return True
+
     async def _prepare(self, selected: List[OvernightPilotConfig]) -> None:
         """Run historical backtest and forecast only; never creates paper orders."""
         run_id = int(time.time())
+        preflight_id = uuid.uuid4().hex
         self.sessions = {
             config.symbol.strip().upper(): PilotSession(
                 config,
                 session_id=f"overnight_preflight_{config.symbol.strip().lower()}_{run_id}",
+                run_id=preflight_id,
+                config_fingerprint=self._config_fingerprint(config),
             )
             for config in selected
         }
@@ -276,9 +337,26 @@ class OvernightPilotManager:
                     ),
                 )
                 session.backtest = await run_backtest(req)
+                session.backtest["run_context"] = {
+                    "run_id": preflight_id,
+                    "config_fingerprint": session.config_fingerprint,
+                    "symbol": session.config.symbol.upper(),
+                    "timeframe": session.config.timeframe,
+                    "requested_days": session.config.days,
+                    "initial_capital": session.config.initial_capital,
+                    "risk_per_trade_pct": session.config.risk_per_trade_pct,
+                    "data_source": (session.backtest.get("data_engine") or {}).get("historical_sources"),
+                    "data_range": {
+                        "from": (session.backtest.get("meta") or {}).get("from_time"),
+                        "to": (session.backtest.get("meta") or {}).get("to_time"),
+                    },
+                }
                 self._record_run_event(
-                    session, event_type="BACKTEST_COMPLETED", source="backtest",
-                    reason_code="BACKTEST_COMPLETED", reason="Historical backtest completed",
+                    session,
+                    event_type="BACKTEST_COMPLETED",
+                    source="backtest",
+                    reason_code="BACKTEST_COMPLETED",
+                    reason="Historical backtest completed",
                     payload={"summary": session.backtest.get("summary") or {}, "data_engine": session.backtest.get("data_engine") or {}},
                 )
                 session.forecast = await compute_probabilistic_forecast(
@@ -287,15 +365,109 @@ class OvernightPilotManager:
                     strategy_type=session.config.strategy_type,
                     strategy_params=session.config.model_dump(),
                 )
+                session.forecast["run_context"] = {
+                    "run_id": preflight_id,
+                    "config_fingerprint": session.config_fingerprint,
+                    "symbol": session.config.symbol.upper(),
+                    "timeframe": session.config.timeframe,
+                    "initial_capital": session.config.initial_capital,
+                    "risk_per_trade_pct": session.config.risk_per_trade_pct,
+                    "data_timestamp": session.forecast.get("anchor_timestamp"),
+                    "data_source": session.forecast.get("data_source"),
+                }
                 self._record_run_event(
-                    session, event_type="FORECAST_UPDATED", source="forecast",
-                    reason_code="FORECAST_UPDATED", reason="Preflight forecast generated",
-                    payload={"data_status": session.forecast.get("data_status"),
-                             "direction": (session.forecast.get("base_scenario") or {}).get("direction") or (session.forecast.get("unified_signal") or {}).get("direction"),
-                             "updated_at": session.forecast.get("updated_at") or session.forecast.get("anchor_timestamp")},
+                    session,
+                    event_type="FORECAST_UPDATED",
+                    source="forecast",
+                    reason_code="FORECAST_UPDATED",
+                    reason="Preflight forecast generated",
+                    payload={
+                        "data_status": session.forecast.get("data_status"),
+                        "direction": (session.forecast.get("base_scenario") or {}).get("direction") or (session.forecast.get("unified_signal") or {}).get("direction"),
+                        "updated_at": session.forecast.get("updated_at") or session.forecast.get("anchor_timestamp"),
+                    },
                 )
+                if session.config.strategy_type in OPTIMIZABLE_STRATEGIES:
+                    config = session.config
+                    sl_min = max(0.1, config.stop_loss_pct * 0.5)
+                    sl_max = min(20.0, max(sl_min + 0.1, config.stop_loss_pct * 1.5))
+                    tp_min = max(0.1, config.take_profit_pct * 0.5)
+                    tp_max = min(100.0, max(tp_min + 0.1, config.take_profit_pct * 1.5))
+                    wall_min = max(0.0, config.min_density_usd * 0.5)
+                    wall_max = max(wall_min + 1000.0, config.min_density_usd * 1.5)
+                    optimizer_request = OptimizeRequest(
+                        symbol=config.symbol,
+                        timeframe=config.timeframe,
+                        days=config.days,
+                        strategy_type=config.strategy_type,
+                        sl_min=sl_min,
+                        sl_max=sl_max,
+                        sl_step=max(0.1, (sl_max - sl_min) / 4),
+                        tp_min=tp_min,
+                        tp_max=tp_max,
+                        tp_step=max(0.1, (tp_max - tp_min) / 4),
+                        wall_min_usd=wall_min,
+                        wall_max_usd=wall_max,
+                        wall_step_usd=max(1000.0, config.min_density_usd * 0.25),
+                        volume_multiplier=max(0.5, config.volume_multiplier),
+                        leverage=config.leverage,
+                        initial_capital=config.initial_capital,
+                        use_multi_tp=config.use_multi_tp,
+                        current_sl_pct=config.stop_loss_pct,
+                        current_tp_pct=config.take_profit_pct,
+                        current_wall_usd=config.min_density_usd,
+                        use_atr_filter=config.use_atr_filter,
+                        use_cvd_filter=config.use_cvd_filter,
+                        use_oi_filter=config.use_oi_filter,
+                        use_rsi_filter=config.use_rsi_filter,
+                        population_size=10,
+                        generations=3,
+                    )
+                    try:
+                        result = await optimize_backtest(optimizer_request)
+                        session.backtest["optimization"] = {
+                            "status": "complete",
+                            "mode": "pre_run",
+                            "recommendation": {
+                                "meta": result.get("meta") or {},
+                                "before_optimization": result.get("before_optimization") or {},
+                                "after_optimization": result.get("after_optimization") or {},
+                                "oos": result.get("oos") or (result.get("meta") or {}).get("oos"),
+                            },
+                            "disclaimer": "Параметры рекомендованы, но не применяются автоматически.",
+                        }
+                    except Exception as exc:
+                        session.backtest["optimization_error"] = str(exc)[:240]
+                        session.backtest["optimization"] = {
+                            "status": "error",
+                            "mode": "pre_run",
+                            "error": session.backtest["optimization_error"],
+                        }
+                else:
+                    session.backtest["optimization_error"] = (
+                        f"Genetic optimizer is unavailable for strategy '{session.config.strategy_type}'."
+                    )
+                    session.backtest["optimization"] = {
+                        "status": "unavailable",
+                        "mode": "pre_run",
+                        "error": session.backtest["optimization_error"],
+                    }
             except Exception as exc:
                 session.error = str(exc)
+            session.preflight_valid = bool(
+                session.error is None
+                and self._backtest_matches_config(session)
+                and session.forecast is not None
+                and session.forecast.get("data_status") == "connected"
+            )
+            self._record_run_event(
+                session,
+                event_type="PREFLIGHT_COMPLETED" if session.preflight_valid else "PREFLIGHT_REJECTED",
+                source="system",
+                reason_code="PREFLIGHT_VALID" if session.preflight_valid else "PREFLIGHT_INVALID",
+                reason="Preflight is valid" if session.preflight_valid else (session.error or "Backtest or forecast data is incomplete"),
+                payload={"preflight_valid": session.preflight_valid},
+            )
 
     async def preflight(self, configs: Optional[List[OvernightPilotConfig]] = None) -> Dict[str, Any]:
         selected = self._validate_configs(configs)
@@ -306,23 +478,17 @@ class OvernightPilotManager:
             await self._prepare(selected)
         return self.status()
 
-    async def start(self, configs: Optional[List[OvernightPilotConfig]] = None) -> Dict[str, Any]:
+    async def start(
+        self,
+        configs: Optional[List[OvernightPilotConfig]] = None,
+        preflight_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         selected = self._validate_configs(configs)
         async with self._lock:
             if self._has_running_sessions():
                 raise ValueError("overnight pilot is already running; stop all paper sessions before starting again")
-            await self.stop()
-            matches_preflight = (
-                set(self.sessions) == {config.symbol.strip().upper() for config in selected}
-                and all(
-                    self.sessions[symbol].config.model_dump() == config.model_dump()
-                    and self.sessions[symbol].backtest is not None
-                    and self.sessions[symbol].forecast is not None
-                    for symbol, config in ((config.symbol.strip().upper(), config) for config in selected)
-                )
-            )
-            if not matches_preflight:
-                await self._prepare(selected)
+            if not self._preflight_matches(selected, preflight_id):
+                raise ValueError("No current preflight matches this configuration; run preflight again before starting paper")
             for session in self.sessions.values():
                 try:
                     if session.error or session.backtest is None or session.forecast is None:
@@ -338,13 +504,40 @@ class OvernightPilotManager:
                         run_id=getattr(session, "run_id", None),
                         config_fingerprint=getattr(session, "config_fingerprint", None),
                     )
+                    session.preflight_valid = False
                     self._forecast_tasks[session.config.symbol.upper()] = asyncio.create_task(
                         self._forecast_loop(session),
                         name=f"overnight-forecast-{session.config.symbol.upper()}",
                     )
                 except Exception as exc:
                     session.error = str(exc)
+            self._ensure_snapshot_task()
         return self.status()
+
+    def _ensure_snapshot_task(self) -> None:
+        if not self._has_running_sessions():
+            return
+        if self._snapshot_task is None or self._snapshot_task.done():
+            self._snapshot_task = asyncio.create_task(self._snapshot_loop(), name="overnight-pilot-snapshots")
+
+    async def _snapshot_loop(self) -> None:
+        try:
+            while True:
+                await asyncio.sleep(30)
+                try:
+                    await self.persist()
+                except Exception:
+                    logger.exception("Failed to persist overnight paper snapshots")
+                if not self._has_running_sessions():
+                    try:
+                        await self.persist()
+                    except Exception:
+                        logger.exception("Failed to persist final overnight paper snapshot")
+                    break
+        except asyncio.CancelledError:
+            raise
+        finally:
+            self._snapshot_task = None
 
     async def stop(self) -> Dict[str, Any]:
         for task in self._forecast_tasks.values():
@@ -353,9 +546,15 @@ class OvernightPilotManager:
         if self._forecast_tasks:
             await asyncio.gather(*self._forecast_tasks.values(), return_exceptions=True)
         self._forecast_tasks.clear()
+        snapshot_task = self._snapshot_task
+        self._snapshot_task = None
+        if snapshot_task and snapshot_task is not asyncio.current_task() and not snapshot_task.done():
+            snapshot_task.cancel()
+            await asyncio.gather(snapshot_task, return_exceptions=True)
         for session in self.sessions.values():
             if session.runner:
                 session.runner.stop()
+            session.preflight_valid = False
         return self.status()
 
     async def _forecast_loop(self, session: PilotSession) -> None:
@@ -388,10 +587,16 @@ class OvernightPilotManager:
         sessions = {key: session.to_dict() for key, session in self.sessions.items()}
         rows = []
         for item in sessions.values():
+            paper = item.get("paper") or {}
+            telemetry_sources = self.intent_logger.count_by_source(item.get("run_id"))
             summary = (item.get("backtest") or {}).get("summary") or {}
+            backtest = item.get("backtest") or {}
+            optimization = backtest.get("optimization") or {}
+            recommendation = optimization.get("recommendation") or {}
+            optimization_meta = recommendation.get("meta") or {}
+            optimization_oos = recommendation.get("oos") or optimization_meta.get("oos") or {}
             trades = (item.get("backtest") or {}).get("trades") or []
             pnl_values = [float(trade.get("pnl_usd", trade.get("net_pnl", 0.0)) or 0.0) for trade in trades]
-            paper = item.get("paper") or {}
             forecast = item.get("forecast") or {}
             base_scenario = forecast.get("base_scenario") or {}
             unified_signal = forecast.get("unified_signal") or {}
@@ -435,6 +640,11 @@ class OvernightPilotManager:
                 "backtest_average_trade_usd": round(sum(pnl_values) / len(pnl_values), 2) if pnl_values else 0.0,
                 "backtest_best_trade_usd": round(max(pnl_values), 2) if pnl_values else 0.0,
                 "backtest_worst_trade_usd": round(min(pnl_values), 2) if pnl_values else 0.0,
+                "optimization_status": optimization.get("status", "error" if backtest.get("optimization_error") else "not_run"),
+                "optimization_error": backtest.get("optimization_error"),
+                "optimization_combinations_tested": optimization_meta.get("combinations_tested"),
+                "optimization_oos_available": optimization_oos.get("available", False),
+                "optimization_oos_pnl_pct": (optimization_oos.get("metrics") or {}).get("total_pnl_pct"),
                 "forecast_direction": forecast_direction,
                 "forecast_regime": forecast.get("market_regime") or forecast.get("regime"),
                 "forecast_reason": forecast_reason or trading_idea.get("reasoning"),
@@ -486,7 +696,7 @@ class OvernightPilotManager:
                 "paper_blocked_evaluations": paper.get("blocked_evaluations"),
                 "paper_filter_rejection_total": paper.get("filter_rejection_total"),
                 "paper_rejection_counts": paper.get("rejection_counts", {}),
-                "telemetry_events_by_source": self.intent_logger.count_by_source(item.get("run_id")),
+                "telemetry_events_by_source": telemetry_sources,
                 "paper_last_decision_reason": paper.get("last_decision_reason"),
                 "paper_last_decision_checks": paper.get("last_decision_checks", []),
                 "paper_last_decision_at": paper.get("last_decision_at"),
@@ -496,10 +706,18 @@ class OvernightPilotManager:
             })
         return {
             "status": "ok",
+            "preflight_id": self._current_preflight_id(sessions),
             "sessions": sessions,
             "summary": rows,
             "aggregate": self._aggregate_report(sessions, rows),
         }
+
+    @staticmethod
+    def _current_preflight_id(sessions: Dict[str, Dict[str, Any]]) -> Optional[str]:
+        if not sessions or any(not session.get("preflight_valid") for session in sessions.values()):
+            return None
+        run_ids = {session.get("run_id") for session in sessions.values()}
+        return next(iter(run_ids)) if len(run_ids) == 1 and None not in run_ids else None
 
     @staticmethod
     def _aggregate_report(
@@ -653,7 +871,10 @@ class OvernightPilotManager:
                     db.add(row)
                 row.symbol = item["symbol"]
                 row.strategy_type = item["strategy_type"]
-                row.config_json = json.dumps(item.get("config") or {}, ensure_ascii=False)
+                config_snapshot = dict(item.get("config") or {})
+                config_snapshot["_run_id"] = item.get("run_id")
+                config_snapshot["_config_fingerprint"] = item.get("config_fingerprint")
+                row.config_json = json.dumps(config_snapshot, ensure_ascii=False)
                 row.backtest_json = json.dumps(item.get("backtest"), ensure_ascii=False) if item.get("backtest") is not None else None
                 row.forecast_json = json.dumps(item.get("forecast"), ensure_ascii=False) if item.get("forecast") is not None else None
                 row.paper_json = json.dumps(paper, ensure_ascii=False) if paper else None
@@ -675,7 +896,10 @@ class OvernightPilotManager:
             if row.symbol.upper() in restored or len(restored) >= 3:
                 continue
             try:
-                config = OvernightPilotConfig.model_validate(json.loads(row.config_json or "{}"))
+                config_data = json.loads(row.config_json or "{}")
+                run_id = config_data.pop("_run_id", None)
+                config_fingerprint = config_data.pop("_config_fingerprint", None)
+                config = OvernightPilotConfig.model_validate(config_data)
                 paper = json.loads(row.paper_json) if row.paper_json else None
                 if paper:
                     paper["is_running"] = False
@@ -684,6 +908,9 @@ class OvernightPilotManager:
                 restored[row.symbol.upper()] = PilotSession(
                     config=config,
                     session_id=row.session_id,
+                    run_id=run_id,
+                    config_fingerprint=config_fingerprint or self._config_fingerprint(config),
+                    preflight_valid=False,
                     backtest=json.loads(row.backtest_json) if row.backtest_json else None,
                     forecast=json.loads(row.forecast_json) if row.forecast_json else None,
                     paper_snapshot=paper,

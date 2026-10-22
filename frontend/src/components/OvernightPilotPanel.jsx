@@ -207,14 +207,18 @@ function ForecastCard({ forecast }) {
 }
 
 function OptimizationResult({ result, onApply, disabled }) {
+  if (result?.status === 'error' || result?.status === 'unavailable') {
+    return <div className="rounded border border-red-900/50 bg-red-950/10 px-2 py-1.5 text-[8px] text-red-300" data-testid="overnight-optimization-error">Оптимизатор не завершился: {result.error || 'причина не указана'}. Backtest и forecast остаются доступны.</div>;
+  }
   const recommendation = result?.recommendation || {};
   const best = recommendation?.meta?.best_params || recommendation?.after_optimization || {};
   const before = recommendation?.before_optimization || {};
   const oos = recommendation?.meta?.oos || recommendation?.oos;
+  const oosTrades = Number(oos?.metrics?.total_trades || 0);
   if (!Object.keys(best).length) return null;
   return (
     <div className="space-y-1 rounded border border-violet-900/50 bg-violet-950/10 px-2 py-1.5 text-[8px]" data-testid="overnight-optimization-result">
-      <div className="font-bold uppercase tracking-wide text-violet-300">AI Think · pre-run optimizer</div>
+      <div className="font-bold uppercase tracking-wide text-violet-300">Генетический оптимизатор · pre-run</div>
       <div className="grid grid-cols-3 gap-1 text-neutral-400">
         <span>SL <b className="text-white">{Number(best.stop_loss_pct ?? 0).toFixed(2)}%</b></span>
         <span>TP <b className="text-white">{Number(best.take_profit_pct ?? 0).toFixed(2)}%</b></span>
@@ -222,7 +226,7 @@ function OptimizationResult({ result, onApply, disabled }) {
       </div>
       <div className="text-neutral-500">Before: {formatPct(before.total_pnl_pct, 2)} · PF {Number(before.profit_factor || 0).toFixed(2)} · {before.total_trades || 0} trades → <span className="text-emerald-300">After: {formatPct(best.total_pnl_pct, 2)} · PF {Number(best.profit_factor || 0).toFixed(2)} · {best.total_trades || 0} trades</span></div>
       {oos?.available && oos.metrics ? (
-        <div className="rounded bg-cyan-950/20 px-1.5 py-1 text-cyan-200">OOS: {formatPct(oos.metrics.total_pnl_pct, 2)} · PF {Number(oos.metrics.profit_factor || 0).toFixed(2)} · {oos.metrics.total_trades || 0} trades · {oos.oos_candles} candles</div>
+        <div className="rounded bg-cyan-950/20 px-1.5 py-1 text-cyan-200">OOS: {formatPct(oos.metrics.total_pnl_pct, 2)} · PF {Number(oos.metrics.profit_factor || 0).toFixed(2)} · {oosTrades} trades · {oos.oos_candles} candles {oosTrades < 30 && <span className="text-amber-200">⚠ мало сделок для уверенной OOS-оценки</span>}</div>
       ) : oos?.warning ? (
         <div className="rounded bg-amber-950/20 px-1.5 py-1 text-amber-200">OOS: {oos.warning}</div>
       ) : null}
@@ -274,7 +278,9 @@ export default function OvernightPilotPanel({ onClose }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [optimization, setOptimization] = useState({});
+  const [preflightConfigKey, setPreflightConfigKey] = useState('');
   const pilotRunning = Object.values(status.sessions || {}).some((session) => session.paper?.is_running);
+  const preflightCurrent = Boolean(status.preflight_id && preflightConfigKey === JSON.stringify(configs));
 
   const refresh = async () => {
     const res = await fetch(`${API}/status`);
@@ -292,8 +298,22 @@ export default function OvernightPilotPanel({ onClose }) {
       const restoredConfigs = restoredStatus
         ? Object.values(restoredStatus.sessions || {}).map((session) => session.config).filter(Boolean)
         : [];
-      setConfigs(Array.isArray(saved) && saved.length ? saved : restoredConfigs.length ? restoredConfigs : defaults);
-      if (restoredStatus) setStatus(restoredStatus);
+      const hasRunningSessions = Object.values(restoredStatus?.sessions || {}).some((session) => session.paper?.is_running);
+      const hasCurrentPreflight = Boolean(restoredStatus?.preflight_id);
+      const selectedConfigs = hasRunningSessions && restoredConfigs.length
+          ? restoredConfigs
+          : hasCurrentPreflight && restoredConfigs.length
+            ? restoredConfigs
+          : Array.isArray(saved) && saved.length
+            ? saved
+            : restoredConfigs.length
+              ? restoredConfigs
+              : defaults;
+      setConfigs(selectedConfigs);
+      if (restoredStatus) {
+        setStatus(restoredStatus);
+        if (restoredStatus.preflight_id && !hasRunningSessions) setPreflightConfigKey(JSON.stringify(selectedConfigs));
+      }
     }).catch((err) => setError(err.message));
     const timer = window.setInterval(() => refresh().catch(() => {}), 5000);
     return () => window.clearInterval(timer);
@@ -319,12 +339,17 @@ export default function OvernightPilotPanel({ onClose }) {
   };
 
   const start = async () => {
+    if (!preflightCurrent) {
+      setError('Конфигурация изменилась или не проверена. Выполните backtest + forecast заново.');
+      return;
+    }
     setBusy(true); setError('');
     try {
-      const res = await fetch(`${API}/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(configs) });
+      const res = await fetch(`${API}/start?preflight_id=${encodeURIComponent(status.preflight_id)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(configs) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Не удалось запустить пилот');
       setStatus(data);
+      setPreflightConfigKey('');
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   };
 
@@ -335,6 +360,7 @@ export default function OvernightPilotPanel({ onClose }) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Не удалось подготовить расчёт');
       setStatus(data);
+      setPreflightConfigKey(JSON.stringify(configs));
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   };
 
@@ -432,7 +458,7 @@ export default function OvernightPilotPanel({ onClose }) {
             <div className="grid grid-cols-3 gap-1"><Metric label="Win rate" value={status.sessions?.[config.symbol]?.backtest?.summary?.win_rate_pct != null ? `${status.sessions[config.symbol].backtest.summary.win_rate_pct}%` : null} /><Metric label="Max DD" value={status.sessions?.[config.symbol]?.backtest?.summary?.max_drawdown_pct != null ? `${status.sessions[config.symbol].backtest.summary.max_drawdown_pct}%` : null} /><Metric label="Paper equity" value={status.sessions?.[config.symbol]?.paper?.current_equity != null ? `$${Number(status.sessions[config.symbol].paper.current_equity).toFixed(2)}` : 'IDLE'} /></div>
             <BacktestQuality backtest={status.sessions?.[config.symbol]?.backtest} />
             <button data-testid={`btn-think-optimize-${config.symbol}`} disabled={busy} onClick={() => optimize(config)} className="w-full rounded border border-violet-400/40 bg-violet-950/20 px-2 py-1 text-[9px] font-bold text-violet-200 disabled:opacity-50">{busy ? 'AI Think: расчёт…' : 'AI Think: подобрать параметры по этой стратегии'}</button>
-            <OptimizationResult result={optimization[config.symbol]} disabled={busy || status.sessions?.[config.symbol]?.paper?.is_running} onApply={(best) => applyOptimization(config, best)} />
+            <OptimizationResult result={optimization[config.symbol] || status.sessions?.[config.symbol]?.backtest?.optimization} disabled={busy || status.sessions?.[config.symbol]?.paper?.is_running} onApply={(best) => applyOptimization(config, best)} />
             <RecentBacktestTrades backtest={status.sessions?.[config.symbol]?.backtest} />
             <PaperTradeTimeline paper={status.sessions?.[config.symbol]?.paper} />
             <ForecastCard forecast={status.sessions?.[config.symbol]?.forecast} />
@@ -454,7 +480,8 @@ export default function OvernightPilotPanel({ onClose }) {
         </div>
       </div>}
       {error && <div className="mx-3 rounded border border-red-500/30 bg-red-950/20 p-2 text-[10px] text-red-300">{error}</div>}
-      <div className="flex flex-wrap gap-2 px-3 pb-3"><button data-testid="btn-load-diversified-paper" disabled={busy || pilotRunning} onClick={loadDiversifiedPaper} title="Загрузить BTC EMA, ETH CVD Absorption и SOL Cluster Bounce с отдельными параметрами; активную paper-сессию не изменяет." className="rounded border border-violet-400/50 bg-violet-950/30 px-3 py-1.5 text-[10px] font-bold text-violet-200 disabled:opacity-50">Загрузить 3 стратегии</button><button data-testid="btn-overnight-preflight" disabled={busy || pilotRunning} onClick={preflight} className="rounded border border-cyan-400/50 bg-cyan-950/30 px-3 py-1.5 text-[10px] font-bold text-cyan-200 disabled:opacity-50">{busy ? 'Расчёт…' : pilotRunning ? '1. Сначала остановите paper' : '1. Подготовить backtest + forecast'}</button><button data-testid="btn-overnight-start" disabled={busy || pilotRunning} onClick={start} className="rounded bg-amber-300 px-3 py-1.5 text-[10px] font-bold text-neutral-950 disabled:opacity-50">{pilotRunning ? 'Paper уже запущен' : '2. Запустить paper'}</button><button disabled={busy} onClick={stop} className="rounded border border-red-400/40 px-3 py-1.5 text-[10px] text-red-300 disabled:opacity-50">Остановить все</button></div>
+      {!pilotRunning && status.sessions && Object.keys(status.sessions).length > 0 && !preflightCurrent && <div data-testid="overnight-preflight-stale" className="mx-3 mb-2 rounded border border-amber-500/30 bg-amber-950/20 p-2 text-[10px] text-amber-200">Конфигурация не проверена или изменилась. Повторите backtest + forecast перед запуском.</div>}
+      <div className="flex flex-wrap gap-2 px-3 pb-3"><button data-testid="btn-load-diversified-paper" disabled={busy || pilotRunning} onClick={loadDiversifiedPaper} title="Загрузить BTC EMA, ETH CVD Absorption и SOL Cluster Bounce с отдельными параметрами; активную paper-сессию не изменяет." className="rounded border border-violet-400/50 bg-violet-950/30 px-3 py-1.5 text-[10px] font-bold text-violet-200 disabled:opacity-50">Загрузить 3 стратегии</button><button data-testid="btn-overnight-preflight" disabled={busy || pilotRunning} onClick={preflight} title="Для каждого выбранного символа выполнит исторический backtest, live forecast и генетический поиск параметров с отдельной проверкой OOS." className="rounded border border-cyan-400/50 bg-cyan-950/30 px-3 py-1.5 text-[10px] font-bold text-cyan-200 disabled:opacity-50">{busy ? 'Расчёт…' : pilotRunning ? '1. Сначала остановите paper' : '1. Backtest + forecast + optimize'}</button><button data-testid="btn-overnight-start" disabled={busy || pilotRunning || !preflightCurrent} onClick={start} title={!preflightCurrent ? 'Сначала выполните backtest и forecast для этой конфигурации.' : 'Запустить paper на проверенной конфигурации.'} className="rounded bg-amber-300 px-3 py-1.5 text-[10px] font-bold text-neutral-950 disabled:opacity-50">{pilotRunning ? 'Paper уже запущен' : '2. Запустить paper'}</button><button disabled={busy} onClick={stop} className="rounded border border-red-400/40 px-3 py-1.5 text-[10px] text-red-300 disabled:opacity-50">Остановить все</button></div>
     </div>
   );
 }

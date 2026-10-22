@@ -1113,7 +1113,9 @@ class LivePaperRunner:
             if pos.side == "LONG":
                 # Check Stop Loss
                 if current_price <= pos.stop_price:
-                    self.session.close_position(symbol, current_price, order_type="MARKET", reason="STOP_LOSS", signal_ts=self._last_tick_time)
+                    initial_stop = pos.initial_stop_price or pos.stop_price
+                    reason = "PROTECTIVE_STOP" if pos.stop_price > initial_stop else "STOP_LOSS"
+                    self.session.close_position(symbol, current_price, order_type="MARKET", reason=reason, signal_ts=self._last_tick_time)
                 # Check Take Profit
                 elif current_price >= pos.target_price:
                     if self.use_multi_tp and not pos.tp1_filled and pos.tp2_price > pos.target_price:
@@ -1127,7 +1129,9 @@ class LivePaperRunner:
             # Check Short
             elif pos.side == "SHORT":
                 if current_price >= pos.stop_price:
-                    self.session.close_position(symbol, current_price, order_type="MARKET", reason="STOP_LOSS", signal_ts=self._last_tick_time)
+                    initial_stop = pos.initial_stop_price or pos.stop_price
+                    reason = "PROTECTIVE_STOP" if pos.stop_price < initial_stop else "STOP_LOSS"
+                    self.session.close_position(symbol, current_price, order_type="MARKET", reason=reason, signal_ts=self._last_tick_time)
                 elif current_price <= pos.target_price:
                     if self.use_multi_tp and not pos.tp1_filled and pos.tp2_price < pos.target_price:
                         self.session.close_position(symbol, current_price, order_type="LIMIT", reason="TP1_PARTIAL", signal_ts=self._last_tick_time, quantity=max(pos.qty * 0.5, 1e-12))

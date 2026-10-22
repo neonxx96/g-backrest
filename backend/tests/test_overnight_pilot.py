@@ -1,8 +1,10 @@
 import pytest
 import asyncio
+import inspect
 import sys
 
 import backend.app.services.overnight_pilot as overnight_module
+import backend.app.routers.overnight_pilot as overnight_router
 from backend.app.services.overnight_pilot import OvernightPilotConfig, OvernightPilotManager
 
 
@@ -40,6 +42,70 @@ def test_diversified_paper_preset_matches_the_three_strategy_night_plan():
         (0.75, 0.65, 1.8, 2.0),
         (0.5, 1.0, 2.2, 1.0),
     ]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows sandbox blocks asyncio.run/socket primitives")
+def test_preflight_runs_and_persists_oos_optimizer_recommendation(monkeypatch):
+    async def scenario():
+        backtest_calls = []
+        forecast_calls = []
+        optimizer_calls = []
+
+        async def fake_backtest(request):
+            backtest_calls.append(request)
+            return {"summary": {"total_trades": 32, "net_pnl_usd": 12.0}, "trades": [],
+                    "meta": {"symbol": request.symbol, "timeframe": request.timeframe, "candles": 1500, "from_time": 1, "to_time": 2},
+                    "data_engine": {"historical_sources": ["Binance Futures OHLCV"]}}
+
+        async def fake_forecast(symbol, timeframe, strategy_type, strategy_params):
+            forecast_calls.append((symbol, timeframe, strategy_type))
+            return {"data_status": "connected", "base_scenario": {"direction": "NO_TRADE"}}
+
+        async def fake_optimizer(request):
+            optimizer_calls.append(request)
+            if request.symbol == "ETHUSDT":
+                raise RuntimeError("optimizer temporarily unavailable")
+            return {
+                "meta": {
+                    "best_params": {"stop_loss_pct": 0.7, "take_profit_pct": 2.0},
+                    "combinations_tested": 24,
+                    "oos": {"available": True, "metrics": {"total_pnl_pct": 1.25, "total_trades": 8}},
+                },
+                "before_optimization": {"total_pnl_pct": -0.5},
+                "after_optimization": {"total_pnl_pct": 2.0},
+            }
+
+        monkeypatch.setattr(overnight_module, "run_backtest", fake_backtest)
+        monkeypatch.setattr(overnight_module, "compute_probabilistic_forecast", fake_forecast)
+        monkeypatch.setattr(overnight_module, "optimize_backtest", fake_optimizer, raising=False)
+
+        manager = OvernightPilotManager()
+        status = await manager.preflight(manager.diversified_paper_configs())
+
+        assert len(backtest_calls) == len(forecast_calls) == len(optimizer_calls) == 3
+        assert [(call.symbol, call.strategy_type) for call in optimizer_calls] == [
+            ("BTCUSDT", "confluence_ema"),
+            ("ETHUSDT", "cvd_absorption"),
+            ("SOLUSDT", "cluster_volume_bounce"),
+        ]
+        optimization = status["sessions"]["BTCUSDT"]["backtest"]["optimization"]
+        assert optimization["recommendation"]["meta"]["oos"]["available"] is True
+        btc_session = status["sessions"]["BTCUSDT"]
+        assert btc_session["preflight_valid"] is True
+        assert btc_session["backtest"]["run_context"]["run_id"] == status["preflight_id"]
+        assert btc_session["forecast"]["run_context"]["run_id"] == status["preflight_id"]
+        assert btc_session["backtest"]["run_context"]["config_fingerprint"] == btc_session["config_fingerprint"]
+        assert btc_session["forecast"]["run_context"]["initial_capital"] == btc_session["config"]["initial_capital"]
+        assert status["summary"][0]["optimization_status"] == "complete"
+        assert status["summary"][0]["optimization_combinations_tested"] == 24
+        assert status["summary"][0]["optimization_oos_pnl_pct"] == 1.25
+        assert status["sessions"]["ETHUSDT"]["backtest"]["optimization_error"] == "optimizer temporarily unavailable"
+        assert status["sessions"]["ETHUSDT"]["backtest"]["optimization"]["status"] == "error"
+        assert status["summary"][1]["optimization_status"] == "error"
+        assert status["sessions"]["ETHUSDT"]["error"] is None
+        assert all(session["paper"] is None for session in status["sessions"].values())
+
+    asyncio.run(scenario())
 
 
 def test_naked_test_preset_is_a_short_unfiltered_ema_cross_probe():
@@ -342,6 +408,53 @@ def test_pilot_session_can_expose_a_persisted_preflight_id_without_paper_state()
     assert payload["paper"] is None
 
 
+def test_status_endpoint_is_read_only():
+    source = inspect.getsource(overnight_router.get_overnight_status)
+    assert "persist" not in source
+
+
+def test_preflight_run_id_is_exposed_and_restore_invalidates_it():
+    config = OvernightPilotConfig(symbol="BTCUSDT", strategy_type="confluence_ema")
+    session = overnight_module.PilotSession(config, session_id="preflight-btc", run_id="run-123", preflight_valid=True)
+
+    payload = session.to_dict()
+
+    assert payload["run_id"] == "run-123"
+    assert payload["preflight_valid"] is True
+    session.preflight_valid = False
+    assert session.to_dict()["preflight_valid"] is False
+
+
+def test_pilot_start_requires_the_current_preflight_and_exact_configuration():
+    config = OvernightPilotConfig(symbol="BTCUSDT", strategy_type="confluence_ema")
+    manager = OvernightPilotManager()
+    manager.sessions["BTCUSDT"] = overnight_module.PilotSession(
+        config,
+        run_id="run-123",
+        config_fingerprint=manager._config_fingerprint(config),
+        preflight_valid=True,
+        backtest={"summary": {"total_trades": 0}, "meta": {"symbol": "BTCUSDT", "timeframe": "15m", "candles": 500}},
+        forecast={"data_status": "connected"},
+    )
+
+    assert manager._preflight_matches([config], "run-123") is True
+    manager.sessions["BTCUSDT"].backtest["meta"]["candles"] = 0
+    assert manager._preflight_matches([config], "run-123") is False
+    manager.sessions["BTCUSDT"].backtest["meta"]["candles"] = 500
+    assert manager._preflight_matches([config.model_copy(update={"risk_per_trade_pct": 2.0})], "run-123") is False
+    assert manager._preflight_matches([config], "old-run") is False
+    manager.sessions["BTCUSDT"].preflight_valid = False
+    assert manager._preflight_matches([config], "run-123") is False
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows sandbox blocks asyncio.run/socket primitives")
+def test_pilot_start_rejects_missing_preflight_without_running_any_runner():
+    manager = OvernightPilotManager()
+
+    with pytest.raises(ValueError, match="preflight"):
+        asyncio.run(manager.start([OvernightPilotConfig(symbol="BTCUSDT", strategy_type="confluence_ema")]))
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows sandbox blocks asyncio.run/socket primitives")
 def test_restore_rehydrates_snapshot_as_stale_and_keeps_session_id(monkeypatch):
     class FakeResult:
@@ -407,7 +520,8 @@ def test_start_orchestrates_three_independent_sessions_without_real_orders(monke
 
         async def fake_backtest(request):
             backtest_calls.append(request)
-            return {"summary": {"total_trades": 0, "total_pnl_pct": 0.0}, "trades": []}
+            return {"summary": {"total_trades": 0, "total_pnl_pct": 0.0}, "trades": [],
+                    "meta": {"symbol": request.symbol, "timeframe": request.timeframe, "candles": 1500}}
 
         async def fake_forecast(symbol, timeframe, strategy_type, strategy_params):
             forecast_calls.append((symbol, timeframe, strategy_type, strategy_params))
@@ -416,6 +530,9 @@ def test_start_orchestrates_three_independent_sessions_without_real_orders(monke
                 "base_scenario": {"direction": "NO_TRADE"},
                 "unified_signal": None,
             }
+
+        async def fake_optimizer(request):
+            return {"meta": {}, "before_optimization": {}, "after_optimization": {}, "oos": {"available": False}}
 
         class FakeRunner:
             instances = []
@@ -446,10 +563,12 @@ def test_start_orchestrates_three_independent_sessions_without_real_orders(monke
 
         monkeypatch.setattr(overnight_module, "run_backtest", fake_backtest)
         monkeypatch.setattr(overnight_module, "compute_probabilistic_forecast", fake_forecast)
+        monkeypatch.setattr(overnight_module, "optimize_backtest", fake_optimizer)
         monkeypatch.setattr(overnight_module, "LivePaperRunner", FakeRunner)
 
         manager = overnight_module.OvernightPilotManager()
-        status = await manager.start(manager.default_configs())
+        preflight = await manager.preflight(manager.default_configs())
+        status = await manager.start(manager.default_configs(), preflight_id=preflight["preflight_id"])
         assert set(status["sessions"]) == {"BTCUSDT", "ETHUSDT", "SOLUSDT"}
         assert len(backtest_calls) == 3
         assert len(forecast_calls) == 3
@@ -469,7 +588,8 @@ def test_start_orchestrates_three_independent_sessions_without_real_orders(monke
 def test_start_keeps_other_paper_sessions_running_when_one_runner_fails(monkeypatch):
     async def scenario():
         async def fake_backtest(request):
-            return {"summary": {"total_trades": 0, "total_pnl_pct": 0.0}, "trades": []}
+            return {"summary": {"total_trades": 0, "total_pnl_pct": 0.0}, "trades": [],
+                    "meta": {"symbol": request.symbol, "timeframe": request.timeframe, "candles": 1500}}
 
         async def fake_forecast(symbol, timeframe, strategy_type, strategy_params):
             return {
@@ -477,6 +597,9 @@ def test_start_keeps_other_paper_sessions_running_when_one_runner_fails(monkeypa
                 "base_scenario": {"direction": "NO_TRADE"},
                 "unified_signal": None,
             }
+
+        async def fake_optimizer(request):
+            return {"meta": {}, "before_optimization": {}, "after_optimization": {}, "oos": {"available": False}}
 
         class FailingRunner:
             instances = []
@@ -509,6 +632,7 @@ def test_start_keeps_other_paper_sessions_running_when_one_runner_fails(monkeypa
 
         monkeypatch.setattr(overnight_module, "run_backtest", fake_backtest)
         monkeypatch.setattr(overnight_module, "compute_probabilistic_forecast", fake_forecast)
+        monkeypatch.setattr(overnight_module, "optimize_backtest", fake_optimizer)
         monkeypatch.setattr(overnight_module, "LivePaperRunner", FailingRunner)
 
         def fake_create_task(coro, *, name=None):
@@ -520,7 +644,8 @@ def test_start_keeps_other_paper_sessions_running_when_one_runner_fails(monkeypa
         monkeypatch.setattr(overnight_module.asyncio, "create_task", fake_create_task)
 
         manager = overnight_module.OvernightPilotManager()
-        status = await manager.start(manager.default_configs())
+        preflight = await manager.preflight(manager.default_configs())
+        status = await manager.start(manager.default_configs(), preflight_id=preflight["preflight_id"])
 
         assert status["sessions"]["ETHUSDT"]["error"] == "ETH data source unavailable"
         assert status["sessions"]["ETHUSDT"]["paper"]["is_running"] is False

@@ -73,6 +73,18 @@ def main():
         assert restored["sol"]["sl"] == 0.75, f"SOL SL not restored: {restored['sol']}"
         print("    [PASS] Settings successfully restored after F5 reload from localStorage!")
 
+        # 2b. Test chart timeframe persistence is scoped to its Dockview panel.
+        print("[3b] Testing chart timeframe persistence across F5 reload...")
+        chart_tf = page.get_by_test_id("chart-timeframe-chart_main-1h")
+        chart_tf.click()
+        saved_timeframes = page.evaluate("() => JSON.parse(localStorage.getItem('signalscript_chart_timeframes') || '{}')")
+        assert saved_timeframes.get("chart_main") == "1h", f"Chart timeframe was not saved: {saved_timeframes}"
+        page.reload(wait_until="networkidle", timeout=30000)
+        time.sleep(2)
+        restored_tf = page.get_by_test_id("chart-timeframe-chart_main-1h")
+        assert "bg-[#2563eb]" in (restored_tf.get_attribute("class") or ""), "Chart timeframe did not restore after F5!"
+        print("    [PASS] Chart timeframe restored independently after F5 reload!")
+
         # 3. Test 1-Click Quick Backtest with Active Symbol State
         print("[4] Testing 1-Click Quick Backtest payload parameters...")
         bt_res = page.evaluate("""async () => {

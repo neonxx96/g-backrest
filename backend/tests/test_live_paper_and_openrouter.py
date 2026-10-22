@@ -137,6 +137,23 @@ def test_live_runner_trailing_stop_only_tightens_an_open_long_position():
     assert runner.session.positions["BTCUSDT"].stop_price == pytest.approx(101.49)
 
 
+def test_live_runner_labels_a_ratchet_stop_as_protective_not_stop_loss():
+    session = PaperTradingSession(initial_balance=1000.0, session_id="protective-stop-label")
+    runner = LivePaperRunner(session=session)
+    runner.start({"symbol": "BTCUSDT", "use_trailing": False})
+    session.positions["BTCUSDT"] = PaperPosition(
+        symbol="BTCUSDT", side="LONG", qty=1.0, avg_entry_price=100.0,
+        stop_price=100.5, initial_stop_price=99.0, target_price=110.0,
+    )
+
+    runner._update_open_positions(100.5)
+
+    exit_orders = [order for order in session.orders.values() if order.role.value == "exit"]
+    assert len(exit_orders) == 1
+    assert exit_orders[0].reason == "PROTECTIVE_STOP"
+    runner.stop()
+
+
 def test_live_runner_trailing_waits_for_configured_activation_threshold():
     session = PaperTradingSession(initial_balance=1000.0, session_id="trailing-activation")
     runner = LivePaperRunner(session=session)

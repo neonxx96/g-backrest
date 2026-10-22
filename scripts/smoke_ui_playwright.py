@@ -192,13 +192,17 @@ def run_live_part() -> None:
             log(f"       [ws] frames={s['frames']:5d} stream={stream}")
 
         try:
-            chart_candles = page.evaluate(
-                """() => (window.__chart && window.__chart.getDataList)
-                        ? window.__chart.getDataList().length : null"""
+            chart_data = page.evaluate(
+                """() => {
+                    const charts = Object.entries(window.__charts || {})
+                        .map(([id, chart]) => ({ id, count: chart?.getDataList?.().length ?? 0 }))
+                        .sort((a, b) => b.count - a.count);
+                    return charts[0] || { id: null, count: null };
+                }"""
             )
         except Exception:
-            chart_candles = None
-        log(f"       chart candles loaded: {chart_candles}")
+            chart_data = {"id": None, "count": None}
+        log(f"       chart candle report: {chart_data}")
 
         browser.close()
 
@@ -337,6 +341,20 @@ def run_blocking_part(console_errors: list, page_errors: list) -> bool:
         except Exception as exc:
             failures.append(f"order-book canvas not found: {exc}")
 
+        try:
+            page.wait_for_function(
+                """() => {
+                    const charts = Object.entries(window.__charts || {});
+                    const chart = charts.find(([id]) => id === 'chart_main')?.[1]
+                        || charts.find(([, value]) => value && typeof value.getDataList === 'function')?.[1]
+                        || window.__chart;
+                    return !!chart?.getDataList?.().length;
+                }""",
+                timeout=UI_RENDER_TIMEOUT_MS,
+            )
+        except Exception as exc:
+            failures.append(f"visible chart has no loaded candles: {exc}")
+
         canvas_report = page.evaluate(
             """() => {
                 const ladder = document.querySelector('[data-testid="orderbook-canvas-ladder"]');
@@ -355,12 +373,17 @@ def run_blocking_part(console_errors: list, page_errors: list) -> bool:
                         }
                     }
                 }
+                const charts = Object.entries(window.__charts || {});
+                const visibleChart = charts.find(([id]) => id === 'chart_main')?.[1]
+                    || charts.find(([, chart]) => chart && typeof chart.getDataList === 'function')?.[1]
+                    || window.__chart;
                 return {
                     total_canvases: document.querySelectorAll('canvas').length,
                     chart_container_canvas: chartCanvas,
                     chart_rect: chartRect,
-                    chart_instance: !!window.__chart,
-                    chart_api: !!(window.__chart && typeof window.__chart.getDataList === 'function'),
+                    chart_instance: !!visibleChart,
+                    chart_api: !!(visibleChart && typeof visibleChart.getDataList === 'function'),
+                    chart_candles: visibleChart?.getDataList?.().length ?? null,
                     ladder_present: !!ladder,
                     ladder_size: ladder ? `${ladder.width}x${ladder.height}` : 'n/a',
                     ladder_rect: ladder ? (() => {
@@ -374,7 +397,7 @@ def run_blocking_part(console_errors: list, page_errors: list) -> bool:
         if not canvas_report["chart_container_canvas"]:
             failures.append("chart canvas is not rendered in the chart container")
         if not canvas_report["chart_api"]:
-            failures.append("KLineCharts instance (window.__chart) is missing")
+            failures.append("KLineCharts instance for the visible Dockview chart is missing")
         chart_rect = canvas_report.get("chart_rect")
         if not chart_rect or chart_rect["w"] < 200 or chart_rect["h"] < 150:
             failures.append(f"chart canvas is not really rendered: {chart_rect}")

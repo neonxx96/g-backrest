@@ -3,7 +3,7 @@ param(
     [ValidateSet('preflight', 'start', 'status', 'report', 'stop')]
     [string]$Action = 'start',
     [ValidateSet('production_robust', 'diagnostics_lenient', 'naked_test', 'optimal_live', 'diversified_paper', 'default')]
-    [string]$Preset = 'production_robust',
+    [string]$Preset = 'diversified_paper',
     [ValidateRange(1, 65535)]
     [int]$Port = 8002,
     [ValidateRange(0, 1440)]
@@ -71,9 +71,13 @@ function Write-PilotSummary {
         $paperPnl = if ($null -eq $row.paper_pnl) { '—' } else { [math]::Round([double]$row.paper_pnl, 2) }
         $forecastNoTrade = if ($null -eq $row.forecast_no_trade_count) { 0 } else { $row.forecast_no_trade_count }
         $paperNoEntry = if ($null -eq $row.paper_no_trade_count) { 0 } else { $row.paper_no_trade_count }
+        $optimizerStatus = if ($row.optimization_status) { $row.optimization_status } else { 'not_run' }
+        $optimizerOos = if ($null -eq $row.optimization_oos_pnl_pct) { '—' } else { ('{0:N2}%' -f [double]$row.optimization_oos_pnl_pct) }
         Write-Host ("{0,-9} {1,-22} BT trades={2,-4} ROI={3,7}% Forecast={4,-8} Paper={5} PnL={6,7} Data={7}" -f `
             $row.symbol, $row.strategy_type, $row.backtest_trades, $roi, `
             $direction, $paper, $paperPnl, $dataStatus)
+        Write-Host ("           Optimizer={0} OOS Net={1} combinations={2}" -f $optimizerStatus, $optimizerOos, $row.optimization_combinations_tested)
+        if ($row.optimization_error) { Write-Host "           Optimizer note: $(Repair-TextEncoding ([string]$row.optimization_error))" }
         Write-Host ("           Forecast NO_TRADE={0} | Paper no-entry={1}" -f $forecastNoTrade, $paperNoEntry)
         if ($row.paper_last_decision_reason) { Write-Host "           Decision: $(Repair-TextEncoding ([string]$row.paper_last_decision_reason))" }
         if ($row.error) { Write-Warning "$($row.symbol): $($row.error)" }
@@ -211,7 +215,12 @@ try {
         }
         'start' {
             $endpoint = if ($Preset -eq 'default') { 'start' } else { "$($Preset.Replace('_', '-'))/start" }
-            $result = Invoke-PilotJson -Uri "$pilotBase/$endpoint" -Method Post
+            $pilotStatus = Invoke-PilotJson -Uri "$pilotBase/status"
+            if (-not $pilotStatus.preflight_id) {
+                throw 'No current successful preflight is available. Run -Action preflight with this preset, then start again.'
+            }
+            $preflightId = [Uri]::EscapeDataString([string]$pilotStatus.preflight_id)
+            $result = Invoke-PilotJson -Uri "$pilotBase/$endpoint`?preflight_id=$preflightId" -Method Post
             Write-PilotSummary $result
             Write-WarningSentinel $result
             if (@($result.sessions.PSObject.Properties).Count -ne 3) { throw 'Expected three independent pilot sessions.' }

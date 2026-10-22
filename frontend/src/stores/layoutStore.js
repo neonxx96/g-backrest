@@ -12,6 +12,7 @@
  */
 
 import { create } from 'zustand';
+import { persistDockviewLayoutLocally } from '../components/docking/layoutRecovery.js';
 
 const API_BASE = '/api/workspaces';
 
@@ -135,6 +136,9 @@ export const useLayoutStore = create((set, get) => {
         return;
       }
 
+      // Keep a synchronous browser recovery snapshot; SQLite remains the durable primary copy.
+      persistDockviewLayoutLocally(dockviewJson);
+
       if (autosaveTimer) clearTimeout(autosaveTimer);
 
       set({ saveStatus: 'saving' });
@@ -145,11 +149,6 @@ export const useLayoutStore = create((set, get) => {
           const activeId = get().activePresetId;
           const currentPreset = currentPresets.find((p) => p.id === activeId);
           const presetName = currentPreset ? currentPreset.name : 'Пользовательский пресет';
-
-          // Strictly strip any market data, only persist layout geometry & panel IDs
-          try {
-            localStorage.setItem('signalscript_last_dockview_layout', JSON.stringify(dockviewJson));
-          } catch (_) {}
 
           const payload = {
             id: activeId,

@@ -35,15 +35,23 @@ def get_paper_events(
     if limit < 1 or limit > 500:
         raise HTTPException(status_code=422, detail="limit must be between 1 and 500")
     intent_logger = getattr(overnight_pilot_manager, "intent_logger", None) or DeepIntentLogger()
-    filters = {"run_id": run_id, "symbol": symbol.upper() if symbol else None, "source": source, "event_type": event_type}
+    filters = {
+        "run_id": run_id,
+        "symbol": symbol.upper() if symbol else None,
+        "source": source,
+        "event_type": event_type,
+    }
     events = intent_logger.read_recent(limit=limit, **filters)
     return {"events": events, "count": len(events), "filters": {**filters, "limit": limit}}
 
 
 @router.post("/start")
-async def start_overnight_pilot(configs: Optional[List[OvernightPilotConfig]] = None):
+async def start_overnight_pilot(
+    configs: Optional[List[OvernightPilotConfig]] = None,
+    preflight_id: Optional[str] = None,
+):
     try:
-        result = await overnight_pilot_manager.start(configs)
+        result = await overnight_pilot_manager.start(configs, preflight_id=preflight_id)
         await overnight_pilot_manager.persist()
         return result
     except Exception as exc:
@@ -73,10 +81,10 @@ async def preflight_diversified_paper():
 
 
 @router.post("/diversified-paper/start")
-async def start_diversified_paper():
+async def start_diversified_paper(preflight_id: Optional[str] = None):
     """Start the virtual-only three-strategy paper plan; real orders are never sent."""
     try:
-        result = await overnight_pilot_manager.start(overnight_pilot_manager.diversified_paper_configs())
+        result = await overnight_pilot_manager.start(overnight_pilot_manager.diversified_paper_configs(), preflight_id=preflight_id)
         await overnight_pilot_manager.persist()
         return result
     except Exception as exc:
@@ -95,10 +103,10 @@ async def preflight_diagnostics_lenient():
 
 
 @router.post("/diagnostics-lenient/start")
-async def start_diagnostics_lenient():
+async def start_diagnostics_lenient(preflight_id: Optional[str] = None):
     """Start the 90-minute paper-only diagnostic preset against live Binance data."""
     try:
-        result = await overnight_pilot_manager.start(overnight_pilot_manager.diagnostics_lenient_configs())
+        result = await overnight_pilot_manager.start(overnight_pilot_manager.diagnostics_lenient_configs(), preflight_id=preflight_id)
         await overnight_pilot_manager.persist()
         return result
     except Exception as exc:
@@ -117,10 +125,10 @@ async def preflight_naked_test():
 
 
 @router.post("/naked-test/start")
-async def start_naked_test():
+async def start_naked_test(preflight_id: Optional[str] = None):
     """Run the 15-minute virtual-only EMA-cross probe; no live order path exists."""
     try:
-        result = await overnight_pilot_manager.start(overnight_pilot_manager.naked_test_configs())
+        result = await overnight_pilot_manager.start(overnight_pilot_manager.naked_test_configs(), preflight_id=preflight_id)
         await overnight_pilot_manager.persist()
         return result
     except Exception as exc:
@@ -139,10 +147,10 @@ async def preflight_production_robust():
 
 
 @router.post("/production-robust/start")
-async def start_production_robust():
+async def start_production_robust(preflight_id: Optional[str] = None):
     """Start the calibrated production paper preset; real orders are never sent."""
     try:
-        result = await overnight_pilot_manager.start(overnight_pilot_manager.production_robust_configs())
+        result = await overnight_pilot_manager.start(overnight_pilot_manager.production_robust_configs(), preflight_id=preflight_id)
         await overnight_pilot_manager.persist()
         return result
     except Exception as exc:
@@ -161,10 +169,10 @@ async def preflight_optimal_live():
 
 
 @router.post("/optimal-live/start")
-async def start_optimal_live():
+async def start_optimal_live(preflight_id: Optional[str] = None):
     """Start the virtual-only optimal preset with deep intent logging."""
     try:
-        result = await overnight_pilot_manager.start(overnight_pilot_manager.optimal_live_configs())
+        result = await overnight_pilot_manager.start(overnight_pilot_manager.optimal_live_configs(), preflight_id=preflight_id)
         await overnight_pilot_manager.persist()
         return result
     except Exception as exc:

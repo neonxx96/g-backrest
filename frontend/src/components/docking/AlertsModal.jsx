@@ -4,7 +4,7 @@
  * execution frequency, and expiration controls with deep monochrome UI.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Bell,
   X,
@@ -20,6 +20,7 @@ import {
   ChevronDown
 } from 'lucide-react';
 import { useAlertsStore } from '../../stores/alertsStore';
+import { resolveAlertPriceInput } from '../../services/marketTruth.js';
 
 const CONDITIONS = [
   'Crosses above',
@@ -45,7 +46,7 @@ const EXPIRATIONS = [
   '30 days'
 ];
 
-export default function AlertsModal({ currentSymbol = 'BTCUSDT', currentPrice = 81300 }) {
+export default function AlertsModal({ currentSymbol = 'BTCUSDT', currentPrice = null }) {
   const isOpen = useAlertsStore((s) => s.isAlertsModalOpen);
   const closeAlertsModal = useAlertsStore((s) => s.closeAlertsModal);
   const prefill = useAlertsStore((s) => s.modalPrefill);
@@ -54,13 +55,15 @@ export default function AlertsModal({ currentSymbol = 'BTCUSDT', currentPrice = 
   const removeAlert = useAlertsStore((s) => s.removeAlert);
   const toggleAlert = useAlertsStore((s) => s.toggleAlert);
   const testAlert = useAlertsStore((s) => s.testAlert);
+  const currentPriceRef = useRef(currentPrice);
+  currentPriceRef.current = currentPrice;
 
   const [activeTab, setActiveTab] = useState('create'); // 'create' | 'list'
 
   // Form State
   const [symbol, setSymbol] = useState(currentSymbol);
   const [condition, setCondition] = useState('Crosses above');
-  const [price, setPrice] = useState(currentPrice ? String(currentPrice) : '81300');
+  const [price, setPrice] = useState(currentPrice ? String(currentPrice) : '');
   const [alertName, setAlertName] = useState('');
   const [selectedChannels, setSelectedChannels] = useState(['in_app']);
   const [triggerType, setTriggerType] = useState('once'); // 'once' | 'repeat'
@@ -73,14 +76,14 @@ export default function AlertsModal({ currentSymbol = 'BTCUSDT', currentPrice = 
   useEffect(() => {
     if (isOpen) {
       const sym = prefill?.symbol || currentSymbol || 'BTCUSDT';
-      const p = prefill?.price != null ? String(prefill.price) : currentPrice ? String(currentPrice) : '81300';
+      const p = resolveAlertPriceInput(prefill?.price, currentPriceRef.current);
       setSymbol(sym);
       setPrice(p);
-      setAlertName(prefill?.name || `${sym} ${condition} $${p}`);
+      setAlertName(prefill?.name || `${sym} ${condition}${p ? ` $${p}` : ''}`);
       setErrorMsg('');
       setTestSent(false);
     }
-  }, [isOpen, prefill, currentSymbol, currentPrice]);
+  }, [isOpen, prefill, currentSymbol]);
 
   if (!isOpen) return null;
 
@@ -94,11 +97,16 @@ export default function AlertsModal({ currentSymbol = 'BTCUSDT', currentPrice = 
   };
 
   const handleSendTest = () => {
+    const numPrice = Number(price);
+    if (!Number.isFinite(numPrice) || numPrice <= 0) {
+      setErrorMsg('Введите реальную цену уровня перед тестированием алерта');
+      return;
+    }
     setTestSent(true);
     testAlert({
       symbol,
       condition,
-      price: Number(price) || currentPrice,
+      price: numPrice,
       name: alertName || `${symbol} Test Alert`,
       channels: selectedChannels
     });

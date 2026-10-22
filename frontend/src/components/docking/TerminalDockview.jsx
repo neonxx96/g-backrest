@@ -14,6 +14,13 @@ import WidgetHubModal from './WidgetHubModal';
 import TradeHistoryWidget from './TradeHistoryWidget';
 import { FootprintPlaceholderWidget, CvdPlaceholderWidget } from './Placeholders';
 import { sanitizeDockviewLayout } from './layoutSanitizer';
+import {
+  readCachedDockviewLayout,
+  resolveDockviewLayout,
+  readChartPanelTimeframe,
+  persistChartPanelTimeframe,
+} from './layoutRecovery.js';
+import { getUsableMarketPrice } from '../../services/marketTruth.js';
 import ChannelSelector from './ChannelSelector';
 import PresetBar from './PresetBar';
 import { Radio, SlidersHorizontal, Sparkles, Zap, Loader2, Eye, EyeOff } from 'lucide-react';
@@ -30,7 +37,11 @@ import QuantDecisionConsilium from '../design-previews/QuantDecisionConsilium';
 function ChartDockPanel(props) {
   const panelId = props.api.id;
   const currentSymbol = useColorLinksStore((s) => s.getPanelSymbol(panelId, 'BTCUSDT'));
-  const [timeframe, setTimeframe] = React.useState('15m');
+  const [timeframe, setTimeframe] = React.useState(() => readChartPanelTimeframe(props.api.id));
+  const selectTimeframe = (nextTimeframe) => {
+    setTimeframe(nextTimeframe);
+    persistChartPanelTimeframe(panelId, nextTimeframe);
+  };
 
   const {
     uiConfig,
@@ -80,7 +91,7 @@ function ChartDockPanel(props) {
     return () => observer.disconnect();
   }, []);
 
-  const currentPrice = unifiedData?.snapshot?.price || 82000;
+  const currentPrice = getUsableMarketPrice(unifiedData?.snapshot?.price);
 
   const handleQuickBt = async () => {
     try {
@@ -101,7 +112,8 @@ function ChartDockPanel(props) {
               <button
                 key={tf}
                 type="button"
-                onClick={() => setTimeframe(tf)}
+                data-testid={`chart-timeframe-${panelId}-${tf}`}
+                onClick={() => selectTimeframe(tf)}
                 className={`px-1 rounded text-[9.5px] transition cursor-pointer ${
                   timeframe === tf ? 'bg-[#2563eb] text-white font-bold' : 'text-[#787f91] hover:text-white'
                 }`}
@@ -188,7 +200,7 @@ function ChartDockPanel(props) {
           uiConfig={uiConfig}
           onOpenIndicators={onOpenIndicators}
         />
-        {showLiqLayers && dimensions.width > 0 && dimensions.height > 0 && (
+        {showLiqLayers && currentPrice != null && dimensions.width > 0 && dimensions.height > 0 && (
           <ChartCanvasOverlay
             width={dimensions.width}
             height={dimensions.height}
@@ -227,7 +239,7 @@ function LiqAnalyticsDockPanel(props) {
     fetchMarketData(currentSymbol);
   }, [currentSymbol, fetchMarketData]);
 
-  const currentPrice = unifiedData?.snapshot?.price || 82000;
+  const currentPrice = getUsableMarketPrice(unifiedData?.snapshot?.price);
 
   return (
     <div className="h-full w-full flex flex-col overflow-hidden bg-[#0c0e12]">
@@ -524,18 +536,17 @@ export default function TerminalDockview({
   // Hydrate layout into Dockview API
   const hydrateLayout = useCallback(
     (api, workspaceDetail) => {
-      if (!api || !workspaceDetail) return;
+      if (!api) return;
 
       useLayoutStore.setState({ isLayoutLoaded: false });
 
-      const layoutData = workspaceDetail.layout_data || {};
-      const dockviewJson = layoutData.dockview;
+      const { layout: dockviewJson } = resolveDockviewLayout(workspaceDetail, readCachedDockviewLayout());
 
-      if (workspaceDetail.color_links) {
+      if (workspaceDetail?.color_links) {
         importColorLinks(workspaceDetail.color_links);
       }
 
-      if (dockviewJson && typeof dockviewJson === 'object' && dockviewJson.grid) {
+      if (dockviewJson) {
         try {
           api.clear();
           const sanitizedLayout = sanitizeDockviewLayout(dockviewJson);
@@ -561,7 +572,7 @@ export default function TerminalDockview({
           buildDefaultLayout(api, workspaceDetail.id);
         }
       } else {
-        buildDefaultLayout(api, workspaceDetail.id);
+        buildDefaultLayout(api, workspaceDetail?.id || useLayoutStore.getState().activePresetId);
       }
 
       // Mark layout as ready so future user drag/resize events trigger autosave safely

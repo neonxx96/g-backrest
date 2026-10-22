@@ -7,7 +7,7 @@ import { AlertTriangle, TrendingUp, TrendingDown, Layers, ShieldCheck, RefreshCw
  */
 export default function LiqAnalyticsPanel({
   symbol = 'BTCUSDT',
-  currentPrice = 82000,
+  currentPrice = null,
   liqData = null,
   depthData = null,
   isLoading = false,

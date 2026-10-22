@@ -59,6 +59,8 @@ import LayerToolbar from './components/design-previews/LayerToolbar';
 import LiqAnalyticsPanel from './components/design-previews/LiqAnalyticsPanel';
 import QuantDecisionConsilium from './components/design-previews/QuantDecisionConsilium';
 import { useQuantStore } from './stores/quantStore';
+import { getUsableMarketPrice } from './services/marketTruth.js';
+import { deriveBacktestStrategyLevels } from './services/backtestStrategyLevels.js';
 
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1D'];
 const POPULAR_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'DOGEUSDT', 'XRPUSDT', 'BNBUSDT', 'SUIUSDT', 'NEARUSDT'];
@@ -227,7 +229,7 @@ export default function App() {
   }, [timeframe]);
   const [btResult, setBtResult] = useState(null);
   const [showBtSignals, setShowBtSignals] = useState(true);
-  const [activeStrategyProfile, setActiveStrategyProfile] = useState('density_bounce');
+  const [, setActiveStrategyProfile] = useState('density_bounce');
   const [strategyLevels, setStrategyLevels] = useState([]);
   const [activePositionSetup, setActivePositionSetup] = useState(null);
   const [toasts, setToasts] = useState([]);
@@ -350,84 +352,18 @@ export default function App() {
       handleProjectPositionSetup(btResult.active_position_setup);
       return;
     }
-    const levels = [];
-    if (btResult?.signals && btResult.signals.length > 0) {
-      const seen = new Set();
-      const recent = [...btResult.signals].reverse();
-      for (const s of recent) {
-        const p = Number(s.price);
-        if (!p || seen.has(p)) continue;
-        seen.add(p);
-        const isBuy = s.type === 'BUY';
-        levels.push({
-          price: p,
-          type: s.type,
-          label: isBuy ? `BUY ZONE: Wall ${s.reason || '$1.2M'}` : `SHORT: ${s.reason || 'Delta Div'}`,
-          reason: s.reason
-        });
-        if (levels.length >= 3) break;
-      }
-    } else {
-      // Default active profile projection around current price
-      const baseP = symbol.includes('BTC') ? 81450.0 : symbol.includes('ETH') ? 2600.0 : 160.0;
-      if (activeStrategyProfile === 'density_bounce') {
-        levels.push({
-          price: Number((baseP * 0.9985).toFixed(1)),
-          type: 'BUY',
-          role: 'ENTRY',
-          label: `[BUY LIMIT @ ${Number((baseP * 0.9985).toFixed(1))}]`,
-          reason: 'Density Bounce'
-        });
-        levels.push({
-          price: Number((baseP * 0.9957).toFixed(1)),
-          type: 'SELL',
-          role: 'SL',
-          label: `[SL @ ${Number((baseP * 0.9957).toFixed(1))} (-0.28% | -$50)]`,
-          reason: 'Stop-Loss'
-        });
-        levels.push({
-          price: Number((baseP * 1.0028).toFixed(1)),
-          type: 'SELL',
-          role: 'TP1',
-          label: `[TP1 @ ${Number((baseP * 1.0028).toFixed(1))} (+0.43%)]`,
-          reason: 'TP1'
-        });
-        levels.push({
-          price: Number((baseP * 1.0077).toFixed(1)),
-          type: 'SELL',
-          role: 'TP2',
-          label: `[TP2 @ ${Number((baseP * 1.0077).toFixed(1))} (+0.92%)]`,
-          reason: 'TP2'
-        });
-      } else {
-        levels.push({
-          price: Number((baseP * 0.999).toFixed(1)),
-          type: 'BUY',
-          role: 'ENTRY',
-          label: `[BUY LIMIT @ ${Number((baseP * 0.999).toFixed(1))}]`,
-          reason: 'Delta Absorption'
-        });
-        levels.push({
-          price: Number((baseP * 1.0018).toFixed(1)),
-          type: 'SELL',
-          role: 'TP1',
-          label: `[TP1 @ ${Number((baseP * 1.0018).toFixed(1))} (+0.43%)]`,
-          reason: 'Delta Divergence'
-        });
-      }
-    }
-    setStrategyLevels(levels);
-  }, [btResult, activeStrategyProfile, symbol, handleProjectPositionSetup]);
+    setStrategyLevels(deriveBacktestStrategyLevels(btResult));
+  }, [btResult, handleProjectPositionSetup]);
 
   const handleApplyStrategy = useCallback((params) => {
     if (params.strategy) setActiveStrategyProfile(params.strategy);
     pushToast({
       symbol,
       direction: 'ALERT',
-      price: symbol.includes('BTC') ? 81450 : 2600,
+      price: getUsableMarketPrice(unifiedData?.snapshot?.price),
       description: `Применены параметры: SL ${params.sl}%, TP ${params.tp}%, Стенка $${params.minWallK}k`
     });
-  }, [symbol, pushToast]);
+  }, [symbol, unifiedData?.snapshot?.price, pushToast]);
 
   // Persistent Docking Layout v1 (saved in localStorage: terminal_layout_v1)
   const initialLayout = useRef(loadTerminalLayout());
@@ -1372,7 +1308,7 @@ export default function App() {
               <div className="rounded border border-[#1b2130] overflow-hidden flex-1 min-h-[380px]">
                 <LiqAnalyticsPanel
                   symbol={symbol}
-                  currentPrice={unifiedData?.snapshot?.price || 82000}
+                  currentPrice={getUsableMarketPrice(unifiedData?.snapshot?.price)}
                   liqData={unifiedData?.liq_estimates}
                   depthData={unifiedData?.orderbook_depth}
                   isLoading={loadingQuant}
@@ -1413,7 +1349,7 @@ export default function App() {
                   <span className="font-bold text-white text-[11px]">#{t.symbol}</span>
                 </div>
                 <div className="flex items-center space-x-1.5">
-                  <span className="text-[11px] font-bold text-white">${t.price}</span>
+                  {getUsableMarketPrice(t.price) != null && <span className="text-[11px] font-bold text-white">${getUsableMarketPrice(t.price)}</span>}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -1545,7 +1481,7 @@ export default function App() {
           pushToast({
             symbol,
             direction: 'ALERT',
-            price: levels[0]?.price || 81450,
+            price: getUsableMarketPrice(levels[0]?.price),
             description: `Нанесено ${levels.length} уровней AI Ассистента на график и в стакан`
           });
         }}
@@ -1580,7 +1516,7 @@ export default function App() {
       />
 
       {/* Institutional Price Alerts Modal (Velo / Bookmap Style) */}
-      <AlertsModal currentSymbol={symbol} currentPrice={81300} />
+      <AlertsModal currentSymbol={symbol} currentPrice={getUsableMarketPrice(unifiedData?.snapshot?.price)} />
     </div>
   );
 }

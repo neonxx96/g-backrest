@@ -1,0 +1,1465 @@
+{
+ "py": {
+  "backend\\main.py": {
+   "lines": 152,
+   "deps": [
+    "backend\\app\\api\\data_routes.py",
+    "backend\\app\\api\\routes.py",
+    "backend\\app\\config.py",
+    "backend\\app\\db\\database.py",
+    "backend\\app\\engine\\background_worker.py",
+    "backend\\app\\logging_setup.py",
+    "backend\\app\\routers\\adaptive_router.py",
+    "backend\\app\\routers\\ai_copilot.py",
+    "backend\\app\\routers\\ai_settings.py",
+    "backend\\app\\routers\\backtest.py",
+    "backend\\app\\routers\\journal.py",
+    "backend\\app\\routers\\monitoring.py",
+    "backend\\app\\routers\\overnight_pilot.py",
+    "backend\\app\\routers\\paper_trading_router.py",
+    "backend\\app\\routers\\quant_router.py",
+    "backend\\app\\routers\\workspaces.py",
+    "backend\\app\\services\\binance_service.py",
+    "backend\\app\\services\\bot.py",
+    "backend\\app\\services\\overnight_pilot.py",
+    "backend\\app\\services\\recorder.py",
+    "backend\\app\\services\\runtime_binding.py",
+    "backend\\app\\services\\scanner.py"
+   ]
+  },
+  "backend\\__init__.py": {
+   "lines": 1,
+   "deps": []
+  },
+  "backend\\app\\config.py": {
+   "lines": 59,
+   "deps": []
+  },
+  "backend\\app\\logging_setup.py": {
+   "lines": 96,
+   "deps": []
+  },
+  "backend\\app\\utils.py": {
+   "lines": 36,
+   "deps": []
+  },
+  "backend\\app\\__init__.py": {
+   "lines": 1,
+   "deps": []
+  },
+  "backend\\app\\adapters\\exchange\\base.py": {
+   "lines": 53,
+   "deps": []
+  },
+  "backend\\app\\adapters\\exchange\\binance.py": {
+   "lines": 252,
+   "deps": [
+    "backend\\app\\adapters\\exchange\\base.py",
+    "backend\\app\\config.py"
+   ]
+  },
+  "backend\\app\\adapters\\exchange\\bybit.py": {
+   "lines": 164,
+   "deps": [
+    "backend\\app\\adapters\\exchange\\base.py"
+   ]
+  },
+  "backend\\app\\adapters\\exchange\\__init__.py": {
+   "lines": 11,
+   "deps": [
+    "backend\\app\\adapters\\exchange\\base.py",
+    "backend\\app\\adapters\\exchange\\binance.py",
+    "backend\\app\\adapters\\exchange\\bybit.py"
+   ]
+  },
+  "backend\\app\\api\\data_routes.py": {
+   "lines": 86,
+   "deps": [
+    "backend\\app\\services\\binance_service.py",
+    "backend\\app\\services\\orderflow_backtester.py",
+    "backend\\app\\services\\recorder.py"
+   ]
+  },
+  "backend\\app\\api\\routes.py": {
+   "lines": 334,
+   "deps": [
+    "backend\\app\\db\\database.py",
+    "backend\\app\\db\\models.py",
+    "backend\\app\\services\\binance_service.py",
+    "backend\\app\\services\\bot.py",
+    "backend\\app\\services\\drawing_persistence.py",
+    "backend\\app\\services\\indicators\\registry.py",
+    "backend\\app\\services\\recorder.py",
+    "backend\\app\\services\\scanner.py",
+    "backend\\app\\utils.py"
+   ]
+  },
+  "backend\\app\\api\\__init__.py": {
+   "lines": 1,
+   "deps": []
+  },
+  "backend\\app\\db\\database.py": {
+   "lines": 70,
+   "deps": [
+    "backend\\app\\config.py",
+    "backend\\app\\db\\models.py"
+   ]
+  },
+  "backend\\app\\db\\models.py": {
+   "lines": 196,
+   "deps": []
+  },
+  "backend\\app\\db\\__init__.py": {
+   "lines": 1,
+   "deps": []
+  },
+  "backend\\app\\engine\\background_worker.py": {
+   "lines": 675,
+   "deps": [
+    "backend\\app\\engine\\regime_classifier.py",
+    "backend\\app\\engine\\trade_contract.py",
+    "backend\\app\\engine\\walk_forward_engine.py",
+    "backend\\app\\services\\historical_data_loader.py",
+    "backend\\app\\services\\orderflow_backtester.py",
+    "backend\\app\\services\\paper_trading.py"
+   ]
+  },
+  "backend\\app\\engine\\indicators.py": {
+   "lines": 235,
+   "deps": []
+  },
+  "backend\\app\\engine\\optimizer.py": {
+   "lines": 380,
+   "deps": [
+    "backend\\app\\engine\\indicators.py"
+   ]
+  },
+  "backend\\app\\engine\\regime_classifier.py": {
+   "lines": 225,
+   "deps": []
+  },
+  "backend\\app\\engine\\trade_contract.py": {
+   "lines": 322,
+   "deps": []
+  },
+  "backend\\app\\engine\\walk_forward_engine.py": {
+   "lines": 392,
+   "deps": [
+    "backend\\app\\engine\\regime_classifier.py",
+    "backend\\app\\services\\historical_data_loader.py",
+    "backend\\app\\services\\orderflow_backtester.py"
+   ]
+  },
+  "backend\\app\\engine\\__init__.py": {
+   "lines": 42,
+   "deps": [
+    "backend\\app\\engine\\indicators.py",
+    "backend\\app\\engine\\trade_contract.py"
+   ]
+  },
+  "backend\\app\\routers\\adaptive_router.py": {
+   "lines": 120,
+   "deps": [
+    "backend\\app\\engine\\regime_classifier.py",
+    "backend\\app\\engine\\walk_forward_engine.py",
+    "backend\\app\\services\\historical_data_loader.py"
+   ]
+  },
+  "backend\\app\\routers\\ai_copilot.py": {
+   "lines": 1508,
+   "deps": [
+    "backend\\app\\config.py",
+    "backend\\app\\db\\database.py",
+    "backend\\app\\db\\models.py",
+    "backend\\app\\engine\\regime_classifier.py",
+    "backend\\app\\engine\\trade_contract.py",
+    "backend\\app\\routers\\backtest.py",
+    "backend\\app\\services\\ai_service.py",
+    "backend\\app\\services\\binance_service.py",
+    "backend\\app\\services\\orderflow_backtester.py"
+   ]
+  },
+  "backend\\app\\routers\\ai_settings.py": {
+   "lines": 57,
+   "deps": [
+    "backend\\app\\services\\openrouter_client.py",
+    "backend\\app\\services\\openrouter_service.py"
+   ]
+  },
+  "backend\\app\\routers\\backtest.py": {
+   "lines": 946,
+   "deps": [
+    "backend\\app\\adapters\\exchange\\binance.py",
+    "backend\\app\\engine\\indicators.py",
+    "backend\\app\\services\\binance_service.py",
+    "backend\\app\\services\\historical_data_loader.py",
+    "backend\\app\\services\\orderflow_backtester.py"
+   ]
+  },
+  "backend\\app\\routers\\drawings.py": {
+   "lines": 91,
+   "deps": [
+    "backend\\app\\db\\database.py",
+    "backend\\app\\db\\models.py",
+    "backend\\app\\services\\drawing_persistence.py"
+   ]
+  },
+  "backend\\app\\routers\\journal.py": {
+   "lines": 686,
+   "deps": [
+    "backend\\app\\config.py",
+    "backend\\app\\db\\database.py",
+    "backend\\app\\db\\models.py",
+    "backend\\app\\services\\ai_service.py",
+    "backend\\app\\services\\binance_service.py",
+    "backend\\app\\services\\indicators\\__init__.py",
+    "backend\\app\\services\\orderflow_backtester.py"
+   ]
+  },
+  "backend\\app\\routers\\monitoring.py": {
+   "lines": 113,
+   "deps": [
+    "backend\\app\\engine\\background_worker.py",
+    "backend\\app\\services\\paper_trading.py"
+   ]
+  },
+  "backend\\app\\routers\\overnight_pilot.py": {
+   "lines": 187,
+   "deps": [
+    "backend\\app\\services\\deep_intent_logger.py",
+    "backend\\app\\services\\overnight_pilot.py"
+   ]
+  },
+  "backend\\app\\routers\\paper_trading_router.py": {
+   "lines": 207,
+   "deps": [
+    "backend\\app\\engine\\trade_contract.py",
+    "backend\\app\\services\\live_paper_runner.py",
+    "backend\\app\\services\\openrouter_client.py",
+    "backend\\app\\services\\paper_trading.py"
+   ]
+  },
+  "backend\\app\\routers\\quant_router.py": {
+   "lines": 172,
+   "deps": [
+    "backend\\app\\routers\\backtest.py",
+    "backend\\app\\services\\design_contracts.py",
+    "backend\\app\\services\\market_data_factory.py",
+    "backend\\app\\services\\market_data_provider.py",
+    "backend\\app\\services\\quant_engine.py",
+    "backend\\app\\services\\think_optimizer.py"
+   ]
+  },
+  "backend\\app\\routers\\workspaces.py": {
+   "lines": 268,
+   "deps": [
+    "backend\\app\\db\\database.py",
+    "backend\\app\\db\\models.py"
+   ]
+  },
+  "backend\\app\\routers\\__init__.py": {
+   "lines": 2,
+   "deps": []
+  },
+  "backend\\app\\services\\ai_service.py": {
+   "lines": 187,
+   "deps": [
+    "backend\\app\\config.py"
+   ]
+  },
+  "backend\\app\\services\\binance_service.py": {
+   "lines": 167,
+   "deps": [
+    "backend\\app\\adapters\\exchange\\__init__.py",
+    "backend\\app\\config.py",
+    "backend\\app\\db\\database.py",
+    "backend\\app\\db\\models.py"
+   ]
+  },
+  "backend\\app\\services\\bot.py": {
+   "lines": 187,
+   "deps": [
+    "backend\\app\\config.py",
+    "backend\\app\\db\\database.py",
+    "backend\\app\\db\\models.py",
+    "backend\\app\\utils.py"
+   ]
+  },
+  "backend\\app\\services\\cluster_engine.py": {
+   "lines": 135,
+   "deps": []
+  },
+  "backend\\app\\services\\coingecko.py": {
+   "lines": 74,
+   "deps": []
+  },
+  "backend\\app\\services\\deep_history.py": {
+   "lines": 527,
+   "deps": []
+  },
+  "backend\\app\\services\\deep_intent_logger.py": {
+   "lines": 179,
+   "deps": [
+    "backend\\app\\config.py"
+   ]
+  },
+  "backend\\app\\services\\design_contracts.py": {
+   "lines": 70,
+   "deps": [
+    "backend\\app\\services\\market_data_provider.py"
+   ]
+  },
+  "backend\\app\\services\\drawing_persistence.py": {
+   "lines": 22,
+   "deps": []
+  },
+  "backend\\app\\services\\early_exit_engine.py": {
+   "lines": 238,
+   "deps": []
+  },
+  "backend\\app\\services\\execution_simulator.py": {
+   "lines": 384,
+   "deps": []
+  },
+  "backend\\app\\services\\free_binance_collector.py": {
+   "lines": 417,
+   "deps": [
+    "backend\\app\\services\\market_data_provider.py"
+   ]
+  },
+  "backend\\app\\services\\historical_data_loader.py": {
+   "lines": 485,
+   "deps": []
+  },
+  "backend\\app\\services\\live_paper_runner.py": {
+   "lines": 1212,
+   "deps": [
+    "backend\\app\\engine\\trade_contract.py",
+    "backend\\app\\routers\\backtest.py",
+    "backend\\app\\services\\deep_intent_logger.py",
+    "backend\\app\\services\\market_data_factory.py",
+    "backend\\app\\services\\openrouter_client.py",
+    "backend\\app\\services\\orderflow_backtester.py",
+    "backend\\app\\services\\paper_trading.py",
+    "backend\\app\\services\\quant_engine.py"
+   ]
+  },
+  "backend\\app\\services\\market_data_factory.py": {
+   "lines": 69,
+   "deps": [
+    "backend\\app\\services\\free_binance_collector.py",
+    "backend\\app\\services\\market_data_provider.py"
+   ]
+  },
+  "backend\\app\\services\\market_data_provider.py": {
+   "lines": 117,
+   "deps": []
+  },
+  "backend\\app\\services\\openrouter_client.py": {
+   "lines": 717,
+   "deps": [
+    "backend\\app\\config.py"
+   ]
+  },
+  "backend\\app\\services\\openrouter_service.py": {
+   "lines": 129,
+   "deps": [
+    "backend\\app\\config.py"
+   ]
+  },
+  "backend\\app\\services\\orderflow_backtester.py": {
+   "lines": 2144,
+   "deps": []
+  },
+  "backend\\app\\services\\overnight_pilot.py": {
+   "lines": 926,
+   "deps": [
+    "backend\\app\\db\\database.py",
+    "backend\\app\\db\\models.py",
+    "backend\\app\\routers\\ai_copilot.py",
+    "backend\\app\\routers\\backtest.py",
+    "backend\\app\\services\\deep_intent_logger.py",
+    "backend\\app\\services\\live_paper_runner.py",
+    "backend\\app\\services\\paper_trading.py"
+   ]
+  },
+  "backend\\app\\services\\paper_trading.py": {
+   "lines": 1090,
+   "deps": [
+    "backend\\app\\engine\\trade_contract.py",
+    "backend\\app\\services\\early_exit_engine.py",
+    "backend\\app\\services\\execution_simulator.py"
+   ]
+  },
+  "backend\\app\\services\\quant_engine.py": {
+   "lines": 296,
+   "deps": [
+    "backend\\app\\services\\market_data_factory.py",
+    "backend\\app\\services\\market_data_provider.py"
+   ]
+  },
+  "backend\\app\\services\\recorder.py": {
+   "lines": 473,
+   "deps": [
+    "backend\\app\\config.py"
+   ]
+  },
+  "backend\\app\\services\\runtime_binding.py": {
+   "lines": 62,
+   "deps": []
+  },
+  "backend\\app\\services\\scanner.py": {
+   "lines": 315,
+   "deps": [
+    "backend\\app\\db\\database.py",
+    "backend\\app\\db\\models.py",
+    "backend\\app\\services\\binance_service.py",
+    "backend\\app\\services\\bot.py",
+    "backend\\app\\services\\coingecko.py",
+    "backend\\app\\services\\indicators\\__init__.py"
+   ]
+  },
+  "backend\\app\\services\\think_optimizer.py": {
+   "lines": 28,
+   "deps": []
+  },
+  "backend\\app\\services\\__init__.py": {
+   "lines": 1,
+   "deps": []
+  },
+  "backend\\app\\services\\execution\\base.py": {
+   "lines": 37,
+   "deps": []
+  },
+  "backend\\app\\services\\execution\\exchange.py": {
+   "lines": 17,
+   "deps": [
+    "backend\\app\\services\\execution\\base.py"
+   ]
+  },
+  "backend\\app\\services\\execution\\paper.py": {
+   "lines": 75,
+   "deps": [
+    "backend\\app\\services\\execution\\base.py",
+    "backend\\app\\services\\paper_trading.py"
+   ]
+  },
+  "backend\\app\\services\\execution\\__init__.py": {
+   "lines": 8,
+   "deps": [
+    "backend\\app\\services\\execution\\base.py",
+    "backend\\app\\services\\execution\\exchange.py",
+    "backend\\app\\services\\execution\\paper.py"
+   ]
+  },
+  "backend\\app\\services\\indicators\\base.py": {
+   "lines": 69,
+   "deps": []
+  },
+  "backend\\app\\services\\indicators\\normalization.py": {
+   "lines": 62,
+   "deps": []
+  },
+  "backend\\app\\services\\indicators\\registry.py": {
+   "lines": 82,
+   "deps": [
+    "backend\\app\\services\\indicators\\base.py"
+   ]
+  },
+  "backend\\app\\services\\indicators\\__init__.py": {
+   "lines": 64,
+   "deps": [
+    "backend\\app\\services\\indicators\\base.py",
+    "backend\\app\\services\\indicators\\normalization.py",
+    "backend\\app\\services\\indicators\\registry.py"
+   ]
+  },
+  "backend\\app\\services\\indicators\\plugins\\atr.py": {
+   "lines": 74,
+   "deps": [
+    "backend\\app\\services\\indicators\\base.py"
+   ]
+  },
+  "backend\\app\\services\\indicators\\plugins\\cvd.py": {
+   "lines": 69,
+   "deps": [
+    "backend\\app\\services\\indicators\\base.py"
+   ]
+  },
+  "backend\\app\\services\\indicators\\plugins\\ema.py": {
+   "lines": 74,
+   "deps": [
+    "backend\\app\\services\\indicators\\base.py"
+   ]
+  },
+  "backend\\app\\services\\indicators\\plugins\\rsi.py": {
+   "lines": 95,
+   "deps": [
+    "backend\\app\\services\\indicators\\base.py"
+   ]
+  },
+  "backend\\app\\services\\indicators\\plugins\\volume_spike.py": {
+   "lines": 71,
+   "deps": [
+    "backend\\app\\services\\indicators\\base.py"
+   ]
+  },
+  "backend\\app\\services\\indicators\\plugins\\vwap.py": {
+   "lines": 106,
+   "deps": [
+    "backend\\app\\services\\indicators\\base.py"
+   ]
+  },
+  "backend\\tests\\conftest.py": {
+   "lines": 17,
+   "deps": []
+  },
+  "backend\\tests\\test_ai_settings.py": {
+   "lines": 37,
+   "deps": [
+    "backend\\app\\services\\openrouter_service.py"
+   ]
+  },
+  "backend\\tests\\test_backtest_golden_scenarios.py": {
+   "lines": 551,
+   "deps": [
+    "backend\\app\\services\\orderflow_backtester.py"
+   ]
+  },
+  "backend\\tests\\test_backtest_report_contract.py": {
+   "lines": 63,
+   "deps": [
+    "backend\\app\\routers\\backtest.py"
+   ]
+  },
+  "backend\\tests\\test_cluster_engine.py": {
+   "lines": 36,
+   "deps": [
+    "backend\\app\\services\\cluster_engine.py"
+   ]
+  },
+  "backend\\tests\\test_deep_history.py": {
+   "lines": 67,
+   "deps": [
+    "backend\\app\\services\\deep_history.py"
+   ]
+  },
+  "backend\\tests\\test_deep_intent_logging.py": {
+   "lines": 426,
+   "deps": [
+    "backend\\app\\services\\deep_intent_logger.py",
+    "backend\\app\\services\\execution\\__init__.py",
+    "backend\\app\\services\\live_paper_runner.py",
+    "backend\\app\\services\\overnight_pilot.py",
+    "backend\\app\\services\\paper_trading.py"
+   ]
+  },
+  "backend\\tests\\test_design_overlay_contract.py": {
+   "lines": 37,
+   "deps": [
+    "backend\\app\\services\\design_contracts.py",
+    "backend\\app\\services\\market_data_provider.py"
+   ]
+  },
+  "backend\\tests\\test_dockview_layout_sanitizer_contract.py": {
+   "lines": 25,
+   "deps": []
+  },
+  "backend\\tests\\test_execution_providers.py": {
+   "lines": 33,
+   "deps": [
+    "backend\\app\\services\\execution\\__init__.py",
+    "backend\\app\\services\\paper_trading.py"
+   ]
+  },
+  "backend\\tests\\test_execution_risk_hardening.py": {
+   "lines": 296,
+   "deps": [
+    "backend\\app\\services\\execution_simulator.py",
+    "backend\\app\\services\\live_paper_runner.py",
+    "backend\\app\\services\\paper_trading.py"
+   ]
+  },
+  "backend\\tests\\test_genetic_optimizer_oos.py": {
+   "lines": 136,
+   "deps": [
+    "backend\\app\\services\\orderflow_backtester.py"
+   ]
+  },
+  "backend\\tests\\test_golden_backtest.py": {
+   "lines": 134,
+   "deps": [
+    "backend\\app\\services\\orderflow_backtester.py"
+   ]
+  },
+  "backend\\tests\\test_historical_loader.py": {
+   "lines": 211,
+   "deps": [
+    "backend\\app\\engine\\optimizer.py",
+    "backend\\app\\services\\historical_data_loader.py"
+   ]
+  },
+  "backend\\tests\\test_indicators_and_filters.py": {
+   "lines": 99,
+   "deps": [
+    "backend\\app\\services\\indicators\\__init__.py",
+    "backend\\app\\services\\scanner.py"
+   ]
+  },
+  "backend\\tests\\test_live_paper_and_openrouter.py": {
+   "lines": 229,
+   "deps": [
+    "backend\\app\\services\\deep_intent_logger.py",
+    "backend\\app\\services\\live_paper_runner.py",
+    "backend\\app\\services\\openrouter_client.py",
+    "backend\\app\\services\\paper_trading.py"
+   ]
+  },
+  "backend\\tests\\test_market_data_truth_contract.py": {
+   "lines": 26,
+   "deps": []
+  },
+  "backend\\tests\\test_monitoring.py": {
+   "lines": 68,
+   "deps": [
+    "backend\\app\\engine\\background_worker.py",
+    "backend\\app\\routers\\monitoring.py"
+   ]
+  },
+  "backend\\tests\\test_openrouter_chain.py": {
+   "lines": 394,
+   "deps": [
+    "backend\\app\\services\\openrouter_client.py"
+   ]
+  },
+  "backend\\tests\\test_overnight_pilot.py": {
+   "lines": 659,
+   "deps": [
+    "backend\\app\\routers\\overnight_pilot.py",
+    "backend\\app\\services\\overnight_pilot.py"
+   ]
+  },
+  "backend\\tests\\test_overnight_pilot_ui_contract.py": {
+   "lines": 50,
+   "deps": []
+  },
+  "backend\\tests\\test_paper_feed_health.py": {
+   "lines": 81,
+   "deps": [
+    "backend\\app\\services\\deep_intent_logger.py",
+    "backend\\app\\services\\live_paper_runner.py",
+    "backend\\app\\services\\paper_trading.py"
+   ]
+  },
+  "backend\\tests\\test_paper_feed_recovery.py": {
+   "lines": 57,
+   "deps": [
+    "backend\\app\\services\\deep_intent_logger.py",
+    "backend\\app\\services\\live_paper_runner.py",
+    "backend\\app\\services\\paper_trading.py"
+   ]
+  },
+  "backend\\tests\\test_paper_kill_switch_and_forecast.py": {
+   "lines": 271,
+   "deps": [
+    "backend\\app\\routers\\ai_copilot.py",
+    "backend\\app\\services\\orderflow_backtester.py",
+    "backend\\app\\services\\paper_trading.py"
+   ]
+  },
+  "backend\\tests\\test_paper_telemetry_api.py": {
+   "lines": 77,
+   "deps": [
+    "backend\\app\\routers\\__init__.py",
+    "backend\\app\\services\\deep_intent_logger.py",
+    "backend\\app\\services\\overnight_pilot.py"
+   ]
+  },
+  "backend\\tests\\test_paper_trading.py": {
+   "lines": 420,
+   "deps": [
+    "backend\\app\\services\\paper_trading.py"
+   ]
+  },
+  "backend\\tests\\test_paper_trading_router.py": {
+   "lines": 56,
+   "deps": [
+    "backend\\app\\routers\\paper_trading_router.py",
+    "backend\\app\\services\\paper_trading.py"
+   ]
+  },
+  "backend\\tests\\test_quant_engine_and_router.py": {
+   "lines": 141,
+   "deps": [
+    "backend\\app\\services\\market_data_provider.py",
+    "backend\\app\\services\\quant_engine.py"
+   ]
+  },
+  "backend\\tests\\test_regime_classifier.py": {
+   "lines": 197,
+   "deps": [
+    "backend\\app\\engine\\regime_classifier.py",
+    "backend\\app\\engine\\walk_forward_engine.py",
+    "backend\\app\\services\\paper_trading.py"
+   ]
+  },
+  "backend\\tests\\test_runtime_binding.py": {
+   "lines": 39,
+   "deps": [
+    "backend\\app\\services\\runtime_binding.py"
+   ]
+  },
+  "backend\\tests\\test_standalone_recorder_s1.py": {
+   "lines": 159,
+   "deps": [
+    "recorder\\config.py",
+    "recorder\\events.py",
+    "recorder\\gaps.py",
+    "recorder\\service.py",
+    "recorder\\storage.py"
+   ]
+  },
+  "backend\\tests\\test_think_optimizer.py": {
+   "lines": 46,
+   "deps": [
+    "backend\\app\\routers\\quant_router.py",
+    "backend\\app\\services\\think_optimizer.py"
+   ]
+  },
+  "backend\\tests\\test_trade_contract.py": {
+   "lines": 266,
+   "deps": [
+    "backend\\app\\engine\\trade_contract.py",
+    "backend\\app\\services\\paper_trading.py"
+   ]
+  },
+  "backend\\tests\\test_ui_validation_contract.py": {
+   "lines": 177,
+   "deps": [
+    "backend\\app\\routers\\backtest.py",
+    "backend\\app\\services\\drawing_persistence.py",
+    "backend\\app\\services\\historical_data_loader.py"
+   ]
+  },
+  "backend\\tests\\test_walk_forward_optimizer.py": {
+   "lines": 145,
+   "deps": [
+    "backend\\app\\engine\\regime_classifier.py",
+    "backend\\app\\engine\\walk_forward_engine.py",
+    "backend\\app\\routers\\adaptive_router.py",
+    "backend\\app\\services\\paper_trading.py"
+   ]
+  },
+  "backend\\tests\\__init__.py": {
+   "lines": 1,
+   "deps": []
+  },
+  "recorder\\config.py": {
+   "lines": 38,
+   "deps": []
+  },
+  "recorder\\events.py": {
+   "lines": 67,
+   "deps": []
+  },
+  "recorder\\gaps.py": {
+   "lines": 28,
+   "deps": []
+  },
+  "recorder\\service.py": {
+   "lines": 155,
+   "deps": [
+    "recorder\\events.py",
+    "recorder\\gaps.py",
+    "recorder\\storage.py"
+   ]
+  },
+  "recorder\\storage.py": {
+   "lines": 92,
+   "deps": []
+  },
+  "recorder\\__init__.py": {
+   "lines": 2,
+   "deps": []
+  },
+  "recorder\\__main__.py": {
+   "lines": 36,
+   "deps": [
+    "recorder\\config.py",
+    "recorder\\service.py"
+   ]
+  },
+  "engine\\backtester.py": {
+   "lines": 233,
+   "deps": []
+  },
+  "engine\\crypto_lake_loader.py": {
+   "lines": 88,
+   "deps": []
+  },
+  "engine\\data_loader.py": {
+   "lines": 168,
+   "deps": []
+  },
+  "engine\\indicators.py": {
+   "lines": 80,
+   "deps": []
+  },
+  "engine\\optimizer.py": {
+   "lines": 44,
+   "deps": [
+    "engine\\backtester.py"
+   ]
+  },
+  "engine\\scanner.py": {
+   "lines": 97,
+   "deps": [
+    "engine\\data_loader.py",
+    "engine\\indicators.py",
+    "engine\\volume_profile.py",
+    "strategies\\cluster_breakout_strategy.py",
+    "strategies\\mtf_pullback.py"
+   ]
+  },
+  "engine\\strategy_base.py": {
+   "lines": 71,
+   "deps": []
+  },
+  "engine\\volume_profile.py": {
+   "lines": 113,
+   "deps": []
+  },
+  "strategies\\cluster_breakout_strategy.py": {
+   "lines": 73,
+   "deps": [
+    "engine\\strategy_base.py",
+    "engine\\volume_profile.py"
+   ]
+  },
+  "strategies\\mtf_pullback.py": {
+   "lines": 94,
+   "deps": [
+    "engine\\strategy_base.py"
+   ]
+  },
+  "analyzer.py": {
+   "lines": 338,
+   "deps": []
+  },
+  "backtest_cli.py": {
+   "lines": 152,
+   "deps": [
+    "engine\\backtester.py",
+    "engine\\data_loader.py",
+    "engine\\indicators.py",
+    "engine\\optimizer.py",
+    "strategies\\cluster_breakout_strategy.py",
+    "strategies\\mtf_pullback.py"
+   ]
+  },
+  "scanner_cli.py": {
+   "lines": 88,
+   "deps": [
+    "engine\\scanner.py"
+   ]
+  },
+  "test_e2e.py": {
+   "lines": 217,
+   "deps": []
+  },
+  "test_scanner_cli.py": {
+   "lines": 66,
+   "deps": [
+    "backend\\app\\db\\database.py",
+    "backend\\app\\services\\binance_service.py",
+    "backend\\app\\services\\scanner.py"
+   ]
+  },
+  "verify_features.py": {
+   "lines": 167,
+   "deps": []
+  }
+ },
+ "js": {
+  "frontend\\src\\App.jsx": {
+   "lines": 1523,
+   "deps": [
+    "frontend\\src\\components\\AICopilotSidebar.jsx",
+    "frontend\\src\\components\\BacktestPanel.jsx",
+    "frontend\\src\\components\\Chart.jsx",
+    "frontend\\src\\components\\DecisionJournalModal.jsx",
+    "frontend\\src\\components\\OrderBookDOM.jsx",
+    "frontend\\src\\components\\ScalperTradeDesk.jsx",
+    "frontend\\src\\components\\SignalsFeed.jsx",
+    "frontend\\src\\components\\Tape.jsx",
+    "frontend\\src\\components\\design-previews\\LayerToolbar.jsx",
+    "frontend\\src\\components\\design-previews\\LiqAnalyticsPanel.jsx",
+    "frontend\\src\\components\\design-previews\\QuantDecisionConsilium.jsx",
+    "frontend\\src\\components\\docking\\AlertsModal.jsx",
+    "frontend\\src\\components\\docking\\TerminalDockview.jsx",
+    "frontend\\src\\services\\backtestStrategyLevels.js",
+    "frontend\\src\\services\\marketTruth.js",
+    "frontend\\src\\stores\\alertsStore.js",
+    "frontend\\src\\stores\\backtestStore.js",
+    "frontend\\src\\stores\\colorLinksStore.js",
+    "frontend\\src\\stores\\layoutStore.js",
+    "frontend\\src\\stores\\quantStore.js",
+    "frontend\\src\\utils\\sound.js",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\DesignShowcase.jsx": {
+   "lines": 431,
+   "deps": [
+    "frontend\\src\\components\\design-previews\\ChartCanvasOverlay.jsx",
+    "frontend\\src\\components\\design-previews\\LayerToolbar.jsx",
+    "frontend\\src\\components\\design-previews\\LiqAnalyticsPanel.jsx",
+    "frontend\\src\\components\\design-previews\\QuantDecisionConsilium.jsx",
+    "frontend\\src\\theme\\themes.js",
+    "npm:lucide-react",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\main.jsx": {
+   "lines": 17,
+   "deps": [
+    "frontend\\src\\App.jsx",
+    "frontend\\src\\DesignShowcase.jsx",
+    "frontend\\src\\index.css",
+    "npm:react",
+    "npm:react-dom/client"
+   ]
+  },
+  "frontend\\src\\components\\AICopilotSidebar.jsx": {
+   "lines": 1121,
+   "deps": [
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\AIEngineSettings.jsx": {
+   "lines": 55,
+   "deps": [
+    "npm:lucide-react",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\AssistantHUD.jsx": {
+   "lines": 368,
+   "deps": [
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\BacktestModal.jsx": {
+   "lines": 353,
+   "deps": [
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\BacktestPanel.jsx": {
+   "lines": 2807,
+   "deps": [
+    "frontend\\src\\components\\BacktestTradeTimeline.jsx",
+    "frontend\\src\\components\\LivePaperTradingView.jsx",
+    "frontend\\src\\stores\\backtestStore.js",
+    "frontend\\src\\utils\\researchVerdict.js",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\BacktestTradeTimeline.jsx": {
+   "lines": 111,
+   "deps": [
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\Chart.jsx": {
+   "lines": 4801,
+   "deps": [
+    "frontend\\src\\components\\AssistantHUD.jsx",
+    "frontend\\src\\components\\indicators\\ActiveIndicatorStack.jsx",
+    "frontend\\src\\components\\indicators\\IndicatorSettingsDialog.jsx",
+    "frontend\\src\\components\\indicators\\IndicatorsModal.jsx",
+    "frontend\\src\\config\\drawingTemplates.js",
+    "frontend\\src\\config\\indicatorsRegistry.js",
+    "frontend\\src\\services\\marketDataFetcher.js",
+    "frontend\\src\\stores\\backtestStore.js",
+    "frontend\\src\\stores\\colorLinksStore.js",
+    "frontend\\src\\stores\\layoutStore.js",
+    "frontend\\src\\stores\\marketDataStore.js",
+    "frontend\\src\\stores\\tradeOverlayStore.js",
+    "frontend\\src\\stores\\tradesStore.js",
+    "frontend\\src\\utils\\chartAnnotations.js",
+    "npm:klinecharts",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\DecisionJournalModal.jsx": {
+   "lines": 692,
+   "deps": [
+    "npm:lucide-react",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\FootprintClusters.jsx": {
+   "lines": 92,
+   "deps": [
+    "npm:lucide-react",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\IndicatorsModal.jsx": {
+   "lines": 605,
+   "deps": [
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\LivePaperTradingView.jsx": {
+   "lines": 623,
+   "deps": [
+    "frontend\\src\\stores\\backtestStore.js",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\OrderBook.jsx": {
+   "lines": 681,
+   "deps": [
+    "frontend\\src\\utils\\orderbookLogic.js",
+    "frontend\\src\\utils\\sound.js",
+    "npm:lucide-react",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\OrderBookCanvasLadder.jsx": {
+   "lines": 360,
+   "deps": [
+    "frontend\\src\\stores\\tradeOverlayStore.js",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\OrderBookDOM.jsx": {
+   "lines": 1340,
+   "deps": [
+    "frontend\\src\\components\\OrderBookCanvasLadder.jsx",
+    "frontend\\src\\utils\\orderbookLogic.js",
+    "frontend\\src\\utils\\sound.js",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\OvernightPilotPanel.jsx": {
+   "lines": 488,
+   "deps": [
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\PaperTradePanel.jsx": {
+   "lines": 122,
+   "deps": [
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\RecorderModal.jsx": {
+   "lines": 212,
+   "deps": [
+    "npm:lucide-react",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\ScalperTradeDesk.jsx": {
+   "lines": 731,
+   "deps": [
+    "frontend\\src\\utils\\sound.js",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\SettingsModal.jsx": {
+   "lines": 928,
+   "deps": [
+    "frontend\\src\\components\\AIEngineSettings.jsx",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\SignalsFeed.jsx": {
+   "lines": 135,
+   "deps": [
+    "npm:lucide-react",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\Tape.jsx": {
+   "lines": 261,
+   "deps": [
+    "npm:lucide-react",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\design-previews\\ChartCanvasOverlay.jsx": {
+   "lines": 215,
+   "deps": [
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\design-previews\\index.js": {
+   "lines": 37,
+   "deps": []
+  },
+  "frontend\\src\\components\\design-previews\\LayerToolbar.jsx": {
+   "lines": 237,
+   "deps": [
+    "npm:lucide-react",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\design-previews\\LiqAnalyticsPanel.jsx": {
+   "lines": 352,
+   "deps": [
+    "npm:lucide-react",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\design-previews\\QuantDecisionConsilium.jsx": {
+   "lines": 222,
+   "deps": [
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\docking\\AlertsModal.jsx": {
+   "lines": 491,
+   "deps": [
+    "frontend\\src\\services\\marketTruth.js",
+    "frontend\\src\\stores\\alertsStore.js",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\docking\\ChannelSelector.jsx": {
+   "lines": 122,
+   "deps": [
+    "frontend\\src\\stores\\colorLinksStore.js",
+    "npm:lucide-react",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\docking\\layoutRecovery.js": {
+   "lines": 64,
+   "deps": []
+  },
+  "frontend\\src\\components\\docking\\layoutRecovery.test.js": {
+   "lines": 55,
+   "deps": [
+    "npm:node:assert/strict",
+    "npm:node:test"
+   ]
+  },
+  "frontend\\src\\components\\docking\\layoutSanitizer.js": {
+   "lines": 29,
+   "deps": []
+  },
+  "frontend\\src\\components\\docking\\Placeholders.jsx": {
+   "lines": 87,
+   "deps": [
+    "frontend\\src\\components\\docking\\ChannelSelector.jsx",
+    "frontend\\src\\stores\\colorLinksStore.js",
+    "npm:lucide-react",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\docking\\PresetBar.jsx": {
+   "lines": 218,
+   "deps": [
+    "frontend\\src\\stores\\layoutStore.js",
+    "npm:lucide-react",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\docking\\ScreenerWidget.jsx": {
+   "lines": 440,
+   "deps": [
+    "frontend\\src\\components\\docking\\ChannelSelector.jsx",
+    "frontend\\src\\config\\coinLibrary.js",
+    "frontend\\src\\stores\\colorLinksStore.js",
+    "frontend\\src\\stores\\marketDataStore.js",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\docking\\TerminalDockview.jsx": {
+   "lines": 811,
+   "deps": [
+    "frontend\\src\\components\\Chart.jsx",
+    "frontend\\src\\components\\OrderBookDOM.jsx",
+    "frontend\\src\\components\\design-previews\\ChartCanvasOverlay.jsx",
+    "frontend\\src\\components\\design-previews\\LiqAnalyticsPanel.jsx",
+    "frontend\\src\\components\\design-previews\\QuantDecisionConsilium.jsx",
+    "frontend\\src\\components\\docking\\ChannelSelector.jsx",
+    "frontend\\src\\components\\docking\\Placeholders.jsx",
+    "frontend\\src\\components\\docking\\PresetBar.jsx",
+    "frontend\\src\\components\\docking\\ScreenerWidget.jsx",
+    "frontend\\src\\components\\docking\\TradeHistoryWidget.jsx",
+    "frontend\\src\\components\\docking\\TradesWidget.jsx",
+    "frontend\\src\\components\\docking\\WatchlistWidget.jsx",
+    "frontend\\src\\components\\docking\\WidgetHubModal.jsx",
+    "frontend\\src\\components\\docking\\layoutSanitizer.js",
+    "frontend\\src\\services\\marketTruth.js",
+    "frontend\\src\\stores\\backtestStore.js",
+    "frontend\\src\\stores\\colorLinksStore.js",
+    "frontend\\src\\stores\\layoutStore.js",
+    "frontend\\src\\stores\\quantStore.js",
+    "frontend\\src\\stores\\tradeOverlayStore.js",
+    "npm:dockview-react",
+    "npm:dockview-react/dist/styles/dockview.css",
+    "npm:lucide-react",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\docking\\TradeHistoryWidget.jsx": {
+   "lines": 587,
+   "deps": [
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\docking\\TradesSettings.jsx": {
+   "lines": 303,
+   "deps": [
+    "npm:lucide-react",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\docking\\TradesWidget.jsx": {
+   "lines": 534,
+   "deps": [
+    "frontend\\src\\components\\docking\\ChannelSelector.jsx",
+    "frontend\\src\\components\\docking\\TradesSettings.jsx",
+    "frontend\\src\\hooks\\useTradeAudioAlerts.js",
+    "frontend\\src\\stores\\colorLinksStore.js",
+    "frontend\\src\\stores\\tradesStore.js",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\docking\\WatchlistWidget.jsx": {
+   "lines": 10,
+   "deps": [
+    "frontend\\src\\components\\docking\\ScreenerWidget.jsx"
+   ]
+  },
+  "frontend\\src\\components\\docking\\WidgetHubModal.jsx": {
+   "lines": 244,
+   "deps": [
+    "frontend\\src\\stores\\layoutStore.js",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\indicators\\ActiveIndicatorStack.jsx": {
+   "lines": 140,
+   "deps": [
+    "frontend\\src\\config\\indicatorsRegistry.js",
+    "npm:lucide-react",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\indicators\\IndicatorSettingsDialog.jsx": {
+   "lines": 231,
+   "deps": [
+    "frontend\\src\\config\\indicatorsRegistry.js",
+    "npm:lucide-react",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\components\\indicators\\IndicatorsModal.jsx": {
+   "lines": 253,
+   "deps": [
+    "frontend\\src\\config\\indicatorsRegistry.js",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\config\\coinLibrary.js": {
+   "lines": 231,
+   "deps": []
+  },
+  "frontend\\src\\config\\drawingTemplates.js": {
+   "lines": 195,
+   "deps": []
+  },
+  "frontend\\src\\config\\indicatorsRegistry.js": {
+   "lines": 328,
+   "deps": []
+  },
+  "frontend\\src\\features\\pilot\\api.js": {
+   "lines": 26,
+   "deps": []
+  },
+  "frontend\\src\\features\\pilot\\model.js": {
+   "lines": 100,
+   "deps": []
+  },
+  "frontend\\src\\features\\pilot\\pilot.test.js": {
+   "lines": 103,
+   "deps": [
+    "frontend\\src\\features\\pilot\\model.js",
+    "frontend\\src\\features\\pilot\\store.js",
+    "npm:node:assert/strict",
+    "npm:node:test"
+   ]
+  },
+  "frontend\\src\\features\\pilot\\PilotConfig.jsx": {
+   "lines": 59,
+   "deps": [
+    "frontend\\src\\features\\pilot\\model.js",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\features\\pilot\\PilotDashboard.jsx": {
+   "lines": 31,
+   "deps": [
+    "frontend\\src\\features\\pilot\\PilotResults.jsx",
+    "frontend\\src\\features\\pilot\\model.js",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\features\\pilot\\PilotResults.jsx": {
+   "lines": 52,
+   "deps": [
+    "frontend\\src\\features\\pilot\\PilotConfig.jsx",
+    "frontend\\src\\features\\pilot\\model.js",
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\features\\pilot\\PilotWorkspace.jsx": {
+   "lines": 48,
+   "deps": [
+    "frontend\\src\\features\\pilot\\PilotConfig.jsx",
+    "frontend\\src\\features\\pilot\\PilotDashboard.jsx",
+    "frontend\\src\\features\\pilot\\PilotResults.jsx",
+    "frontend\\src\\features\\pilot\\model.js",
+    "frontend\\src\\features\\pilot\\store.js",
+    "npm:react",
+    "npm:react-dom",
+    "npm:zustand"
+   ]
+  },
+  "frontend\\src\\features\\pilot\\store.js": {
+   "lines": 113,
+   "deps": [
+    "frontend\\src\\features\\pilot\\api.js",
+    "frontend\\src\\features\\pilot\\model.js",
+    "npm:zustand/middleware",
+    "npm:zustand/vanilla"
+   ]
+  },
+  "frontend\\src\\hooks\\useTradeAudioAlerts.js": {
+   "lines": 202,
+   "deps": [
+    "npm:react"
+   ]
+  },
+  "frontend\\src\\services\\backtestStrategyLevels.js": {
+   "lines": 23,
+   "deps": []
+  },
+  "frontend\\src\\services\\marketDataFetcher.js": {
+   "lines": 348,
+   "deps": []
+  },
+  "frontend\\src\\services\\marketTruth.js": {
+   "lines": 10,
+   "deps": []
+  },
+  "frontend\\src\\services\\marketTruth.test.js": {
+   "lines": 33,
+   "deps": [
+    "frontend\\src\\services\\backtestStrategyLevels.js",
+    "frontend\\src\\services\\marketTruth.js",
+    "npm:node:assert/strict",
+    "npm:node:test"
+   ]
+  },
+  "frontend\\src\\stores\\alertsStore.js": {
+   "lines": 125,
+   "deps": [
+    "npm:zustand"
+   ]
+  },
+  "frontend\\src\\stores\\backtestStore.js": {
+   "lines": 302,
+   "deps": [
+    "frontend\\src\\stores\\tradeOverlayStore.js",
+    "npm:zustand",
+    "npm:zustand/middleware"
+   ]
+  },
+  "frontend\\src\\stores\\colorLinksStore.js": {
+   "lines": 139,
+   "deps": [
+    "npm:zustand",
+    "npm:zustand/middleware"
+   ]
+  },
+  "frontend\\src\\stores\\layoutStore.js": {
+   "lines": 240,
+   "deps": [
+    "frontend\\src\\components\\docking\\layoutRecovery.js",
+    "npm:zustand"
+   ]
+  },
+  "frontend\\src\\stores\\marketDataStore.js": {
+   "lines": 325,
+   "deps": [
+    "frontend\\src\\config\\coinLibrary.js",
+    "frontend\\src\\utils\\researchVerdict.js",
+    "npm:zustand"
+   ]
+  },
+  "frontend\\src\\stores\\marketDataStore.test.js": {
+   "lines": 45,
+   "deps": [
+    "frontend\\src\\stores\\marketDataStore.js",
+    "npm:node:assert/strict",
+    "npm:node:test"
+   ]
+  },
+  "frontend\\src\\stores\\quantStore.js": {
+   "lines": 126,
+   "deps": [
+    "npm:zustand",
+    "npm:zustand/middleware"
+   ]
+  },
+  "frontend\\src\\stores\\tradeOverlayStore.js": {
+   "lines": 63,
+   "deps": [
+    "npm:zustand"
+   ]
+  },
+  "frontend\\src\\stores\\tradesStore.js": {
+   "lines": 318,
+   "deps": [
+    "frontend\\src\\stores\\marketDataStore.js",
+    "npm:zustand"
+   ]
+  },
+  "frontend\\src\\theme\\themes.js": {
+   "lines": 244,
+   "deps": []
+  },
+  "frontend\\src\\utils\\chartAnnotations.js": {
+   "lines": 247,
+   "deps": []
+  },
+  "frontend\\src\\utils\\orderbookLogic.js": {
+   "lines": 181,
+   "deps": []
+  },
+  "frontend\\src\\utils\\researchVerdict.js": {
+   "lines": 23,
+   "deps": []
+  },
+  "frontend\\src\\utils\\researchVerdict.test.js": {
+   "lines": 27,
+   "deps": [
+    "frontend\\src\\utils\\researchVerdict.js",
+    "npm:node:assert/strict",
+    "npm:node:test"
+   ]
+  },
+  "frontend\\src\\utils\\sound.js": {
+   "lines": 128,
+   "deps": []
+  }
+ }
+}
