@@ -2,6 +2,13 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-3.4 limit-fill simulator — 2026-10-22
+
+- **ACTIVE_AGENT:** `kimi` (main)
+- **3.4:** ветка `agent/cline/limit-fill-simulator` содержала ровно один нужный коммит `b55a804` (от 18.10); перенесён в main без мержа устаревшей ветки: `backend/app/services/limit_fill_simulator.py` (детерминированная симуляция одного limit-ордера по 1m-барам строго после `created_at_ts`, zero look-ahead, maker/taker fees, adverse slippage на SL) + эндпоинт `POST /api/backtest/simulate-limit-box` (портирован на актуальный `backtest.py` с `fetch_history`) + 9 тестов. Старая ветка больше не нужна для этой задачи.
+- **Gate:** `check.ps1` PASS; `pytest backend/tests` — **272 passed, 28 skipped**.
+- **Напоминание:** backend не перезапускать (paper-марафон + recorder soak до 24.10).
+
 ## Kimi phase-3.5 indicator registry — 2026-10-22
 
 - **ACTIVE_AGENT:** `kimi` (main)
