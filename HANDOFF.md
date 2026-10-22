@@ -2,6 +2,14 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-6.4 слайс 2 (PresetsBar + ParametersForm) — 2026-10-23 (ночь)
+
+- **ACTIVE_AGENT:** `kimi` (main: `dcade1d`, gate **395 passed**)
+- Из `BacktestPanel.jsx` (2690→2203, −487) извлечены по п.2 MODULARIZATION_PLAN: `backtest/BacktestPresetsBar.jsx` и `backtest/BacktestParametersForm.jsx` — оба **управляемые** (пропсы значения+колбэки); вся логика (updateSymbolParam-врапперы, applyPresetByObj, handleSavePreset, store-синхронизация) осталась в панели. Хелперы: `backtest/constants.js` (STRATEGIES/TIMEFRAMES) и `backtest/fields.jsx` (InfoTip+NumField). **ВАЖНО:** у `App.jsx` и `features/pilot/model.js` свои независимые копии STRATEGIES/TIMEFRAMES — не дедуплицировать.
+- Поведение 1:1: все data-testid сохранены; стратегия в селекте формы по-прежнему НЕ зовёт updateSymbolParam (оригинальная особенность, не фиксить заодно); `handleStrategyChange` (строка ~424) — мёртвый код, оставлен нетронутым.
+- **E2E:** `scripts/verify_modularization_6_4b.py` — 7/7 PASS (пресет-бар, применение пресета → appliedFeedback, сохранение пресета через UI + удаление из SQLite через API в finally, ema_trend→EMA-поля, ручной ввод SL, тоггл CVD, прогон бэктеста + monte-carlo-svg). Порт 5199 дочищен.
+- Backend/марафон этим слайсом не тронуты (чистый фронтенд).
+
 ## Kimi phase-7.2 (Warning Sentinel) — 2026-10-23 (ночь)
 
 - **ACTIVE_AGENT:** `kimi` (main: коммит feat(7.2), gate **395 passed**)
