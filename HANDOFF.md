@@ -2,6 +2,14 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi Work consolidation — 2026-10-22
+
+- **Сделано:** консолидация в один backend. Остановлены оба прежних процесса (8000 PID 57480, 8002 PID 15608) и мусорный Vite 5177; запущен единый backend на **8000** (код main, aggregate morning report активен) и Vite 5173 с прокси на 8000. `.env` возвращён на `BACKEND_PORT=8000`.
+- **Вскрыто и устранено:** 6 зомби-пар backend-процессов от 20.10 (12 PID, слушателей не имели, но поллили Telegram и грузили сканер/рекордер). Убиты; жив один логический instance (пара .venv-шим + интерпретатор — это норма, `uv`-venv запускает реальный python ребёнком).
+- **Guards (пайплайн-русет против двойного backend):** `scripts/check.ps1` шаг 0 — gate падает при >1 логическом backend-процессе (считает instance roots, не OS-процессы); `run_app.ps1` пропускает запуск backend/frontend, если они уже живы; правило зафиксировано в AGENTS.md §6.
+- **Сессии Night Pilot:** при рестарте backend восстановил 3 paper-снапшота от 20.10 (BTC/ETH/SOL, SOL realized -50.5) в статусе stale по Reload-контракту — это исторические записи, live-runner'ов нет.
+- **Gate:** полный `check.ps1` после правок — PASS. См. также ROADMAP.md (Фаза 0) и CODEGRAPH.md.
+
 ## Codex continuation — 2026-10-20
 
 - **ACTIVE_AGENT:** `codex`

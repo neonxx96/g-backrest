@@ -58,6 +58,25 @@ Write-Host "==========================================================" -Foregro
 Write-Host "🚀 SignalScript Pre-Commit Verification Gate" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
+# 0. Single-backend invariant: two concurrent backend/main.py processes
+#    fight over the Telegram bot token, double-run the market scanner and
+#    append to the same legacy Parquet recorder files. A .venv shim launches
+#    the real interpreter as a child, so count only instance roots (a matched
+#    process whose parent is not itself a matched backend process).
+$matched = @(Get-CimInstance Win32_Process -Filter "Name LIKE 'python%'" -ErrorAction SilentlyContinue | Where-Object {
+    $_.CommandLine -match 'backend[/\\]main\.py'
+})
+$matchedPids = @{}
+foreach ($p in $matched) { $matchedPids[[int]$p.ProcessId] = $true }
+$backendInstances = @($matched | Where-Object { -not $matchedPids.ContainsKey([int]$_.ParentProcessId) })
+if ($backendInstances.Count -gt 1) {
+    $info = ($matched | ForEach-Object { "$($_.ProcessId) (parent $($_.ParentProcessId))" }) -join ", "
+    Write-Host "`n❌ [FAIL] Обнаружено $($backendInstances.Count) логических backend-процессов (разрешён ровно один)." -ForegroundColor Red
+    Write-Host "  Процессы: $info" -ForegroundColor Red
+    Write-Host "Остановите лишние: Stop-Process -Id <PID> -Force, затем повторите." -ForegroundColor Yellow
+    exit 1
+}
+
 # 1. Python Unit Tests (pytest backend/tests)
 Write-Host "`n[1/6] Running Python unit tests (pytest)...\n        (includes the golden backtester characterization test)" -ForegroundColor Yellow
 $pytestCmd = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
