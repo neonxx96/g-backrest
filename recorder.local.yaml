@@ -1,0 +1,21 @@
+# Локальный приём recorder (ROADMAP 2.1, решение Di D1): Windows, без Docker.
+# Запуск: powershell -ExecutionPolicy Bypass -File scripts/run_recorder.ps1
+node_id: recorder-local-1
+lake_root: data/lake
+max_storage_gib: 50
+spool_flush_seconds: 3
+raw_retention_days: 7
+tier1_symbols:
+  - BTCUSDT
+  - ETHUSDT
+  - SOLUSDT
+tier2_symbols: []
+enabled_streams:
+  - trades
+  - book_ticker
+  - mark_price
+  - liquidation
+  - kline_1m
+# 2.2 (M1.3a): если задано, recorder читает активный watchlist из этого файла
+# и добавляет его символы к tier1 (обновление на лету при смене файла).
+watchlist_file: data/active_watchlist.json

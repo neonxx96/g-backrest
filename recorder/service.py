@@ -117,12 +117,57 @@ class RecorderService:
             return "kline_1m"
         raise ValueError(f"unsupported Binance stream: {name or event_type}")
 
-    async def run_forever(self, url: str, *, reconnect_delay: float = 2.0) -> None:
-        LOGGER.info("connecting to Binance stream (%s)", url.split("?", 1)[0])
+    @staticmethod
+    def load_watchlist_symbols(path: "Path | str | None") -> tuple[str, ...]:
+        """Reads the active watchlist JSON (``{"symbols": [...]}`` or a plain list).
+
+        Returns an empty tuple on any error — a missing or corrupt watchlist file
+        must never stop recording of the base tier1 symbols.
+        """
+        if not path:
+            return ()
+        try:
+            raw = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return ()
+        items = raw.get("symbols", []) if isinstance(raw, dict) else raw
+        if not isinstance(items, list):
+            return ()
+        return tuple(str(s).strip().upper() for s in items if str(s).strip())
+
+    @staticmethod
+    def merged_symbols(base: tuple[str, ...], watchlist: tuple[str, ...]) -> tuple[str, ...]:
+        """Union of tier1 and watchlist symbols, preserving order and deduplicating."""
+        seen: dict[str, None] = {}
+        for symbol in (*base, *watchlist):
+            seen[str(symbol).strip().upper()] = None
+        return tuple(seen)
+
+    async def run_forever(
+        self,
+        url: str,
+        *,
+        reconnect_delay: float = 2.0,
+        watchlist_path: "Path | str | None" = None,
+        base_symbols: tuple[str, ...] = (),
+        watchlist_poll_seconds: float = 30.0,
+    ) -> None:
+        """Streams Binance, reconnecting with a rebuilt URL when the watchlist file changes."""
+        current_url = url
+        if watchlist_path and base_symbols:
+            current_url = self.build_binance_url(
+                self.merged_symbols(tuple(base_symbols), self.load_watchlist_symbols(watchlist_path))
+            )
+        LOGGER.info("connecting to Binance stream (%s)", current_url.split("?", 1)[0])
         while True:
+            watcher: "asyncio.Task | None" = None
             try:
-                async with websockets.connect(url, ping_interval=20, ping_timeout=15, max_size=10 * 1024 * 1024) as socket:
+                async with websockets.connect(current_url, ping_interval=20, ping_timeout=15, max_size=10 * 1024 * 1024) as socket:
                     LOGGER.info("Binance stream connected")
+                    if watchlist_path and base_symbols:
+                        watcher = asyncio.create_task(
+                            self._watch_watchlist_file(socket, watchlist_path, base_symbols, watchlist_poll_seconds)
+                        )
                     async for raw in socket:
                         try:
                             self.process_message(json.loads(raw))
@@ -140,6 +185,32 @@ class RecorderService:
                 self.gaps.record(exchange="binance", market="usd-m", symbol="*", stream="connection", gap_start_ts=0, gap_end_ts=int(time.time() * 1000), reason="disconnect", node_id=self.node_id)
                 await asyncio.to_thread(self.flush)
                 await asyncio.sleep(reconnect_delay)
+            finally:
+                if watcher is not None:
+                    watcher.cancel()
+            if watchlist_path and base_symbols:
+                new_url = self.build_binance_url(
+                    self.merged_symbols(tuple(base_symbols), self.load_watchlist_symbols(watchlist_path))
+                )
+                if new_url != current_url:
+                    LOGGER.info("watchlist changed; reconnecting with updated subscriptions")
+                    current_url = new_url
+
+    async def _watch_watchlist_file(self, socket: Any, path: "Path | str", base_symbols: tuple[str, ...], poll_seconds: float) -> None:
+        """Closes the socket when the watchlist file changes the merged symbol set."""
+        last_symbols: tuple[str, ...] | None = None
+        while True:
+            symbols = self.merged_symbols(tuple(base_symbols), self.load_watchlist_symbols(path))
+            if last_symbols is None:
+                last_symbols = symbols
+            elif symbols != last_symbols:
+                LOGGER.info("watchlist file changed (%d -> %d symbols); rotating subscriptions", len(last_symbols), len(symbols))
+                try:
+                    await socket.close()
+                except Exception:
+                    pass
+                return
+            await asyncio.sleep(poll_seconds)
 
     @staticmethod
     def build_binance_url(symbols: tuple[str, ...]) -> str:

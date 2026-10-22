@@ -2,6 +2,17 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-2 recorder — 2026-10-22
+
+- **ACTIVE_AGENT:** `kimi`
+- **Ветка:** `agent/kimi/phase2-recorder`
+- **2.1 recorder локально:** `recorder.local.yaml` (lake_root `data/lake`) + `scripts/run_recorder.ps1 -Action start|stop|status`; recorder запущен (PID в `data/recorder.local.pid`, лог `data/recorder.local.log`) параллельно со старым recorder'ом backend'а. **Soak 48 ч до ~2026-10-24 18:12** — потом сверить gap-журнал (`data/gaps/recorder-local-1.jsonl`) и только затем выключать старый. Известное: сетевые обрывы Binance раз в ~1–2 мин (`no close frame received`), reconnect и честный gap-журнал работают.
+- **2.2 (M1.3a) watchlist-driven подписки:** `background_worker` публикует активный watchlist в `data/active_watchlist.json` (init + каждый set/toggle); recorder читает файл (`watchlist_file` в конфиге), мержит с tier1 и ротирует подписки на лету закрытием сокета. Тесты: `test_recorder_watchlist.py`, `test_active_watchlist_persistence.py`.
+- **2.3 (M1.3b) Wall TTL + Auto-режим:** `backend/app/services/wall_settings.py` (WallSettings persist `data/wall_settings.json`, WallTracker с TTL-квалификацией ≥$500k/15с, AutoDensityCalibrator P99 / K×median с честным fallback на manual при <20 наблюдений) + роутер `/api/walls/*` (settings GET/PUT, observe, track, qualified). Тесты: `test_wall_settings.py` (9). **Живой backend не перезапускался — эндпоинты появятся после штатного рестарта** (сейчас идёт paper-марафон Фазы 1).
+- **2.4 (M1.1) Data Manifest:** `recorder/manifest.py`, CLI `python -m recorder manifest --config recorder.local.yaml` → `data/data_manifest.json` (диапазоны ts, row_count, сегменты с sha256, даты, гэпы по symbol/stream). Тесты: `test_recorder_data_manifest.py`.
+- **Gate:** `scripts/check.ps1` — PASS; `pytest backend/tests` — **231 passed, 28 skipped** (было 212). Коммит на ветке.
+- **Не закрыто из Фазы 2:** 2.5 (replay-плеер), 2.6 (L2-honest бэктест — ждёт ≥7 дней lake). Frontend-привязка DOM к `/api/walls/*` — отдельная задача.
+
 ## Kimi phase-1 start — 2026-10-22
 
 - **ACTIVE_AGENT:** `kimi`
