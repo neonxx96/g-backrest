@@ -120,6 +120,7 @@ from backend.app.routers.walls import router as walls_router
 from backend.app.routers.confluence import router as confluence_router
 from backend.app.routers.verdict import router as verdict_router
 from backend.app.routers.risk import router as risk_router
+from backend.app.routers.sweep import router as sweep_router
 
 app.include_router(api_router)
 app.include_router(data_router)
@@ -137,6 +138,7 @@ app.include_router(walls_router)
 app.include_router(confluence_router)
 app.include_router(verdict_router)
 app.include_router(risk_router)
+app.include_router(sweep_router)
 
 from backend.app.routers.quant_router import router as quant_router
 app.include_router(quant_router)
