@@ -2,6 +2,15 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-6.5 (PDF-отчёт бэктеста) — 2026-10-22 (вечер)
+
+- **ACTIVE_AGENT:** `kimi` (main, коммит `b70e3e7`)
+- **6.5:** PDF-отчёт из результата бэктеста. Backend: `services/backtest_report.py` (matplotlib `PdfPages`, зависимостей не добавлялось; DejaVu Sans → кириллица ок, missing-glyph проверен). 3 страницы: (1) сводка — метрики + equity net/gross; (2) Монте-Карло — веер P5–P95/P25–P75, P50, факт, вердикт/скор/худший DD; (3) разбор сделок — **heatmap Net PnL по дням недели × часам UTC** + топ-20 сделок. Все расчёты только из payload, движок не трогает; пустые входы → страницы «нет данных». `POST /api/backtest/report` — payload = result целиком (`extra="allow"`, обязателен только symbol → 422), рендер в `run_in_threadpool`, отдача `application/pdf`. Frontend: кнопка «PDF отчёт» (`btn-export-pdf`) в строке вкладок рядом с бейджем вердикта MC (видна только при наличии result), спиннер + текст ошибки.
+- **Тесты:** `test_backtest_report_pdf.py` (5): структура PDF (3 стр. по счётчику `/Type /Page` — pypdf в venv нет), устойчивость к degenerate/битым timestamp-ам, валидация модели. Gate **351 passed** (+5), build, smoke, live WS.
+- **E2E:** `scripts/verify_pdf_report_ui.py` — прогон бэктеста → клик → `expect_download` → magic `%PDF-1.4`, имя `backtest_report_BTCUSDT.pdf` по контракту — PASS.
+- **⚠️ Ловушка для будущих E2E-прогонов:** `vite.terminate()` убивает только npm-обёртку — node-vite выживает и держит порт 5199 (симптом: `goto` висит/ERR или грузится старый dev-server). В обоих verify-скриптах в `finally` теперь дочистка LISTENING-порта через netstat+taskkill; **важно: из python `shell=True` идёт в cmd.exe — там `taskkill /PID N /F` (один слэш!), `//PID` — ошибка «Invalid argument»**. Плюс добавлено ожидание готовности порта перед goto (гонка после рестарта backend).
+- **Backend перезапущен 5-й раз (для активации эндпоинта):** марафон A/B перезапущен, preflight `12f2b5c6a653447dbbd02fdd6ec56a4a`, session_id `overnight_{btc,eth,sol}usdt_1792698604`, BTC `use_m4_risk_gates=true`. На момент рестарта 0 сделок — потерь нет. Эндпоинт проверен живым: `POST /api/backtest/report {"symbol":"BTCUSDT"}` → 200.
+
 ## Kimi phase-6.4 (модуляризация п.2) + критический фикс бэктестера — 2026-10-22 (вечер)
 
 - **ACTIVE_AGENT:** `kimi` (main: `46fd9b5` фикс бэкенда, `03f7ca5` модуляризация)
