@@ -2,6 +2,13 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-3.2 verdict v2 — 2026-10-22
+
+- **ACTIVE_AGENT:** `kimi` (main)
+- **3.2 (M3.3) Verdict v2:** `backend/app/engine/verdict.py` — формальный traffic-light контракт: BLOCK (Net PnL < 0 после комиссий / < 10 сделок / TOXIC_VOLATILITY), WARNING (PF ∈ [1.0, 1.2) / 10–29 сделок / стратегия требует L2 при отсутствии L2-истории → флаг `L2 History: No data`), PASS. `allows_live_paper=False` только у BLOCK. API `POST /api/verdict/evaluate`. Интеграция: каждая строка `overnight-pilot/status` теперь несёт `verdict` (для OHLCV-бэктеста wall-стратегий честно стоит WARNING + L2-флаг). UI: `VerdictBadge` (🟢/🟡/🔴 с тултипом причин) в сводке `OvernightPilotPanel.jsx`.
+- **Gate:** `check.ps1` PASS; `pytest backend/tests` — **256 passed, 28 skipped**; frontend build PASS.
+- **Напоминание:** backend не перезапускать (paper-марафон + recorder soak до 24.10); новые эндпоинты активируются после штатного рестарта.
+
 ## Kimi phase-3.1 confluence — 2026-10-22
 
 - **ACTIVE_AGENT:** `kimi` (работаем в `main`, тег `stable-20261022` после слияния фаз 1–2)

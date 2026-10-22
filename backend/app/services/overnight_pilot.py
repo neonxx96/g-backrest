@@ -22,6 +22,7 @@ from backend.app.routers.ai_copilot import compute_probabilistic_forecast
 from backend.app.services.deep_intent_logger import DeepIntentLogger
 from backend.app.services.live_paper_runner import LivePaperRunner
 from backend.app.services.paper_trading import PaperTradingSession
+from backend.app.engine.verdict import evaluate_verdict
 from backend.app.db.database import AsyncSessionLocal
 from backend.app.db.models import OvernightPilotRun
 from sqlalchemy import select
@@ -627,6 +628,16 @@ class OvernightPilotManager:
                 and last_backtest_direction in ("LONG", "SHORT")
                 and forecast_direction != last_backtest_direction
             )
+            # Verdict v2 (SRS M3.3): historical backtest is OHLCV-only, so any
+            # wall-gated strategy carries the honest `L2 History: No data` flag.
+            verdict = evaluate_verdict(
+                net_pnl_usd=backtest_net_pnl,
+                trades=int(summary.get("total_trades", 0) or 0),
+                profit_factor=float(summary.get("profit_factor", 0.0) or 0.0),
+                regime=forecast.get("market_regime") or forecast.get("regime"),
+                requires_l2=True,
+                l2_available=False,
+            )
             rows.append({
                 "symbol": item["symbol"],
                 "strategy_type": item["strategy_type"],
@@ -702,6 +713,7 @@ class OvernightPilotManager:
                 "paper_last_decision_at": paper.get("last_decision_at"),
                 "backtest_last_signal_direction": last_backtest_direction,
                 "forecast_backtest_divergence": forecast_backtest_divergence,
+                "verdict": verdict.to_dict(),
                 "error": item.get("error"),
             })
         return {

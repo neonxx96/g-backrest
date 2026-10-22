@@ -79,7 +79,7 @@
 
 ### ⚙️ ФАЗА 3 — Strategy Engine: M2.3 + M3.3 + правки по квантовому отчёту
 - [x] 3.1 **M2.3:** Weighted Confluence engine — веса wᵢ (Σ=1), динамический порог (≈0.65), скор в `UnifiedTradeSignal`; в UI — редактор весов (2026-10-22, main: `engine/confluence.py` Strict AND + weighted, поле `confluence_score`, API `/api/confluence/*`, persist `data/confluence_weights.json`, редактор — вкладка Confluence в SettingsModal; 12 тестов)
-- [ ] 3.2 **M3.3:** Verdict v2 traffic-light (PASS/WARNING/BLOCK) как формальный контракт + API + плашки в wizard; WARNING при PF 1.0–1.2, малой выборке
+- [x] 3.2 **M3.3:** Verdict v2 traffic-light (PASS/WARNING/BLOCK) как формальный контракт + API + плашки в wizard; WARNING при PF 1.0–1.2, малой выборке (2026-10-22, main: `engine/verdict.py`, `/api/verdict/evaluate`, поле `verdict` в строках статуса пилота, `VerdictBadge` в OvernightPilotPanel; BLOCK при NetPnL<0/<10 сделок/TOXIC, WARNING при PF 1.0–1.2/<30 сделок/`L2 History: No data`; 13 тестов)
 - [ ] 3.3 Правки по STRATEGY_WEAKNESSES: авто-BE при +0.5R, adaptive wall, time-stop 45 мин, maker-выходы; матрица «было/стало» по 8×3
 - [ ] 3.4 Limit-order fill simulator для «Тест сетапа» (ветка `agent/cline/limit-fill-simulator`)
 - [ ] 3.5 **M2.1:** довести registry: VWAP, OI-плагины до полного набора SRS + тесты
