@@ -2,6 +2,16 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-1 start — 2026-10-22
+
+- **ACTIVE_AGENT:** `kimi`
+- **Ветка:** `agent/kimi/phase1-paper-production-robust`
+- **Фаза 1.1 (ROADMAP):** пресет `production_robust` уже соответствовал спецификации (vol_mult 1.25, R:R = 2.2/0.8 = 2.75, SL 0.8, TP 2.2, фильтры ATR/CVD/RSI); добавлен недостающий тест `test_production_robust_live_runner_enforces_neutral_rsi_band_42_58`, фиксирующий RSI-полосу 42–58 в `LivePaperRunner._passes_live_indicator_filters` для `confluence_ema`. Targeted: 21 passed, 6 skipped.
+- **Фаза 1.2:** запущен paper-марафон production_robust через `night-pilot.ps1 -Action preflight|start -Preset production_robust -ApiBase http://127.0.0.1:8000`: BTCUSDT/ETHUSDT/SOLUSDT, `confluence_ema` 15m, session_id `overnight_btcusdt_1792680718` / `overnight_ethusdt_1792680718` / `overnight_solusdt_1792680718`, `paper_data_status=connected`, `errors=0`, equity $10000 каждая, риск 0.5%, плечо 2x.
+- **⚠️ Предупреждение для следующего агента:** исторический backtest пресета отрицательный (BTC −4.72% / 44 сделки / PF 0.38, ETH −4.01%, SOL −3.96%). Это честные fee-aware результаты, не баг; критерии перехода Фазы 1.4 (PF ≥ 1.2) на текущей геометрии, скорее всего, не выполнятся — morning reports вести по ROADMAP 1.3 и фиксировать расхождение backtest vs live paper.
+- **Gate:** полный `scripts/check.ps1` после правок — PASS (`ALL QUALITY CHECKS PASSED. READY TO COMMIT.`).
+- **Важно:** не перезапускать backend и не глушить paper-сессии — идёт марафон Фазы 1.3.
+
 ## Kimi Work consolidation — 2026-10-22
 
 - **Сделано:** консолидация в один backend. Остановлены оба прежних процесса (8000 PID 57480, 8002 PID 15608) и мусорный Vite 5177; запущен единый backend на **8000** (код main, aggregate morning report активен) и Vite 5173 с прокси на 8000. `.env` возвращён на `BACKEND_PORT=8000`.

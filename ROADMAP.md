@@ -64,8 +64,8 @@
 - [x] 0.5 SRS v1.0 принят в docs/specs, трассировка с CODEGRAPH (этот файл, v2.0)
 
 ### 🌙 ФАЗА 1 — Paper Trading: production_robust + марафон (M3.3/M4 в bootstrap)
-- [ ] 1.1 Пресет `production_robust`: vol_mult 1.25, RSI 42–58, R:R ≥ 2.75:1, TP ≥ 2.2%, SL 0.75–0.80% в `overnight_pilot.py` + тест
-- [ ] 1.2 `night-pilot.ps1`: запуск production_robust на 8000 для BTC/ETH/SOL; WinRate/Net PnL по монетам, Warning Sentinel
+- [x] 1.1 Пресет `production_robust`: vol_mult 1.25, RSI 42–58, R:R ≥ 2.75:1, TP ≥ 2.2%, SL 0.75–0.80% в `overnight_pilot.py` + тест (2026-10-22, ветка `agent/kimi/phase1-paper-production-robust`: пресет уже соответствовал, добавлен тест RSI-полосы 42–58 в live runner)
+- [x] 1.2 `night-pilot.ps1`: запуск production_robust на 8000 для BTC/ETH/SOL; WinRate/Net PnL по монетам, Warning Sentinel (2026-10-22: preflight+start, session_id `overnight_*_1792680718`, data=connected, errors=0; внимание — исторический ROI пресета отрицательный: BTC −4.72%, ETH −4.01%, SOL −3.96%)
 - [ ] 1.3 Paper-марафон 3–5 суток; morning reports в `docs/PAPER_MARATHON.md`
 - [ ] 1.4 Критерии перехода (Di утверждает): PF ≥ 1.2, max DD ≤ X%, fee drag < Y%
 
