@@ -9,7 +9,6 @@ import {
   EyeOff,
   X,
   AlertTriangle,
-  Grid,
   Sliders,
   Sparkles,
   Check,
@@ -18,7 +17,6 @@ import {
   Dna,
   Download,
   ArrowUpDown,
-  HelpCircle,
   Zap
 } from 'lucide-react';
 import { LivePaperTradingControls, LivePaperTradingResults } from './LivePaperTradingView';
@@ -26,6 +24,10 @@ const PilotDialog = lazy(() => import('../features/pilot/PilotWorkspace.jsx'));
 import BacktestTradeTimeline from './BacktestTradeTimeline';
 import MonteCarloEquityChart from './backtest/MonteCarloEquityChart';
 import BacktestTradesTable from './backtest/BacktestTradesTable';
+import BacktestPresetsBar from './backtest/BacktestPresetsBar';
+import BacktestParametersForm from './backtest/BacktestParametersForm';
+import { STRATEGIES, TIMEFRAMES } from './backtest/constants';
+import { InfoTip } from './backtest/fields';
 
 const API_BASE = '/api';
 
@@ -36,47 +38,7 @@ const PRESET_CHIPS = [
   { label: '🎯 Сбалансированный ETH (15m)', text: 'Сбалансированная стратегия на ETH 15m с ATR фильтром и RSI' }
 ];
 
-const STRATEGIES = [
-  // Historical Flow & Volume Engine (100% реальные исторические данные)
-  { 
-    id: 'confluence_ema', 
-    label: '🟢 Confluence EMA (CVD+RSI)',
-    group: 'historical',
-    badge: 'Реальная история',
-    description: 'Мультифакторный трендовый сетап с подтверждением по дельте'
-  },
-  { 
-    id: 'cvd_absorption', 
-    label: '🟢 CVD Absorption (Поглощение)',
-    group: 'historical',
-    badge: 'Реальная история',
-    description: 'Дивергенция кумулятивной дельты и цены на экстремумах'
-  },
-  { 
-    id: 'cluster_volume_bounce', 
-    label: '🟢 Cluster Volume Bounce (Отскок)',
-    group: 'historical',
-    badge: 'Реальная история',
-    description: 'Пинбар с кульминацией кластерного объема свечи (Volume Climax)'
-  },
-  { 
-    id: 'ema_trend', 
-    label: '🟢 EMA Trend Momentum',
-    group: 'historical',
-    badge: 'Реальная история',
-    description: 'Пересечение EMA(20/50) с подтверждением покупок по дельте'
-  },
-  // Live Order Book Sentinel (Только Real-time L2)
-  { 
-    id: 'live_density_bounce', 
-    label: '🟠 Плотность стакана L2 [Live]',
-    group: 'live',
-    badge: 'Только Live L2',
-    isLiveOnly: true,
-    description: 'Работает только в реальном времени. Биржа не хранит исторический стакан.'
-  }
-];
-const TIMEFRAMES = ['1m', '5m', '15m', '1h'];
+// STRATEGIES / TIMEFRAMES вынесены в ./backtest/constants (модульный план, п.2)
 
 function Card({ label, value, tone, sub, testId, isLarge = false }) {
   const color =
@@ -105,28 +67,7 @@ function Card({ label, value, tone, sub, testId, isLarge = false }) {
   );
 }
 
-function InfoTip({ text }) {
-  const [show, setShow] = useState(false);
-  return (
-    <span
-      className="relative inline-flex items-center ml-1 cursor-help shrink-0 align-middle"
-      onMouseEnter={() => setShow(true)}
-      onMouseLeave={() => setShow(false)}
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setShow((v) => !v);
-      }}
-    >
-      <HelpCircle size={10} className="text-neutral-500 hover:text-neutral-300 transition-colors" />
-      {show && (
-        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 z-50 w-52 p-2 bg-neutral-900 border border-neutral-700 text-neutral-200 text-[9px] font-sans font-normal rounded shadow-2xl pointer-events-none whitespace-normal leading-tight">
-          {text}
-        </span>
-      )}
-    </span>
-  );
-}
+// InfoTip / NumField вынесены в ./backtest/fields (модульный план, п.2)
 
 export function formatBacktestError(rawError) {
   if (!rawError) return null;
@@ -190,41 +131,6 @@ export function formatBacktestError(rawError) {
   }
 
   return str;
-}
-
-function NumField({ label, value, onChange, step = 0.1, min = 0, max, suffix, testId, tooltip }) {
-  const isInvalid = (min != null && value !== '' && Number(value) < min) || (max != null && value !== '' && Number(value) > max);
-  return (
-    <label className="flex flex-col text-[9px] font-mono min-w-0">
-      <span className="mb-0.5 text-neutral-400 flex items-center justify-between truncate select-none">
-        <span className={`truncate ${isInvalid ? 'text-red-400 font-bold' : ''}`}>{label}</span>
-        {tooltip && <InfoTip text={tooltip} />}
-      </span>
-      <div className={`relative flex items-center bg-neutral-950/80 border rounded px-1.5 py-0.5 transition-all ${
-        isInvalid
-          ? 'border-red-500/80 ring-1 ring-red-500/30'
-          : 'border-neutral-800 focus-within:border-neutral-500 focus-within:ring-1 focus-within:ring-neutral-500/30'
-      }`}>
-        <input
-          data-testid={testId}
-          type="number"
-          value={value}
-          step={step}
-          min={min}
-          max={max}
-          onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))}
-          className={`w-full bg-transparent text-[10px] text-right font-mono outline-none pr-1 ${
-            isInvalid ? 'text-red-300 font-bold' : 'text-neutral-100'
-          }`}
-        />
-        {suffix && (
-          <span className="text-neutral-500 text-[8.5px] font-mono select-none shrink-0 border-l border-neutral-800/80 pl-1 ml-0.5">
-            {suffix}
-          </span>
-        )}
-      </div>
-    </label>
-  );
 }
 
 export default function BacktestPanel({
@@ -1429,489 +1335,96 @@ export default function BacktestPanel({
             </div>
           ) : (
             <>
-              {/* Presets Bar */}
-              <div
-                data-testid="strategy-presets-bar"
-                className="p-1.5 rounded-md bg-[#0e1217] border border-neutral-800 space-y-1 font-mono"
-              >
-                <div className="flex items-center justify-between text-[8.5px]">
-                  <span className="font-bold text-neutral-300 uppercase tracking-wider flex items-center">
-                    ⚡ Пресеты (1 клик):
-                    <InfoTip text="Готовые наборы проверенных квант-параметров для быстрого тестирования в 1 клик" />
-                  </span>
-                  <button
-                    type="button"
-                    data-testid="btn-open-save-preset"
-                    onClick={() => setShowSavePresetInput((v) => !v)}
-                    className="text-neutral-400 hover:text-neutral-200 hover:underline cursor-pointer font-bold transition-colors"
-                  >
-                    {showSavePresetInput ? '✕ Отмена' : '+ Сохранить текущие'}
-                  </button>
-                </div>
+              {/* Presets Bar — UI вынесен в ./backtest/BacktestPresetsBar (модульный план, п.2); логика (apply/save/fetch) остаётся здесь */}
+              <BacktestPresetsBar
+                presets={presets}
+                selectedPresetId={selectedPresetId}
+                showSavePresetInput={showSavePresetInput}
+                newPresetName={newPresetName}
+                onToggleSaveInput={() => setShowSavePresetInput((v) => !v)}
+                onNameChange={setNewPresetName}
+                onSave={handleSavePreset}
+                onSelectPreset={(id) => {
+                  setSelectedPresetId(id);
+                  const found = presets.find((p) => String(p.id) === String(id));
+                  if (found) applyPresetByObj(found);
+                }}
+                onApplyPreset={() => {
+                  const found = presets.find((p) => String(p.id) === String(selectedPresetId)) || presets[0];
+                  if (found) applyPresetByObj(found);
+                }}
+              />
 
-                {showSavePresetInput ? (
-                  <div className="flex items-center space-x-1 pt-0.5">
-                    <input
-                      data-testid="input-preset-name"
-                      type="text"
-                      placeholder="Название пресета..."
-                      title="Имя набора текущих параметров (стратегия, SL/TP, фильтры). Сохраняется в браузере и применяется в 1 клик."
-                      value={newPresetName}
-                      onChange={(e) => setNewPresetName(e.target.value)}
-                      className="flex-1 bg-neutral-900 border border-neutral-700 rounded px-1.5 py-0.5 text-[9.5px] text-white outline-none focus:border-neutral-500"
-                    />
-                    <button
-                      type="button"
-                      data-testid="btn-confirm-save-preset"
-                      onClick={handleSavePreset}
-                      disabled={!newPresetName.trim()}
-                      className="px-2 py-0.5 rounded bg-neutral-200 hover:bg-white text-neutral-950 text-[9px] font-bold disabled:opacity-40 cursor-pointer transition-colors"
-                    >
-                      💾 Сохранить
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center space-x-1">
-                    <select
-                      data-testid="select-strategy-preset"
-                      value={selectedPresetId}
-                      onChange={(e) => {
-                        const id = e.target.value;
-                        setSelectedPresetId(id);
-                        const found = presets.find((p) => String(p.id) === String(id));
-                        if (found) applyPresetByObj(found);
-                      }}
-                      className="flex-1 bg-neutral-900 border border-neutral-800 rounded px-1.5 py-0.5 text-[9.5px] text-neutral-200 outline-none focus:border-neutral-500"
-                    >
-                      {presets.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      data-testid="btn-apply-preset-1click"
-                      onClick={() => {
-                        const found = presets.find((p) => String(p.id) === String(selectedPresetId)) || presets[0];
-                        if (found) applyPresetByObj(found);
-                      }}
-                      className="px-2 py-0.5 rounded bg-neutral-200 hover:bg-white text-neutral-950 text-[9px] font-bold cursor-pointer shrink-0 transition-colors"
-                      title="Применить выбранный набор параметров в 1 клик без перезапуска"
-                    >
-                      Применить
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* A) СЕКЦИЯ: Входные параметры (Strategy & Entry Rules) */}
-              <div className="border border-neutral-800 rounded-md p-2 space-y-1.5 bg-[#0e1217]/90 shadow-xs">
-                <div className="flex items-center justify-between text-[9px] text-neutral-300 font-bold uppercase tracking-wider border-b border-neutral-800/80 pb-1">
-                  <span className="flex items-center gap-1.5">
-                    <Sliders size={11} className="text-neutral-400" />
-                    Входные параметры
-                    <InfoTip text="Выбор базового квант-алгоритма, таймфрейма, механики входа и горизонта тестирования" />
-                  </span>
-                  <span className="text-[8px] text-neutral-500 font-mono">RULES</span>
-                </div>
-
-                <div className="space-y-1.5">
-                  <div className="flex items-center text-[8.5px] text-neutral-400">
-                    Стратегия (алгоритм входа)
-                    <InfoTip text="🟢 Зелёная группа — тестируется на реальной истории свечей. 🟠 Оранжевая — работает только по живому стакану L2 в реальном времени (исторический бэктест невозможен: биржа не хранит книгу заявок задним числом)." />
-                  </div>
-                  <select
-                    data-testid="bt-strategy-select"
-                    value={strategy}
-                    onChange={(e) => {
-                      setStrategy(e.target.value);
-                      if (onStrategyChange) onStrategyChange(e.target.value);
-                    }}
-                    className="w-full bg-neutral-900 border border-neutral-800 rounded px-2 py-1 text-neutral-200 text-[10px] font-mono outline-none focus:border-neutral-500"
-                  >
-                    <optgroup label="🟢 Historical Flow & Volume (Реальная история)">
-                      {STRATEGIES.filter((s) => s.group === 'historical').map((st) => (
-                        <option key={st.id} value={st.id}>
-                          {st.label}
-                        </option>
-                      ))}
-                    </optgroup>
-                    <optgroup label="🟠 Live Order Book Sentinel (Только Real-time L2)">
-                      {STRATEGIES.filter((s) => s.group === 'live').map((st) => (
-                        <option key={st.id} value={st.id}>
-                          {st.label}
-                        </option>
-                      ))}
-                    </optgroup>
-                  </select>
-
-                  {isLiveOnlyStrategy && (
-                    <div
-                      data-testid="live-strategy-warning-banner"
-                      className="bg-amber-950/40 border border-amber-600/60 text-amber-200 text-[9px] p-2 rounded-md leading-relaxed flex flex-col space-y-1 font-mono shadow-xs"
-                    >
-                      <div className="flex items-center space-x-1.5 font-bold text-amber-300">
-                        <AlertTriangle size={13} className="shrink-0 text-amber-400" />
-                        <span>Исторический бэктест недоступен (L2 Live)</span>
-                      </div>
-                      <div className="text-neutral-300 text-[8.5px]">
-                        Биржа не хранит потиковый стакан L2 в истории. Данная стратегия предназначена исключительно для торговли в реальном времени (Sentinel).
-                      </div>
-                      <div className="pt-0.5 flex items-center justify-between">
-                        <span className="text-neutral-400 text-[8px]">Для теста на истории:</span>
-                        <button
-                          type="button"
-                          data-testid="btn-switch-cluster-strategy"
-                          onClick={() => {
-                            setStrategy('cluster_volume_bounce');
-                            if (onStrategyChange) onStrategyChange('cluster_volume_bounce');
-                            setError(null);
-                          }}
-                          className="px-2 py-0.5 rounded bg-sky-950 hover:bg-sky-900 border border-sky-600/70 text-sky-300 text-[8.5px] font-bold cursor-pointer transition-colors"
-                        >
-                          Включить Cluster Volume Bounce →
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-2 gap-2 pt-0.5">
-                    {/* Timeframe selector */}
-                    <div>
-                      <div className="text-[8.5px] text-neutral-400 font-mono mb-0.5">Таймфрейм (TF):</div>
-                      <div className="flex space-x-0.5">
-                        {TIMEFRAMES.map((tf) => (
-                          <button
-                            key={tf}
-                            onClick={() => handleTimeframeChange(tf)}
-                            className={`flex-1 py-0.5 rounded text-[9px] font-mono transition cursor-pointer ${
-                              timeframe === tf
-                                ? 'bg-neutral-200 text-neutral-950 font-bold shadow-xs'
-                                : 'bg-neutral-900 text-neutral-400 hover:text-white border border-neutral-800/80'
-                            }`}
-                          >
-                            {tf}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Period (Days) */}
-                    <div>
-                      <div className="text-[8.5px] text-neutral-400 font-mono mb-0.5">Период истории:</div>
-                      <NumField
-                        label=""
-                        testId="input-days"
-                        value={days}
-                        onChange={handleDaysChange}
-                        step={1}
-                        min={1}
-                        max={30}
-                        suffix="дн"
-                        tooltip="Глубина исторической выборки (в днях)"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Entry Mode select */}
-                  <div className="pt-0.5">
-                    <div className="text-[8.5px] uppercase font-bold text-neutral-300 mb-0.5 flex items-center">
-                      🎯 Режим входа (Entry Mode):
-                      <InfoTip text="Механика генерации сигнала: лимитный отскок, агрессивный пробой или поглощение дельты CVD" />
-                    </div>
-                    <select
-                      data-testid="select-entry-mode"
-                      value={entryMode}
-                      onChange={(e) => handleEntryModeChange(e.target.value)}
-                      className="w-full bg-neutral-900 border border-neutral-800 rounded px-2 py-0.5 text-neutral-200 text-[9.5px] outline-none focus:border-neutral-500"
-                    >
-                      <option value="limit_bounce">Лимитный отскок от плотности (Bounce)</option>
-                      <option value="breakout">Пробой плотности на разъедании (Breakout)</option>
-                      <option value="cvd_absorption">Поглощение дельты (CVD Absorption)</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* B) СЕКЦИЯ: Риск-менеджмент (SL, TP, Trailing) */}
-              <div
-                data-testid="extended-strategy-config"
-                className="border border-neutral-800 rounded-md p-2 space-y-1.5 bg-[#0e1217]/90 shadow-xs"
-              >
-                <div className="flex items-center justify-between text-[9px] text-neutral-300 font-bold uppercase tracking-wider border-b border-neutral-800/80 pb-1">
-                  <span className="flex items-center gap-1.5">
-                    <ShieldCheck size={11} className="text-neutral-400" />
-                    Риск-менеджмент
-                    <InfoTip text="Настройки Stop-Loss, Take-Profit, динамического смещения и размера кредитного плеча" />
-                  </span>
-                  <span className="text-[8px] text-neutral-500 font-mono">RISK</span>
-                </div>
-
-                {mode === 'single' ? (
-                  <div className="grid grid-cols-3 gap-1.5">
-                    <NumField testId="input-sl" label="SL" value={sl} onChange={handleSlChange} step={0.1} min={0.1} suffix="%" tooltip="Stop-Loss в % от точки входа" />
-                    <NumField testId="input-tp" label="TP" value={tp} onChange={handleTpChange} step={0.1} min={0.1} suffix="%" tooltip="Take-Profit в % от точки входа" />
-                    <NumField testId="input-leverage" label="Плечо" value={leverage} onChange={handleLeverageChange} step={1} min={1} max={125} suffix="x" tooltip="Изолированное кредитное плечо для расчёта" />
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    <div className="grid grid-cols-2 gap-1">
-                      <NumField label="SL от" value={slMin} onChange={setSlMin} step={0.1} min={0.1} suffix="%" tooltip="Минимальный Stop-Loss для перебора" />
-                      <NumField label="SL до" value={slMax} onChange={setSlMax} step={0.1} min={0.2} suffix="%" tooltip="Максимальный Stop-Loss для перебора" />
-                    </div>
-                    <div className="grid grid-cols-2 gap-1">
-                      <NumField label="TP от" value={tpMin} onChange={setTpMin} step={0.2} min={0.2} suffix="%" tooltip="Минимальный Take-Profit для перебора" />
-                      <NumField label="TP до" value={tpMax} onChange={setTpMax} step={0.2} min={0.5} suffix="%" tooltip="Максимальный Take-Profit для перебора" />
-                    </div>
-                  </div>
-                )}
-
-                {/* M5.2: EMA-периоды для ema_trend (заполняются вручную или кнопкой Apply из Quant Sweep) */}
-                {strategy === 'ema_trend' && mode === 'single' && (
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <NumField testId="input-fast-ema" label="Fast EMA" value={fastEma} onChange={handleFastEmaChange} step={1} min={2} max={300} tooltip="Период быстрой EMA для стратегии EMA Trend (20 = legacy)" />
-                    <NumField testId="input-slow-ema" label="Slow EMA" value={slowEma} onChange={handleSlowEmaChange} step={1} min={5} max={500} tooltip="Период медленной EMA, строго больше Fast (50 = legacy)" />
-                  </div>
-                )}
-
-                {/* Динамический Stop-Loss */}
-                <div className="space-y-1 pt-0.5 border-t border-neutral-800/80">
-                  <div className="text-[8.5px] uppercase font-bold text-neutral-300 flex items-center">
-                    🛡️ Динамический Stop-Loss:
-                    <InfoTip text="Адаптивный алгоритм защиты: фиксированный %, за лимитную стенку или по волатильности ATR" />
-                  </div>
-                  <div className="grid grid-cols-3 gap-1">
-                    {[
-                      { id: 'fixed_pct', label: 'Фикс. %' },
-                      { id: 'behind_wall', label: 'За стенку' },
-                      { id: 'atr_volatility', label: 'По ATR' }
-                    ].map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        data-testid={`sl-mode-${opt.id}`}
-                        onClick={() => handleSlModeChange(opt.id)}
-                        className={`py-0.5 px-1 rounded border text-[8.5px] truncate transition cursor-pointer ${
-                          slMode === opt.id
-                            ? 'bg-neutral-200 text-neutral-950 border-neutral-300 font-bold shadow-xs'
-                            : 'bg-neutral-900 text-neutral-400 border-neutral-800 hover:text-white'
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                  {slMode === 'behind_wall' && (
-                    <div className="flex items-center justify-between pt-0.5">
-                      <span className="text-neutral-400 text-[8.5px]">Отступ за стенку (тиков):</span>
-                      <input
-                        data-testid="input-wall-sl-offset"
-                        type="number"
-                        min={1}
-                        max={50}
-                        value={wallSlOffsetTicks}
-                        onChange={(e) => handleWallSlOffsetChange(e.target.value)}
-                        className="w-16 bg-neutral-900 border border-neutral-800 rounded px-1 py-0.5 text-right text-neutral-200 text-[9px] outline-none focus:border-neutral-500"
-                      />
-                    </div>
-                  )}
-                  {slMode === 'atr_volatility' && (
-                    <div className="flex items-center justify-between pt-0.5">
-                      <span className="text-neutral-400 text-[8.5px]">Множитель ATR (1.0x–3.0x):</span>
-                      <input
-                        data-testid="input-atr-sl-mult"
-                        type="number"
-                        step={0.2}
-                        min={1.0}
-                        max={3.0}
-                        value={atrMultiplier}
-                        onChange={(e) => handleAtrMultiplierChange(e.target.value)}
-                        className="w-16 bg-neutral-900 border border-neutral-800 rounded px-1 py-0.5 text-right text-neutral-200 text-[9px] outline-none focus:border-neutral-500"
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* Мульти-Тейк-Профит & Trailing */}
-                <div className="pt-0.5 border-t border-neutral-800/80 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[8.5px] uppercase font-bold text-neutral-300">🎯 Multi-TP & Trailing</span>
-                    <label
-                      className="flex items-center space-x-1 text-[8.5px] font-mono text-neutral-300 cursor-pointer"
-                      title="Multi-TP: закрыть 50% позиции на TP1 и перевести стоп остатка в безубыток — сделка перестаёт быть убыточной после первой цели"
-                    >
-                      <input
-                        data-testid="toggle-multi-tp"
-                        type="checkbox"
-                        checked={useMultiTp}
-                        onChange={(e) => handleMultiTpChange(e.target.checked)}
-                        className="w-3 h-3 rounded accent-neutral-200 cursor-pointer"
-                      />
-                      <span>Включить (50% + Б/У)</span>
-                    </label>
-                  </div>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <label className="flex flex-col text-[8.5px] text-neutral-400">
-                      <span className="flex items-center truncate">
-                        TP1 R:R
-                        <InfoTip text="Коэффициент Risk/Reward для закрытия первых 50% и перевода стопа в Б/У" />
-                      </span>
-                      <input
-                        data-testid="input-tp1-rr"
-                        type="number"
-                        step={0.1}
-                        min={0.8}
-                        max={4.0}
-                        value={tp1RrRatio}
-                        onChange={(e) => handleTp1RrChange(e.target.value)}
-                        className="bg-neutral-900 border border-neutral-800 rounded px-1.5 py-0.5 text-neutral-200 text-right text-[9.5px] outline-none focus:border-neutral-500"
-                      />
-                    </label>
-                    <label className="flex flex-col text-[8.5px] text-neutral-400">
-                      <span className="flex items-center truncate">
-                        TP2 режим
-                        <InfoTip text="Стратегия закрытия оставшихся 50%: перед противоположной плотностью или трендовый R:R" />
-                      </span>
-                      <select
-                        data-testid="select-tp2-mode"
-                        value={tp2Mode}
-                        onChange={(e) => handleTp2ModeChange(e.target.value)}
-                        className="bg-neutral-900 border border-neutral-800 rounded px-1.5 py-0.5 text-neutral-200 text-[9px] outline-none focus:border-neutral-500"
-                      >
-                        <option value="opposite_wall">Перед стенкой</option>
-                        <option value="trend_rr">По тренду (2.8R)</option>
-                      </select>
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              {/* C) СЕКЦИЯ: Фильтры (Volume, Time, Confluence) */}
-              <div className="border border-neutral-800 rounded-md p-2 space-y-1.5 bg-[#0e1217]/90 shadow-xs">
-                <div className="flex items-center justify-between text-[9px] text-neutral-300 font-bold uppercase tracking-wider border-b border-neutral-800/80 pb-1">
-                  <span className="flex items-center gap-1.5">
-                    <Grid size={11} className="text-neutral-400" />
-                    Фильтры
-                    <InfoTip text="Порог стакана, защита от спуфинга, Confluence фильтры и реализм биржевых комиссий" />
-                  </span>
-                  <span className="text-[8px] text-neutral-500 font-mono">FILTERS</span>
-                </div>
-
-                {/* Honest Historical OHLCV Banner (L2 orderbook filters hidden in history) */}
-                <div className="border border-neutral-800/90 rounded bg-neutral-900/80 p-2 text-[8.5px] font-mono space-y-1.5">
-                  <div className="flex items-center justify-between text-amber-400 font-bold text-[9px]">
-                    <span className="flex items-center gap-1">
-                      <span>🛡️ Честный режим OHLCV истории</span>
-                    </span>
-                    <span className="text-[7.5px] bg-amber-500/10 border border-amber-500/30 text-amber-300 px-1 rounded">
-                      L2 фильтры скрыты
-                    </span>
-                  </div>
-                  <p className="text-neutral-400 font-sans leading-tight">
-                    Биржа не хранит исторический стакан L2. В истории доступны только свечные индикаторы (ATR, RSI, поглощение объёма).
-                    Для торговли перед лимитными стенками переключитесь в{' '}
-                    <button
-                      type="button"
-                      onClick={() => setMode('live_paper')}
-                      className="text-amber-300 font-bold underline cursor-pointer hover:text-amber-200"
-                    >
-                      ⚡ Симулятор (Paper)
-                    </button>.
-                  </p>
-                  <div className="pt-1 border-t border-neutral-800/80">
-                    <NumField
-                      label="Множитель объёма свечи"
-                      value={volMult}
-                      onChange={handleVolMultChange}
-                      step={0.1}
-                      min={0.5}
-                      tooltip="Множитель объема свечного кластера (Price Action / Volume Climax)"
-                    />
-                  </div>
-                </div>
-
-                {/* Confluence Suite */}
-                <div className="pt-1 border-t border-neutral-800/80 space-y-1">
-                  <div className="flex items-center justify-between text-[8.5px] font-mono">
-                    <span className="text-neutral-400 font-bold uppercase tracking-wider flex items-center gap-1">
-                      Confluence сигналы
-                      <InfoTip text="Дополнительные условия подтверждения сигналов для отсеивания ложных входов" />
-                    </span>
-                    <span className="text-neutral-500 font-mono">
-                      {[filterCvd, filterOi, filterAtr, filterRsi].filter(Boolean).length}/4 ON
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-4 gap-1 text-[8.5px] font-mono">
-                    {[
-                      { label: 'CVD', active: filterCvd, toggle: () => handleFilterCvdChange(!filterCvd),
-                        help: 'Кумулятивная дельта: вход разрешён только по направлению потока агрессивных маркет-ордеров' },
-                      { label: 'OI', active: filterOi, toggle: () => handleFilterOiChange(!filterOi),
-                        help: 'Открытый интерес: подтверждение, что движение поддержано открытием новых позиций в фьючерсе (требует реальных OI-данных)' },
-                      { label: 'ATR', active: filterAtr, toggle: () => handleFilterAtrChange(!filterAtr),
-                        help: 'Волатильность: пропускает входы только при достаточном размахе свечей — отсеивает плоский рынок' },
-                      { label: 'RSI', active: filterRsi, toggle: () => handleFilterRsiChange(!filterRsi),
-                        help: 'Импульс: входы только в нейтральной зоне RSI, без перекупленности/перепроданности (ловля вершин запрещена)' }
-                    ].map((f) => (
-                      <button
-                        key={f.label}
-                        type="button"
-                        title={f.help}
-                        onClick={f.toggle}
-                        className={`py-0.5 px-1 rounded border text-center transition cursor-pointer ${
-                          f.active
-                            ? 'bg-neutral-200 text-neutral-950 border-neutral-300 font-bold shadow-xs'
-                            : 'bg-neutral-900 text-neutral-500 border-neutral-800 hover:text-white'
-                        }`}
-                      >
-                        {f.label}: {f.active ? 'ON' : 'OFF'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Fees and Slippage */}
-                <div className="pt-1 border-t border-neutral-800/80">
-                  <div className="text-[8.5px] font-mono text-neutral-400 font-bold uppercase tracking-wider mb-0.5">
-                    Биржевые комиссии & Скольжение:
-                  </div>
-                  <div className="grid grid-cols-3 gap-1">
-                    <NumField
-                      testId="input-maker-fee"
-                      label="Maker"
-                      value={makerFeePct}
-                      onChange={setMakerFeePct}
-                      step={0.01}
-                      min={0}
-                      max={0.5}
-                      suffix="%"
-                      tooltip="Биржевая комиссия при лимитном входе"
-                    />
-                    <NumField
-                      testId="input-taker-fee"
-                      label="Taker"
-                      value={takerFeePct}
-                      onChange={setTakerFeePct}
-                      step={0.01}
-                      min={0}
-                      max={0.5}
-                      suffix="%"
-                      tooltip="Биржевая комиссия при маркет-входе или срабатывании стопа"
-                    />
-                    <NumField
-                      testId="input-slippage-ticks"
-                      label="Скольжение"
-                      value={slippageTicks}
-                      onChange={setSlippageTicks}
-                      step={1}
-                      min={0}
-                      max={10}
-                      suffix="тик"
-                      tooltip="Проскальзывание стоп-лосса в тиках цены"
-                    />
-                  </div>
-                </div>
-              </div>
+              {/* Форма параметров (секции A/B/C) вынесена в ./backtest/BacktestParametersForm (модульный план, п.2);
+                  стейт и хендлеры (включая updateSymbolParam-врапперы) остаются здесь и прокидываются пропсами */}
+              <BacktestParametersForm
+                strategy={strategy}
+                onStrategyChange={(v) => {
+                  setStrategy(v);
+                  if (onStrategyChange) onStrategyChange(v);
+                }}
+                isLiveOnlyStrategy={isLiveOnlyStrategy}
+                onSwitchToClusterStrategy={() => {
+                  setStrategy('cluster_volume_bounce');
+                  if (onStrategyChange) onStrategyChange('cluster_volume_bounce');
+                  setError(null);
+                }}
+                timeframe={timeframe}
+                onTimeframeChange={handleTimeframeChange}
+                days={days}
+                onDaysChange={handleDaysChange}
+                entryMode={entryMode}
+                onEntryModeChange={handleEntryModeChange}
+                mode={mode}
+                sl={sl}
+                onSlChange={handleSlChange}
+                tp={tp}
+                onTpChange={handleTpChange}
+                leverage={leverage}
+                onLeverageChange={handleLeverageChange}
+                slMin={slMin}
+                setSlMin={setSlMin}
+                slMax={slMax}
+                setSlMax={setSlMax}
+                tpMin={tpMin}
+                setTpMin={setTpMin}
+                tpMax={tpMax}
+                setTpMax={setTpMax}
+                showEmaFields={strategy === 'ema_trend' && mode === 'single'}
+                fastEma={fastEma}
+                onFastEmaChange={handleFastEmaChange}
+                slowEma={slowEma}
+                onSlowEmaChange={handleSlowEmaChange}
+                slMode={slMode}
+                onSlModeChange={handleSlModeChange}
+                wallSlOffsetTicks={wallSlOffsetTicks}
+                onWallSlOffsetChange={handleWallSlOffsetChange}
+                atrMultiplier={atrMultiplier}
+                onAtrMultiplierChange={handleAtrMultiplierChange}
+                useMultiTp={useMultiTp}
+                onMultiTpChange={handleMultiTpChange}
+                tp1RrRatio={tp1RrRatio}
+                onTp1RrChange={handleTp1RrChange}
+                tp2Mode={tp2Mode}
+                onTp2ModeChange={handleTp2ModeChange}
+                volMult={volMult}
+                onVolMultChange={handleVolMultChange}
+                filterCvd={filterCvd}
+                onFilterCvdChange={handleFilterCvdChange}
+                filterOi={filterOi}
+                onFilterOiChange={handleFilterOiChange}
+                filterAtr={filterAtr}
+                onFilterAtrChange={handleFilterAtrChange}
+                filterRsi={filterRsi}
+                onFilterRsiChange={handleFilterRsiChange}
+                makerFeePct={makerFeePct}
+                setMakerFeePct={setMakerFeePct}
+                takerFeePct={takerFeePct}
+                setTakerFeePct={setTakerFeePct}
+                slippageTicks={slippageTicks}
+                setSlippageTicks={setSlippageTicks}
+                onSwitchToLivePaper={() => setMode('live_paper')}
+              />
 
               {/* ACTION AREA: Prominent Run Backtest & Forecast Buttons */}
               <div className="pt-1">
