@@ -93,7 +93,7 @@
 
 ### 🧱 ФАЗА 5 — Risk Manager: M4.1/M4.2/M4.3 (крупнейший SRS-гэп)
 - [x] 5.1 **M4.2a:** Position Sizer поверх execution_simulator (без его изменения): Fixed Fractional (есть), Budgeted DCA-лестница (суммарный риск ≤1%), Max Portfolio Heat (2026-10-22, main: `services/position_sizer.py` — чистый детерминированный расчёт: fixed_fractional, budgeted_dca_ladder (равные/кастомные доли риска, нога за стопом → ValueError, weighted_entry), portfolio_heat + check_heat (allowed, heat_after); API `/api/risk/position-size|dca-ladder|heat-check`; 12 тестов. В LivePaperRunner пока НЕ подключён — интеграция и валидация режимов на марафоне = 5.6)
-- [ ] 5.2 **M4.2b:** Signal Quality Multiplier по Confluence Score (0.5–1.2×) — потребитель Фазы 3.1
+- [x] 5.2 **M4.2b:** Signal Quality Multiplier по Confluence Score (0.5–1.2×) — потребитель Фазы 3.1 (2026-10-22, main: `PositionSizer.quality_multiplier` — score<порога → 0.5×, на пороге 1.0×, линейно до 1.2× при 1.0; `adjusted_risk_budget` (без скора множитель 1.0 — FF не меняется); опциональный `confluence_score` в `/api/risk/position-size` и `/api/risk/dca-ladder`; 3 новых теста)
 - [ ] 5.3 **M4.2c:** Compounding-профиль со строгим дневным DD-лимитом
 - [ ] 5.4 **M4.3:** многоуровневый kill switch (−3%/−5%/−10%/$) с эскалацией и разблокировкой
 - [ ] 5.5 **M4.1:** Hedge Mode (Long+Short по разным суб-стратегиям) — отдельные суб-кошельки маржи

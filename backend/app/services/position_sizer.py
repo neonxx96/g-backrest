@@ -175,6 +175,44 @@ class PositionSizer:
         heat_after = self.portfolio_heat(open_risks_usd, equity) + (float(new_risk_usd) / equity * 100.0)
         return (heat_after <= limit + 1e-9, heat_after)
 
+    # --- Signal Quality Multiplier (SRS M4.2b) --------------------------------
+
+    @staticmethod
+    def quality_multiplier(confluence_score: float, threshold: float = 0.65) -> float:
+        """Множитель качества сигнала по Confluence Score (SRS: 0.5–1.2×).
+
+        - score < threshold  -> 0.5 (риск режем вдвое; решение о пропуске — не здесь,
+          а в Strict AND / Verdict);
+        - score >= threshold -> линейно 1.0 (на пороге) … 1.2 (при score = 1.0).
+        """
+        score = float(confluence_score)
+        if not 0.0 <= score <= 1.0:
+            raise ValueError("confluence_score must be within [0, 1]")
+        if not 0.0 < threshold <= 1.0:
+            raise ValueError("threshold must be within (0, 1]")
+        if score < threshold:
+            return 0.5
+        if threshold >= 1.0:
+            return 1.0
+        return 1.0 + 0.2 * (score - threshold) / (1.0 - threshold)
+
+    def adjusted_risk_budget(
+        self,
+        equity: float,
+        risk_pct: float,
+        confluence_score: Optional[float] = None,
+        threshold: float = 0.65,
+    ) -> Tuple[float, float]:
+        """(adjusted_budget_usd, multiplier): риск-бюджет с учётом quality multiplier.
+        Без скора (None) множитель 1.0 — поведение Fixed Fractional не меняется."""
+        if equity <= 0:
+            raise ValueError("equity must be positive")
+        if risk_pct <= 0:
+            raise ValueError("risk_pct must be positive")
+        base = equity * (risk_pct / 100.0)
+        mult = 1.0 if confluence_score is None else self.quality_multiplier(confluence_score, threshold)
+        return (base * mult, mult)
+
     # --- helpers --------------------------------------------------------------
 
     @staticmethod

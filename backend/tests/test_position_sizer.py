@@ -135,3 +135,38 @@ def test_risk_router_registered():
 
     paths = {r.path for r in router.routes}
     assert paths == {"/api/risk/position-size", "/api/risk/dca-ladder", "/api/risk/heat-check"}
+
+
+# --- Signal Quality Multiplier (SRS M4.2b) --------------------------------------
+
+def test_quality_multiplier_srs_band(sizer):
+    # Ниже порога 0.65 -> 0.5x; на пороге -> 1.0x; при 1.0 -> 1.2x
+    assert sizer.quality_multiplier(0.3) == 0.5
+    assert sizer.quality_multiplier(0.6499) == 0.5
+    assert sizer.quality_multiplier(0.65) == pytest.approx(1.0)
+    assert sizer.quality_multiplier(1.0) == pytest.approx(1.2)
+    # Линейность между порогом и 1.0: середина полосы -> 1.1
+    assert sizer.quality_multiplier(0.825) == pytest.approx(1.1)
+
+
+def test_quality_multiplier_validation(sizer):
+    with pytest.raises(ValueError):
+        sizer.quality_multiplier(-0.1)
+    with pytest.raises(ValueError):
+        sizer.quality_multiplier(1.01)
+    with pytest.raises(ValueError):
+        sizer.quality_multiplier(0.8, threshold=0.0)
+
+
+def test_adjusted_risk_budget_with_and_without_score(sizer):
+    # Без скора — чистый Fixed Fractional, множитель 1.0
+    budget, mult = sizer.adjusted_risk_budget(10_000.0, 1.0, confluence_score=None)
+    assert budget == pytest.approx(100.0) and mult == 1.0
+
+    # Сильный сигнал 1.0 -> 1.2x бюджета
+    budget, mult = sizer.adjusted_risk_budget(10_000.0, 1.0, confluence_score=1.0)
+    assert budget == pytest.approx(120.0) and mult == pytest.approx(1.2)
+
+    # Слабый сигнал ниже порога -> 0.5x
+    budget, mult = sizer.adjusted_risk_budget(10_000.0, 1.0, confluence_score=0.4)
+    assert budget == pytest.approx(50.0) and mult == 0.5

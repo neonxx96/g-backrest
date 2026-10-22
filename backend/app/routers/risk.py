@@ -20,6 +20,8 @@ class FixedFractionalRequest(BaseModel):
     entry_price: float = Field(..., gt=0)
     stop_price: float = Field(..., gt=0)
     risk_pct: float = Field(1.0, gt=0, le=10)
+    confluence_score: Optional[float] = Field(None, ge=0, le=1)
+    confluence_threshold: float = Field(0.65, gt=0, le=1)
 
 
 class DcaLadderRequest(BaseModel):
@@ -31,6 +33,8 @@ class DcaLadderRequest(BaseModel):
     leg_offsets_pct: List[float]
     leg_risk_shares: Optional[List[float]] = None
     risk_budget_pct: float = Field(1.0, gt=0, le=10)
+    confluence_score: Optional[float] = Field(None, ge=0, le=1)
+    confluence_threshold: float = Field(0.65, gt=0, le=1)
 
 
 class HeatCheckRequest(BaseModel):
@@ -42,25 +46,36 @@ class HeatCheckRequest(BaseModel):
 
 @router.post("/position-size")
 async def position_size(req: FixedFractionalRequest):
-    """Fixed Fractional: qty = (equity × risk_pct%) / |entry - stop|."""
-    qty = _sizer.fixed_fractional(req.equity, req.entry_price, req.stop_price, req.risk_pct)
-    return {"quantity": qty, "risk_usd": req.equity * req.risk_pct / 100.0}
+    """Fixed Fractional: qty = (equity × risk_pct%) / |entry - stop|.
+    С переданным confluence_score бюджет масштабируется quality multiplier (0.5–1.2×)."""
+    budget, mult = _sizer.adjusted_risk_budget(
+        req.equity, req.risk_pct, req.confluence_score, req.confluence_threshold
+    )
+    qty = budget / abs(req.entry_price - req.stop_price)
+    return {"quantity": qty, "risk_usd": budget, "quality_multiplier": mult}
 
 
 @router.post("/dca-ladder")
 async def dca_ladder(req: DcaLadderRequest):
-    """Budgeted DCA-лестница: суммарный риск всех ног до общего стопа ≤ бюджета."""
+    """Budgeted DCA-лестница: суммарный риск всех ног до общего стопа ≤ бюджета.
+    С переданным confluence_score бюджет масштабируется quality multiplier (0.5–1.2×)."""
+    budget, mult = _sizer.adjusted_risk_budget(
+        req.equity, req.risk_budget_pct, req.confluence_score, req.confluence_threshold
+    )
+    effective_budget_pct = budget / req.equity * 100.0
     try:
         plan = _sizer.budgeted_dca_ladder(
             symbol=req.symbol, side=req.side, equity=req.equity,
             entry_price=req.entry_price, stop_price=req.stop_price,
             leg_offsets_pct=req.leg_offsets_pct, leg_risk_shares=req.leg_risk_shares,
-            risk_budget_pct=req.risk_budget_pct,
+            risk_budget_pct=effective_budget_pct,
         )
     except ValueError as exc:
         from fastapi import HTTPException
         raise HTTPException(status_code=422, detail=str(exc))
-    return asdict(plan)
+    payload = asdict(plan)
+    payload["quality_multiplier"] = mult
+    return payload
 
 
 @router.post("/heat-check")
