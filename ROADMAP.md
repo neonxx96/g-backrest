@@ -82,7 +82,7 @@
 - [x] 3.2 **M3.3:** Verdict v2 traffic-light (PASS/WARNING/BLOCK) как формальный контракт + API + плашки в wizard; WARNING при PF 1.0–1.2, малой выборке (2026-10-22, main: `engine/verdict.py`, `/api/verdict/evaluate`, поле `verdict` в строках статуса пилота, `VerdictBadge` в OvernightPilotPanel; BLOCK при NetPnL<0/<10 сделок/TOXIC, WARNING при PF 1.0–1.2/<30 сделок/`L2 History: No data`; 13 тестов)
 - [ ] 3.3 Правки по STRATEGY_WEAKNESSES: авто-BE при +0.5R, adaptive wall, time-stop 45 мин, maker-выходы; матрица «было/стало» по 8×3
 - [ ] 3.4 Limit-order fill simulator для «Тест сетапа» (ветка `agent/cline/limit-fill-simulator`)
-- [ ] 3.5 **M2.1:** довести registry: VWAP, OI-плагины до полного набора SRS + тесты
+- [x] 3.5 **M2.1:** довести registry: VWAP, OI-плагины до полного набора SRS + тесты (2026-10-22, main: VWAP был полон; добавлен `plugins/open_interest.py` — truth-first, без OI-колонки ничего не синтезирует; registry покрывает полный набор M2.1: EMA/RSI/ATR/VWAP/CVD/VolumeSpike/OI; 7 тестов)
 
 ### 📊 ФАЗА 4 — Order Flow визуал: M1.2 + M6.2
 - [ ] 4.1 **M1.2a:** TPO/Volume Profile: TVAH/TPOC/TVAL из агрегированных распределений; `poc_price=null` при отсутствии aggTrades (тест-контракт)

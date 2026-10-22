@@ -2,6 +2,13 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-3.5 indicator registry — 2026-10-22
+
+- **ACTIVE_AGENT:** `kimi` (main)
+- **3.5 (M2.1):** VWAP-плагин проверен и полон. Добавлен OI-плагин `backend/app/services/indicators/plugins/open_interest.py`: truth-first — без реальной колонки `oi`/`open_interest` dataframe возвращается без изменений; при наличии — `oi_delta`, `oi_delta_pct`, сигналы `OI_BUILDUP`/`OI_FLUSH`. Registry теперь покрывает полный SRS-набор M2.1 (EMA, RSI, ATR, VWAP, CVD, VolumeSpike, OI) — зафиксировано тестом `test_registry_covers_full_srs_m21_set`. Тесты: `test_indicator_registry_srs.py` (7).
+- **Gate:** `check.ps1` PASS; `pytest backend/tests` — **263 passed, 28 skipped**; frontend build PASS.
+- **Напоминание:** backend не перезапускать (paper-марафон + recorder soak до 24.10).
+
 ## Kimi phase-3.2 verdict v2 — 2026-10-22
 
 - **ACTIVE_AGENT:** `kimi` (main)
