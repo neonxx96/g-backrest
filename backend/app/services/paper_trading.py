@@ -261,6 +261,18 @@ class PaperTradingSession:
             logger.warning(f"[TRADE] Entry order rejected for {symbol}: TOXIC_VOLATILITY regime blocks entries")
             raise ValueError(f"Trading blocked: TOXIC_VOLATILITY regime for {symbol}")
 
+        if role == PaperOrderRole.ENTRY.value:
+            position = self.positions.get(symbol)
+            if position and not position.closed and position.qty > 0:
+                raise ValueError(f"entry_already_open: {symbol}")
+            if any(
+                order.symbol == symbol
+                and order.role == PaperOrderRole.ENTRY
+                and order.sim.state.status in (OrderStatus.PENDING, OrderStatus.ACTIVE, OrderStatus.PARTIALLY_FILLED)
+                for order in self.orders.values()
+            ):
+                raise ValueError(f"entry_already_working: {symbol}")
+
         ts = signal_ts if signal_ts is not None else self._last_event_ts
         cfg = OrderConfig(
             signal_ts=int(ts),

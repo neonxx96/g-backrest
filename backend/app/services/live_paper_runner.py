@@ -47,6 +47,7 @@ class LivePaperRunner:
         self._last_tick_time: int = 0
         self._last_signal_time: int = 0
         self._signal_cooldown_sec: int = 30  # Cooldown between opening signals on same coin
+        self._last_entry_candle: int = 0
 
         # Configuration
         self.symbol: str = "BTCUSDT"
@@ -132,6 +133,7 @@ class LivePaperRunner:
         self.run_id = run_id
         self.config_fingerprint = config_fingerprint
         self._active_trade_ids = {}
+        self._last_entry_candle = 0
         self.initial_capital = float(config.get("initial_capital", 10000.0))
         self.risk_per_trade_pct = float(config.get("risk_per_trade_pct", 1.0))
         self.min_density_usd = float(config.get("min_density_usd", 500000.0))
@@ -619,9 +621,14 @@ class LivePaperRunner:
         # 4. Check if cooldown has elapsed and no active position for this coin
         active_positions = state.get("positions", [])
         has_pos_for_symbol = any(p.get("symbol") == self.symbol for p in active_positions)
+        has_entry_order = any(
+            order.get("symbol") == self.symbol and order.get("role") == "entry"
+            for order in state.get("active_orders", [])
+        )
         now_sec = time.time()
 
-        if has_pos_for_symbol or (now_sec - self._last_signal_time < self._signal_cooldown_sec):
+        if (has_pos_for_symbol or has_entry_order or self._last_entry_candle == self.indicator_candle_close_time
+                or now_sec - self._last_signal_time < self._signal_cooldown_sec):
             return
 
         # 5. Search for trade setups matching selected strategy
@@ -747,6 +754,10 @@ class LivePaperRunner:
 
         try:
             order_res = self.session.execute_unified_signal(signal_obj)
+            if order_res.get("status") == "REJECTED":
+                self._add_log("ORDER_REJECTED", f"Заявка {self.symbol} отклонена: {order_res.get('reason', 'risk guard')}")
+                return
+            self._last_entry_candle = self.indicator_candle_close_time
             risk_budget = self.session.available_margin * self.risk_per_trade_pct / 100.0
             trade_id = f"{self.symbol}:{signal_obj.timestamp}"
             self._active_trade_ids[self.symbol] = trade_id
