@@ -2,6 +2,16 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-4.5 (WebGL-heatmap плотностей) — 2026-10-22 (вечер)
+
+- **ACTIVE_AGENT:** `kimi` (main, коммит см. git log)
+- **4.5 (ФАЗА 4 ЗАКРЫТА):** дискретные прямоугольники overlay'а `densityHeatmap` заменены непрерывной WebGL-heatmap. `frontend/src/components/DepthHeatmapGL.jsx` — canvas `absolute inset-0 z5 pointer-events-none` поверх chart-wrapper'а: WebGL point sprites (вершинный/фрагментный шейдеры, гауссов спад, аддитивный blend SRC_ALPHA/ONE), батчинг по бакетам радиуса, координаты пакетно через `chart.convertToPixel(pts, {paneId:'candle_pane'})` → **перевод в clip-space обязателен**; честный 2D-fallback (radialGradient, composite 'lighter'). Математика — `frontend/src/components/chart/densityHeatmapMath.js` (чистые функции: maxVolumeOf, pointStyle, selectDensityPoints — бюджет 65% strongest + 45% recent + дедуп, splatGeometry с dpr), юнит-тесты `densityHeatmapMath.test.js` (5 шт., подключены в `test:pilot` → prebuild). Регистрация overlay'а `densityHeatmap` из Chart.jsx удалена, `adaptDensityPoints` → state `densityPoints`.
+- **⚠️ Два бага, найденных E2E (оба пофикшены):** (1) пиксели конвертировались в буфер без перевода в clip-space — все сплаты улетали за вьюпорт (glError=0, drawn>0 — молча пусто); (2) тумблер heatmap НЕ вызывал `loadHeatmap` — после загрузки свечей включение тумблера не давало точек вообще (regression при рефакторинге). Паттерн: `loadHeatmap(force)` + `if (next) loadHeatmap(true)` в обработчике.
+- **⚠️ Ловушка E2E:** element-screenshot ПРОЗРАЧНОГО WebGL-canvas захватывает контент под ним → размер PNG ничего не доказывает. Правильная проверка: debug-хук `window.__depthHeatmapGL = {mode, points, drawn, glError}` + pixel-scan clip-скриншота страницы (искать bid-teal/ask-red пиксели).
+- **E2E:** `scripts/verify_webgl_heatmap_ui.py` — PASS: points=42, drawn=42, glError=0, pixel scan colored=86, зум/скролл жив.
+- **Backend НЕ трогали** (марафон A/B работает: `overnight_{btc,eth,sol}usdt_1792698604`, BTC m4=true). Фин. ядро не затронуто.
+- **Gate:** `check.ps1` PASS — **351 passed, 28 skipped**, build (19 JS-тестов в prebuild), smoke, live WS (10 сокетов, 1500 свечей на chart_main).
+
 ## Kimi phase-6.5 (PDF-отчёт бэктеста) — 2026-10-22 (вечер)
 
 - **ACTIVE_AGENT:** `kimi` (main, коммит `b70e3e7`)
