@@ -2,6 +2,20 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-6.4 (модуляризация п.2) + критический фикс бэктестера — 2026-10-22 (вечер)
+
+- **ACTIVE_AGENT:** `kimi` (main: `46fd9b5` фикс бэкенда, `03f7ca5` модуляризация)
+- **6.4 (ЧАСТИЧНО):** консервативный слайс MODULARIZATION_PLAN п.2 под зелёным gate. Из `BacktestPanel.jsx` (2867→2636 строк) извлечены:
+  - `frontend/src/components/backtest/MonteCarloEquityChart.jsx` — SVG equity + веер Монте-Карло, default export, без внешних зависимостей;
+  - `frontend/src/components/backtest/BacktestTradesTable.jsx` — **управляемый** компонент (`trades/sortField/sortAsc/onSort/selectedId/onSelect`); состояние сортировки и выбора осталось в панели (`tradeSortField/tradeSortAsc/toggleSort/selectedTradeId/focusTradeFromTimeline`) — поведение 1:1;
+  - `frontend/src/components/backtest/format.js` — `fmtTime`/`fmtPrice`, единственный источник; локальные копии и мёртвые `ArrowUp/ArrowDown` из панели удалены (`ArrowUpDown` остался — pre-existing unused, не трогал).
+  - Прецедент извлечения уже был: `BacktestTradeTimeline.jsx` — повторён его паттерн импортов.
+- **E2E:** `scripts/verify_modularization_6_4.py` (playwright, проектный `.venv` — в нём playwright, во встроенном python его НЕТ) — 6/6 зелёных: прогон бэктеста через UI-кнопку `btn-run-single` (это кнопка запуска, не вкладка), рендер `monte-carlo-svg`, строки `backtest-trade-row`, сортировка по «Чистый PnL» меняет порядок, клик по строке даёт подсветку `bg-sky-500/10`. Нюансы: sticky-шапка таблицы перехватывает pointer-клики playwright → клики по `th` и первой строке через `page.evaluate(el.click())`; после рестарта backend график грузится >45 с → таймаут загрузки свечей в скрипте 120 с.
+- **⚠️ Критический фикс (фин. ядро):** `orderflow_backtester.py` ветвь `sl_mode=behind_wall` (active_position_setup) падала с **NameError `ask_wall_p`** с 17.10 (коммит `09a0c1d`) — переменные никогда не определены, L2 в историю не подаётся. Любой не-fast прогон с `sl_mode=behind_wall` (дефолт из UI-стора!) → 500. Gate это не ловил (тесты ходят другими ветками). Заменена ATR-буфером (`max(last_p*0.0025, last_atr*atr_multiplier)`). Найдено E2E 6.4 → curl-воспроизведение → фикс → live-проверка 200 (22 сделки, monte_carlo + active_position_setup на месте).
+- **Backend перезапущен (необходим для фикса + марафону 0 сделок):** kill обоих PID (шим 71904 + интерпретатор 57360), старт по процедуре из 6.1 (Start-Process, stdout/stderr → backend-runtime.*.log). Марафон A/B перезапущен 4-й раз: preflight_id `479dfc437c194466a30992857f8201dc`, session_id `overnight_{btc,eth,sol}usdt_1792697373`, BTC `use_m4_risk_gates=true` (конфиги — `data/pilot_configs_ab_20261022.json`). Paper-раннер жив (`paper_1792697305487`, balance 100).
+- **Gate:** `check.ps1` PASS — **346 passed, 28 skipped**, build, critical, blocking UI, live WS (10 сокетов).
+- **Осталось по 6.4/6.5:** остальные модули плана (PresetsBar, ParametersForm, OptimizerView, DOM, `Chart.jsx` — строго сильной моделью, золотые тесты сначала), PDF/HTML отчёт бэктеста.
+
 ## Kimi phase-6.3 (M6.4) help-tooltips + фиксы рисков 6.2 — 2026-10-22 (вечер)
 
 - **ACTIVE_AGENT:** `kimi` (main: `4828a87` риски, `cf26d21` тултипы)
