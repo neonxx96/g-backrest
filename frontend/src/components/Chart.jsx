@@ -795,6 +795,113 @@ try {
   });
 } catch (_) {}
 
+// 4b. Register custom 'footprintCandle' (Footprint внутри свечи: buy/sell объёмы по уровням,
+// imbalance-бордеры, stacked imbalance ♦, absorption ▬ — метрики считает backend, SRS M1.2b)
+try {
+  registerOverlay({
+    name: 'footprintCandle',
+    totalStep: 2,
+    needDefaultPointFigure: false,
+    needDefaultXAxisFigure: false,
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ coordinates, xAxis, yAxis, overlay }) => {
+      if (!coordinates || coordinates.length === 0) return [];
+      const anchor = coordinates[0];
+      if (!Number.isFinite(anchor?.x)) return [];
+
+      const data = overlay.extendData || {};
+      const levels = Array.isArray(data.levels) ? data.levels : [];
+      if (levels.length === 0) return [];
+
+      const candleTs = Number(data.candleTs || 0);
+      const tfMs = Number(data.tfMs || 300000);
+      const maxLevelVol = Number(data.maxLevelVol || 0) || 1;
+
+      // Ширина колонки футпринта = ширина 5-мин бакета в пикселях (ограничена 64px)
+      let colWidth = 40;
+      if (xAxis && typeof xAxis.convertToPixel === 'function' && candleTs > 0) {
+        const x0 = xAxis.convertToPixel(candleTs);
+        const x1 = xAxis.convertToPixel(candleTs + tfMs);
+        if (Number.isFinite(x0) && Number.isFinite(x1) && x1 > x0) {
+          colWidth = Math.min(64, Math.max(8, x1 - x0 - 2));
+        }
+      }
+      const left = anchor.x - colWidth / 2;
+
+      // Высота строки = расстояние между соседними уровнями (кламп 3..14px)
+      let rowHeight = 6;
+      if (yAxis && typeof yAxis.convertToPixel === 'function' && levels.length > 1) {
+        const yA = yAxis.convertToPixel(levels[0].price);
+        const yB = yAxis.convertToPixel(levels[1].price);
+        if (Number.isFinite(yA) && Number.isFinite(yB) && yA !== yB) {
+          rowHeight = Math.min(14, Math.max(3, Math.abs(yA - yB) - 1));
+        }
+      }
+
+      const figures = [];
+      let topY = Infinity;
+      let bottomY = -Infinity;
+
+      for (const lvl of levels) {
+        if (!yAxis || typeof yAxis.convertToPixel !== 'function') break;
+        const y = yAxis.convertToPixel(lvl.price);
+        if (!Number.isFinite(y)) continue;
+        topY = Math.min(topY, y);
+        bottomY = Math.max(bottomY, y);
+
+        const totalVol = (lvl.buy_vol || 0) + (lvl.sell_vol || 0);
+        if (totalVol <= 0) continue;
+        const share = totalVol / maxLevelVol;
+        const barWidth = Math.max(1, colWidth * share);
+        const isBuyDelta = (lvl.delta || 0) >= 0;
+        const alpha = 0.14 + 0.42 * share;
+        const fill = isBuyDelta ? `rgba(16, 185, 129, ${alpha})` : `rgba(239, 83, 80, ${alpha})`;
+
+        const styles = { style: 'fill', color: fill };
+        if (lvl.imbalance === 'buy' || lvl.imbalance === 'sell') {
+          styles.style = 'stroke_fill';
+          styles.borderColor = lvl.imbalance === 'buy' ? '#10b981' : '#ef5350';
+          styles.borderSize = 1.5;
+        }
+        figures.push({
+          type: 'rect',
+          attrs: { x: left, y: y - rowHeight / 2, width: barWidth, height: rowHeight },
+          styles,
+          ignoreEvent: true
+        });
+      }
+
+      // Stacked imbalance: янтарный ромб над колонкой
+      const stacked = data.stacked || { buy: 0, sell: 0 };
+      if ((stacked.buy >= 3 || stacked.sell >= 3) && Number.isFinite(topY)) {
+        const cx = left + colWidth / 2;
+        const cy = topY - 8;
+        const r = 3.5;
+        figures.push({
+          type: 'polygon',
+          attrs: { coordinates: [
+            { x: cx, y: cy - r }, { x: cx + r, y: cy }, { x: cx, y: cy + r }, { x: cx - r, y: cy }
+          ]},
+          styles: { style: 'fill', color: stacked.buy >= 3 ? '#f59e0b' : '#fb7185' },
+          ignoreEvent: true
+        });
+      }
+
+      // Absorption: фиолетовая черта под колонкой
+      if (data.absorption && Number.isFinite(bottomY)) {
+        figures.push({
+          type: 'rect',
+          attrs: { x: left, y: bottomY + 5, width: colWidth, height: 2.5 },
+          styles: { style: 'fill', color: 'rgba(168, 85, 247, 0.85)' },
+          ignoreEvent: true
+        });
+      }
+
+      return figures;
+    }
+  });
+} catch (_) {}
+
 // 5. Register custom 'strategyLevelZone' (Strategy Entry/SL/TP Level + Role-Colored Badge)
 try {
   registerOverlay({
@@ -1754,6 +1861,8 @@ export default function Chart({
 
   // Stage 3: Heatmap (default OFF for clean chart), Liquidations, VWAP, Storage info
   const [showHeatmap, setShowHeatmap] = useState(() => localStorage.getItem('chart_heatmap') === 'true');
+  // Footprint-слой внутри свечей (SRS M1.2b), default OFF
+  const [showFootprint, setShowFootprint] = useState(() => localStorage.getItem('chart_footprint') === 'true');
   const [showLiquidations, setShowLiquidations] = useState(() => localStorage.getItem('chart_liquidations') !== 'false');
   const [showVwap, setShowVwap] = useState(() => localStorage.getItem('chart_vwap') === 'true');
   const [showWalls, setShowWalls] = useState(() => localStorage.getItem('chart_walls') !== 'false');
@@ -1763,6 +1872,7 @@ export default function Chart({
   const [storageInfo, setStorageInfo] = useState({ earliest: '', usage: '' });
   const activeLiqOverlays = useRef([]);
   const activeHeatmapOverlays = useRef([]);
+  const activeFootprintOverlays = useRef([]);
   const activeWallOverlays = useRef([]);
   const vwapLineOverlay = useRef(null);
   const currentKlines = useRef([]);
@@ -2780,6 +2890,60 @@ export default function Chart({
     } catch (_) {}
   }, [symbol, showHeatmap, heatmapMinUsd, adaptDensityPoints]);
 
+  // Load and render Footprint clusters inside candles (SRS M1.2b)
+  const loadFootprint = useCallback(async () => {
+    if (!chartRef.current || !showFootprint) {
+      activeFootprintOverlays.current.forEach(id => {
+        try { chartRef.current.removeOverlay({ id }); } catch (_) {}
+      });
+      activeFootprintOverlays.current = [];
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/recorder/clusters?symbol=${symbol}&limit=48`);
+      if (!res.ok) return;
+      const data = await res.json();
+
+      activeFootprintOverlays.current.forEach(id => {
+        try { chartRef.current.removeOverlay({ id }); } catch (_) {}
+      });
+      activeFootprintOverlays.current = [];
+
+      if (!Array.isArray(data)) return;
+      data.forEach(candle => {
+        const levels = Array.isArray(candle.levels) ? candle.levels : [];
+        if (levels.length === 0) return;
+        const maxLevelVol = Math.max(...levels.map(l => (l.buy_vol || 0) + (l.sell_vol || 0)), 0);
+        if (maxLevelVol <= 0) return;
+        // Якорь — середина диапазона уровней, чтобы createPointFigures получил валидную координату
+        const midPrice = (levels[0].price + levels[levels.length - 1].price) / 2;
+        const id = chartRef.current.createOverlay({
+          name: 'footprintCandle',
+          lock: true,
+          points: [{ timestamp: candle.timestamp, value: midPrice }],
+          extendData: {
+            candleTs: candle.timestamp,
+            tfMs: 300000,
+            levels,
+            maxLevelVol,
+            stacked: candle.stacked_imbalance || { buy: 0, sell: 0 },
+            absorption: Boolean(candle.absorption)
+          }
+        });
+        if (id) activeFootprintOverlays.current.push(id);
+      });
+    } catch (_) {}
+  }, [symbol, showFootprint]);
+
+  // Периодическое обновление футпринта, пока слой включён
+  useEffect(() => {
+    if (!showFootprint) return;
+    loadFootprint();
+    const interval = setInterval(loadFootprint, 15000);
+    return () => clearInterval(interval);
+  }, [showFootprint, loadFootprint]);
+
   // Render parsed orderbook walls on the chart
   const renderOrderBookWalls = useCallback((bidsRaw, asksRaw) => {
     if (!chartRef.current || !showWalls) {
@@ -2996,6 +3160,7 @@ export default function Chart({
           updateVwapOverlay(candles);
           loadLiquidations();
           loadHeatmap();
+          loadFootprint();
           setKlinesVersion((v) => v + 1);
         } else {
           setStatusMsg("Свечи отсутствуют");
@@ -4119,7 +4284,21 @@ export default function Chart({
             <span className="hidden xl:inline ml-0.5">Плотн.</span>
           </button>
 
-          <button 
+          <button
+            data-testid="btn-toolbar-toggle-footprint"
+            title="Footprint внутри свечей: buy/sell по уровням, imbalance (бордер), stacked ♦, absorption ▬"
+            onClick={() => {
+              const next = !showFootprint;
+              setShowFootprint(next);
+              localStorage.setItem('chart_footprint', next ? 'true' : 'false');
+            }}
+            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition flex items-center ${showFootprint ? 'bg-[#10b98122] text-[#10b981] border border-[#10b98150]' : 'text-[#60697b] hover:text-white'}`}
+          >
+            <span>👣</span>
+            <span className="hidden xl:inline ml-0.5">Футпр.</span>
+          </button>
+
+          <button
             title="Маркеры ликвидаций Binance Futures"
             onClick={() => {
               const next = !showLiquidations;

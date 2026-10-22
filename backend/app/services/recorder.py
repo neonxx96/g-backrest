@@ -22,6 +22,76 @@ from backend.app.config import RECORDED_DATA_DIR, MAX_STORAGE_GB, FOCUS_SYMBOLS,
 
 logger = logging.getLogger(__name__)
 
+# --- Footprint метрики (SRS M1.2b): stacked imbalance и absorption ----------
+
+IMBALANCE_RATIO = 3.0       # классический порог диагонального имбаланса 300%
+STACKED_MIN_RUN = 3         # stacked = серия из >=3 соседних уровней одной стороны
+ABSORPTION_VOL_MULT = 1.5   # объём свечи >= 1.5x медианы окна
+ABSORPTION_DELTA_SHARE = 0.2  # |delta| <= 20% объёма при большом объёме
+
+
+def _imbalance_side(buy_vol: float, sell_vol: float, min_significant: float) -> Optional[str]:
+    """Сторона имбаланса уровня: 'buy'/'sell' при ratio >= 3 и значимом объёме."""
+    big, small = max(buy_vol, sell_vol), min(buy_vol, sell_vol)
+    if big < min_significant:
+        return None
+    if small <= 0:
+        return "buy" if buy_vol > 0 else ("sell" if sell_vol > 0 else None)
+    if big / small < IMBALANCE_RATIO:
+        return None
+    return "buy" if buy_vol >= sell_vol else "sell"
+
+
+def _longest_run(sides: List[Optional[str]], target: str) -> int:
+    best = run = 0
+    for side in sides:
+        run = run + 1 if side == target else 0
+        best = max(best, run)
+    return best
+
+
+def annotate_cluster_metrics(candles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Обогащает кластерные свечи метриками (in-place по словарям, возвращает список):
+    - `levels[].imbalance`: 'buy'/'sell'/None (ratio >= 3, объём >= 5% макс. уровня);
+    - `stacked_imbalance`: {'buy': int, 'sell': int} — длины наибольших серий >= 3;
+    - `absorption`: True, если объём >= 1.5x медианы окна, а |delta| <= 20% объёма.
+    """
+    volumes = [float(c.get("total_volume", 0.0)) for c in candles]
+    positive = sorted(v for v in volumes if v > 0)
+    if positive:
+        mid = len(positive) // 2
+        median_vol = positive[mid] if len(positive) % 2 else (positive[mid - 1] + positive[mid]) / 2.0
+    else:
+        median_vol = 0.0
+
+    for candle in candles:
+        levels = candle.get("levels") or []
+        max_level_vol = max((float(l.get("buy_vol", 0.0)) + float(l.get("sell_vol", 0.0)) for l in levels), default=0.0)
+        min_significant = max_level_vol * 0.05
+
+        sides: List[Optional[str]] = []
+        for level in levels:
+            side = _imbalance_side(float(level.get("buy_vol", 0.0)), float(level.get("sell_vol", 0.0)), min_significant)
+            level["imbalance"] = side
+            sides.append(side)
+
+        buy_run = _longest_run(sides, "buy")
+        sell_run = _longest_run(sides, "sell")
+        candle["stacked_imbalance"] = {
+            "buy": buy_run if buy_run >= STACKED_MIN_RUN else 0,
+            "sell": sell_run if sell_run >= STACKED_MIN_RUN else 0,
+        }
+
+        total_vol = float(candle.get("total_volume", 0.0))
+        total_delta = abs(float(candle.get("total_delta", 0.0)))
+        candle["absorption"] = bool(
+            median_vol > 0
+            and total_vol >= ABSORPTION_VOL_MULT * median_vol
+            and total_delta <= ABSORPTION_DELTA_SHARE * total_vol
+        )
+    return candles
+
+
 class OrderFlowRecorder:
     def __init__(self):
         self.focus_symbols: List[str] = list(FOCUS_SYMBOLS)
@@ -362,7 +432,7 @@ class OrderFlowRecorder:
                     "delta": round(info['delta'], 4),
                     "trades": info['trades']
                 })
-            
+
             c_delta = sum(l['delta'] for l in levels)
             c_vol = sum(l['buy_vol'] + l['sell_vol'] for l in levels)
 
@@ -373,7 +443,7 @@ class OrderFlowRecorder:
                 "levels": levels
             })
 
-        return result
+        return annotate_cluster_metrics(result)
 
     async def start(self):
         """Starts WebSocket multi-stream recording task."""

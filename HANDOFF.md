@@ -2,6 +2,14 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-4.2 Footprint на графике — 2026-10-22
+
+- **ACTIVE_AGENT:** `kimi` (main)
+- **4.2 (M1.2b) метрики (server-side):** `recorder.py::annotate_cluster_metrics` обогащает `/api/recorder/clusters`: `levels[].imbalance` ('buy'/'sell'/None, ratio ≥ 3 и объём ≥ 5% макс. уровня), `stacked_imbalance {buy, sell}` (наибольшие серии ≥ 3 соседних уровней), `absorption` (vol ≥ 1.5× медианы окна и |Δ| ≤ 20% vol). Константы IMBALANCE_RATIO/STACKED_MIN_RUN/ABSORPTION_* вынесены. Тесты: `test_footprint_metrics.py` (7).
+- **4.2 UI:** оверлей `footprintCandle` в Chart.jsx — buy/sell бары по уровням внутри 5-мин бакета (ширина ∝ объёму, цвет по дельте), imbalance — яркий бордер, stacked ≥3 — ромб ♦ (amber buy / rose sell) над колонкой, absorption — фиолетовая черта ▬ под колонкой. Тумбл 👣 «Футпр.» в тулбаре (persist `chart_footprint`, default OFF), refresh 15 с, загрузка `/api/recorder/clusters?limit=48`. Сайд-панель FootprintClusters.jsx сохранена как виджет.
+- **Gate:** `check.ps1` PASS; `pytest backend/tests` — **293 passed, 28 skipped**; frontend build PASS.
+- **Напоминание:** backend не перезапускать (марафон + soak до 24.10); метрики в live-эндпоинте появятся после штатного рестарта. Футпринт рисуется только по свечам, накопленным in-memory recorder'ом (5-мин бакеты, последние 100).
+
 ## Kimi phase-4.1 TPO / Volume Profile — 2026-10-22
 
 - **ACTIVE_AGENT:** `kimi` (main)
