@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { X, Download, RefreshCw, BookOpen, Brain, CheckCircle2, SkipForward, Flag, PlusCircle } from 'lucide-react';
 
+import SessionReviewPanel from './SessionReviewPanel';
+
 const EVENT_LABELS = {
   SIGNAL: { text: '📡 СИГНАЛ', bg: 'rgba(56, 189, 248, 0.14)', border: 'rgba(56, 189, 248, 0.4)', color: '#38bdf8' },
   AI_OPINION: { text: '🧠 МНЕНИЕ AI', bg: 'rgba(168, 85, 247, 0.16)', border: 'rgba(168, 85, 247, 0.45)', color: '#c084fc' },
@@ -271,6 +273,9 @@ export default function DecisionJournalModal({
             </button>
           </div>
         </div>
+
+        {/* Пост-сессионный разбор (задача 7.3) */}
+        <SessionReviewPanel />
 
         {/* Quick Manual Action Bar & Filters */}
         <div

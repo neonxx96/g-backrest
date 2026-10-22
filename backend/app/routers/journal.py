@@ -9,19 +9,24 @@ import io
 import csv
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional, List
 
 import aiohttp
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, asc
 
 from backend.app.config import OPENROUTER_API_KEY, OPENROUTER_MODEL
 from backend.app.db.database import AsyncSessionLocal
 from backend.app.db.models import DecisionLog, StrategyPreset, SignalHistory
 from backend.app.services.binance_service import binance_service
+from backend.app.services.paper_trading import paper_trading_session
+from backend.app.services.session_review import (
+    DEFAULT_MAX_LAG_MS,
+    build_session_review,
+)
 from backend.app.services.indicators import compute_indicators
 from backend.app.services.orderflow_backtester import OrderFlowBacktester
 
@@ -258,6 +263,50 @@ async def get_decision_logs(
             "count": len(rows),
             "logs": [serialize_log(r) for r in rows]
         }
+
+
+@journal_router.get("/session-review")
+async def get_session_review(
+    hours: int = Query(24, ge=1, le=24 * 30, description="Окно decision_logs, часов"),
+    max_lag_ms: int = Query(DEFAULT_MAX_LAG_MS, ge=1_000, le=3_600_000,
+                            description="Макс. разрыв решение→вход, мс"),
+):
+    """Пост-сессионный разбор (задача 7.3): закрытые сделки paper-сессии,
+    связанные с decision_logs за окном. Читает живую paper-сессию и SQLite —
+    строго read-only, на торговлю не влияет.
+    """
+    state = paper_trading_session.get_state()
+    trades = list(getattr(state, "closed_trades", None) or [])
+
+    now_utc = datetime.now(timezone.utc)
+    since_naive = (now_utc - timedelta(hours=hours)).replace(tzinfo=None)  # БД хранит naive-UTC
+    async with AsyncSessionLocal() as db:
+        stmt = (
+            select(DecisionLog)
+            .where(DecisionLog.timestamp >= since_naive)
+            .order_by(asc(DecisionLog.timestamp), asc(DecisionLog.id))
+        )
+        rows = (await db.execute(stmt)).scalars().all()
+        decisions = [
+            {
+                "id": r.id,
+                # naive datetime = UTC по конвенции проекта (datetime.utcnow)
+                "timestamp_ms": int(r.timestamp.replace(tzinfo=timezone.utc).timestamp() * 1000),
+                "symbol": r.symbol,
+                "event_type": r.event_type,
+                "user_decision": r.user_decision,
+                "direction": r.direction,
+                "price": r.price,
+                "notes": r.notes,
+            }
+            for r in rows
+        ]
+
+    review = build_session_review(trades, decisions, max_lag_ms=max_lag_ms)
+    review["window_hours"] = hours
+    review["paper_session_id"] = getattr(state, "session_id", None)
+    review["decisions_in_window"] = len(decisions)
+    return review
 
 
 @journal_router.post("/log")
