@@ -2,6 +2,14 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-6.2 (M5.2) Apply Strategy #X — 2026-10-22 (вечер)
+
+- **ACTIVE_AGENT:** `kimi` (main, коммит `ca4bb99`)
+- **6.2:** кнопка «Apply Strategy #X» в AI Copilot в 1 клик. Backend: `orderflow_backtester.run_backtest` принимает `fast_period`/`slow_period` (default 20/50 — поведение не изменено; fast≥slow → ValueError; already_enriched df не мутируется — copy перед пересчётом EMA); `BacktestParams` + model_validator → 422. Frontend: секция «Quant Sweep Leaderboard» в `AICopilotSidebar.jsx` (Top-10 по OOS-скору, вердикты, «▶ Запустить sweep», refresh; при пустом сторе — честное empty-state без синтетики), apply пишет в `backtestStore` (`strategy_type=ema_trend`, fast/slow, timeframe) и диспатчит `apply-sweep-strategy` — `BacktestPanel.jsx` слушает и обновляет форму (поля Fast/Slow EMA видны при strategy=ema_trend). AI строго advisory. Тесты: `test_sweep_apply_ema_params.py` (5).
+- **⚠️ Во время задачи backend умер второй раз:** процесс 21:23 (шим 82072 + воркер 85804) накапливал CPU (288 с) и 725 МБ, но НЕ держал слушающий порт (HTTP не поднимался; марафон фактически простаивал с момента рестарта). Убит оба PID, поднят заново — health за 10 с. Марафон A/B перезапущен в 3-й раз: preflight_id `08aa4acbf62b48ca9319866b5da52bcd`, session_id `overnight_{btc,eth,sol}usdt_1792694979`, BTC `use_m4_risk_gates=true`, все `data_status=connected`. Equity снова 10000 (в прошлый запуск сделок не было). Критерии сверки — `docs/PAPER_MARATHON.md`.
+- **Рекомендация:** если backend снова «жив, но без порта» — сразу смотреть `Get-NetTCPConnection -State Listen` по PID воркера; не ждать. Вероятный след к расследованию: зависание startup до bind uvicorn (Telegram/parquet?).
+- **Gate:** `check.ps1` PASS — **346 passed, 28 skipped**, build, critical, blocking UI, live WS — зелёные.
+
 ## Kimi phase-6.1 + рестарт backend и A/B-перезапуск марафона — 2026-10-22 (вечер)
 
 - **ACTIVE_AGENT:** `kimi` (main)

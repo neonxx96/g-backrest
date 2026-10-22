@@ -101,7 +101,7 @@
 
 ### 🤖 ФАЗА 6 — AI & Quant Sweep: M5 + M6.4
 - [x] 6.1 **M5.1:** Quant Sweep leaderboard Top 1–10 (net expectancy, PF, drawdown) как артефакт отчёта (2026-10-22, main: `engine/sweep_leaderboard.py` — детерминированный grid sweep по сетке параметров, ранжирование Top-N по net expectancy с tie-break по PF/drawdown, persist runs; API `/api/sweep/run|leaderboard|runs`; 6 тестов)
-- [ ] 6.2 **M5.2:** «Apply Strategy #X» в AI Copilot в 1 клик (инъекция параметров в форму); AI строго advisory
+- [x] 6.2 **M5.2:** «Apply Strategy #X» в AI Copilot в 1 клик (инъекция параметров в форму); AI строго advisory (2026-10-22, main: `orderflow_backtester` — параметризованные EMA-периоды fast/slow (default 20/50 = legacy, невалидные пары → ValueError/422 через валидатор `BacktestParams`); секция «Quant Sweep Leaderboard» в AICopilotSidebar — Top-10 по OOS-скору с вердиктами ROBUST/MODERATE/OVERFITTED, кнопки запуска/обновления sweep и «Apply Strategy #N» → инъекция в форму бэктеста (store + событие `apply-sweep-strategy`); в BacktestPanel поля Fast/Slow EMA для ema_trend; 5 тестов `test_sweep_apply_ema_params.py`; QA 346 passed)
 - [ ] 6.3 **M6.4:** help-tooltips (?) на каждый параметр форм; plain-language подсказки
 - [ ] 6.4 Модуляризация по MODULARIZATION_PLAN (сильная модель, golden-тесты); PDF/HTML отчёт бэктеста
 - [ ] 6.5 PDF-отчёт: equity, Monte-Carlo, тепловая карта по дням/часам

@@ -3,6 +3,26 @@
 > Morning reports и ключевые события марафона production_robust на BTC/ETH/SOL.
 > Команда отчёта: `scripts/night-pilot.ps1 -Action report` (read-only).
 
+## 2026-10-22 (вечер, ~22:50 local) — Второй рестарт backend (зависание без порта)
+
+**Событие:** процесс backend, поднятый при первом рестарте (~21:23), накапливал CPU (288 с)
+и память (725 МБ), но **не держал слушающий порт** — HTTP-сервер не поднялся, марафон
+фактически простаивал. Обнаружено при падении gate smoke (connection refused).
+Убиты оба PID (шим .venv + воркер), backend перезапущен (health за 10 с).
+Потерь по сделкам нет: у всех трёх сессий по-прежнему 0 сделок.
+
+**Третий запуск марафона (A/B-дизайн сохранён):**
+
+| Символ | session_id | use_m4_risk_gates | Роль |
+|---|---|---|---|
+| BTCUSDT | `overnight_btcusdt_1792694979` | **true** | Тестовая группа |
+| ETHUSDT | `overnight_ethusdt_1792694979` | false | Контрольная группа |
+| SOLUSDT | `overnight_solusdt_1792694979` | false | Контрольная группа |
+
+- Preflight: `08aa4acbf62b48ca9319866b5da52bcd` (исторический PnL пресета тот же: отрицательный, известно).
+- Состояние после старта: все три `data_status=connected`, у BTC `m4_risk_gates.enabled=true`.
+- След к расследованию зависания: startup до bind uvicorn (Telegram/parquet?) — отдельная задача.
+
 ## 2026-10-22 (вечер) — Рестарт backend и A/B-перезапуск марафона
 
 **Событие:** Di разрешил рестарт backend. Марафон, запущенный утром (`overnight_*_1792680718`),
