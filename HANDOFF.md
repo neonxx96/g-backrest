@@ -2,6 +2,13 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-7.3 (Дневник трейдера v2) — 2026-10-23 (ночь)
+
+- **ACTIVE_AGENT:** `kimi` (main: `377f7fa`)
+- Связка paper-сделок с decision_logs: `services/session_review.py` (чистые функции; окно решение→вход 15 мин, регистронезависимо; агрегаты match rate, PnL бакетов, skipped-opportunity, bleed, MFE-R) + `GET /api/journal/session-review` (read-only) + `SessionReviewPanel.jsx` в модалке журнала. 9 тестов, gate **385 passed**.
+- **Ограничение (для следующего слайса):** связка только с живой demo paper-сессией (`paper_trading_session.closed_trades` умирают с процессом). Марафонные overnight-сессии хранят deals в менеджере — при желании расширить источник сделок.
+- **Backend перезапущен (8-й раз)**, марафон — 8-й запуск: `overnight_{btc,eth,sol}usdt_1792703442`, preflight из API, BTC m4=true, все connected. Morning report завтра.
+
 ## Kimi phase-2.5 (Replay-плеер lake) — ЗАКРЫТО — 2026-10-22 (ночь)
 
 - **ACTIVE_AGENT:** `kimi` (main: `5a29623` backend, +UI-коммит этой ночи)
