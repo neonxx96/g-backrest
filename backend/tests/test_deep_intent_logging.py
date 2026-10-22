@@ -203,6 +203,111 @@ def test_live_runner_writes_skip_management_and_close_intents(tmp_path):
     assert events[2]["payload"]["net_pnl"] == 4.25
 
 
+def test_runner_records_stop_exit_when_the_market_fill_arrives_after_decision(tmp_path):
+    """An exit must be logged at the fill boundary, not on the decision tick."""
+    session = PaperTradingSession(
+        initial_balance=1_000.0,
+        signal_lag_ms=0,
+        order_rtt_ms=0,
+        session_id="exit-fill-session",
+    )
+    runner = LivePaperRunner(session=session)
+    runner.intent_logger = DeepIntentLogger(path=tmp_path / "deep_intent_log.jsonl")
+    runner.symbol = "BTCUSDT"
+    runner.run_id = "exit-fill-run"
+    runner.config_fingerprint = "exit-fill-config"
+    runner._active_trade_ids["BTCUSDT"] = "BTCUSDT:entry-1"
+
+    session.place_order(
+        "BTCUSDT", "BUY", "LIMIT", 100.0, 1.0,
+        stop_price=98.0, target_price=104.0, signal_ts=1_000,
+    )
+    session.process_event(type("Event", (), {
+        "timestamp": 1_000,
+        "kind": "depth",
+        "symbol": "BTCUSDT",
+        "payload": {"bids": [(99.9, 2.0)], "asks": [(100.1, 2.0)]},
+    })())
+    session.process_event(type("Event", (), {
+        "timestamp": 1_001,
+        "kind": "trade",
+        "symbol": "BTCUSDT",
+        "payload": {"price": 99.9, "quantity": 1.0},
+    })())
+
+    # The stop decision only places a market exit. It does not close the
+    # trade until the next market event reaches the simulator.
+    session.close_position(
+        "BTCUSDT", 97.5, order_type="MARKET", reason="STOP_LOSS", signal_ts=2_000,
+    )
+    session.process_event(type("Event", (), {
+        "timestamp": 2_000,
+        "kind": "depth",
+        "symbol": "BTCUSDT",
+        "payload": {"bids": [(97.4, 2.0)], "asks": [(97.6, 2.0)]},
+    })())
+    session.process_event(type("Event", (), {
+        "timestamp": 2_001,
+        "kind": "trade",
+        "symbol": "BTCUSDT",
+        "payload": {"price": 97.5, "quantity": 1.0},
+    })())
+
+    events = runner.intent_logger.read_recent(limit=5, run_id="exit-fill-run")
+    assert len(events) == 1
+    event = events[0]
+    assert event["event_type"] == "POSITION_CLOSED"
+    assert event["trade_id"] == "BTCUSDT:entry-1"
+    assert event["reason_code"] == "STOP_LOSS"
+    assert event["payload"]["exit_reason"] == "stop_loss"
+    assert event["payload"]["net_pnl"] == pytest.approx(
+        event["payload"]["gross_pnl"] - event["payload"]["total_fees"]
+    )
+
+
+def test_runner_logs_kill_switch_exit_with_financial_snapshot(tmp_path):
+    session = PaperTradingSession(
+        initial_balance=1_000.0,
+        signal_lag_ms=0,
+        order_rtt_ms=0,
+        session_id="kill-exit-session",
+    )
+    runner = LivePaperRunner(session=session)
+    runner.intent_logger = DeepIntentLogger(path=tmp_path / "deep_intent_log.jsonl")
+    runner.symbol = "ETHUSDT"
+    runner.run_id = "kill-exit-run"
+    runner._active_trade_ids["ETHUSDT"] = "ETHUSDT:entry-1"
+
+    session.place_order(
+        "ETHUSDT", "BUY", "LIMIT", 100.0, 1.0,
+        stop_price=98.0, target_price=104.0, signal_ts=1_000,
+    )
+    session.process_event(type("Event", (), {
+        "timestamp": 1_000,
+        "kind": "depth",
+        "symbol": "ETHUSDT",
+        "payload": {"bids": [(99.9, 2.0)], "asks": [(100.1, 2.0)]},
+    })())
+    session.process_event(type("Event", (), {
+        "timestamp": 1_001,
+        "kind": "trade",
+        "symbol": "ETHUSDT",
+        "payload": {"price": 99.9, "quantity": 1.0},
+    })())
+
+    session.kill_switch("risk limit")
+
+    event = runner.intent_logger.read_recent(limit=1, run_id="kill-exit-run")[0]
+    assert event["event_type"] == "POSITION_CLOSED"
+    assert event["reason_code"] == "KILL_SWITCH: RISK LIMIT"
+    assert event["trade_id"] == "ETHUSDT:entry-1"
+    assert event["payload"]["exit_reason"] == "kill_switch"
+    assert event["payload"]["is_final_exit"] is True
+    assert event["payload"]["net_pnl"] == pytest.approx(
+        event["payload"]["gross_pnl"] - event["payload"]["total_fees"]
+    )
+
+
 def test_paper_run_lifecycle_links_events_and_closed_trade_accounting(tmp_path):
     from backend.app.services.deep_intent_logger import DeepIntentLogger
     from backend.app.services.live_paper_runner import LivePaperRunner

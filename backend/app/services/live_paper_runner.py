@@ -111,6 +111,8 @@ class LivePaperRunner:
         self.run_id: Optional[str] = None
         self.config_fingerprint: Optional[str] = None
         self._active_trade_ids: Dict[str, str] = {}
+        self._recorded_closed_trade_ids = set()
+        self.session.set_lifecycle_listener(self._on_session_lifecycle_event)
 
         # Logs & Real-Time Equity Curve
         self.logs: List[Dict[str, Any]] = []
@@ -133,6 +135,7 @@ class LivePaperRunner:
         self.run_id = run_id
         self.config_fingerprint = config_fingerprint
         self._active_trade_ids = {}
+        self._recorded_closed_trade_ids = set()
         self._last_entry_candle = 0
         self.initial_capital = float(config.get("initial_capital", 10000.0))
         self.risk_per_trade_pct = float(config.get("risk_per_trade_pct", 1.0))
@@ -1128,21 +1131,60 @@ class LivePaperRunner:
 
     def _record_new_closed_intents(self, start_index: int) -> None:
         for trade in self.session.closed_trades[start_index:]:
-            trade_symbol = str(trade.get("symbol", self.symbol))
-            trade_id = self._active_trade_ids.pop(trade_symbol, None)
-            self._record_event(
-                "POSITION_CLOSED", str(trade.get("reason", "EXIT")).upper(), str(trade.get("reason", "EXIT")),
-                symbol=trade_symbol,
-                trade_id=trade_id,
-                payload={
-                    "entry_price": trade.get("entry_price"),
-                    "exit_price": trade.get("exit_price"),
-                    "gross_pnl": trade.get("gross_pnl"),
-                    "total_fees": trade.get("fee_drag"),
-                    "net_pnl": trade.get("net_pnl"),
-                    "fee_drag": trade.get("fee_drag"),
-                },
-            )
+            self._record_closed_trade_intent(trade)
+
+    def _on_session_lifecycle_event(self, event_type: str, trade: Dict[str, Any]) -> None:
+        """Persist realized exits when the simulator applies the fill, not a tick later."""
+        if event_type == "POSITION_EXIT_FILLED":
+            self._record_closed_trade_intent(trade)
+
+    def _record_closed_trade_intent(self, trade: Dict[str, Any]) -> None:
+        trade_symbol = str(trade.get("symbol", self.symbol))
+        closure_id = str(trade.get("closure_id") or "|".join([
+            trade_symbol,
+            str(trade.get("entry_ts", "")),
+            str(trade.get("exit_ts", "")),
+            str(trade.get("qty", "")),
+            str(trade.get("reason", "")),
+        ]))
+        if closure_id in self._recorded_closed_trade_ids:
+            return
+        self._recorded_closed_trade_ids.add(closure_id)
+        raw_reason = str(trade.get("reason", "EXIT"))
+        normalized = raw_reason.upper()
+        if normalized.startswith("KILL_SWITCH"):
+            exit_reason = "kill_switch"
+        elif "PROTECTIVE_STOP" in normalized:
+            exit_reason = "protective_stop"
+        elif "STOP" in normalized:
+            exit_reason = "stop_loss"
+        elif "TP1" in normalized or "PARTIAL" in normalized:
+            exit_reason = "take_profit_partial"
+        elif "TAKE_PROFIT" in normalized:
+            exit_reason = "take_profit"
+        else:
+            exit_reason = normalized.lower()
+        is_final_exit = bool(trade.get("is_final_exit", True))
+        trade_id = self._active_trade_ids.get(trade_symbol)
+        if is_final_exit:
+            trade_id = self._active_trade_ids.pop(trade_symbol, trade_id)
+        self._record_event(
+            "POSITION_CLOSED", normalized, raw_reason,
+            symbol=trade_symbol,
+            trade_id=trade_id,
+            payload={
+                "closure_id": closure_id,
+                "entry_price": trade.get("entry_price"),
+                "exit_price": trade.get("exit_price"),
+                "gross_pnl": trade.get("gross_pnl"),
+                "total_fees": trade.get("fee_drag"),
+                "net_pnl": trade.get("net_pnl"),
+                "fee_drag": trade.get("fee_drag"),
+                "slippage_cost": trade.get("slippage_cost", 0.0),
+                "exit_reason": exit_reason,
+                "is_final_exit": is_final_exit,
+            },
+        )
 
 # Global singleton runner
 live_paper_runner = LivePaperRunner()

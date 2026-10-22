@@ -22,7 +22,7 @@ import math
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from backend.app.services.early_exit_engine import EarlyExitEngine
 from backend.app.services.execution_simulator import (
@@ -192,6 +192,8 @@ class PaperTradingSession:
         self.closed_trades: List[dict] = []
         self.last_prices: Dict[str, float] = {}
         self._last_event_ts = 0
+        self._closure_sequence = 0
+        self._lifecycle_listener: Optional[Callable[[str, Dict[str, Any]], None]] = None
 
         # Early Exit Engine (MFE/MAE tracker + alert rule engine)
         self.early_exit_engine = EarlyExitEngine()
@@ -200,6 +202,27 @@ class PaperTradingSession:
         self.is_halted: bool = False
         self.halt_reason: Optional[str] = None
         self.halt_ts: Optional[int] = None
+
+    def set_lifecycle_listener(
+        self,
+        listener: Optional[Callable[[str, Dict[str, Any]], None]],
+    ) -> None:
+        """Attach the runner-owned observer for fills that change trade state."""
+        self._lifecycle_listener = listener
+
+    def _append_closed_trade(self, trade: Dict[str, Any]) -> None:
+        """Store one realized exit and notify telemetry at the same state boundary."""
+        self._closure_sequence += 1
+        trade["closure_id"] = f"{self.session_id}:{self._closure_sequence}"
+        self.closed_trades.append(trade)
+        if len(self.closed_trades) > 1000:
+            self.closed_trades = self.closed_trades[-1000:]
+        if self._lifecycle_listener is None:
+            return
+        try:
+            self._lifecycle_listener("POSITION_EXIT_FILLED", dict(trade))
+        except Exception:
+            logger.exception("[PaperSession] lifecycle listener failed for %s", trade.get("symbol"))
 
     def set_fee_rates_percent(self, maker_fee_pct: float, taker_fee_pct: float) -> None:
         """Apply the API/backtest fee convention (percent, e.g. 0.05 = 5 bps)."""
@@ -669,7 +692,8 @@ class PaperTradingSession:
         track = self.early_exit_engine.tracks.get(symbol)
         fee_drag = entry_fee_share + fee
         # Record closed trade with the completed Reality Mirror metrics.
-        self.closed_trades.append({
+        is_final_exit = pos.qty - close_qty <= 1e-9
+        self._append_closed_trade({
             "symbol": symbol,
             "side": pos.side,
             "qty": close_qty,
@@ -692,11 +716,9 @@ class PaperTradingSession:
             "tp1_filled": bool(getattr(pos, "tp1_filled", False)),
             "entry_ts": pos.entry_ts,
             "exit_ts": self._last_event_ts,
+            "is_final_exit": is_final_exit,
+            "slippage_cost": 0.0,
         })
-
-        # Cap closed trades buffer to prevent memory leakage
-        if len(self.closed_trades) > 1000:
-            self.closed_trades = self.closed_trades[-1000:]
 
         # Release margin
         margin_released = pos.margin_used * (close_qty / open_qty_before_exit) if open_qty_before_exit > 0 else 0.0
@@ -871,7 +893,7 @@ class PaperTradingSession:
                 pos.qty = 0.0
                 pos.closed = True
 
-                self.closed_trades.append({
+                self._append_closed_trade({
                     "symbol": sym,
                     "side": pos.side,
                     "qty": close_qty,
@@ -892,6 +914,8 @@ class PaperTradingSession:
                     "entry_reason": getattr(pos, "reason", "Technical Signal"),
                     "entry_ts": pos.entry_ts,
                     "exit_ts": now_ts,
+                    "is_final_exit": True,
+                    "slippage_cost": 0.0,
                 })
 
                 margin_released = pos.margin_used
