@@ -1,113 +1,125 @@
-# 🗺️ ROADMAP SignalScript — мастер-план развития приложения
+# 🗺️ ROADMAP SignalScript v2.0 — мастер-план, синхронизированный с SRS v1.0
 
-> **Версия:** 1.0 (черновик для правки Di)  
+> **Версия:** 2.0 (переписан под SRS)  
 > **Дата:** 2026-10-22  
-> **Автор:** новый агент (ревью кодовой базы, HANDOFF, QA-аудитов и плановых документов)  
-> **Статус:** 🟡 НА РЕДАКТИРОВАНИИ — Di правит приоритеты/состав, агент потом исполняет
+> **Источник требований:** [docs/specs/srs-v1.0.md](docs/specs/srs-v1.0.md) (Approved for Implementation)  
+> **Карта кода:** [CODEGRAPH.md](CODEGRAPH.md) (ноды/слои ссылаются туда)  
+> **Статус:** 🟡 НА РЕДАКТИРОВАНИИ — Di правит приоритеты в разделе «Решения Di»  
+> **История:** v1.0 → v2.0: разнесён по модулям SRS M1–M6, добавлена матрица трассировки SRS ↔ код, учтены guards единого бэкенда (f033956).
 
 ---
 
-## 0. Контекст: что это за проект и какие инварианты неприкосновенны
+## 0. Инварианты (конституция проекта, выровнена с SRS §1.1)
 
-**SignalScript** — консультативный крипто-фьючерсный терминал (Binance USDT-M): график KLineCharts, живой стакан L2, лента сделок, скринер, честный бэктестер, paper-симулятор (Night Pilot), AI-второе мнение (OpenRouter-каскад с бюджетом), standalone market-data recorder в immutable data lake.
-
-**Инварианты (менять только с согласия Di):**
-1. **Строго консультативно.** Никаких реальных ордеров, ключей, автоторговли.
-2. **Zero bullshit data.** Никаких `Math.random()` в рыночных данных; при обрыве — честный `disconnected` и реконнект.
-3. **Zero look-ahead.** Никакой аналитике нельзя заглядывать в будущие бары.
-4. **Порты:** backend `8000`, frontend `5173` (сейчас введён dynamic binding — см. риск R2), SQLite `data/signals.db`.
-5. **Единый шлюз качества:** перед любым коммитом — `scripts/check.ps1` зелёный.
-6. **Файлы-гиганты** (`Chart.jsx`, `BacktestPanel.jsx`, `orderflow_backtester.py`, `OrderBookDOM.jsx`) не дробить «заодно» — только по `docs/MODULARIZATION_PLAN.md` и под зелёными тестами.
-
----
-
-## 1. Текущее состояние (факт, подтверждённый проверкой 2026-10-22)
-
-| Проверка | Результат |
-|---|---|
-| `pytest backend/tests` | ✅ **212 passed, 28 skipped** |
-| Фронтенд `http://127.0.0.1:5173` | ✅ жив (HTTP 200) |
-| Backend runtime (dynamic port `8002` по `data/backend_runtime.json`) | ✅ `/api/health` = ok, WS connected, 150 символов |
-| Ветка / рабочее дерево | ⚠️ `agent/codex/recorder`, **17 изменённых файлов не закоммичены** + untracked (в т.ч. чужие/частичные работы) |
-| Gate `check.ps1` (полный) | 🟡 не гонялся этой сессией; последний подтверждённый PASS — 137 passed (2026-10-20, HANDOFF) |
-
-### Что реально сделано и работает
-- **Терминал:** график + 12 оверлеев (SMC, Risk/Reward, конус волатильности, бэктест-трейды), DOM Canvas 2D со спуф-детектором, лента сделок со звуком, скринер со спарклайнами, dockview-раскладки с сохранением, 3 темы.
-- **Честный бэктест:** execution simulator (комиссии Maker/Taker, slippage, multi-TP, BE/trailing), золотые тесты, walk-forward + OOS/holdout в оптимизаторе, RegimeClassifier (FLAT_DENSE / TREND_IMPULSE / TOXIC_VOLATILITY), truth-контракт (`data_availability`, отдельные entry/exit reasons).
-- **Paper Trading:** `LivePaperRunner`, Overnight Pilot (wizard: конфигурация → checks → оптимизация → запуск), run-scoped телеметрия (JSONL deep intent log), feed-health, kill-switch, NO_TRADE-диагностика, morning report (Backtest/Forecast/Paper раздельно).
-- **AI-контур:** OpenRouter-каскад (платный → free → локальный fallback), дневной бюджет, модель-хаб с кешем, телеметрия стоимости, «второе мнение» с фактологическим промптом.
-- **Recorder S1 (новый):** отдельный процесс, канонический envelope, Binance-нормализаторы (aggressor side!), fsync spool, immutable zstd Parquet + SHA-256 манифесты, gap-журнал, 50 GiB disk policy, CLI `run|status`, Docker-файлы. Покрыт тестами.
-- **Документация/процесс:** AGENTS.md, HANDOFF.md, DECISIONS.md, QA_BUGS_AUDIT, MODULARIZATION_PLAN, superpowers specs/plans — живые и актуальные.
-
-### Известные проблемы (честный список)
-- **R1. Dirty tree.** 17 modified + untracked файлов без коммита; смешанное владение (Antigravity-правки + recorder-ветка). Риск потерять работу или закоммитить чужое.
-- **R2. Два backend-процесса** (старый listener на `8000` PID 57480 и новый runtime `8002`). Рассинхрон API, путаница в CLI/скриптах.
-- **R3. Recorder не задеплоен** на сервер (нет SSH/Docker target). Старый recorder с дырами (gap 5ч50м 19.10, ETH depth 18ч40м 17–18.10) всё ещё единственный источник истории.
-- **R4. Все стратегии в квантовом свипе (7 дней) — net-negative** (STRATEGY_WEAKNESSES_AND_UPGRADES.md): fee drag 118–2481% от gross PnL, MFE bleed до 31%, серии до 15 лоссов. План правок (BE@0.5R, adaptive wall, time-stop, maker-выходы) описан, пресет `production_robust` — не внедрён (следующий шаг из AI_HANDOFF).
-- **R5. Ночной пилот на старом коде:** runtime `8002` не перезапускался, новые поля/телеметрия появятся только после штатного рестарта.
-- **R6. QA-аудит показывал 404 `/api/monitoring/state`** (19.10; роутер `monitoring.py` уже есть — проверить, закрыт ли дефект).
-- **R7. Мусор в корне репо:** логи, скриншоты, `calibration_results.json`, `check_pilot.py`, `моя комора/` — гигиена репозитория.
-- **R8. Открытые бэклоги из docs:** Volume Profile/TPO (0%), footprint внутри свечей (автономный компонент), непрерывная WebGL-heatmap, тиковый реплей-плеер, мультибиржевая агрегация, PDF/HTML-отчёт бэктеста, limit-order fill simulator для «Тест сетапа» (ветки `agent/cline/replay-engine`, `limit-fill-simulator`, `live-assistant`, `footprint-history` — судьба не зафиксирована).
+1. **Truth-First & No-Fake Data** (SRS 1.1.1): никаких синтетических данных и OHLC-прокси для L2/ликвидности; отсутствие данных = явное `No data`.
+2. **Deterministic Engine** (SRS 1.1.2): входы/выходы — только через `UnifiedTradeSignal`; LLM — строго advisory (советы, тюнинг параметров, отчёты).
+3. **Multi-Regime Consistency** (SRS 1.1.3): одна стратегия (`UnifiedTradeSignal`) исполняется одинаково в History → Walk-Forward/OOS → Live Paper.
+4. **Isolated Layers** (SRS 1.1.4): backend / scripts / frontend строго разделены; `execution_simulator.py` — неизменяем.
+5. **Строго консультативно:** никаких реальных ордеров и ключей.
+6. **Строго один backend-процесс** (guard: check.ps1 шаг 0; AGENTS.md §6).
+7. **Единый шлюз качества:** `scripts/check.ps1` зелёный перед любым коммитом.
+8. **Файлы-гиганты** не дробить вне `docs/MODULARIZATION_PLAN.md`.
 
 ---
 
-## 2. РОАДМАП (правится Di; агент исполняет после утверждения)
+## 1. Трассировка SRS ↔ код (сверено с CODEGRAPH, 2026-10-22)
 
-### 🔧 ФАЗА 0 — Стабилизация и гигиена (1 сессия, перед всем остальным)
-- [ ] **0.1 Разобрать рабочее дерево:** пройтись по 17 modified + untracked, закоммитить атомарно по владельцам/смыслу или откатить. Зафиксировать в HANDOFF, кто и что оставил.
-- [ ] **0.2 Backend-слияние процессов:** штатно остановить старый listener `8000`, оставить один runtime (либо осознанно принять dynamic binding и обновить AGENTS.md/скрипты/доки — сейчас инвариант «строго 8000» противоречит коду).
-- [ ] **0.3 Повторить полный `check.ps1`** и зафиксировать свежий бейзлайн (цель: зелёный + 212 тестов).
-- [ ] **0.4 Гигиена репо:** логи/скриншоты/json-мусор → `artifacts/` или `.gitignore`; решить судьбу `context/qa`, `calibration_results.json`.
-- [ ] **0.5 Закрыть R6:** проверить `/api/monitoring/state`, если 404 — починить + регрессионный тест.
-- [ ] **0.6 Решение по веткам:** судьба `agent/cline/*` (replay-engine, limit-fill-simulator, live-assistant, footprint-history) — merge / доработать / закрыть. Тег `stable-20261022` после Фазы 0.
+Легенда: ✅ done · 🟡 partial · ❌ missing · 🔲 superseded (перекрыто новым рекордером)
 
-### 🌙 ФАЗА 1 — Paper Trading: от «работает» до «можно верить» (приоритет №1 по AI_HANDOFF)
-- [ ] **1.1 Прессет `production_robust`:** vol_mult 1.25, RSI 42–58, R:R ≥ 2.75:1, TP ≥ 2.2%, SL 0.75–0.80% в `overnight_pilot.py` + тест.
-- [ ] **1.2 CLI:** `night-pilot.ps1` — запуск production_robust на актуальном runtime для BTC/ETH/SOL; вывод WinRate/Net PnL по монетам, Warning Sentinel при блокировке входов.
-- [ ] **1.3 Штатный рестарт runtime** (в окне без активных сессий): поднять новый код (run_id, телеметрия, feed-health, aggregate morning report).
-- [ ] **1.4 Довести до коммита текущий telemetry-slice** (uncommitted changes в overnight_pilot/live_paper_runner) — он уже протестирован, надо закрыть.
-- [ ] **1.5 Марафон paper-сессий:** ≥ 3–5 суток непрерывного прогона по 3+ монетам; ежедневные morning reports; сводная таблица в `docs/PAPER_MARATHON.md`.
-- [ ] **1.6 Критерии перехода к Фазе 3 (Di утверждает пороги):** profit factor ≥ 1.2, max DD ≤ X%, fee drag < Y% от gross, отсутствие инцидентов data-truth.
+| SRS | Требование | Статус | Ноды в CODEGRAPH | Закрывается |
+|---|---|---|---|---|
+| **M1.1** | Историческое хранилище: дневные Parquet + Data Manifest (диапазоны, гэпы, типы) | 🟡 | `REC`: recorder S1 — immutable lake, SHA-256 манифесты, gap-журнал; но layout не daily-files, Data Manifest не машиночитаемый для истории | Фаза 2 |
+| **M1.2** | Footprint/TPO только из aggTrades; `poc_price=null` при отсутствии; TVAH/TPOC/TVAL | 🟡 | `SRV/cluster_engine.py` (poc_price, delta, cvd есть; TVAH/TVAL, stacked_imbalance частично); `CMP/FootprintClusters.jsx` — автономен, не в свечах; null-контракт POC не зафиксирован тестом | Фаза 4 |
+| **M1.3** | Recorder по активному Watchlist; Wall TTL (сек); Auto-режим (99-й перцентиль/K×median) + Manual (≥$500k, TTL≥15с) | 🟡 | `SRV/recorder.py` — фиксированный focus_symbols (🔲 заменяется REC); Wall TTL живёт только в `CMP/OrderBookDOM.jsx` (клиент); auto-режима квантиля нет | Фаза 2 |
+| **M2.1** | Indicator Registry: EMA, RSI, ATR, VWAP, CVD, VolumeSpike, OI | 🟡 | `SRV/indicators/registry.py` + plugins есть; VWAP/OI-плагины требуют проверки полноты | Фаза 3 |
+| **M2.2** | Entry Modes: Breakout / Bounce | ✅ | `orderflow_backtester.py`: `entry_mode` = `limit_bounce`/`breakout`/`cvd_absorption` | — |
+| **M2.3** | Strict AND + Weighted Confluence (Σw=1, порог ~0.65) | ❌ | Strict AND — в фильтрах бэктестера; взвешенного скоринга нет (`engine/` — нет confluence_score) | Фаза 3 |
+| **M2.4** | SL/TP bounds; динамический SL: Fixed % / Behind Wall / ATR-based | ✅ | `orderflow_backtester.py:434`: `sl_mode` = `fixed_pct`/`behind_wall`/`atr_volatility` | — |
+| **M2.5** | `UnifiedTradeSignal` с `entry_reason` list + `exit_reason` | ✅ | `ENG/trade_contract.py` (fan-in 7, тесты) | — |
+| **M3.1** | Комиссии maker/taker, slippage, Fee Drag % | ✅ | `EXE/execution_simulator.py` + `fee_drag` в UI/отчётах | — |
+| **M3.2** | RegimeClassifier; Train/Validation/Holdout | ✅ | `ENG/regime_classifier.py`, `ENG/walk_forward_engine.py`, optimizer OOS+holdout | — |
+| **M3.3** | Verdict v2: PASS/WARNING/BLOCK; блок при NetPnL<0, малой выборке, TOXIC; флаг `L2 History: No data` | 🟡 | Блок-вердикт есть в pilot; трёхуровневый traffic-light и WARNING-уровень не формализованы | Фаза 3 |
+| **M4.1** | Position Modes: One-Way (с DCA/reversal) и Hedge Mode | ❌ | `SRV/paper_trading.py`, `live_paper_runner.py` — только one-way | Фаза 5 |
+| **M4.2** | Position Sizer: Fixed Fractional 1%; Budgeted DCA (риск лестницы ≤1%); Signal Quality Multiplier (0.5–1.2×); Max Portfolio Heat; Compounding с дневным DD-лимитом | 🟡 | Fixed Fractional есть (`risk_per_trade_pct`, фикс формулы риска в бэктестере); DCA-лестница, quality multiplier, heat, compounding — отсутствуют | Фаза 5 |
+| **M4.3** | Kill Switch: −3%/−5%/−10% или $-порог | 🟡 | Kill-switch есть (test_paper_kill_switch_and_forecast); многоуровневые пороги не настроены | Фаза 5 |
+| **M5.1** | Quant Sweep Optimizer: grid + пермутaции, Top 1–10 leaderboard | 🟡 | `ENG/optimizer.py` (genetic), `SRV/think_optimizer.py`, grid в `BacktestPanel.jsx`; ранжированный Top-10 лидерборд как артефакт — нет | Фаза 6 |
+| **M5.2** | AI Copilot: human-readable отчёты, кнопка «Apply Strategy #X» в 1 клик; AI строго advisory | 🟡 | `API/ai_copilot.py`, `CMP/AICopilotSidebar.jsx`, OpenRouter-каскад с бюджетом; Apply есть в pilot wizard, но не в AI Copilot | Фаза 6 |
+| **M6.1** | Dockview LEGO-layout: floating windows, табы, 2-й монитор, persistence SQLite+localStorage | ✅ | `DCK/TerminalDockview.jsx`, `STO/layoutStore.js`, `API/workspaces.py`; `layoutRecovery.js` (новое) | — |
+| **M6.2** | Chart: слои Heatmap/Densities, Liquidations, TPO, Forecast Bands, Signals, Regime; под-панели CVD/OI/RSI; тултип сделки (entry reasons, exit, fees, Fee Drag%, MFE, MAE, regime) | 🟡 | `CMP/Chart.jsx`: конус, SMC, RR-box, бэктест-трейды есть; TPO-слоя нет, OI под-панели нет, MFE/MAE в тултипе нет | Фаза 4 |
+| **M6.3** | DOM & Tape высокой производительности | ✅ | `CMP/OrderBookDOM.jsx`, `DCK/TradesWidget.jsx` (Canvas 2D) | — |
+| **M6.4** | Эргономика: пресеты, color-linking, help-tooltips (?) на каждый параметр | 🟡 | `STO/colorLinksStore.js`, пресеты есть; help-tooltips — нет | Фаза 6 |
+| **QA** | ≥80 pytest, build+gate зелёные | ✅ | 212 passed / 28 skipped; gate зелёный | — |
 
-### 📦 ФАЗА 2 — Recorder в продакшен + честный L2-бэктест
-- [ ] **2.1 Деплой:** получить от Di SSH/Docker target (hostname/IP, user, port) или Docker context; remote build/up `Dockerfile.recorder` + compose; smoke/status.
-- [ ] **2.2 Параллельная эксплуатация:** новый recorder ≥ 48 ч рядом со старым; сверка gap-журнала; только потом старый recorder выключить (решение 9 из DECISIONS.md).
-- [ ] **2.3 Replay-плеер:** восстановить/интегрировать `agent/cline/replay-engine` поверх нового lake: Play/Pause/Step/скорость, стакан+лента в прошлом.
-- [ ] **2.4 L2-honest стратегии:** после накопления ≥ 7 дней lake — реальный бэктест `density_bounce`/`wall_breakout` на исторических стаканах (убрать свечной суррогат), сравнение с суррогатной моделью.
-- [ ] **2.5 Подпитка live-терминала:** heatmap/footprint читают из lake вместо старого recorder.
-
-### ⚙️ ФАЗА 3 — Качество исполнения стратегий (квантовый контур)
-- [ ] **3.1 Правки по STRATEGY_WEAKNESSES:** авто-BE при +0.5R; adaptive wall (`median(Volume*Close,50)*2.5`); time-stop 45 мин без +0.3R; лимитные maker-выходы вместо taker-trailing.
-- [ ] **3.2 Валидация каждой правки:** walk-forward + OOS + режимы RegimeClassifier; матрица «было/стало» по 8 монетам × 3 стратегиям (как в квантовом свипе).
-- [ ] **3.3 Limit-order fill simulator:** «Тест сетапа» в HUD проверяет одиночный лимитный ордер по цене entry (ветка `agent/cline/limit-fill-simulator`), а не только стратегию за 14 дней.
-- [ ] **3.4 Early-exit / live-assistant:** интегрировать `early_exit_engine`, `execution`-провайдеров из соответствующих веток, если Di подтверждает.
-
-### 📊 ФАЗА 4 — Аналитический контур (глубина терминала)
-- [ ] **4.1 Volume Profile / TPO:** дневной/сессионный профиль, VAH/VAL/POC оверлеем на графике.
-- [ ] **4.2 Footprint в свечах:** встроить `FootprintClusters` в полотно KLineCharts (сейчас автономный компонент).
-- [ ] **4.3 Непрерывная heatmap:** WebGL/2D-слой под свечами вместо дискретных полигонов.
-- [ ] **4.4 Мультибиржа:** дожать `BybitAdapter` до live-режима (WS depth/trades), агрегированный кросс-биржевой стакан; OKX — по желанию Di.
-- [ ] **4.5 CVD/OI подвалы:** мультибиржевая дельта, побарный график Open Interest.
-
-### 🧹 ФАЗА 5 — Модуляризация и отчётность
-- [ ] **5.1 По `docs/MODULARIZATION_PLAN.md`:** дробить файлы-гиганты строго по плану, сильной моделью, побитовые golden-тесты до/после. Порядок: `orderflow_backtester.py` → `BacktestPanel.jsx` → `OrderBookDOM.jsx` → `Chart.jsx` (рискованнее всего).
-- [ ] **5.2 PDF/HTML отчёт бэктеста:** equity, Monte-Carlo просадки, тепловая карта доходности по дням/часам.
-- [ ] **5.3 Перфоманс:** вынести парсинг WS-стакана с клиента (Web Worker или бэкенд-прокси нормализованных диффов 100–250 мс), если Фаза 1.5 покажет проблемы на длительной сессии.
-
-### 🚀 ФАЗА 6 — Продуктовая обвязка (после успешного paper-марафона)
-- [ ] **6.1 Деплой терминала:** Proxmox/Docker по `DEPLOY.md`, Cloudflare Tunnel, автообновление.
-- [ ] **6.2 Алерты:** Telegram-расширения (сигналы сканера уже есть), web-push, Warning Sentinel наружу.
-- [ ] **6.3 Дневник трейдера v2:** связка paper-сделок с ручными решениями из `decision_logs`, пост-сессионный разбор.
-- [ ] **6.4 Решение о следующем горизонте** (Di): остаёмся консультативными / добавляем read-only биржевой кабинет (балансы, позиции без ключей с правами торговли) — строго без нарушения инварианта №1.
+**Вывод сверки:** фундамент (M2.2, M2.4, M2.5, M3.1, M3.2, M6.1, M6.3, QA) готов. Крупнейшие провалы: **M2.3** (weighted confluence), **M4.1/M4.2** (hedge mode + position sizer) — оба блокируют «institutional-grade» из SRS. Средние: M1.2/M1.3 (TPO + watchlist-recorder), M3.3 (verdict v2), M6.2 (слои графика).
 
 ---
 
-## 3. Правила игры для агентов, исполняющих роадмап
-1. Одна фаза = одна сессия/ветка `agent/<инструмент>/<фаза>`, модель по таблице AGENTS.md §4.
-2. Перед стартом фазы: `HANDOFF.md` + `git status` + `check.ps1`; после: отчёт по шаблону AGENTS.md §7 и обновление HANDOFF.
-3. Не смешивать фазы в одном чате; контекст передаётся только через файлы.
-4. Каждый пункт роадмапа, который трогает деньги/риск/исполнение, — сначала тесты, потом код.
-5. Любое отклонение от роадмапа — фиксируется в этом файле (раздел «Решения Di» ниже).
+## 2. РОАДМАП (по фазам; исполняется после утверждения Di)
+
+### ✅ ФАЗА 0 — Стабилизация (ВЫПОЛНЕНО 2026-10-22)
+- [x] 0.1 Разобрать рабочее дерево → коммит 29c5f5c + merge a17a128 в main
+- [x] 0.2 Один backend: убиты 2 известных + 6 зомби-процессов; один backend на 8000, vite 5173 → прокси 8000; `.env` = 8000; guards (check.ps1 шаг 0, run_app.ps1, AGENTS.md §6) → коммит f033956
+- [x] 0.3 Свежий gate-зелёный бейзлайн (212 тестов)
+- [x] 0.4 ROADMAP.md v1 + CODEGRAPH.md (212 нод, 370 связей)
+- [x] 0.5 SRS v1.0 принят в docs/specs, трассировка с CODEGRAPH (этот файл, v2.0)
+
+### 🌙 ФАЗА 1 — Paper Trading: production_robust + марафон (M3.3/M4 в bootstrap)
+- [ ] 1.1 Пресет `production_robust`: vol_mult 1.25, RSI 42–58, R:R ≥ 2.75:1, TP ≥ 2.2%, SL 0.75–0.80% в `overnight_pilot.py` + тест
+- [ ] 1.2 `night-pilot.ps1`: запуск production_robust на 8000 для BTC/ETH/SOL; WinRate/Net PnL по монетам, Warning Sentinel
+- [ ] 1.3 Paper-марафон 3–5 суток; morning reports в `docs/PAPER_MARATHON.md`
+- [ ] 1.4 Критерии перехода (Di утверждает): PF ≥ 1.2, max DD ≤ X%, fee drag < Y%
+
+### 📦 ФАЗА 2 — Recorder production + M1.3 (SRS Data Ingestion)
+- [ ] 2.1 Деплой recorder на сервер (нужен SSH/Docker target от Di); 48 ч параллельно со старым, сверка gap-журнала
+- [ ] 2.2 **M1.3a:** watchlist-driven подписки — recorder читает активный WatchlistWidget, а не фиксированный список
+- [ ] 2.3 **M1.3b:** Wall TTL на бэкенде (persist, API) + Auto-режим плотности (99-й перцентиль / K×median за N мин) рядом с Manual ≥$500k/TTL≥15с
+- [ ] 2.4 **M1.1:** машиночитаемый Data Manifest (диапазоны, гэпы, типы данных) поверх lake; выравнивание layout под SRS
+- [ ] 2.5 Replay-плеер из lake (Play/Pause/Step/скорость) — опция: влить `agent/cline/replay-engine`
+- [ ] 2.6 L2-honest бэктест density/wall стратегий после ≥7 дней lake
+
+### ⚙️ ФАЗА 3 — Strategy Engine: M2.3 + M3.3 + правки по квантовому отчёту
+- [ ] 3.1 **M2.3:** Weighted Confluence engine — веса wᵢ (Σ=1), динамический порог (≈0.65), скор в `UnifiedTradeSignal`; в UI — редактор весов
+- [ ] 3.2 **M3.3:** Verdict v2 traffic-light (PASS/WARNING/BLOCK) как формальный контракт + API + плашки в wizard; WARNING при PF 1.0–1.2, малой выборке
+- [ ] 3.3 Правки по STRATEGY_WEAKNESSES: авто-BE при +0.5R, adaptive wall, time-stop 45 мин, maker-выходы; матрица «было/стало» по 8×3
+- [ ] 3.4 Limit-order fill simulator для «Тест сетапа» (ветка `agent/cline/limit-fill-simulator`)
+- [ ] 3.5 **M2.1:** довести registry: VWAP, OI-плагины до полного набора SRS + тесты
+
+### 📊 ФАЗА 4 — Order Flow визуал: M1.2 + M6.2
+- [ ] 4.1 **M1.2a:** TPO/Volume Profile: TVAH/TPOC/TVAL из агрегированных распределений; `poc_price=null` при отсутствии aggTrades (тест-контракт)
+- [ ] 4.2 **M1.2b:** Footprint внутри свечей KLineCharts (влить `FootprintClusters.jsx` в полотно); stacked_imbalance, absorption метрики
+- [ ] 4.3 **M6.2a:** слои-тумблы графика: TPO Profile, Liquidations, Forecast Bands, Regime (часть есть — довести до SRS-набора)
+- [ ] 4.4 **M6.2b:** под-панели CVD / OI / RSI синхронно; тултип сделки: entry reasons, exit trigger, fees, Fee Drag%, MFE, MAE, regime
+- [ ] 4.5 Непрерывная WebGL-heatmap вместо дискретных полигонов
+
+### 🧱 ФАЗА 5 — Risk Manager: M4.1/M4.2/M4.3 (крупнейший SRS-гэп)
+- [ ] 5.1 **M4.2a:** Position Sizer поверх execution_simulator (без его изменения): Fixed Fractional (есть), Budgeted DCA-лестница (суммарный риск ≤1%), Max Portfolio Heat
+- [ ] 5.2 **M4.2b:** Signal Quality Multiplier по Confluence Score (0.5–1.2×) — потребитель Фазы 3.1
+- [ ] 5.3 **M4.2c:** Compounding-профиль со строгим дневным DD-лимитом
+- [ ] 5.4 **M4.3:** многоуровневый kill switch (−3%/−5%/−10%/$) с эскалацией и разблокировкой
+- [ ] 5.5 **M4.1:** Hedge Mode (Long+Short по разным суб-стратегиям) — отдельные суб-кошельки маржи
+- [ ] 5.6 Валидация всего M4 на марафоне Фазы 1 (сравнение sizing-режимов)
+
+### 🤖 ФАЗА 6 — AI & Quant Sweep: M5 + M6.4
+- [ ] 6.1 **M5.1:** Quant Sweep leaderboard Top 1–10 (net expectancy, PF, drawdown) как артефакт отчёта
+- [ ] 6.2 **M5.2:** «Apply Strategy #X» в AI Copilot в 1 клик (инъекция параметров в форму); AI строго advisory
+- [ ] 6.3 **M6.4:** help-tooltips (?) на каждый параметр форм; plain-language подсказки
+- [ ] 6.4 Модуляризация по MODULARIZATION_PLAN (сильная модель, golden-тесты); PDF/HTML отчёт бэктеста
+- [ ] 6.5 PDF-отчёт: equity, Monte-Carlo, тепловая карта по дням/часам
+
+### 🚀 ФАЗА 7 — Продукт (после успешного марафона)
+- [ ] 7.1 Деплой (Proxmox/Docker, DEPLOY.md), Cloudflare Tunnel
+- [ ] 7.2 Алерты наружу: Telegram-расширения, web-push, Warning Sentinel
+- [ ] 7.3 Дневник трейдера v2: связка paper-сделок с decision_logs, пост-сессионный разбор
+- [ ] 7.4 Решение Di о горизонте: остаёмся консультативными / read-only кабинет
+
+---
+
+## 3. Правила исполнения (для агентов)
+1. Одна фаза = одна сессия, ветка `agent/<инструмент>/<фаза>`; модель по AGENTS.md §4.
+2. Старт фазы: HANDOFF + `git status` + `check.ps1` (шаг 0 теперь ловит двойной backend). Финал: отчёт по шаблону AGENTS.md §7 + HANDOFF.
+3. Каждый пункт, трогающий деньги/риск/исполнение (M3, M4, M2.5) — сначала тесты, потом код.
+4. Пункты с пометкой SRS — приёмка строго по формулировке SRS; расхождение → в «Решения Di».
+5. Вести SDD-леджер: `.superpowers/sdd/<план>/progress.md` по образцу 2026-10-21-paper-telemetry-data-truth.
 
 ## 4. Решения Di (журнал правок роадмапа)
-- *пусто — сюда Di вносит правки, приоритеты, отмены пунктов*
+- *пусто — Di вносит правки, приоритеты, отмены пунктов*
