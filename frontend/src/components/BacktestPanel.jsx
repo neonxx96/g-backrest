@@ -1247,6 +1247,40 @@ export default function BacktestPanel({
     URL.revokeObjectURL(url);
   }, [allTrades, symbol, timeframe]);
 
+  // Stage 2: PDF Report Export (задача 6.5) — серверный рендер из текущего result
+  const [pdfExporting, setPdfExporting] = useState(false);
+  const [pdfExportError, setPdfExportError] = useState(null);
+
+  const handleExportPDF = useCallback(async () => {
+    if (!result) return;
+    setPdfExporting(true);
+    setPdfExportError(null);
+    try {
+      const res = await fetch(`${API_BASE}/backtest/report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(result),
+      });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.detail || `Ошибка сервера (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `backtest_report_${result.symbol || symbol || 'UNKNOWN'}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setPdfExportError(err.message || 'Ошибка формирования PDF');
+    } finally {
+      setPdfExporting(false);
+    }
+  }, [result, symbol]);
+
   if (!isOpen) return null;
 
   return (
@@ -2279,6 +2313,26 @@ export default function BacktestPanel({
                     title={mc.reason}
                   >
                     {mc.badge_text} (Score: {mc.robustness_score}/100)
+                  </span>
+                )}
+
+                {/* PDF Report Export (6.5): всегда видна рядом с вердиктом MC */}
+                {result && (
+                  <button
+                    type="button"
+                    data-testid="btn-export-pdf"
+                    onClick={handleExportPDF}
+                    disabled={pdfExporting}
+                    title="Скачать PDF-отчёт: сводка, Монте-Карло, тепловая карта по дням/часам"
+                    className="px-2 py-0.5 rounded font-mono font-bold text-[9.5px] border transition cursor-pointer bg-neutral-900 text-neutral-300 border-neutral-700 hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                  >
+                    {pdfExporting ? <Loader2 size={10} className="animate-spin" /> : <Download size={10} />}
+                    <span>PDF отчёт</span>
+                  </button>
+                )}
+                {pdfExportError && (
+                  <span data-testid="pdf-export-error" className="text-[9.5px] text-[#ef5350] font-mono">
+                    {pdfExportError}
                   </span>
                 )}
               </div>

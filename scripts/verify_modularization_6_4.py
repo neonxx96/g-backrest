@@ -130,6 +130,23 @@ def main() -> int:
             browser.close()
     finally:
         vite.terminate()
+        # Windows: terminate() убивает npm-обёртку, но node-vite ребёнок выживает
+        # и держит порт — дочищаем по занятому LISTENING-порту.
+        try:
+            import os
+
+            out = subprocess.run(
+                f'netstat -ano | findstr ":{FRONTEND_PORT}" | findstr LISTENING',
+                shell=True, capture_output=True, text=True,
+            ).stdout
+            for line in out.splitlines():
+                parts = line.split()
+                if parts and parts[-1].isdigit():
+                    pid = int(parts[-1])
+                    if pid != os.getpid():
+                        subprocess.run(f"taskkill /PID {pid} /F", shell=True, capture_output=True)
+        except Exception:
+            pass
 
     if failures:
         log("\nFAIL:")

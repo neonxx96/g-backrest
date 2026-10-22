@@ -13,10 +13,12 @@ from typing import Any, Dict, List, Optional
 import aiohttp
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field, model_validator
+from starlette.concurrency import run_in_threadpool
 
 from backend.app.adapters.exchange.binance import BINANCE_FUTURES_REST
+from backend.app.services.backtest_report import render_backtest_report_pdf
 from backend.app.services.binance_service import binance_service
 from backend.app.services.orderflow_backtester import OrderFlowBacktester, orderflow_backtester
 
@@ -1044,3 +1046,49 @@ async def inspect_level(req: InspectLevelRequest):
     res["timeframe"] = tf
     res["days"] = days
     return _clean(res)
+
+
+class BacktestReportRequest(BaseModel):
+    """Payload = ответ /api/backtest/run (фронт шлёт result целиком).
+
+    Валидация мягкая: обязателен только symbol; все блоки опциональны и честно
+    рендерятся страницей «нет данных». extra="allow" — лишние legacy-ключи
+    ответа не ломают генерацию.
+    """
+
+    model_config = {"extra": "allow"}
+
+    symbol: str
+    summary: Dict[str, Any] = {}
+    trades: List[Dict[str, Any]] = []
+    equity_curve: List[Dict[str, Any]] = []
+    monte_carlo: Optional[Dict[str, Any]] = None
+    meta: Dict[str, Any] = {}
+    strategy_type: Optional[str] = None
+    timeframe: Optional[str] = None
+    initial_capital: Optional[float] = None
+
+
+@backtest_router.post("/report")
+async def export_backtest_report(req: BacktestReportRequest):
+    """PDF-отчёт по готовому результату бэктеста (задача 6.5).
+
+    Не запускает расчёт заново — только рендерит переданный result.
+    """
+    symbol = req.symbol.strip().upper()
+    if not symbol:
+        raise HTTPException(status_code=422, detail="symbol is required")
+
+    payload = req.model_dump()
+    payload["symbol"] = symbol
+    try:
+        pdf_bytes = await run_in_threadpool(render_backtest_report_pdf, payload)
+    except Exception as e:  # pragma: no cover - защита от ошибок рендера
+        raise HTTPException(status_code=500, detail=f"Report render failed: {e}")
+
+    filename = f"backtest_report_{symbol}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
