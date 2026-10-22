@@ -1180,7 +1180,10 @@ class OrderFlowBacktester:
             if sl_mode == "atr_volatility" or use_atr_sl:
                 setup_sl_dist = max(last_p * 0.002, last_atr * float(atr_multiplier))
             elif sl_mode == "behind_wall":
-                setup_sl_dist = max(last_p * 0.0025, abs(entry_lvl - (bid_wall_p if setup_dir == "LONG" else ask_wall_p)) + tick_sz * max(1, int(wall_sl_offset_ticks or 3)))
+                # Исторические L2-снимки в бэктест не подаются (orderbook_walls.available=False
+                # выше), переменные bid_wall_p/ask_wall_p никогда не определялись — этот
+                # ветвь падал с NameError. «За стеной» заменяем ATR-буфером.
+                setup_sl_dist = max(last_p * 0.0025, last_atr * float(atr_multiplier))
             else:
                 setup_sl_dist = entry_lvl * (max(0.15, float(stop_loss_pct)) / 100.0)
 
