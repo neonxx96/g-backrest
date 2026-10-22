@@ -42,7 +42,7 @@ export default function Tape({ symbol = "BTCUSDT", uiConfig = null, onClose = nu
             const price = parseFloat(t.p);
             const qty = parseFloat(t.q);
             return {
-              id: t.a || `${t.T}-${Math.random()}`,
+              id: t.a ?? `${t.T}-${t.p}-${t.q}`,
               time: Number(t.T) || Date.now(),
               price,
               qty,
@@ -79,7 +79,7 @@ export default function Tape({ symbol = "BTCUSDT", uiConfig = null, onClose = nu
           const time = Number(t.T) || Date.now();
 
           incomingBuffer.current.push({
-            id: t.a || `${time}-${Math.random()}`,
+            id: t.a ?? `${time}-${t.p}-${t.q}`,
             time,
             price,
             qty,

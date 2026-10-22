@@ -1,0 +1,12 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir "pyarrow>=15.0.0" "pyyaml>=6.0.0" "websockets>=12.0"
+COPY recorder/ ./recorder/
+COPY recorder.yaml ./recorder.yaml
+
+RUN mkdir -p /app/data/lake /app/data/spool /app/data/gaps
+CMD ["python", "-m", "recorder", "run", "--config", "/app/recorder.yaml"]

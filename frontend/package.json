@@ -4,12 +4,16 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "test:pilot": "node --test src/features/pilot/pilot.test.js src/stores/marketDataStore.test.js",
+    "prebuild": "npm run test:pilot",
     "dev": "vite",
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/ibm-plex-sans": "^5.3.0",
     "dockview-react": "^8.6.0",
     "klinecharts": "^9.8.12",
     "lucide-react": "^1.59.0",

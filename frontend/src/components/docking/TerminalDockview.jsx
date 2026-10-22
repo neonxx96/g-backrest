@@ -11,12 +11,25 @@ import WatchlistWidget from './WatchlistWidget';
 import ScreenerWidget from './ScreenerWidget';
 import TradesWidget from './TradesWidget';
 import WidgetHubModal from './WidgetHubModal';
+import TradeHistoryWidget from './TradeHistoryWidget';
 import { FootprintPlaceholderWidget, CvdPlaceholderWidget } from './Placeholders';
+import { sanitizeDockviewLayout } from './layoutSanitizer';
+import {
+  readCachedDockviewLayout,
+  resolveDockviewLayout,
+  readChartPanelTimeframe,
+  persistChartPanelTimeframe,
+} from './layoutRecovery.js';
+import { getUsableMarketPrice } from '../../services/marketTruth.js';
 import ChannelSelector from './ChannelSelector';
 import PresetBar from './PresetBar';
 import { Radio, SlidersHorizontal, Sparkles, Zap, Loader2, Eye, EyeOff } from 'lucide-react';
 import { useBacktestStore } from '../../stores/backtestStore';
 import { useTradeOverlayStore } from '../../stores/tradeOverlayStore';
+import { useQuantStore } from '../../stores/quantStore';
+import ChartCanvasOverlay from '../design-previews/ChartCanvasOverlay';
+import LiqAnalyticsPanel from '../design-previews/LiqAnalyticsPanel';
+import QuantDecisionConsilium from '../design-previews/QuantDecisionConsilium';
 
 /**
  * Chart Panel Component for Dockview
@@ -24,7 +37,11 @@ import { useTradeOverlayStore } from '../../stores/tradeOverlayStore';
 function ChartDockPanel(props) {
   const panelId = props.api.id;
   const currentSymbol = useColorLinksStore((s) => s.getPanelSymbol(panelId, 'BTCUSDT'));
-  const [timeframe, setTimeframe] = React.useState('15m');
+  const [timeframe, setTimeframe] = React.useState(() => readChartPanelTimeframe(props.api.id));
+  const selectTimeframe = (nextTimeframe) => {
+    setTimeframe(nextTimeframe);
+    persistChartPanelTimeframe(panelId, nextTimeframe);
+  };
 
   const {
     uiConfig,
@@ -43,6 +60,38 @@ function ChartDockPanel(props) {
   const activeSetup = useTradeOverlayStore((s) => s.activeSetup);
 
   const isCurrentSymbolResult = activeBtResult && activeBtResult.symbol === currentSymbol.toUpperCase();
+
+  // Quant Overlays & Live Data
+  const containerRef = useRef(null);
+  const [dimensions, setDimensions] = React.useState({ width: 0, height: 0 });
+
+  const showLiqLayers = useQuantStore((s) => s.showLiqLayers);
+  const layers = useQuantStore((s) => s.layers);
+  const leverages = useQuantStore((s) => s.leverages);
+  const minWallMultiplier = useQuantStore((s) => s.minWallMultiplier);
+  const wallLineThickness = useQuantStore((s) => s.wallLineThickness);
+  const layerOpacity = useQuantStore((s) => s.layerOpacity);
+  const liqPalette = useQuantStore((s) => s.liqPalette);
+  const unifiedData = useQuantStore((s) => s.unifiedData);
+  const fetchMarketData = useQuantStore((s) => s.fetchMarketData);
+
+  useEffect(() => {
+    fetchMarketData(currentSymbol);
+  }, [currentSymbol, fetchMarketData]);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      for (let entry of entries) {
+        const { width, height } = entry.contentRect;
+        setDimensions({ width: Math.round(width), height: Math.round(height) });
+      }
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  const currentPrice = getUsableMarketPrice(unifiedData?.snapshot?.price);
 
   const handleQuickBt = async () => {
     try {
@@ -63,7 +112,8 @@ function ChartDockPanel(props) {
               <button
                 key={tf}
                 type="button"
-                onClick={() => setTimeframe(tf)}
+                data-testid={`chart-timeframe-${panelId}-${tf}`}
+                onClick={() => selectTimeframe(tf)}
                 className={`px-1 rounded text-[9.5px] transition cursor-pointer ${
                   timeframe === tf ? 'bg-[#2563eb] text-white font-bold' : 'text-[#787f91] hover:text-white'
                 }`}
@@ -137,7 +187,7 @@ function ChartDockPanel(props) {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 relative">
+      <div className="flex-1 min-h-0 relative" ref={containerRef}>
         <Chart
           chartId={panelId}
           symbol={currentSymbol}
@@ -150,6 +200,76 @@ function ChartDockPanel(props) {
           uiConfig={uiConfig}
           onOpenIndicators={onOpenIndicators}
         />
+        {showLiqLayers && currentPrice != null && dimensions.width > 0 && dimensions.height > 0 && (
+          <ChartCanvasOverlay
+            width={dimensions.width}
+            height={dimensions.height}
+            currentPrice={currentPrice}
+            liqData={unifiedData?.liq_estimates}
+            depthData={unifiedData?.orderbook_depth}
+            layers={layers}
+            leverages={leverages}
+            minWallMultiplier={minWallMultiplier}
+            wallLineThickness={wallLineThickness}
+            liqPalette={liqPalette}
+            layerOpacity={layerOpacity / 100}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Liquidation Analytics & Quarantine Dock Panel Component for Dockview
+ */
+function LiqAnalyticsDockPanel(props) {
+  const panelId = props.api.id;
+  const currentSymbol = useColorLinksStore((s) => s.getPanelSymbol(panelId, 'BTCUSDT'));
+  const unifiedData = useQuantStore((s) => s.unifiedData);
+  const core3Report = useQuantStore((s) => s.core3Report);
+  const promptData = useQuantStore((s) => s.promptData);
+  const isCommitting = useQuantStore((s) => s.isCommitting);
+  const quarantineSaved = useQuantStore((s) => s.quarantineSaved);
+  const commitQuarantine = useQuantStore((s) => s.commitQuarantine);
+  const fetchMarketData = useQuantStore((s) => s.fetchMarketData);
+  const loading = useQuantStore((s) => s.loading);
+
+  React.useEffect(() => {
+    fetchMarketData(currentSymbol);
+  }, [currentSymbol, fetchMarketData]);
+
+  const currentPrice = getUsableMarketPrice(unifiedData?.snapshot?.price);
+
+  return (
+    <div className="h-full w-full flex flex-col overflow-hidden bg-[#0c0e12]">
+      <div className="h-6 px-2 bg-[#0d1017] border-b border-[#1b2130] flex items-center justify-between text-[10px] shrink-0 font-mono">
+        <div className="flex items-center space-x-1.5">
+          <span className="font-bold text-white text-[11px]">Ликвидации & Карантин</span>
+          <span className="text-[#38bdf8] font-bold">{currentSymbol}</span>
+        </div>
+        <ChannelSelector panelId={panelId} />
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto p-2 flex flex-col gap-2">
+        <QuantDecisionConsilium
+          symbol={currentSymbol}
+          core3Report={core3Report}
+          promptData={promptData}
+          onCommitQuarantine={() => commitQuarantine(currentSymbol)}
+          isCommitting={isCommitting}
+          quarantineSaved={quarantineSaved}
+        />
+        <div className="rounded border border-[#1b2130] overflow-hidden">
+          <LiqAnalyticsPanel
+            symbol={currentSymbol}
+            currentPrice={currentPrice}
+            liqData={unifiedData?.liq_estimates}
+            depthData={unifiedData?.orderbook_depth}
+            isLoading={loading}
+            onRefresh={() => fetchMarketData(currentSymbol)}
+          />
+        </div>
       </div>
     </div>
   );
@@ -312,12 +432,17 @@ export default function TerminalDockview({
     () => ({
       chart: ChartDockPanel,
       orderbook: OrderBookDockPanel,
+      dom: OrderBookDockPanel,
       watchlist: ScreenerWidget,
       screener: ScreenerWidget,
       signals: SignalsDockPanel,
       trades: TradesWidget,
       footprint_placeholder: FootprintPlaceholderWidget,
-      cvd_placeholder: CvdPlaceholderWidget
+      cvd_placeholder: CvdPlaceholderWidget,
+      papertrade: TradeHistoryWidget,
+      tradehistory: TradeHistoryWidget,
+      liq_analytics: LiqAnalyticsDockPanel,
+      liquidations: LiqAnalyticsDockPanel
     }),
     []
   );
@@ -411,21 +536,25 @@ export default function TerminalDockview({
   // Hydrate layout into Dockview API
   const hydrateLayout = useCallback(
     (api, workspaceDetail) => {
-      if (!api || !workspaceDetail) return;
+      if (!api) return;
 
       useLayoutStore.setState({ isLayoutLoaded: false });
 
-      const layoutData = workspaceDetail.layout_data || {};
-      const dockviewJson = layoutData.dockview;
+      const { layout: dockviewJson } = resolveDockviewLayout(workspaceDetail, readCachedDockviewLayout());
 
-      if (workspaceDetail.color_links) {
+      if (workspaceDetail?.color_links) {
         importColorLinks(workspaceDetail.color_links);
       }
 
-      if (dockviewJson && typeof dockviewJson === 'object' && dockviewJson.grid) {
+      if (dockviewJson) {
         try {
           api.clear();
-          api.fromJSON(dockviewJson);
+          const sanitizedLayout = sanitizeDockviewLayout(dockviewJson);
+          if (sanitizedLayout) {
+            api.fromJSON(sanitizedLayout);
+          } else {
+            buildDefaultLayout(api, workspaceDetail.id);
+          }
           // Auto-migrate: If trades_main is not yet in the saved layout, add it tabbed within signals_main
           if (!api.getPanel('trades_main')) {
             const ref = api.getPanel('signals_main') || api.getPanel('orderbook_main') || api.getPanel('chart_main');
@@ -443,7 +572,7 @@ export default function TerminalDockview({
           buildDefaultLayout(api, workspaceDetail.id);
         }
       } else {
-        buildDefaultLayout(api, workspaceDetail.id);
+        buildDefaultLayout(api, workspaceDetail?.id || useLayoutStore.getState().activePresetId);
       }
 
       // Mark layout as ready so future user drag/resize events trigger autosave safely
@@ -544,7 +673,7 @@ export default function TerminalDockview({
         if (ref) {
           position = { referencePanel: ref, direction: 'within' };
         }
-      } else if (type === 'orderbook') {
+      } else if (type === 'orderbook' || type === 'dom') {
         title = `Стакан DOM #${domPanels.length + 1}`;
         component = 'orderbook';
         const ref = domPanels[0] || chartPanels[0] || panels[0];
@@ -588,6 +717,20 @@ export default function TerminalDockview({
         const ref = domPanels[0] || panels[0];
         if (ref) {
           position = { referencePanel: ref, direction: 'below' };
+        }
+      } else if (type === 'tradehistory' || type === 'trades_history') {
+        title = 'История сделок & Прогнозы';
+        component = 'tradehistory';
+        const ref = signalsPanels[0] || tradesPanels[0] || domPanels[0] || panels[0];
+        if (ref) {
+          position = { referencePanel: ref, direction: 'within' };
+        }
+      } else if (type === 'papertrade' || type === 'paper_trading') {
+        title = 'Бумажная торговля (Paper Trade)';
+        component = 'papertrade';
+        const ref = signalsPanels[0] || tradesPanels[0] || domPanels[0] || panels[0];
+        if (ref) {
+          position = { referencePanel: ref, direction: 'within' };
         }
       }
 

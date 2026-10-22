@@ -14,10 +14,12 @@ import {
   Radio,
   BarChart3,
   TrendingUp,
+  ShieldCheck,
   X,
   Plus,
   Sparkles,
-  Check
+  Check,
+  History
 } from 'lucide-react';
 import { useLayoutStore } from '../../stores/layoutStore';
 
@@ -45,6 +47,17 @@ const MODULES = [
     defaultLocation: 'Правая панель'
   },
   {
+    id: 'liq_analytics',
+    type: 'liq_analytics',
+    title: 'Ликвидации & Квант-карантин',
+    badge: 'Quant Engine',
+    badgeColor: 'text-[#a855f7] bg-[#a855f715] border-[#a855f730]',
+    icon: Activity,
+    iconColor: 'text-[#a855f7]',
+    description: 'Аналитика пулов ликвидаций, консилиум 3 ядер, расчет R:R, спотовые стены и фиксация сигналов в Shadow Quarantine.',
+    defaultLocation: 'Правая панель (вкладка или рядом)'
+  },
+  {
     id: 'trades',
     type: 'trades',
     title: 'Лента сделок (Tape)',
@@ -65,6 +78,28 @@ const MODULES = [
     iconColor: 'text-[#a855f7]',
     description: 'Мультирыночный скринер 350+ пар с 24-часовыми спарклайнами, сортировкой по объему, динамике роста/падения и волатильности.',
     defaultLocation: 'Левая колонка рынков'
+  },
+  {
+    id: 'papertrade',
+    type: 'papertrade',
+    title: 'Бумажная торговля (Paper Trading)',
+    badge: 'Shadow Engine',
+    badgeColor: 'text-[#10b981] bg-[#10b98115] border-[#10b98130]',
+    icon: ShieldCheck,
+    iconColor: 'text-[#10b981]',
+    description: 'Симуляция исполнения скальпинг-сделок в реальном времени с виртуальным балансом, контролем риска и PnL без риска для депозита.',
+    defaultLocation: 'Нижняя вкладка'
+  },
+  {
+    id: 'tradehistory',
+    type: 'tradehistory',
+    title: 'История сделок и Прогнозы',
+    badge: 'Paper Trades $100',
+    badgeColor: 'text-[#10b981] bg-[#10b98115] border-[#10b98130]',
+    icon: History,
+    iconColor: 'text-[#10b981]',
+    description: 'Журнал исполненных paper-сделок, баланс $100.00, PnL, причины входов (EMA/CVD), открытые позиции и фокус-лист авто-оптимизированных квант-стратегий.',
+    defaultLocation: 'Нижняя вкладка'
   },
   {
     id: 'signals',

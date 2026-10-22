@@ -50,6 +50,11 @@ CRITICAL_ENDPOINTS = [
         "url": f"{BACKEND_BASE}/settings?user_id=0",
         "validate": lambda data: "timeframe" in data and "theme" in data,
     },
+    {
+        "name": "Quant Quarantine Records",
+        "url": f"{BACKEND_BASE}/quant/quarantine/records",
+        "validate": lambda data: isinstance(data, list),
+    },
 ]
 
 

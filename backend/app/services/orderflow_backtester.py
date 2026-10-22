@@ -56,6 +56,28 @@ class OrderFlowBacktester:
         # On impulse/liquidation cascades, 1 effective slippage tick is at least 1.5 bps (0.015%) of price
         return max(base_tick, price * 0.00015)
 
+    @staticmethod
+    def validate_ohlcv_integrity(data: pd.DataFrame, min_bars: int = 2) -> Dict[str, Any]:
+        """Validate the real OHLCV contract before indicators or signals run."""
+        if data is None or data.empty:
+            return {"valid": False, "issues": ["OHLCV is empty"], "bars": 0}
+        issues: List[str] = []
+        required = ("timestamp", "open", "high", "low", "close", "volume")
+        for column in required:
+            if column not in data.columns:
+                issues.append(f"missing required column: {column}")
+                continue
+            values = pd.to_numeric(data[column], errors="coerce")
+            if not np.isfinite(values.to_numpy(dtype=float)).all():
+                issues.append(f"{column} contains non-finite values")
+        if len(data) < min_bars:
+            issues.append(f"insufficient bars: {len(data)} < {min_bars}")
+        if "timestamp" in data.columns and len(data) >= 2:
+            timestamps = pd.to_numeric(data["timestamp"], errors="coerce")
+            if timestamps.notna().all() and not timestamps.is_monotonic_increasing:
+                issues.append("timestamp is not monotonic")
+        return {"valid": not issues, "issues": issues, "bars": len(data)}
+
     def calculate_indicators(
         self,
         df: pd.DataFrame,
@@ -90,15 +112,20 @@ class OrderFlowBacktester:
         data['cvd_ema14'] = data['cvd'].ewm(span=cvd_p, adjust=False).mean()
         data['cvd_slope'] = data['cvd_ema14'].diff(3).fillna(0.0)
 
-        # Open Interest (real or synthetic)
+        # Open Interest is optional historical data. Never derive a proxy from
+        # volume/delta: downstream OI filters must know when the feed is absent.
         if 'oi' in data.columns:
-            data['oi_delta'] = data['oi'].diff().fillna(0.0)
+            data['oi'] = pd.to_numeric(data['oi'], errors='coerce')
+            data['oi_delta'] = data['oi'].diff()
+            data['oi_available'] = data['oi'].notna()
         elif 'open_interest' in data.columns:
-            data['oi'] = data['open_interest']
-            data['oi_delta'] = data['oi'].diff().fillna(0.0)
+            data['oi'] = pd.to_numeric(data['open_interest'], errors='coerce')
+            data['oi_delta'] = data['oi'].diff()
+            data['oi_available'] = data['oi'].notna()
         else:
-            data['oi'] = (data['delta'].abs() * 0.5 + data['volume'] * 0.1).cumsum()
-            data['oi_delta'] = data['oi'].diff().fillna(0.0)
+            data['oi'] = np.nan
+            data['oi_delta'] = np.nan
+            data['oi_available'] = False
 
         # RSI 14
         delta_p = data['close'].diff()
@@ -130,6 +157,247 @@ class OrderFlowBacktester:
         data['_cvd_p'] = cvd_p
 
         return data
+
+    def evaluate_latest_signal(
+        self,
+        data: pd.DataFrame,
+        strategy_type: str = "confluence_ema",
+        volume_multiplier: float = 1.3,
+        min_density_usd: float = 0.0,
+        use_atr_filter: bool = False,
+        use_cvd_filter: bool = False,
+        use_oi_filter: bool = False,
+        use_rsi_filter: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        """Evaluate the latest fully formed candle with the backtest signal rules.
+
+        This is intentionally a pure signal evaluator shared by forecast and
+        live paper mode. It does not execute an order and does not look ahead.
+        ``cluster_volume_bounce`` maps to the historical ``density_bounce``
+        profile because historical OHLCV has no L2 wall stream.
+        """
+        if data is None or len(data) < 2:
+            return None
+        integrity = self.validate_ohlcv_integrity(data)
+        if not integrity["valid"]:
+            return None
+        frame = data if "low_min10" in data.columns else self.calculate_indicators(data)
+        if len(frame) < 2:
+            return None
+        cur = frame.iloc[-1]
+        prev = frame.iloc[-2]
+        profile = "density_bounce" if strategy_type == "cluster_volume_bounce" else strategy_type
+        close = float(cur.get("close", 0.0))
+        previous_close = float(prev.get("close", 0.0))
+        volume = float(cur.get("volume", 0.0))
+        turnover = close * volume
+        passes_wall = min_density_usd <= 0 or turnover >= min_density_usd
+        volume_ok = profile in {"diagnostics_lenient", "naked_test"} or float(cur.get("vol_ratio", 0.0)) >= float(volume_multiplier)
+        delta = float(cur.get("delta", 0.0))
+        rsi = float(cur.get("rsi", 50.0))
+        direction = 0
+        reasons: List[str] = []
+
+        if profile == "confluence_ema":
+            if passes_wall and previous_close <= float(prev.get("ema20", 0.0)) and close > float(cur.get("ema20", 0.0)) and volume_ok and delta > 0 and 40 <= rsi <= 65:
+                direction = 1
+                reasons = ["EMA20 cross up", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
+            elif passes_wall and previous_close >= float(prev.get("ema20", 0.0)) and close < float(cur.get("ema20", 0.0)) and volume_ok and delta < 0 and 35 <= rsi <= 60:
+                direction = -1
+                reasons = ["EMA20 cross down", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
+        elif profile == "diagnostics_lenient":
+            # Diagnostic-only profile: keeps real OHLCV/EMA/delta inputs but
+            # intentionally drops production-only confirmation gates so the
+            # paper execution lifecycle can be exercised in a short run.
+            if passes_wall and volume_ok and delta != 0:
+                direction = 1 if close >= float(cur.get("ema20", close)) else -1
+                reasons = ["Diagnostics EMA bias", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
+        elif profile == "naked_test":
+            # Deliberately minimal, paper-only pipeline probe. It is not a
+            # production strategy: the current EMA20 side is the only gate.
+            # Unlike an event-only cross, this lets a short run prove that
+            # entry -> exit -> PnL plumbing works in a quiet market.
+            if close >= float(cur.get("ema20", 0.0)):
+                direction = 1
+                reasons = ["Naked EMA20 bullish side"]
+            else:
+                direction = -1
+                reasons = ["Naked EMA20 bearish side"]
+        elif profile in ("delta_absorption", "cvd_absorption"):
+            if passes_wall and float(cur.get("low", 0.0)) <= float(cur.get("low_min10", 0.0)) and float(cur.get("cvd", 0.0)) > float(cur.get("cvd_min10", 0.0)) and delta > 0 and rsi < 42 and volume_ok:
+                direction = 1
+                reasons = ["CVD absorption at local low", f"CVD {float(cur.get('cvd', 0.0)):+.2f}", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x"]
+            elif passes_wall and float(cur.get("high", 0.0)) >= float(cur.get("high_max10", 0.0)) and float(cur.get("cvd", 0.0)) < float(cur.get("cvd_max10", 0.0)) and delta < 0 and rsi > 58 and volume_ok:
+                direction = -1
+                reasons = ["CVD absorption at local high", f"CVD {float(cur.get('cvd', 0.0)):+.2f}", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x"]
+        elif profile in ("density_bounce", "limit_bounce"):
+            bullish_pin = (close - float(cur.get("low", 0.0))) > 1.8 * (float(cur.get("high", 0.0)) - close) and delta > 0
+            bearish_pin = (float(cur.get("high", 0.0)) - close) > 1.8 * (close - float(cur.get("low", 0.0))) and delta < 0
+            if passes_wall and bullish_pin and volume_ok and rsi < 44:
+                direction = 1
+                reasons = ["OHLCV bullish pinbar", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
+            elif passes_wall and bearish_pin and volume_ok and rsi > 56:
+                direction = -1
+                reasons = ["OHLCV bearish pinbar", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
+
+        if not direction:
+            return None
+        if use_atr_filter and float(cur.get("atr_ema20", 0.0)) > 0 and float(cur.get("atr", 0.0)) > 2.0 * float(cur.get("atr_ema20", 0.0)):
+            return None
+        if use_cvd_filter:
+            cvd = float(cur.get("cvd", 0.0))
+            cvd_ema = float(cur.get("cvd_ema14", 0.0))
+            if direction > 0:
+                bull_div = (float(cur.get("low", 0.0)) <= float(cur.get("low_min6", 0.0)) and cvd > float(cur.get("cvd_min6", 0.0))) or (close < previous_close and cvd > float(prev.get("cvd", 0.0)))
+                if not (delta > 0 and (cvd >= cvd_ema or bull_div)):
+                    return None
+            else:
+                bear_div = (float(cur.get("high", 0.0)) >= float(cur.get("high_max6", 0.0)) and cvd < float(cur.get("cvd_max6", 0.0))) or (close > previous_close and cvd < float(prev.get("cvd", 0.0)))
+                if not (delta < 0 and (cvd <= cvd_ema or bear_div)):
+                    return None
+        if use_oi_filter:
+            oi_delta = cur.get("oi_delta")
+            if not bool(cur.get("oi_available", pd.notna(oi_delta))) or pd.isna(oi_delta) or float(oi_delta) < 0:
+                return None
+        if use_rsi_filter:
+            if profile == "confluence_ema":
+                if not 42 <= rsi <= 58:
+                    return None
+            else:
+                previous_rsi = float(prev.get("rsi", 50.0))
+                if direction > 0 and not (rsi <= 42 or (previous_rsi <= 36 and rsi >= 30)):
+                    return None
+                if direction < 0 and not (rsi >= 58 or (previous_rsi >= 64 and rsi <= 70)):
+                    return None
+        return {"direction": "LONG" if direction > 0 else "SHORT", "reasons": reasons, "timestamp": int(cur.get("timestamp", 0))}
+
+    def explain_latest_signal(
+        self,
+        data: pd.DataFrame,
+        strategy_type: str = "confluence_ema",
+        volume_multiplier: float = 1.3,
+        min_density_usd: float = 0.0,
+        use_atr_filter: bool = False,
+        use_cvd_filter: bool = False,
+        use_oi_filter: bool = False,
+        use_rsi_filter: bool = False,
+    ) -> Dict[str, Any]:
+        """Explain the latest decision without changing signal semantics.
+
+        This is a diagnostics-only companion to ``evaluate_latest_signal`` for
+        live paper UI. It never creates orders and deliberately reports the
+        observable gates that prevented a signal instead of fabricating one.
+        """
+        if data is None or len(data) < 2:
+            return {"status": "NO_TRADE", "reason": "NO_TRADE: недостаточно свечей для проверки.", "failed_checks": ["history"], "rejections": [], "observed": {}}
+        integrity = self.validate_ohlcv_integrity(data)
+        if not integrity["valid"]:
+            return {
+                "status": "NO_TRADE",
+                "reason": "NO_TRADE: некорректный OHLCV — " + "; ".join(integrity["issues"][:2]),
+                "failed_checks": ["data_integrity"],
+                "rejections": [{"filter": "data_integrity", "actual": integrity["bars"], "operator": "valid", "threshold": False, "issues": integrity["issues"]}],
+                "observed": {"bars": integrity["bars"]},
+            }
+        frame = data if "low_min10" in data.columns else self.calculate_indicators(data)
+        if len(frame) < 2:
+            return {"status": "NO_TRADE", "reason": "NO_TRADE: индикаторы ещё не готовы.", "failed_checks": ["indicators"], "rejections": [], "observed": {}}
+
+        cur = frame.iloc[-1]
+        prev = frame.iloc[-2]
+        profile = "density_bounce" if strategy_type == "cluster_volume_bounce" else strategy_type
+        close = float(cur.get("close", 0.0))
+        previous_close = float(prev.get("close", 0.0))
+        volume_ratio = float(cur.get("vol_ratio", 0.0))
+        delta = float(cur.get("delta", 0.0))
+        rsi = float(cur.get("rsi", 50.0))
+        turnover = close * float(cur.get("volume", 0.0))
+        failed: List[str] = []
+        rejections: List[Dict[str, Any]] = []
+
+        def reject(name: str, actual: Any, operator: str, threshold: Any, **extra: Any) -> None:
+            failed.append(name)
+            rejections.append({"filter": name, "actual": actual, "operator": operator, "threshold": threshold, **extra})
+
+        if min_density_usd > 0 and turnover < min_density_usd:
+            reject("minimum_turnover", round(turnover, 2), ">=", float(min_density_usd))
+
+        if profile not in {"diagnostics_lenient", "naked_test"} and volume_ratio < float(volume_multiplier):
+            reject("volume_multiplier", round(volume_ratio, 4), ">=", float(volume_multiplier))
+        if profile == "confluence_ema":
+            cross_up = previous_close <= float(prev.get("ema20", 0.0)) and close > float(cur.get("ema20", 0.0))
+            cross_down = previous_close >= float(prev.get("ema20", 0.0)) and close < float(cur.get("ema20", 0.0))
+            if not (cross_up or cross_down):
+                reject("ema20_cross", round(close, 8), "crosses", round(float(cur.get("ema20", 0.0)), 8), previous_close=round(previous_close, 8), previous_ema20=round(float(prev.get("ema20", 0.0)), 8))
+            if delta == 0:
+                reject("delta_direction", round(delta, 4), "!=", 0.0)
+            if not (35 <= rsi <= 65):
+                reject("base_rsi_band", round(rsi, 4), "within", [35.0, 65.0])
+        elif profile in ("delta_absorption", "cvd_absorption"):
+            absorption = (
+                float(cur.get("low", 0.0)) <= float(cur.get("low_min10", 0.0))
+                and float(cur.get("cvd", 0.0)) > float(cur.get("cvd_min10", 0.0))
+                and delta > 0
+                and rsi < 42
+            ) or (
+                float(cur.get("high", 0.0)) >= float(cur.get("high_max10", 0.0))
+                and float(cur.get("cvd", 0.0)) < float(cur.get("cvd_max10", 0.0))
+                and delta < 0
+                and rsi > 58
+            )
+            if not absorption:
+                reject("cvd_absorption_structure", round(delta, 4), "requires", "local price extreme + opposing CVD divergence", rsi=round(rsi, 4), cvd=round(float(cur.get("cvd", 0.0)), 4))
+        elif profile in ("density_bounce", "limit_bounce"):
+            bullish_pin = (close - float(cur.get("low", 0.0))) > 1.8 * (float(cur.get("high", 0.0)) - close) and delta > 0
+            bearish_pin = (float(cur.get("high", 0.0)) - close) > 1.8 * (close - float(cur.get("low", 0.0))) and delta < 0
+            if not (bullish_pin and rsi < 44 or bearish_pin and rsi > 56):
+                reject("pinbar_and_rsi", round(rsi, 4), "requires", "pinbar + RSI extreme", delta=round(delta, 4))
+        elif profile == "diagnostics_lenient":
+            if delta == 0:
+                reject("delta_direction", round(delta, 4), "!=", 0.0)
+        elif profile == "naked_test":
+            # A naked probe always yields a direction from a valid candle;
+            # remaining NO_TRADE states are data-integrity failures above.
+            pass
+
+        if use_atr_filter and float(cur.get("atr_ema20", 0.0)) > 0 and float(cur.get("atr", 0.0)) > 2.0 * float(cur.get("atr_ema20", 0.0)):
+            reject("atr_filter", round(float(cur.get("atr", 0.0)), 8), "<=", round(2.0 * float(cur.get("atr_ema20", 0.0)), 8))
+        if use_oi_filter:
+            oi_delta = cur.get("oi_delta")
+            oi_available = bool(cur.get("oi_available", pd.notna(oi_delta))) and pd.notna(oi_delta)
+            if not oi_available:
+                reject("oi_filter", None, "available and >=", 0.0)
+            elif float(oi_delta) < 0:
+                reject("oi_filter", round(float(oi_delta), 4), ">=", 0.0)
+        if use_cvd_filter and delta == 0:
+            reject("cvd_filter", round(delta, 4), "!=", 0.0)
+        if use_rsi_filter:
+            if profile == "confluence_ema" and not 42 <= rsi <= 58:
+                reject("rsi_filter", round(rsi, 4), "within", [42.0, 58.0])
+            elif profile not in {"confluence_ema", "naked_test"} and not (rsi <= 42 or rsi >= 58):
+                reject("rsi_filter", round(rsi, 4), "outside", [42.0, 58.0])
+
+        signal = self.evaluate_latest_signal(
+            frame,
+            strategy_type=strategy_type,
+            volume_multiplier=volume_multiplier,
+            min_density_usd=min_density_usd,
+            use_atr_filter=use_atr_filter,
+            use_cvd_filter=use_cvd_filter,
+            use_oi_filter=use_oi_filter,
+            use_rsi_filter=use_rsi_filter,
+        )
+        observed = {"close": close, "volume_ratio": round(volume_ratio, 4), "delta": round(delta, 4), "rsi": round(rsi, 4), "turnover": round(turnover, 2)}
+        if signal:
+            return {"status": "SIGNAL", "direction": signal["direction"], "reason": "SIGNAL: все фильтры пройдены.", "failed_checks": [], "rejections": [], "observed": observed}
+        unique_failed = list(dict.fromkeys(failed)) or ["strategy_conditions"]
+        return {
+            "status": "NO_TRADE",
+            "reason": "NO_TRADE: не пройдены условия — " + ", ".join(unique_failed[:4]),
+            "failed_checks": unique_failed,
+            "rejections": rejections,
+            "observed": observed,
+        }
 
     def run_backtest(
         self,
@@ -169,6 +437,9 @@ class OrderFlowBacktester:
         tp2_mode: str = "trend_rr",                # 'trend_rr' | 'opposite_wall'
         tp2_rr_ratio: float = 2.8,                 # TP2 R:R target (e.g. 1:2.8)
         min_wall_lifetime_sec: int = 30,           # Spoofing filter: min wall hold time (10..60 sec)
+        use_dynamic_breakeven: bool = False,       # Move SL to Breakeven (+2*Fee+1tick) when MFE >= +0.5R
+        dynamic_be_trigger_r: float = 0.5,
+        risk_per_trade_pct: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Executes realistic institutional order-flow backtest with:
@@ -291,6 +562,13 @@ class OrderFlowBacktester:
                     elif is_pinbar_bear and v_rat >= volume_multiplier and rsi > 56:
                         raw_signal = -1
 
+            elif eff_strategy == "diagnostics_lenient":
+                if passes_wall and passes_lifetime and delta != 0:
+                    raw_signal = 1 if c >= ema else -1
+
+            elif eff_strategy == "naked_test":
+                raw_signal = 1 if c >= ema else -1
+
             elif eff_strategy in ("wall_breakout", "breakout"):
                 # Пробой плотности (Wall Breakout): импульсный пробой локального экстремума/стенки на повышенном объёме и дельте
                 if passes_wall and passes_lifetime:
@@ -305,7 +583,7 @@ class OrderFlowBacktester:
                 cur_atr_ema = float(atr_ema20_vals[i])
                 cur_cvd = float(cvd_vals[i])
                 cur_cvd_ema = float(cvd_ema14_vals[i])
-                cur_oi_delta = float(oi_delta_vals[i])
+                cur_oi_delta = float(oi_delta_vals[i]) if np.isfinite(oi_delta_vals[i]) else float("nan")
 
                 allowed = True
 
@@ -324,17 +602,20 @@ class OrderFlowBacktester:
                             allowed = False
 
                 if allowed and use_oi_filter:
-                    if cur_oi_delta < 0:
+                    if not np.isfinite(cur_oi_delta) or cur_oi_delta < 0:
                         allowed = False
 
                 if allowed and use_rsi_filter:
-                    prev_rsi = float(rsi_vals[i - 1])
-                    if raw_signal == 1:
-                        if not (rsi <= 42 or (prev_rsi <= 36 and rsi >= 30)):
-                            allowed = False
-                    elif raw_signal == -1:
-                        if not (rsi >= 58 or (prev_rsi >= 64 and rsi <= 70)):
-                            allowed = False
+                    if eff_strategy == "confluence_ema":
+                        allowed = 42 <= rsi <= 58
+                    else:
+                        prev_rsi = float(rsi_vals[i - 1])
+                        if raw_signal == 1:
+                            if not (rsi <= 42 or (prev_rsi <= 36 and rsi >= 30)):
+                                allowed = False
+                        elif raw_signal == -1:
+                            if not (rsi >= 58 or (prev_rsi >= 64 and rsi <= 70)):
+                                allowed = False
 
                 if allowed:
                     signals[i] = raw_signal
@@ -360,6 +641,7 @@ class OrderFlowBacktester:
         initial_pos_size = 0.0
         remaining_fraction = 1.0
         tp1_filled = False
+        dynamic_be_triggered = False
         realized_leg1_gross_usd = 0.0
         realized_leg1_fee_usd = 0.0
         entry_fee_usd = 0.0
@@ -398,6 +680,24 @@ class OrderFlowBacktester:
                         sl_price = (entry_price + be_offset) if pos_dir == 1 else max(1e-8, entry_price - be_offset)
                         trailing_sl = sl_price
 
+                # Step 1A2: Dynamic Breakeven (+0.5R MFE protection)
+                if use_dynamic_breakeven and not dynamic_be_triggered and sl_dist > 0:
+                    fee_buffer = entry_price * (taker_rate * 2.0)
+                    if pos_dir == 1:
+                        if (high_p - entry_price) >= dynamic_be_trigger_r * sl_dist:
+                            dynamic_be_triggered = True
+                            be_sl = entry_price + fee_buffer + tick_unit
+                            if be_sl > sl_price:
+                                sl_price = be_sl
+                                trailing_sl = max(trailing_sl, sl_price)
+                    elif pos_dir == -1:
+                        if (entry_price - low_p) >= dynamic_be_trigger_r * sl_dist:
+                            dynamic_be_triggered = True
+                            be_sl = entry_price - fee_buffer - tick_unit
+                            if sl_price <= 0 or be_sl < sl_price:
+                                sl_price = be_sl
+                                trailing_sl = min(trailing_sl, sl_price)
+
                 exit_price = None
                 exit_reason = ""
                 is_stop_exit = False
@@ -430,7 +730,7 @@ class OrderFlowBacktester:
                     if pos_dir == 1:
                         if low_p <= sl_price:
                             exit_price = max(1e-8, sl_price - stop_slippage_abs)
-                            exit_reason = "TP1 + Breakeven" if tp1_filled else "Stop Loss"
+                            exit_reason = "Dynamic Breakeven" if dynamic_be_triggered else ("TP1 + Breakeven" if tp1_filled else "Stop Loss")
                             is_stop_exit = True
                         elif high_p >= tp2_price:
                             exit_price = tp2_price
@@ -439,7 +739,7 @@ class OrderFlowBacktester:
                     elif pos_dir == -1:
                         if high_p >= sl_price:
                             exit_price = sl_price + stop_slippage_abs
-                            exit_reason = "TP1 + Breakeven" if tp1_filled else "Stop Loss"
+                            exit_reason = "Dynamic Breakeven" if dynamic_be_triggered else ("TP1 + Breakeven" if tp1_filled else "Stop Loss")
                             is_stop_exit = True
                         elif low_p <= tp2_price:
                             exit_price = tp2_price
@@ -515,9 +815,12 @@ class OrderFlowBacktester:
                 pos_dir = int(sig)
                 entry_price = close_p
                 entry_time = cur_time
+                # Preserve legacy fixed-notional behavior unless an explicit
+                # risk budget is supplied by the unified overnight config.
                 initial_pos_size = capital * safe_lev
                 remaining_fraction = 1.0
                 tp1_filled = False
+                dynamic_be_triggered = False
                 realized_leg1_gross_usd = 0.0
                 realized_leg1_fee_usd = 0.0
                 # Limit entry at liquidity density pays Maker fee (0.02% default)
@@ -570,10 +873,12 @@ class OrderFlowBacktester:
                     else:
                         cvd_div = "Без дивергенции"
 
-                    cur_oi_d = float(oi_delta_vals[i]) if not np.isnan(oi_delta_vals[i]) else 0.0
-                    if cur_oi_d > 0.5:
+                    cur_oi_d = float(oi_delta_vals[i]) if np.isfinite(oi_delta_vals[i]) else None
+                    if cur_oi_d is None:
+                        oi_status = "Unavailable"
+                    elif cur_oi_d > 0.5:
                         oi_status = "Набор OI (Expansion)"
-                    elif cur_oi_d < -0.5:
+                    elif cur_oi_d is not None and cur_oi_d < -0.5:
                         oi_status = "Сброс OI (Flush)"
                     else:
                         oi_status = "Флэт OI"
@@ -614,6 +919,20 @@ class OrderFlowBacktester:
                     sl_dist = min(sl_dist, entry_price * 0.025)
                 else:
                     sl_dist = entry_price * (max(0.05, float(stop_loss_pct)) / 100.0)
+
+                if risk_per_trade_pct is not None:
+                    risk_budget = capital * (float(risk_per_trade_pct) / 100.0)
+                    # `initial_pos_size` is quote-currency notional throughout
+                    # the execution engine. Convert the absolute stop distance
+                    # to a price fraction before sizing; dividing by the raw
+                    # price distance would size in base units and make PnL
+                    # artificially tiny for high-priced instruments.
+                    stop_fraction = max(sl_dist / max(entry_price, 1e-9), 1e-9)
+                    initial_pos_size = min(
+                        capital * safe_lev,
+                        risk_budget / stop_fraction,
+                    )
+                    entry_fee_usd = initial_pos_size * maker_rate
 
                 # TP2 distance: either explicit take_profit_pct or opposite_wall / R:R target
                 base_tp2_dist = entry_price * (max(0.1, float(take_profit_pct)) / 100.0)
@@ -713,41 +1032,34 @@ class OrderFlowBacktester:
                 div_status = "CVD < EMA(14) (Давление продавцов)"
 
             oi_slice = oi_delta_vals[max(0, last_idx - 12) : last_idx + 1]
-            oi_1h_sum = float(np.nansum(oi_slice))
-            oi_base = float(data['oi'].iloc[last_idx]) if 'oi' in data.columns and float(data['oi'].iloc[last_idx]) > 0 else 10000.0
-            oi_1h_pct = round((oi_1h_sum / max(1.0, oi_base)) * 100.0, 2)
-            if oi_1h_pct > 0.05:
+            oi_available = bool(data["oi_available"].iloc[last_idx]) and np.isfinite(oi_slice).any()
+            if oi_available:
+                oi_1h_sum = float(np.nansum(oi_slice))
+                oi_base = float(data["oi"].iloc[last_idx])
+                oi_1h_pct = round((oi_1h_sum / max(1.0, oi_base)) * 100.0, 2) if oi_base > 0 else None
+            else:
+                oi_1h_pct = None
+            if oi_1h_pct is None:
+                oi_label = "Unavailable (no historical OI)"
+            elif oi_1h_pct > 0.05:
                 oi_label = f"Приток капитала (+{oi_1h_pct}%)"
             elif oi_1h_pct < -0.05:
                 oi_label = f"Отток / Разгрузка ({oi_1h_pct}%)"
             else:
                 oi_label = f"Нейтральный баланс ({oi_1h_pct:+.2f}%)"
 
-            bid_wall_p = round(float(low_min10_vals[last_idx]), price_dec)
-            ask_wall_p = round(float(high_max10_vals[last_idx]), price_dec)
-            if bid_wall_p >= last_p:
-                bid_wall_p = round(last_p - 1.1 * last_atr, price_dec)
-            if ask_wall_p <= last_p:
-                ask_wall_p = round(last_p + 1.1 * last_atr, price_dec)
-
-            bid_dist_pct = round(abs(last_p - bid_wall_p) / max(1e-9, last_p) * 100.0, 2)
-            ask_dist_pct = round(abs(ask_wall_p - last_p) / max(1e-9, last_p) * 100.0, 2)
-            est_wall_usd = max(450000.0, round(median_turnover * 2.4, -4))
-
             tick_sz = self._estimate_tick_size(last_p)
-            bid_wall_vol_usd = round(est_wall_usd * 1.15, 0)
-            ask_wall_vol_usd = round(est_wall_usd * 1.05, 0)
             atr_usd_val = round(last_atr, price_dec)
             atr_pct_val = round((last_atr / max(1e-9, last_p)) * 100.0, 2)
             atr_ticks_val = int(round(last_atr / max(1e-9, tick_sz)))
             data_feed_context = {
                 "current_price": round(last_p, price_dec),
-                "top_bid_wall_price": bid_wall_p,
-                "top_bid_wall_usd": bid_wall_vol_usd,
-                "top_bid_dist_pct": bid_dist_pct,
-                "top_ask_wall_price": ask_wall_p,
-                "top_ask_wall_usd": ask_wall_vol_usd,
-                "top_ask_dist_pct": ask_dist_pct,
+                "top_bid_wall_price": None,
+                "top_bid_wall_usd": None,
+                "top_bid_dist_pct": None,
+                "top_ask_wall_price": None,
+                "top_ask_wall_usd": None,
+                "top_ask_dist_pct": None,
                 "cvd_current": round(last_cvd, 1),
                 "cvd_ema14": round(last_cvd_ema, 1),
                 "cvd_divergence_status": div_status,
@@ -757,12 +1069,9 @@ class OrderFlowBacktester:
                 "atr_14_pct": atr_pct_val,
                 "atr_14_ticks": atr_ticks_val,
                 "orderbook_walls": {
-                    "top_bid_wall_price": bid_wall_p,
-                    "top_bid_wall_usd": bid_wall_vol_usd,
-                    "top_bid_dist_pct": bid_dist_pct,
-                    "top_ask_wall_price": ask_wall_p,
-                    "top_ask_wall_usd": ask_wall_vol_usd,
-                    "top_ask_dist_pct": ask_dist_pct,
+                    "available": False,
+                    "source": None,
+                    "reason": "Historical L2 order-book snapshots are not supplied to this backtest.",
                 },
                 "cvd_footprint": {
                     "cvd_current": round(last_cvd, 1),
@@ -772,6 +1081,7 @@ class OrderFlowBacktester:
                 "open_interest": {
                     "oi_1h_delta_pct": oi_1h_pct,
                     "flow_status": oi_label,
+                    "available": oi_available,
                 },
                 "volatility_atr": {
                     "atr_14_usd": atr_usd_val,
@@ -1074,6 +1384,8 @@ class OrderFlowBacktester:
         baseline_params: Optional[Dict[str, Any]] = None,
         population_size: int = 14,
         generations: int = 5,
+        oos_ratio: float = 0.30,
+        min_oos_candles: int = 100,
     ) -> Dict[str, Any]:
         """
         ТАКТ 2: Fast Heuristic Genetic / Bayesian Optimizer (50-100 evaluations in < 3 seconds).
@@ -1089,6 +1401,20 @@ class OrderFlowBacktester:
         t0 = time.perf_counter()
         rng = random.Random(42)
 
+        # The outer chronological holdout is excluded from both genome search
+        # and walk-forward scoring; it is inspected only after selection.
+        ratio = min(0.5, max(0.1, float(oos_ratio)))
+        split_idx = int(len(df) * (1.0 - ratio))
+        train_df = df.iloc[:split_idx].reset_index(drop=True)
+        oos_df = df.iloc[split_idx:].reset_index(drop=True)
+        oos_warning: Optional[str] = None
+        if len(train_df) < 100 or len(oos_df) < max(100, int(min_oos_candles)):
+            oos_warning = (
+                f"Недостаточно данных для финального holdout: train={len(train_df)}, "
+                f"oos={len(oos_df)}, требуется минимум 100 свечей train и "
+                f"{max(100, int(min_oos_candles))} holdout-свечей."
+            )
+
         sl_lo, sl_hi = min(sl_range), max(sl_range)
         tp_lo, tp_hi = min(tp_range), max(tp_range)
         w_lo, w_hi = min(wall_range_usd), max(wall_range_usd)
@@ -1099,7 +1425,12 @@ class OrderFlowBacktester:
         df_cache: Dict[Tuple[int, int], pd.DataFrame] = {}
         for ap in atr_choices:
             for cp in cvd_choices:
-                df_cache[(ap, cp)] = self.calculate_indicators(df, atr_period=ap, cvd_ema_period=cp)
+                df_cache[(ap, cp)] = self.calculate_indicators(train_df, atr_period=ap, cvd_ema_period=cp)
+        fold_bounds = [
+            (int(len(train_df) * 0.25), int(len(train_df) * 0.40)),
+            (int(len(train_df) * 0.40), int(len(train_df) * 0.55)),
+            (int(len(train_df) * 0.55), int(len(train_df) * 0.70)),
+        ]
 
         # 1. Evaluate Baseline ("Before Optimization")
         base_cfg = baseline_params or {}
@@ -1108,26 +1439,64 @@ class OrderFlowBacktester:
         base_wall = float(base_cfg.get("min_density_usd", 300000.0))
         base_cvd = bool(base_cfg.get("use_cvd_filter", False))
         base_atr_p = int(base_cfg.get("atr_period", 14))
+        base_atr_filter = bool(base_cfg.get("use_atr_filter", False))
+        base_oi_filter = bool(base_cfg.get("use_oi_filter", False))
+        base_rsi_filter = bool(base_cfg.get("use_rsi_filter", False))
+        risk_per_trade_pct = base_cfg.get("risk_per_trade_pct")
+        base_atr_sl = bool(base_cfg.get("use_atr_sl", False))
+        base_atr_multiplier = float(base_cfg.get("atr_multiplier", 1.5))
+        use_trailing = bool(base_cfg.get("use_trailing", True))
+        trailing_pct = float(base_cfg.get("trailing_pct", 0.5))
+        use_dynamic_breakeven = bool(base_cfg.get("use_dynamic_breakeven", False))
+        dynamic_be_trigger_r = float(base_cfg.get("dynamic_be_trigger_r", 0.5))
+        tp1_pct = float(base_cfg.get("tp1_pct", 0.6))
+        tp1_atr_mult = float(base_cfg.get("tp1_atr_mult", 1.5))
 
-        baseline_raw = self.run_backtest(
-            df_cache.get((14, 14), df),
-            strategy_type=strategy_type,
-            take_profit_pct=base_tp,
-            stop_loss_pct=base_sl,
-            use_trailing=False,
-            trailing_pct=0.5,
-            leverage=leverage,
-            volume_multiplier=volume_multiplier,
-            min_density_usd=base_wall,
-            use_cvd_filter=base_cvd,
-            maker_fee_pct=maker_fee_pct,
-            taker_fee_pct=taker_fee_pct,
-            slippage_ticks=slippage_ticks,
-            use_multi_tp=use_multi_tp,
-            atr_period=base_atr_p,
-            compute_monte_carlo=False,
-            fast_eval=True,
-        )
+        baseline_fold_raw = []
+        baseline_fold_df = df_cache.get((base_atr_p, 14), df_cache[(14, 14)])
+        for fold_start, fold_end in fold_bounds:
+            if fold_end <= fold_start:
+                continue
+            baseline_fold_raw.append(self.run_backtest(
+                baseline_fold_df.iloc[fold_start:fold_end].reset_index(drop=True),
+                strategy_type=strategy_type,
+                take_profit_pct=base_tp,
+                stop_loss_pct=base_sl,
+                use_trailing=use_trailing,
+                trailing_pct=trailing_pct,
+                leverage=leverage,
+                volume_multiplier=volume_multiplier,
+                min_density_usd=base_wall,
+                use_cvd_filter=base_cvd,
+                use_atr_filter=base_atr_filter,
+                use_atr_sl=base_atr_sl,
+                atr_multiplier=base_atr_multiplier,
+                use_oi_filter=base_oi_filter,
+                use_rsi_filter=base_rsi_filter,
+                maker_fee_pct=maker_fee_pct,
+                taker_fee_pct=taker_fee_pct,
+                slippage_ticks=slippage_ticks,
+                use_multi_tp=use_multi_tp,
+                tp1_pct=tp1_pct,
+                tp1_atr_mult=tp1_atr_mult,
+                atr_period=base_atr_p,
+                compute_monte_carlo=False,
+                fast_eval=True,
+                risk_per_trade_pct=risk_per_trade_pct,
+                use_dynamic_breakeven=use_dynamic_breakeven,
+                dynamic_be_trigger_r=dynamic_be_trigger_r,
+            ))
+        baseline_wf_raw = {
+            "total_trades": sum(int(item.get("total_trades", 0)) for item in baseline_fold_raw),
+            "net_pnl": sum(float(item.get("net_pnl", 0.0)) for item in baseline_fold_raw),
+            "gross_pnl": sum(float(item.get("gross_pnl", 0.0)) for item in baseline_fold_raw),
+            "total_fees_usd": sum(float(item.get("total_fees_usd", 0.0)) for item in baseline_fold_raw),
+            "total_slippage_usd": sum(float(item.get("total_slippage_usd", 0.0)) for item in baseline_fold_raw),
+        }
+        for key in ("roi_pct", "win_rate_pct", "profit_factor", "max_drawdown_pct", "recovery_factor", "sharpe_ratio", "sortino_ratio"):
+            baseline_wf_raw[key] = float(np.mean([float(item.get(key, 0.0) or 0.0) for item in baseline_fold_raw])) if baseline_fold_raw else 0.0
+        baseline_wf_raw["wins_count"] = sum(int(item.get("wins_count", 0)) for item in baseline_fold_raw)
+        baseline_wf_raw["losses_count"] = sum(int(item.get("losses_count", 0)) for item in baseline_fold_raw)
 
         evaluated_cache: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
         all_rows: List[Dict[str, Any]] = []
@@ -1162,34 +1531,72 @@ class OrderFlowBacktester:
                 return evaluated_cache[key]
 
             cached_df = df_cache.get((g["atr_period"], g["cvd_ema_period"]), df_cache[(14, 14)])
-            raw = self.run_backtest(
-                cached_df,
-                strategy_type=strategy_type,
-                take_profit_pct=g["take_profit_pct"],
-                stop_loss_pct=g["stop_loss_pct"],
-                use_trailing=False,
-                trailing_pct=0.5,
-                leverage=leverage,
-                volume_multiplier=volume_multiplier,
-                min_density_usd=g["min_density_usd"],
-                use_cvd_filter=g["use_cvd_filter"],
-                maker_fee_pct=maker_fee_pct,
-                taker_fee_pct=taker_fee_pct,
-                slippage_ticks=slippage_ticks,
-                use_multi_tp=use_multi_tp,
-                atr_period=g["atr_period"],
-                cvd_ema_period=g["cvd_ema_period"],
-                compute_monte_carlo=False,
-                fast_eval=True,
-            )
+            # Three expanding development windows: validation windows advance
+            # in time and never overlap the final holdout.
+            fold_results: List[Dict[str, Any]] = []
+            enriched_dev = cached_df
+            for fold_start, fold_end in fold_bounds:
+                if fold_end <= fold_start:
+                    continue
+                fold_df = enriched_dev.iloc[fold_start:fold_end].reset_index(drop=True)
+                fold_raw = self.run_backtest(
+                    fold_df,
+                    strategy_type=strategy_type,
+                    take_profit_pct=g["take_profit_pct"],
+                    stop_loss_pct=g["stop_loss_pct"],
+                    use_trailing=use_trailing,
+                    trailing_pct=trailing_pct,
+                    leverage=leverage,
+                    volume_multiplier=volume_multiplier,
+                    min_density_usd=g["min_density_usd"],
+                    use_cvd_filter=g["use_cvd_filter"],
+                    use_atr_filter=base_atr_filter,
+                    use_atr_sl=base_atr_sl,
+                    atr_multiplier=base_atr_multiplier,
+                    use_oi_filter=base_oi_filter,
+                    use_rsi_filter=base_rsi_filter,
+                    maker_fee_pct=maker_fee_pct,
+                    taker_fee_pct=taker_fee_pct,
+                    slippage_ticks=slippage_ticks,
+                    use_multi_tp=use_multi_tp,
+                    tp1_pct=tp1_pct,
+                    tp1_atr_mult=tp1_atr_mult,
+                    atr_period=g["atr_period"],
+                    cvd_ema_period=g["cvd_ema_period"],
+                    compute_monte_carlo=False,
+                    fast_eval=True,
+                    risk_per_trade_pct=risk_per_trade_pct,
+                    use_dynamic_breakeven=use_dynamic_breakeven,
+                    dynamic_be_trigger_r=dynamic_be_trigger_r,
+                )
+                fold_results.append(fold_raw)
 
-            total_trades = int(raw.get("total_trades", 0))
-            sharpe = float(raw.get("sharpe_ratio", 0.0))
-            sortino = float(raw.get("sortino_ratio", 0.0))
-            pf = min(25.0, float(raw.get("profit_factor", 0.0)))
-            pnl_pct = float(raw.get("roi_pct", 0.0))
-            max_dd = float(raw.get("max_drawdown_pct", 0.0))
-            wr = float(raw.get("win_rate_pct", 0.0))
+            def mean_metric(key: str) -> float:
+                return float(np.mean([float(item.get(key, 0.0) or 0.0) for item in fold_results])) if fold_results else 0.0
+
+            total_trades = sum(int(item.get("total_trades", 0)) for item in fold_results)
+            sharpe = mean_metric("sharpe_ratio")
+            sortino = mean_metric("sortino_ratio")
+            pf = min(25.0, mean_metric("profit_factor"))
+            pnl_pct = mean_metric("roi_pct")
+            max_dd = mean_metric("max_drawdown_pct")
+            wr = mean_metric("win_rate_pct")
+            raw = {
+                "total_trades": total_trades,
+                "roi_pct": pnl_pct,
+                "net_pnl": sum(float(item.get("net_pnl", 0.0)) for item in fold_results),
+                "gross_pnl": sum(float(item.get("gross_pnl", 0.0)) for item in fold_results),
+                "total_fees_usd": sum(float(item.get("total_fees_usd", 0.0)) for item in fold_results),
+                "total_slippage_usd": sum(float(item.get("total_slippage_usd", 0.0)) for item in fold_results),
+                "win_rate_pct": wr,
+                "profit_factor": pf,
+                "max_drawdown_pct": max_dd,
+                "recovery_factor": mean_metric("recovery_factor"),
+                "sharpe_ratio": sharpe,
+                "sortino_ratio": sortino,
+                "wins_count": sum(int(item.get("wins_count", 0)) for item in fold_results),
+                "losses_count": sum(int(item.get("losses_count", 0)) for item in fold_results),
+            }
 
             # Fitness Function: Maximize Sharpe & Sortino with strict penalty if Max Drawdown > 5%
             if total_trades == 0:
@@ -1212,6 +1619,7 @@ class OrderFlowBacktester:
                 "net_pnl_usd": round(float(raw.get("net_pnl", 0.0)), 2),
                 "gross_pnl_usd": round(float(raw.get("gross_pnl", 0.0)), 2),
                 "total_fees_usd": round(float(raw.get("total_fees_usd", 0.0)), 2),
+                "total_slippage_usd": round(float(raw.get("total_slippage_usd", 0.0)), 2),
                 "win_rate_pct": round(wr, 2),
                 "profit_factor": round(float(raw.get("profit_factor", 0.0)), 2),
                 "max_drawdown_pct": round(max_dd, 2),
@@ -1223,6 +1631,23 @@ class OrderFlowBacktester:
                 "sortino_ratio": round(sortino, 2),
                 "fitness_score": round(fitness, 3),
                 "generation": gen_idx,
+                "walk_forward_fold_metrics": [
+                    {
+                        "train_from_time": int(train_df["timestamp"].iloc[0]),
+                        "train_to_time": int(train_df["timestamp"].iloc[fold_bounds[i][0] - 1]),
+                        "validation_from_time": int(train_df.iloc[fold_bounds[i][0]]["timestamp"]),
+                        "validation_to_time": int(train_df.iloc[fold_bounds[i][1] - 1]["timestamp"]),
+                        "candles": fold_bounds[i][1] - fold_bounds[i][0],
+                        "total_trades": int(item.get("total_trades", 0)),
+                        "net_pnl_usd": round(float(item.get("net_pnl", 0.0)), 2),
+                        "total_fees_usd": round(float(item.get("total_fees_usd", 0.0)), 2),
+                        "total_slippage_usd": round(float(item.get("total_slippage_usd", 0.0)), 2),
+                        "win_rate_pct": round(float(item.get("win_rate_pct", 0.0)), 2),
+                        "profit_factor": round(float(item.get("profit_factor", 0.0)), 2),
+                        "max_drawdown_pct": round(float(item.get("max_drawdown_pct", 0.0)), 2),
+                    }
+                    for i, item in enumerate(fold_results)
+                ],
             }
             evaluated_cache[key] = row
             all_rows.append(row)
@@ -1342,21 +1767,151 @@ class OrderFlowBacktester:
                 strategy_type=strategy_type,
                 take_profit_pct=best_row["take_profit_pct"],
                 stop_loss_pct=best_row["stop_loss_pct"],
-                use_trailing=False,
-                trailing_pct=0.5,
+                use_trailing=use_trailing,
+                trailing_pct=trailing_pct,
                 leverage=leverage,
                 volume_multiplier=volume_multiplier,
                 min_density_usd=best_row["min_density_usd"],
                 use_cvd_filter=best_row["use_cvd_filter"],
+                use_atr_filter=base_atr_filter,
+                use_atr_sl=base_atr_sl,
+                atr_multiplier=base_atr_multiplier,
+                use_oi_filter=base_oi_filter,
+                use_rsi_filter=base_rsi_filter,
                 maker_fee_pct=maker_fee_pct,
                 taker_fee_pct=taker_fee_pct,
                 slippage_ticks=slippage_ticks,
                 use_multi_tp=use_multi_tp,
+                tp1_pct=tp1_pct,
+                tp1_atr_mult=tp1_atr_mult,
                 atr_period=best_row["atr_period"],
                 cvd_ema_period=best_row["cvd_ema_period"],
                 compute_monte_carlo=True,
                 fast_eval=False,
+                risk_per_trade_pct=risk_per_trade_pct,
+                use_dynamic_breakeven=use_dynamic_breakeven,
+                dynamic_be_trigger_r=dynamic_be_trigger_r,
             )
+
+        def metric_card(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+            raw = raw or {}
+            return {
+                "total_pnl_pct": round(float(raw.get("roi_pct", 0.0)), 2),
+                "net_pnl_usd": round(float(raw.get("net_pnl", 0.0)), 2),
+                "gross_pnl_usd": round(float(raw.get("gross_pnl", 0.0)), 2),
+                "total_fees_usd": round(float(raw.get("total_fees_usd", 0.0)), 2),
+                "total_slippage_usd": round(float(raw.get("total_slippage_usd", 0.0)), 2),
+                "win_rate_pct": round(float(raw.get("win_rate_pct", 0.0)), 2),
+                "profit_factor": round(float(raw.get("profit_factor", 0.0)), 2),
+                "max_drawdown_pct": round(float(raw.get("max_drawdown_pct", 0.0)), 2),
+                "recovery_factor": round(float(raw.get("recovery_factor", 0.0)), 2),
+                "sharpe_ratio": round(float(raw.get("sharpe_ratio", 0.0)), 2),
+                "sortino_ratio": round(float(raw.get("sortino_ratio", 0.0)), 2),
+                "total_trades": int(raw.get("total_trades", 0)),
+            }
+
+        oos_result: Dict[str, Any] = {
+            "available": False,
+            "evidence_status": "insufficient_evidence",
+            "train_candles": len(train_df),
+            "oos_candles": len(oos_df),
+            "train_from_time": int(train_df["timestamp"].iloc[0]) if not train_df.empty and "timestamp" in train_df else None,
+            "train_to_time": int(train_df["timestamp"].iloc[-1]) if not train_df.empty and "timestamp" in train_df else None,
+            "oos_from_time": int(oos_df["timestamp"].iloc[0]) if not oos_df.empty and "timestamp" in oos_df else None,
+            "oos_to_time": int(oos_df["timestamp"].iloc[-1]) if not oos_df.empty and "timestamp" in oos_df else None,
+            "metrics": None,
+            "baseline_metrics": None,
+            "warning": oos_warning,
+        }
+        if not oos_warning and best_row is not None:
+            oos_df_cache = self.calculate_indicators(
+                df,
+                atr_period=best_row["atr_period"],
+                cvd_ema_period=best_row["cvd_ema_period"],
+            ).iloc[split_idx:].reset_index(drop=True)
+            oos_raw = self.run_backtest(
+                oos_df_cache,
+                strategy_type=strategy_type,
+                take_profit_pct=best_row["take_profit_pct"],
+                stop_loss_pct=best_row["stop_loss_pct"],
+                use_trailing=use_trailing,
+                trailing_pct=trailing_pct,
+                leverage=leverage,
+                volume_multiplier=volume_multiplier,
+                min_density_usd=best_row["min_density_usd"],
+                use_cvd_filter=best_row["use_cvd_filter"],
+                use_atr_filter=base_atr_filter,
+                use_atr_sl=base_atr_sl,
+                atr_multiplier=base_atr_multiplier,
+                use_oi_filter=base_oi_filter,
+                use_rsi_filter=base_rsi_filter,
+                maker_fee_pct=maker_fee_pct,
+                taker_fee_pct=taker_fee_pct,
+                slippage_ticks=slippage_ticks,
+                use_multi_tp=use_multi_tp,
+                tp1_pct=tp1_pct,
+                tp1_atr_mult=tp1_atr_mult,
+                atr_period=best_row["atr_period"],
+                cvd_ema_period=best_row["cvd_ema_period"],
+                compute_monte_carlo=False,
+                fast_eval=False,
+                risk_per_trade_pct=risk_per_trade_pct,
+                use_dynamic_breakeven=use_dynamic_breakeven,
+                dynamic_be_trigger_r=dynamic_be_trigger_r,
+            )
+            baseline_oos_cache = self.calculate_indicators(
+                df, atr_period=base_atr_p, cvd_ema_period=14
+            ).iloc[split_idx:].reset_index(drop=True)
+            baseline_oos_raw = self.run_backtest(
+                baseline_oos_cache,
+                strategy_type=strategy_type,
+                take_profit_pct=base_tp,
+                stop_loss_pct=base_sl,
+                use_trailing=use_trailing,
+                trailing_pct=trailing_pct,
+                leverage=leverage,
+                volume_multiplier=volume_multiplier,
+                min_density_usd=base_wall,
+                use_cvd_filter=base_cvd,
+                use_atr_filter=base_atr_filter,
+                use_atr_sl=base_atr_sl,
+                atr_multiplier=base_atr_multiplier,
+                use_oi_filter=base_oi_filter,
+                use_rsi_filter=base_rsi_filter,
+                maker_fee_pct=maker_fee_pct,
+                taker_fee_pct=taker_fee_pct,
+                slippage_ticks=slippage_ticks,
+                use_multi_tp=use_multi_tp,
+                tp1_pct=tp1_pct,
+                tp1_atr_mult=tp1_atr_mult,
+                atr_period=base_atr_p,
+                compute_monte_carlo=False,
+                fast_eval=False,
+                risk_per_trade_pct=risk_per_trade_pct,
+                use_dynamic_breakeven=use_dynamic_breakeven,
+                dynamic_be_trigger_r=dynamic_be_trigger_r,
+            )
+            oos_result["baseline_trade_count"] = int(baseline_oos_raw.get("total_trades", 0))
+            oos_trade_count = int(oos_raw.get("total_trades", 0))
+            if oos_trade_count >= 20:
+                oos_result["available"] = True
+                oos_result["evidence_status"] = "sufficient_evidence"
+                oos_result["metrics"] = metric_card(oos_raw)
+                if int(baseline_oos_raw.get("total_trades", 0)) >= 20:
+                    oos_result["baseline_metrics"] = metric_card(baseline_oos_raw)
+            else:
+                oos_result["warning"] = (
+                    f"Недостаточно закрытых сделок в holdout: {oos_trade_count} < 20 "
+                    f"при {len(oos_df)} свечах. Метрики не считаются подтверждёнными."
+                )
+            oos_result["trade_count"] = oos_trade_count
+        oos_result["walk_forward_folds"] = (best_row or {}).get("walk_forward_fold_metrics", [])
+
+        walk_forward_result = {
+            "fold_count": len((best_row or {}).get("walk_forward_fold_metrics", [])),
+            "folds": (best_row or {}).get("walk_forward_fold_metrics", []),
+            "selection_basis": "mean chronological validation fitness across expanding development windows",
+        }
 
         elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 1)
 
@@ -1366,17 +1921,18 @@ class OrderFlowBacktester:
             "min_density_usd": base_wall,
             "use_cvd_filter": base_cvd,
             "atr_period": base_atr_p,
-            "total_pnl_pct": round(float(baseline_raw.get("roi_pct", 0.0)), 2),
-            "net_pnl_usd": round(float(baseline_raw.get("net_pnl", 0.0)), 2),
-            "gross_pnl_usd": round(float(baseline_raw.get("gross_pnl", 0.0)), 2),
-            "total_fees_usd": round(float(baseline_raw.get("total_fees_usd", 0.0)), 2),
-            "win_rate_pct": round(float(baseline_raw.get("win_rate_pct", 0.0)), 2),
-            "profit_factor": round(float(baseline_raw.get("profit_factor", 0.0)), 2),
-            "max_drawdown_pct": round(float(baseline_raw.get("max_drawdown_pct", 0.0)), 2),
-            "recovery_factor": round(float(baseline_raw.get("recovery_factor", 0.0)), 2),
-            "sharpe_ratio": round(float(baseline_raw.get("sharpe_ratio", 0.0)), 2),
-            "sortino_ratio": round(float(baseline_raw.get("sortino_ratio", 0.0)), 2),
-            "total_trades": int(baseline_raw.get("total_trades", 0)),
+            "total_pnl_pct": round(float(baseline_wf_raw.get("roi_pct", 0.0)), 2),
+            "net_pnl_usd": round(float(baseline_wf_raw.get("net_pnl", 0.0)), 2),
+            "gross_pnl_usd": round(float(baseline_wf_raw.get("gross_pnl", 0.0)), 2),
+            "total_fees_usd": round(float(baseline_wf_raw.get("total_fees_usd", 0.0)), 2),
+            "total_slippage_usd": round(float(baseline_wf_raw.get("total_slippage_usd", 0.0)), 2),
+            "win_rate_pct": round(float(baseline_wf_raw.get("win_rate_pct", 0.0)), 2),
+            "profit_factor": round(float(baseline_wf_raw.get("profit_factor", 0.0)), 2),
+            "max_drawdown_pct": round(float(baseline_wf_raw.get("max_drawdown_pct", 0.0)), 2),
+            "recovery_factor": round(float(baseline_wf_raw.get("recovery_factor", 0.0)), 2),
+            "sharpe_ratio": round(float(baseline_wf_raw.get("sharpe_ratio", 0.0)), 2),
+            "sortino_ratio": round(float(baseline_wf_raw.get("sortino_ratio", 0.0)), 2),
+            "total_trades": int(baseline_wf_raw.get("total_trades", 0)),
         }
         after_card = best_row or (all_rows[0] if all_rows else before_card)
 
@@ -1390,6 +1946,8 @@ class OrderFlowBacktester:
             "iterations_count": len(all_rows),
             "generations": generations,
             "elapsed_ms": elapsed_ms,
+            "oos": oos_result,
+            "walk_forward": walk_forward_result,
         }
 
     def calculate_confluence_matrix(self, trades: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

@@ -1,0 +1,42 @@
+{
+  "test_status": "COMPLETED",
+  "duration_planned_sec": 300,
+  "duration_actual_sec": 309.45,
+  "monitored_coins": [
+    "BTCUSDT",
+    "SOLUSDT",
+    "LINKUSDT",
+    "ADAUSDT",
+    "SUIUSDT",
+    "UNIUSDT",
+    "ZECUSDT"
+  ],
+  "virtual_wallet": {
+    "initial_balance_usd": 100.0,
+    "final_balance_usd": 100.0,
+    "available_margin_usd": 100.0,
+    "locked_margin_usd": 0.0,
+    "realized_pnl_usd": 0.0,
+    "unrealized_pnl_usd": 0,
+    "total_fees_paid_usd": 0.0,
+    "open_positions": [],
+    "closed_trades": []
+  },
+  "memory_profiling": {
+    "initial_rss_mb": 106.62,
+    "final_rss_mb": 139.78,
+    "rss_delta_mb": 33.16,
+    "peak_rss_mb": 139.79,
+    "heap_current_mb": 2.25,
+    "heap_peak_mb": 3.96
+  },
+  "websocket_telemetry": {
+    "total_frames_received": 39539,
+    "total_trades_received": 35420,
+    "total_depth_received": 4049,
+    "reconnections_count": 0
+  },
+  "exceptions_caught_count": 0,
+  "exceptions_caught": [],
+  "telemetry_checkpoints_count": 9
+}

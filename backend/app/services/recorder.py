@@ -396,13 +396,15 @@ class OrderFlowRecorder:
         logger.info("OrderFlow Recorder stopped.")
 
     async def _run_recorder_loop(self):
-        """Runs the combined WebSocket stream listener and periodic flush."""
+        """Runs the combined WebSocket stream listener and periodic flush with exponential backoff."""
+        reconnect_attempts = 0
         while self.is_running:
             ws_url = "wss://fstream.binance.com/ws"
             logger.info(f"Connecting to Binance Recorder WS: {ws_url}...")
 
             try:
                 async with websockets.connect(ws_url, ping_interval=20, ping_timeout=15, max_size=10*1024*1024) as ws:
+                    reconnect_attempts = 0  # Reset on successful connection
                     # Subscribe to trades and depth for all focus symbols
                     sub_params = []
                     for s in self.focus_symbols:
@@ -415,7 +417,6 @@ class OrderFlowRecorder:
                     logger.info(f"Subscribed to {len(sub_params)} streams on Binance Futures WS.")
 
                     last_flush = time.time()
-
 
                     while self.is_running:
                         try:
@@ -449,7 +450,6 @@ class OrderFlowRecorder:
                         except asyncio.TimeoutError:
                             pass
 
-
                         # Flush to disk periodically or on large buffer
                         now = time.time()
                         if now - last_flush >= self.flush_interval_sec or len(self.trade_buffer) >= 3000:
@@ -459,8 +459,14 @@ class OrderFlowRecorder:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.warning(f"Recorder WS stream disconnected: {e}. Reconnecting in 5s...")
+                delay = min(60.0, 2.0 * (2 ** reconnect_attempts))
+                logger.warning(
+                    f"[WARNING] Recorder WS stream disconnected: {e}. "
+                    f"Reconnecting in {delay:.1f}s (retry={reconnect_attempts + 1})...",
+                    exc_info=True
+                )
+                reconnect_attempts += 1
                 self.flush_buffers()
-                await asyncio.sleep(5)
+                await asyncio.sleep(delay)
 
 recorder = OrderFlowRecorder()

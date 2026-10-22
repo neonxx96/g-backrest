@@ -22,3 +22,20 @@ __all__ = [
     "compute_supertrend",
     "compute_cvd"
 ]
+
+from backend.app.engine.trade_contract import (
+    UnifiedTradeSignal,
+    from_backtest_trade,
+    from_backtest_setup,
+    from_scanner_signal,
+    from_paper_order,
+    to_paper_order_request
+)
+__all__.extend([
+    "UnifiedTradeSignal",
+    "from_backtest_trade",
+    "from_backtest_setup",
+    "from_scanner_signal",
+    "from_paper_order",
+    "to_paper_order_request"
+])

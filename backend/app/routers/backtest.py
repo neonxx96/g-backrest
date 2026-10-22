@@ -25,6 +25,13 @@ backtest_router = APIRouter(prefix="/api/backtest", tags=["backtest"])
 TF_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240}
 MAX_CANDLES = 45000  # 30 days of 1m
 
+# Non-native intervals (45m, 6h) are assembled from a Binance-native base
+# timeframe and resampled, so paginated deep history works for them too.
+CUSTOM_TF_MAP_BT = {
+    "45m": {"base": "15m", "rule": "45min", "mult": 3},
+    "6h": {"base": "1h", "rule": "6h", "mult": 6},
+}
+
 STRATEGIES_CATALOG = [
     {
         "id": "confluence_ema",
@@ -87,14 +94,18 @@ STRATEGIES = {
     "cvd_absorption",
     "ema_trend",
     "confluence_ema",
+    "diagnostics_lenient",
+    "naked_test",
 }
 
 
 class BacktestParams(BaseModel):
+    # Percent of equity risked at the stop. None keeps legacy fixed-notional behavior.
+    risk_per_trade_pct: Optional[float] = Field(None, gt=0, le=10)
     stop_loss_pct: float = Field(0.8, gt=0, le=50)
     take_profit_pct: float = Field(1.5, gt=0, le=200)
     min_density_usd: float = Field(100000.0, ge=0)
-    volume_multiplier: float = Field(1.3, ge=0.5, le=20)
+    volume_multiplier: float = Field(1.3, ge=0, le=20)
     leverage: float = Field(1.0, ge=1, le=125)
     # Confluence Filter Suite
     use_atr_filter: bool = False
@@ -108,6 +119,8 @@ class BacktestParams(BaseModel):
     taker_fee_pct: float = Field(0.05, ge=0.0, le=2.0)
     slippage_ticks: int = Field(2, ge=0, le=20)
     use_multi_tp: bool = True
+    use_trailing: bool = True
+    trailing_pct: float = Field(0.5, gt=0, le=20)
     tp1_pct: float = Field(0.6, gt=0, le=50)
     tp1_atr_mult: float = Field(1.5, gt=0, le=10)
     atr_period: int = Field(14, ge=3, le=100)
@@ -134,9 +147,10 @@ class BacktestRequest(BaseModel):
     # Unified Indicators Configuration
     indicators: Optional[Dict[str, Dict[str, Any]]] = None
     # Legacy / flat override fields
-    leverage: Optional[float] = None
-    stop_loss_pct: Optional[float] = None
-    take_profit_pct: Optional[float] = None
+    leverage: Optional[float] = Field(None, ge=1, le=125)
+    risk_per_trade_pct: Optional[float] = Field(None, gt=0, le=10)
+    stop_loss_pct: Optional[float] = Field(None, gt=0, le=50)
+    take_profit_pct: Optional[float] = Field(None, gt=0, le=200)
     sl_pct: Optional[float] = None
     tp_pct: Optional[float] = None
     use_atr_filter: Optional[bool] = None
@@ -177,8 +191,106 @@ def _clean(v: Any) -> Any:
     return v
 
 
+def _report_metrics(values: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if values is None:
+        return None
+    return {
+        "net_pnl_usd": values.get("net_pnl_usd", values.get("net_pnl", 0.0)),
+        "net_pnl_pct": values.get("net_pnl_pct", values.get("total_pnl_pct", values.get("roi_pct", 0.0))),
+        "gross_pnl_usd": values.get("gross_pnl_usd", values.get("gross_pnl", 0.0)),
+        "total_fees_usd": values.get("total_fees_usd", 0.0),
+        "total_slippage_usd": values.get("total_slippage_usd", 0.0),
+        "win_rate_pct": values.get("win_rate_pct", 0.0),
+        "profit_factor": values.get("profit_factor", 0.0),
+        "max_drawdown_pct": values.get("max_drawdown_pct", 0.0),
+        "total_trades": values.get("total_trades", 0),
+    }
+
+
+def _build_optimizer_report(oos: Dict[str, Any], walk_forward: Dict[str, Any], data_availability: Dict[str, Any], candles: int) -> Dict[str, Any]:
+    return _clean({
+        "schema_version": 1,
+        "status": oos.get("evidence_status", "insufficient_evidence"),
+        "metrics": _report_metrics(oos.get("metrics")),
+        "sample": {
+            "candles": oos.get("oos_candles", 0),
+            "closed_trades": oos.get("trade_count", 0),
+            "source_candles": candles,
+        },
+        "validation": {"walk_forward": walk_forward, "holdout": oos},
+        "data_availability": _data_availability({"data_availability": data_availability}),
+    })
+
+
+def _historical_oi_column(df: pd.DataFrame) -> Optional[str]:
+    for column in ("oi", "open_interest"):
+        if column in df.columns and pd.to_numeric(df[column], errors="coerce").notna().sum() >= 2:
+            return column
+    return None
+
+
+def _data_availability(meta: Dict[str, Any]) -> Dict[str, Any]:
+    availability = dict(meta.get("data_availability") or {})
+    availability.setdefault("open_interest", {
+        "available": False,
+        "reason": "Historical open-interest data is not present in the selected dataset.",
+    })
+    availability["l2_history"] = {
+        "available": False,
+        "label": "No data (OHLCV only)",
+        "reason": "Historical L2 order-book snapshots are not supplied to this backtest.",
+    }
+    return availability
+
+
 _HISTORY_CACHE: Dict[tuple, tuple] = {}
 _HISTORY_CACHE_TTL_SEC = 60.0
+
+
+def _ensure_delta_column(df: pd.DataFrame) -> pd.DataFrame:
+    """Keep real footprint delta and rebuild missing OHLCV delta deterministically.
+
+    Kline-only Parquet rows intentionally store ``volume_delta`` as NaN because
+    they do not contain a price-level footprint.  That must not become a
+    present-but-NaN ``delta`` column: the backtester treats a present delta as
+    authoritative and would otherwise veto every signal.
+    """
+    data = df.copy()
+    if "delta" in data.columns:
+        existing = pd.to_numeric(data["delta"], errors="coerce")
+    elif "volume_delta" in data.columns:
+        existing = pd.to_numeric(data["volume_delta"], errors="coerce")
+    else:
+        existing = pd.Series(np.nan, index=data.index, dtype="float64")
+
+    if "taker_buy_base_volume" in data.columns:
+        fallback = (2.0 * pd.to_numeric(data["taker_buy_base_volume"], errors="coerce")) - pd.to_numeric(data["volume"], errors="coerce")
+    elif "taker_buy_volume" in data.columns:
+        fallback = (2.0 * pd.to_numeric(data["taker_buy_volume"], errors="coerce")) - pd.to_numeric(data["volume"], errors="coerce")
+    elif {"open", "high", "low", "close", "volume"}.issubset(data.columns):
+        candle_range = (data["high"] - data["low"]).replace(0, np.nan)
+        fallback = ((data["close"] - data["open"]) / candle_range).fillna(0.0) * data["volume"]
+    else:
+        fallback = pd.Series(0.0, index=data.index)
+
+    data["delta"] = existing.where(existing.notna(), fallback).fillna(0.0).astype(float)
+    return data
+
+
+def _read_cached_history(symbol: str, timeframe: str, days: int) -> Optional[pd.DataFrame]:
+    """Read the available local period without attempting a network refresh."""
+    from backend.app.services.historical_data_loader import historical_loader
+
+    cached = historical_loader.read_cache(symbol, timeframe)
+    if cached is None or len(cached) < 50:
+        return None
+    cached = cached.sort_values("timestamp").reset_index(drop=True)
+    cache_end = int(cached["timestamp"].max())
+    cache_start = cache_end - int(days * 24 * 60 * 60 * 1000)
+    cached = cached[cached["timestamp"] >= cache_start].reset_index(drop=True)
+    if len(cached) < 50:
+        return None
+    return _ensure_delta_column(cached)
 
 
 async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
@@ -190,8 +302,30 @@ async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
         return cached[1].copy()
 
     tf_min = TF_MINUTES.get(timeframe, 5)
+    # Non-native intervals (45m, 6h) fetch a native base timeframe and resample.
+    custom_tf = CUSTOM_TF_MAP_BT.get(timeframe)
+    fetch_interval = custom_tf["base"] if custom_tf else timeframe
+    resample_rule = custom_tf["rule"] if custom_tf else None
+    base_mult = custom_tf["mult"] if custom_tf else 1
+
+    # Fast path: Read from institutional Parquet cache
+    if not custom_tf:
+        try:
+            # Backtests must remain bounded by the locally recorded period.  A
+            # cache that ends a few minutes ago is still valid historical data;
+            # calling the incremental loader first would block on Binance and
+            # make preflight hang when the exchange is unavailable.
+            df_parquet = _read_cached_history(symbol, timeframe, days)
+            if df_parquet is not None:
+                df = df_parquet
+                _HISTORY_CACHE[cache_key] = (now_ts, df.copy())
+                return df
+        except Exception as e:
+            logger.debug(f"historical_loader fast path skipped: {e}")
+
     # Ensure at least 100 candles are fetched for indicator warm-up (EMA20/50, ATR14, CVD)
     need = min(max(100, int(days * 1440 / tf_min)), MAX_CANDLES)
+    need_base = need * base_mult
     session = await binance_service.adapter.get_session()
 
     headers = {
@@ -212,9 +346,9 @@ async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
         max_chunk = ep["max_limit"]
         endpoint_ok = True
 
-        while len(rows) < need:
-            limit = min(max_chunk, need - len(rows))
-            params = {"symbol": symbol, "interval": timeframe, "limit": limit, "endTime": end_ms}
+        while len(rows) < need_base:
+            limit = min(max_chunk, need_base - len(rows))
+            params = {"symbol": symbol, "interval": fetch_interval, "limit": limit, "endTime": end_ms}
             try:
                 async with session.get(ep["url"], params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=8)) as resp:
                     if resp.status == 200:
@@ -249,6 +383,22 @@ async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
     })
     df["delta"] = 2.0 * df["taker_buy_base_volume"] - df["volume"]
     df = df.drop_duplicates(subset="timestamp").sort_values("timestamp").reset_index(drop=True)
+
+    # Resample non-native intervals (45m <- 15m, 6h <- 1h) to the target timeframe.
+    if resample_rule:
+        df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms")
+        df.set_index("datetime", inplace=True)
+        df = df.resample(resample_rule, closed="left", label="left").agg({
+            "timestamp": "first",
+            "open": "first",
+            "high": "max",
+            "low": "min",
+            "close": "last",
+            "volume": "sum",
+            "taker_buy_base_volume": "sum",
+            "delta": "sum",
+        }).dropna().reset_index(drop=True)
+        df = df.tail(need).reset_index(drop=True)
 
     # Attempt to enrich with real Open Interest from Binance Futures
     if timeframe in {"5m", "15m", "30m", "1h", "4h"}:
@@ -291,27 +441,60 @@ def _sharpe(equity_curve: List[Dict[str, float]]) -> float:
     return float(np.mean(rets) / sd * math.sqrt(len(rets)))
 
 
+def _entry_reason_from_trade(trade: Dict[str, Any], strategy_type: str) -> List[str]:
+    """Return entry conditions without ever re-labelling an exit as an entry."""
+    explicit = trade.get("entry_reason")
+    if isinstance(explicit, str):
+        explicit = [explicit]
+    if isinstance(explicit, list):
+        normalized = [str(item).strip() for item in explicit if str(item).strip()]
+        if normalized:
+            return normalized
+
+    context = trade.get("context_snapshot") or {}
+    conditions = [f"Strategy = {strategy_type}"]
+    for label, key in (
+        ("Imbalance ratio", "imbalance_ratio"),
+        ("CVD trend", "cvd_trend"),
+        ("CVD divergence", "cvd_divergence"),
+        ("OI state", "oi_status"),
+    ):
+        value = context.get(key)
+        if value not in (None, ""):
+            conditions.append(f"{label} = {value}")
+    return conditions
+
+
 def build_response(raw: Dict[str, Any], initial_capital: float, meta: Dict[str, Any]) -> Dict[str, Any]:
     raw_trades = raw.get("trades", [])
     trades, signals = [], []
     for idx, t in enumerate(raw_trades, start=1):
         side = "BUY" if t["direction"] == "LONG" else "SELL"
+        is_long = t["direction"] == "LONG" or side == "BUY"
+        pnl_val = float(t.get("pnl_pct", 0.0))
         ctx = t.get("context_snapshot") or {}
+        entry_reason = _entry_reason_from_trade(t, str(meta.get("strategy_type", raw.get("strategy", "unknown"))))
+        exit_reason = str(t.get("exit_reason") or "Exit not recorded")
         trades.append({
             "id": idx,
             "entry_time": t["entry_time"],
             "exit_time": t["exit_time"],
             "type": side,
-            "entry_price": t["entry_price"],
-            "exit_price": t["exit_price"],
-            "gross_pnl_usd": t.get("gross_pnl_usd", t["pnl_usd"]),
-            "gross_pnl_pct": t.get("gross_pnl_pct", t["pnl_pct"]),
-            "fee_paid_usd": t.get("fee_paid_usd", 0.0),
-            "slippage_cost_usd": t.get("slippage_cost_usd", 0.0),
+            "side": "Long" if is_long else "Short",
+            "direction": "LONG" if is_long else "SHORT",
+            "entry_price": float(t["entry_price"]),
+            "exit_price": float(t["exit_price"]),
+            "gross_pnl_usd": float(t.get("gross_pnl_usd", t["pnl_usd"])),
+            "gross_pnl_pct": float(t.get("gross_pnl_pct", t["pnl_pct"])),
+            "fee_paid_usd": float(t.get("fee_paid_usd", 0.0)),
+            "slippage_cost_usd": float(t.get("slippage_cost_usd", 0.0)),
             "tp1_hit": t.get("tp1_hit", False),
-            "pnl_pct": t["pnl_pct"],
-            "pnl_usd": t["pnl_usd"],
-            "reason": t["exit_reason"],
+            "pnl_pct": pnl_val,
+            "pnl_percent": pnl_val,
+            "pnl_usd": float(t["pnl_usd"]),
+            "entry_reason": entry_reason,
+            "exit_reason": exit_reason,
+            "reason": entry_reason,
             "context_snapshot": ctx
         })
         signals.append({
@@ -319,7 +502,9 @@ def build_response(raw: Dict[str, Any], initial_capital: float, meta: Dict[str, 
             "type": side,
             "price": t["entry_price"],
             "label": f"{side} #{idx}",
-            "reason": t["exit_reason"],
+            "entry_reason": entry_reason,
+            "exit_reason": exit_reason,
+            "reason": entry_reason,
             "pnl_pct": t["pnl_pct"],
             "pnl_usd": t["pnl_usd"],
             "context_snapshot": ctx
@@ -364,15 +549,31 @@ def build_response(raw: Dict[str, Any], initial_capital: float, meta: Dict[str, 
         "monte_carlo": raw.get("monte_carlo"),
         "execution_config": raw.get("execution_config"),
         "data_feed_context": raw.get("data_feed_context"),
+        "data_availability": {
+            "ohlcv": {
+                "available": True,
+                "source": meta.get("data_availability", {}).get("ohlcv_source", "Binance Futures OHLCV"),
+            },
+            "open_interest": _data_availability(meta)["open_interest"],
+            "l2_history": _data_availability(meta)["l2_history"],
+        },
         "active_position_setup": raw.get("active_position_setup"),
         "meta": meta,
+        "report": {
+            "schema_version": 1,
+            "status": "descriptive_backtest",
+            "metrics": _report_metrics(summary),
+            "sample": {"candles": meta.get("candles"), "closed_trades": total},
+            "validation": {"walk_forward": None, "holdout": None},
+            "data_availability": _data_availability(meta),
+        },
         # legacy keys (test_e2e.py / BacktestModal / AICopilotSidebar)
         "net_pnl": raw.get("net_pnl", 0.0),
         "total_pnl_usd": raw.get("net_pnl", 0.0),
         "data_engine": {
             "class": "Historical Flow & Volume Engine",
             "status": "Verified Real History",
-            "historical_sources": ["Binance Futures OHLCV", "Taker Buy Base Volume (Delta)", "Open Interest 1h Delta"],
+            "historical_sources": ["Binance Futures OHLCV"] + (["Taker Buy Base Volume (Delta)"] if meta.get("data_availability", {}).get("taker_buy_volume", False) else []) + (["Open Interest"] if meta.get("data_availability", {}).get("open_interest", {}).get("available") else []),
             "l2_orderbook_available_on_history": False,
             "disclaimer": "Биржа Binance не хранит историческую книгу заявок L2. Симуляция основана на реальном тиковом объёме покупок/продаж (CVD) и свечных кластерах."
         },
@@ -403,6 +604,17 @@ async def run_backtest(req: BacktestRequest):
         raise HTTPException(status_code=422, detail=f"timeframe must be one of {list(TF_MINUTES)}")
 
     eff_strategy = req.strategy or req.strategy_type
+    if eff_strategy in ("live_density_bounce", "live_wall_breakout"):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Стратегия '{eff_strategy}' работает исключительно в реальном времени по живому стакану L2. "
+                "Исторический бэктест недоступен, так как биржа не хранит потиковую книгу заявок. "
+                "Для тестирования на истории выберите стратегию 'Отскок от объёмного кластера' (cluster_volume_bounce) "
+                "или 'Квант-Конфлюенс' (confluence_ema)."
+            )
+        )
+
     if eff_strategy == "cluster_volume_bounce":
         eff_strategy = "density_bounce"
 
@@ -411,6 +623,7 @@ async def run_backtest(req: BacktestRequest):
 
     p = req.params
     leverage = req.leverage if req.leverage is not None else p.leverage
+    risk_per_trade_pct = req.risk_per_trade_pct if req.risk_per_trade_pct is not None else p.risk_per_trade_pct
     sl = req.stop_loss_pct if req.stop_loss_pct is not None else (req.sl_pct if req.sl_pct is not None else p.stop_loss_pct)
     tp = req.take_profit_pct if req.take_profit_pct is not None else (req.tp_pct if req.tp_pct is not None else p.take_profit_pct)
     use_atr_filter = req.use_atr_filter if req.use_atr_filter is not None else p.use_atr_filter
@@ -440,6 +653,11 @@ async def run_backtest(req: BacktestRequest):
     if df.empty:
         raise HTTPException(status_code=400, detail=f"No candles for {symbol}")
 
+    oi_column = _historical_oi_column(df)
+    oi_available = oi_column is not None
+    if use_oi_filter and not oi_available:
+        raise HTTPException(status_code=422, detail="OI filter requires real historical open-interest data; this dataset is OHLCV-only.")
+
     custom_indicators = req.indicators or p.indicators
     if custom_indicators:
         from backend.app.engine.indicators import compute_indicators
@@ -465,8 +683,8 @@ async def run_backtest(req: BacktestRequest):
         eff_strategy,
         tp,
         sl,
-        False,
-        0.5,
+        p.use_trailing,
+        p.trailing_pct,
         float(leverage),
         100000.0,
         p.volume_multiplier,
@@ -494,6 +712,7 @@ async def run_backtest(req: BacktestRequest):
         tp2_mode,
         tp2_rr_ratio,
         min_wall_lifetime_sec,
+        risk_per_trade_pct=risk_per_trade_pct,
     )
     if "error" in raw:
         raise HTTPException(status_code=400, detail=raw["error"])
@@ -512,6 +731,9 @@ async def run_backtest(req: BacktestRequest):
             "taker_fee_pct": taker_fee_pct,
             "slippage_ticks": slippage_ticks,
             "use_multi_tp": use_multi_tp,
+            "use_trailing": p.use_trailing,
+            "trailing_pct": p.trailing_pct,
+            "risk_per_trade_pct": risk_per_trade_pct,
         },
         "confluence_filters": {
             "atr_filter": use_atr_filter,
@@ -521,7 +743,12 @@ async def run_backtest(req: BacktestRequest):
             "oi_filter": use_oi_filter,
             "rsi_filter": use_rsi_filter,
         },
-        "source_setup": req.source_setup
+        "source_setup": req.source_setup,
+        "data_availability": {
+            "ohlcv_source": "Binance Futures OHLCV" + (" + taker-buy volume" if "taker_buy_volume" in df.columns or "taker_buy_base_volume" in df.columns else ""),
+            "taker_buy_volume": "taker_buy_volume" in df.columns or "taker_buy_base_volume" in df.columns,
+            "open_interest": {"available": oi_available, "source_column": oi_column if oi_available else None},
+        }
     }
     return build_response(raw, req.initial_capital, meta)
 
@@ -561,6 +788,13 @@ class OptimizeRequest(BaseModel):
     use_cvd_filter: bool = False
     use_oi_filter: bool = False
     use_rsi_filter: bool = False
+    risk_per_trade_pct: Optional[float] = Field(default=None, gt=0, le=10)
+    use_trailing: bool = True
+    trailing_pct: float = Field(0.5, ge=0.0, le=20.0)
+    use_dynamic_breakeven: bool = False
+    dynamic_be_trigger_r: float = Field(0.5, gt=0.0, le=10.0)
+    tp1_pct: float = Field(0.6, ge=0.0, le=100.0)
+    tp1_atr_mult: float = Field(1.5, gt=0.0, le=20.0)
     population_size: int = Field(14, ge=6, le=30)
     generations: int = Field(5, ge=2, le=10)
 
@@ -572,6 +806,14 @@ async def optimize_backtest(req: OptimizeRequest):
     symbol = req.symbol.strip().upper()
     if req.timeframe not in TF_MINUTES:
         raise HTTPException(status_code=422, detail=f"timeframe must be one of {list(TF_MINUTES)}")
+    if req.strategy_type in ("live_density_bounce", "live_wall_breakout"):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Стратегия '{req.strategy_type}' работает исключительно в реальном времени по живому стакану L2. "
+                "Оптимизация на истории недоступна. Выберите 'confluence_ema' или 'cluster_volume_bounce'."
+            )
+        )
     if req.strategy_type not in STRATEGIES:
         raise HTTPException(status_code=422, detail=f"strategy_type must be one of {sorted(STRATEGIES)}")
 
@@ -581,6 +823,11 @@ async def optimize_backtest(req: OptimizeRequest):
         raise HTTPException(status_code=502, detail=f"History load failed: {e}")
     if df.empty:
         raise HTTPException(status_code=400, detail=f"No candles for {symbol}")
+
+    oi_column = _historical_oi_column(df)
+    oi_available = oi_column is not None
+    if req.use_oi_filter and not oi_available:
+        raise HTTPException(status_code=422, detail="OI filter requires real historical open-interest data; this dataset is OHLCV-only.")
 
     engine = OrderFlowBacktester(
         initial_capital=req.initial_capital,
@@ -607,6 +854,18 @@ async def optimize_backtest(req: OptimizeRequest):
             "take_profit_pct": req.current_tp_pct,
             "min_density_usd": req.current_wall_usd,
             "use_cvd_filter": req.use_cvd_filter,
+            "use_atr_filter": req.use_atr_filter,
+            "use_oi_filter": req.use_oi_filter,
+            "use_rsi_filter": req.use_rsi_filter,
+            "use_trailing": req.use_trailing,
+            "trailing_pct": req.trailing_pct,
+            "use_dynamic_breakeven": req.use_dynamic_breakeven,
+            "dynamic_be_trigger_r": req.dynamic_be_trigger_r,
+            "use_atr_sl": req.use_atr_sl,
+            "atr_multiplier": req.atr_multiplier,
+            "tp1_pct": req.tp1_pct,
+            "tp1_atr_mult": req.tp1_atr_mult,
+            "risk_per_trade_pct": req.risk_per_trade_pct,
             "atr_period": 14,
         },
         int(req.population_size),
@@ -630,12 +889,23 @@ async def optimize_backtest(req: OptimizeRequest):
         "generations": out["generations"],
         "elapsed_ms": out["elapsed_ms"],
         "best_params": out["best_params"],
+        "oos": out.get("oos"),
+        "data_availability": {
+            "ohlcv_source": "Binance Futures OHLCV" + (" + taker-buy volume" if "taker_buy_volume" in df.columns or "taker_buy_base_volume" in df.columns else ""),
+            "taker_buy_volume": "taker_buy_volume" in df.columns or "taker_buy_base_volume" in df.columns,
+            "open_interest": {"available": oi_available, "source_column": oi_column if oi_available else None},
+        },
     }
     resp = build_response(best_raw, req.initial_capital, meta)
     resp["top_setups"] = _clean(top_setups)
     resp["grid_results"] = _clean(rows)
     resp["before_optimization"] = _clean(out["before_optimization"])
     resp["after_optimization"] = _clean(out["after_optimization"])
+    resp["oos"] = _clean(out.get("oos"))
+    resp["report"] = _build_optimizer_report(
+        out.get("oos") or {}, out.get("walk_forward") or {},
+        _data_availability(meta), int(len(df)),
+    )
     return resp
 
 

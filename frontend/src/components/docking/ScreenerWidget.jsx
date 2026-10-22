@@ -8,6 +8,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useMarketDataStore } from '../../stores/marketDataStore';
 import { useColorLinksStore, COLOR_CHANNELS } from '../../stores/colorLinksStore';
 import ChannelSelector from './ChannelSelector';
+import { getCoinMeta, EXCHANGES } from '../../config/coinLibrary';
 import {
   Search,
   TrendingUp,
@@ -16,7 +17,11 @@ import {
   Flame,
   Radio,
   BarChart2,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Eye,
+  Check,
+  Loader2,
+  Sparkles
 } from 'lucide-react';
 
 const formatVolume = (usd) => {
@@ -84,6 +89,12 @@ export default function ScreenerWidget({ panelId = 'watchlist_main' }) {
   const isConnected = useMarketDataStore((s) => s.isConnected);
   const tickersList = useMarketDataStore((s) => s.tickersList);
   const initStream = useMarketDataStore((s) => s.initMiniTickerStream);
+  const monitoredTickers = useMarketDataStore((s) => s.monitoredTickers);
+  const toggleMonitorTicker = useMarketDataStore((s) => s.toggleMonitorTicker);
+  const monitoringStatuses = useMarketDataStore((s) => s.monitoringStatuses);
+  const connectMonitoringStream = useMarketDataStore((s) => s.connectMonitoringStream);
+
+  const [filterMonitoredOnly, setFilterMonitoredOnly] = useState(false);
 
   const boundChannel = useColorLinksStore((s) => s.panelBindings[panelId] || null);
   const activeChannelSymbol = useColorLinksStore((s) =>
@@ -91,10 +102,11 @@ export default function ScreenerWidget({ panelId = 'watchlist_main' }) {
   );
   const dispatchSymbolChange = useColorLinksStore((s) => s.dispatchSymbolChange);
 
-  // Initialize market data stream on mount
+  // Initialize market data stream & background monitoring stream on mount
   useEffect(() => {
     initStream();
-  }, [initStream]);
+    connectMonitoringStream();
+  }, [initStream, connectMonitoringStream]);
 
   // Generate or fetch 24h sparkline points
   const getSparklinePoints = (ticker) => {
@@ -103,25 +115,9 @@ export default function ScreenerWidget({ panelId = 'watchlist_main' }) {
       return sparklineCache.get(sym);
     }
 
-    // 1. Synthesize smooth spline based on 24h metrics immediately
-    const open = ticker.open24h || ticker.price;
-    const high = ticker.high24h || ticker.price;
-    const low = ticker.low24h || ticker.price;
-    const close = ticker.price || 1;
-    const isUp = close >= open;
-
-    const synthetic = [
-      open,
-      open + (isUp ? (high - open) * 0.2 : (low - open) * 0.3),
-      open + (isUp ? (high - open) * 0.5 : (low - open) * 0.6),
-      isUp ? low + (high - low) * 0.3 : high - (high - low) * 0.3,
-      isUp ? high * 0.99 : low * 1.01,
-      close
-    ];
-
-    sparklineCache.set(sym, synthetic);
-
-    // 2. Fetch real 24h mini klines asynchronously (throttled to max 4 concurrent requests)
+    // Fetch real 1h klines only.  A 24h OHLC summary cannot reconstruct a
+    // price path defensibly; while the request is pending (or unavailable),
+    // Sparkline renders an explicit empty state instead of synthetic candles.
     if (!pendingFetches.has(sym) && pendingFetches.size < 4 && sparklineCache.size < 50) {
       pendingFetches.add(sym);
       fetch(`https://fapi.binance.com/fapi/v1/klines?symbol=${sym}&interval=1h&limit=24`, {
@@ -141,7 +137,7 @@ export default function ScreenerWidget({ panelId = 'watchlist_main' }) {
         });
     }
 
-    return synthetic;
+    return [];
   };
 
   // Filter and sort items with Volatility metric
@@ -156,6 +152,10 @@ export default function ScreenerWidget({ panelId = 'watchlist_main' }) {
         volatilityPct: Number(volatilityPct.toFixed(2))
       };
     });
+
+    if (filterMonitoredOnly) {
+      list = list.filter((t) => monitoredTickers.includes(t.symbol));
+    }
 
     if (search.trim()) {
       const q = search.trim().toUpperCase();
@@ -176,7 +176,7 @@ export default function ScreenerWidget({ panelId = 'watchlist_main' }) {
     }
 
     return copy.slice(0, 100);
-  }, [tickersList, search, sortBy]);
+  }, [tickersList, search, sortBy, filterMonitoredOnly, monitoredTickers]);
 
   const channelConfig = COLOR_CHANNELS.find((c) => c.id === boundChannel);
 
@@ -225,6 +225,24 @@ export default function ScreenerWidget({ panelId = 'watchlist_main' }) {
             className="w-full pl-5 pr-2 py-0.5 rounded bg-[#07090f] border border-[#1e2536] text-[10px] text-white placeholder-[#64748b] outline-none focus:border-[#38bdf8]"
           />
         </div>
+
+        {/* Monitored Filter Toggle */}
+        <button
+          type="button"
+          data-testid="filter-monitored-toggle"
+          onClick={() => setFilterMonitoredOnly(!filterMonitoredOnly)}
+          title="Показать только монеты в фокусном мониторинге"
+          className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono flex items-center gap-1 transition cursor-pointer border shrink-0 ${
+            filterMonitoredOnly
+              ? 'bg-[#f59e0b20] border-[#f59e0b80] text-[#f59e0b] font-bold'
+              : 'bg-[#07090f] border-[#1e2536] text-[#64748b] hover:text-[#94a3b8]'
+          }`}
+        >
+          <span>⚡</span>
+          <span className="text-[8.5px] px-1 rounded bg-[#1e2536] text-white font-bold">
+            {monitoredTickers.length}
+          </span>
+        </button>
 
         {/* Sort modes pills */}
         <div className="flex items-center rounded bg-[#07090f] border border-[#1e2536] p-0.5 shrink-0">
@@ -278,85 +296,143 @@ export default function ScreenerWidget({ panelId = 'watchlist_main' }) {
         </div>
       </div>
 
-      {/* 3. Table Column Headers */}
-      <div className="px-2 py-1 bg-[#090c13] text-[#64748b] text-[9px] font-mono flex items-center justify-between border-b border-[#171c28] shrink-0">
-        <span className="w-[74px]">ТИКЕР</span>
-        <span className="w-[62px] text-right">ЦЕНА</span>
-        <span className="w-[52px] text-right">24H %</span>
-        <span className="w-[58px] text-center">СПАРК</span>
-        <span className="w-[50px] text-right">ВОЛАТ</span>
-        <span className="w-[56px] text-right">ОБЪЕМ</span>
-      </div>
+      {/* 3. Table Column Headers & List with horizontal scroll containment */}
+      <div className="flex-1 flex flex-col min-h-0 overflow-x-auto overflow-y-hidden">
+        {/* Table Column Headers */}
+        <div className="px-2 py-1 bg-[#090c13] text-[#64748b] text-[9px] font-mono flex items-center justify-between border-b border-[#171c28] shrink-0 min-w-[370px]">
+          <span className="w-[18px] text-center shrink-0" title="Фокусный мониторинг (бектест/прогноз)">⚡</span>
+          <span className="w-[82px] shrink-0">ТИКЕР / БИРЖА</span>
+          <span className="w-[58px] text-right shrink-0">ЦЕНА</span>
+          <span className="w-[48px] text-right shrink-0">24H %</span>
+          <span className="w-[54px] text-center shrink-0">СПАРК</span>
+          <span className="w-[46px] text-right shrink-0">ВОЛАТ</span>
+          <span className="w-[52px] text-right shrink-0">ОБЪЕМ</span>
+        </div>
 
-      {/* 4. Virtualized Tickers List */}
-      <div className="flex-1 overflow-y-auto divide-y divide-[#131722] min-h-0">
-        {sortedTickers.length === 0 ? (
-          <div className="p-4 text-center text-[#64748b] text-[10px] font-mono">
-            {isConnected ? 'Символы не найдены' : 'Подключение к !miniTicker@arr...'}
-          </div>
-        ) : (
-          sortedTickers.map((t) => {
-            const isSelected = activeChannelSymbol === t.symbol;
-            const isPos = (t.change24hPct || 0) >= 0;
-            const sign = isPos ? '+' : '';
-            const baseName = t.symbol.replace('USDT', '');
-            const sparkPoints = getSparklinePoints(t);
+        {/* 4. Virtualized Tickers List */}
+        <div className="flex-1 overflow-y-auto divide-y divide-[#131722] min-h-0 min-w-[370px]">
+          {sortedTickers.length === 0 ? (
+            <div className="p-4 text-center text-[#64748b] text-[10px] font-mono">
+              {isConnected ? 'Символы не найдены' : 'Подключение к !miniTicker@arr...'}
+            </div>
+          ) : (
+            sortedTickers.map((t) => {
+              const isSelected = activeChannelSymbol === t.symbol;
+              const isPos = (t.change24hPct || 0) >= 0;
+              const sign = isPos ? '+' : '';
+              const baseName = t.symbol.replace('USDT', '');
+              const sparkPoints = getSparklinePoints(t);
 
-            return (
-              <div
-                key={t.symbol}
-                data-testid={`screener-row-${t.symbol}`}
-                onClick={() => dispatchSymbolChange(panelId, t.symbol)}
-                className={`px-2 py-1.5 flex items-center justify-between hover:bg-[#131926] cursor-pointer transition text-[10px] font-mono ${
-                  isSelected ? 'bg-[#182338] border-l-2' : ''
-                }`}
-                style={{
-                  borderLeftColor: isSelected ? (channelConfig?.color || '#3b82f6') : 'transparent'
-                }}
-              >
-                {/* 1. Ticker Name */}
-                <div className="w-[74px] flex items-center space-x-1 truncate">
-                  <span className="font-bold text-white text-[10.5px]">{baseName}</span>
-                  <span className="text-[9px] text-[#64748b]">/USDT</span>
-                </div>
+              const meta = getCoinMeta(t.symbol);
+              const exchangeKey = (meta.exchange || 'BINANCE').toUpperCase();
+              const exchangeMeta = EXCHANGES[exchangeKey] || EXCHANGES.BINANCE;
+              const isMonitored = monitoredTickers.includes(t.symbol);
+              const workerStatus = monitoringStatuses[t.symbol];
 
-                {/* 2. Last Price */}
-                <div className="w-[62px] text-right text-white font-medium">
-                  {t.price >= 1000
-                    ? t.price.toFixed(1)
-                    : t.price >= 1
-                    ? t.price.toFixed(2)
-                    : t.price.toFixed(4)}
-                </div>
-
-                {/* 3. 24h Change % */}
+              return (
                 <div
-                  className={`w-[52px] text-right font-bold ${
-                    isPos ? 'text-[#10b981]' : 'text-[#ef4444]'
+                  key={t.symbol}
+                  data-testid={`screener-row-${t.symbol}`}
+                  onClick={() => dispatchSymbolChange(panelId, t.symbol)}
+                  className={`px-2 py-1.5 flex items-center justify-between hover:bg-[#131926] cursor-pointer transition text-[10px] font-mono min-w-[370px] ${
+                    isSelected ? 'bg-[#182338] border-l-2' : ''
                   }`}
+                  style={{
+                    borderLeftColor: isSelected ? (channelConfig?.color || '#3b82f6') : 'transparent'
+                  }}
                 >
-                  {sign}
-                  {t.change24hPct?.toFixed(2)}%
-                </div>
+                  {/* 0. Monitor Active Toggle */}
+                  <div
+                    className="w-[18px] flex items-center justify-center shrink-0"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleMonitorTicker(t.symbol);
+                    }}
+                    title={isMonitored ? "Мониторинг активен (вычислительный конвейер включен)" : "Включить мониторинг"}
+                  >
+                    <button
+                      type="button"
+                      data-testid={`toggle-monitor-${t.symbol}`}
+                      className={`w-3.5 h-3.5 rounded flex items-center justify-center transition border ${
+                        isMonitored
+                          ? 'bg-[#10b98120] border-[#10b98180] text-[#10b981]'
+                          : 'bg-[#0f1420] border-[#252f44] text-transparent hover:border-[#38bdf8] hover:text-[#64748b]'
+                      }`}
+                    >
+                      {isMonitored ? <Check size={9} strokeWidth={3} /> : <Eye size={8} />}
+                    </button>
+                  </div>
 
-                {/* 4. Sparkline 24h mini-chart */}
-                <div className="w-[58px] flex items-center justify-center">
-                  <Sparkline points={sparkPoints} isPositive={isPos} width={50} height={16} />
-                </div>
+                  {/* 1. Ticker Name, Exchange Badge, Worker Status */}
+                  <div className="w-[82px] flex items-center space-x-1 truncate shrink-0">
+                    <span className="font-bold text-white text-[10px]">{baseName}</span>
+                    <span
+                      className="px-0.5 py-0 rounded text-[7px] font-mono font-bold border shrink-0"
+                      style={{
+                        backgroundColor: `${exchangeMeta.accentColor}15`,
+                        borderColor: `${exchangeMeta.accentColor}40`,
+                        color: exchangeMeta.accentColor
+                      }}
+                      title={`${meta.exchange} ${meta.assetType}`}
+                    >
+                      {exchangeMeta.shortBadge || 'B'}
+                    </span>
 
-                {/* 5. Volatility % */}
-                <div className="w-[50px] text-right text-[#f59e0b] font-medium text-[9.5px]">
-                  {t.volatilityPct?.toFixed(1)}%
-                </div>
+                    {/* Worker status pill */}
+                    {isMonitored && workerStatus && (
+                      <div
+                        className="shrink-0 flex items-center"
+                        title={`${workerStatus.step || workerStatus.state || 'active'} (PnL: ${workerStatus.pnl_pct != null ? `${workerStatus.pnl_pct}%` : 'N/A'})`}
+                      >
+                        {['fetching', 'backtesting', 'forecasting'].includes(workerStatus.state) ? (
+                          <Loader2 size={9} className="animate-spin text-[#38bdf8]" />
+                        ) : workerStatus.state === 'completed' ? (
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />
+                        ) : workerStatus.state === 'error' ? (
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#ef4444]" />
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
 
-                {/* 6. 24h Volume USD */}
-                <div className="w-[56px] text-right text-[#94a3b8] text-[9.5px]">
-                  {formatVolume(t.volumeUsd)}
+                  {/* 2. Last Price */}
+                  <div className="w-[58px] text-right text-white font-medium shrink-0">
+                    {t.price >= 1000
+                      ? t.price.toFixed(1)
+                      : t.price >= 1
+                      ? t.price.toFixed(2)
+                      : t.price.toFixed(4)}
+                  </div>
+
+                  {/* 3. 24h Change % */}
+                  <div
+                    className={`w-[48px] text-right font-bold shrink-0 ${
+                      isPos ? 'text-[#10b981]' : 'text-[#ef4444]'
+                    }`}
+                  >
+                    {sign}
+                    {t.change24hPct?.toFixed(2)}%
+                  </div>
+
+                  {/* 4. Sparkline 24h mini-chart */}
+                  <div className="w-[54px] flex items-center justify-center shrink-0">
+                    <Sparkline points={sparkPoints} isPositive={isPos} width={46} height={16} />
+                  </div>
+
+                  {/* 5. Volatility % */}
+                  <div className="w-[46px] text-right text-[#f59e0b] font-medium text-[9.5px] shrink-0">
+                    {t.volatilityPct?.toFixed(1)}%
+                  </div>
+
+                  {/* 6. 24h Volume USD */}
+                  <div className="w-[52px] text-right text-[#94a3b8] text-[9.5px] shrink-0">
+                    {formatVolume(t.volumeUsd)}
+                  </div>
                 </div>
-              </div>
-            );
-          })
-        )}
+              );
+            })
+          )}
+        </div>
       </div>
     </div>
   );

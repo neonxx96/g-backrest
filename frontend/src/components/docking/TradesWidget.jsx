@@ -229,10 +229,29 @@ export default function TradesWidget(props) {
       ctx.textBaseline = 'middle';
       ctx.fillText(timeStr, 8, rowY + ROW_HEIGHT / 2);
 
+      // 3b. High-Contrast Whale Badge [B] / [S] for massive orders >= $500k
+      const isMassiveWhale = trade.usd >= 500000;
+      if (isMassiveWhale) {
+        const badgeColor = isBuy ? '#10b981' : '#ef4444';
+        const badgeW = 15;
+        const badgeH = 13;
+        const badgeX = timeColWidth + 2;
+        const badgeY = rowY + (ROW_HEIGHT - badgeH) / 2;
+
+        ctx.fillStyle = badgeColor;
+        ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 9px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(isBuy ? 'B' : 'S', badgeX + badgeW / 2, rowY + ROW_HEIGHT / 2);
+      }
+
       // 4. Price Text
       const priceStr = formatPrice(trade.price);
       ctx.fillStyle = isBuy ? '#10b981' : '#ef4444';
-      ctx.font = isHighlighted || isWhale || isMegaWhale ? 'bold 10.5px monospace' : '10px monospace';
+      ctx.font = isHighlighted || isWhale || isMegaWhale || isMassiveWhale ? 'bold 10.5px monospace' : '10px monospace';
       ctx.textAlign = 'right';
       ctx.fillText(priceStr, timeColWidth + priceColWidth - 8, rowY + ROW_HEIGHT / 2);
 

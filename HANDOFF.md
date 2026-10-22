@@ -1,135 +1,104 @@
 # HANDOFF.md — Протокол передачи контекста между агентами
 
-> 📌 **ПРОТОКОЛ ПЕРЕДАЧИ СМЕНЫ:**
-> - **Перед началом работы:**
->   1. Прочитай `AGENTS.md` и этот файл `HANDOFF.md`.
->   2. Выполни `git status` и убедись в чистоте рабочей копии.
->   3. Запусти проверку `powershell -ExecutionPolicy Bypass -File scripts/check.ps1` (убедись, что проект зеленый).
->   4. Установи `ACTIVE_AGENT: <ТвоеИмя>` (например, `Antigravity` или `Cline`).
->   5. Создай рабочую ветку: `git checkout -b agent/<инструмент>/<задача>`.
-> - **Перед завершением работы:**
->   1. Прогони `scripts/check.ps1` — коммить только при успешном завершении.
->   2. Обнови этот файл `HANDOFF.md`: смени `ACTIVE_AGENT` на `none`, опиши текущее состояние, следующий шаг и известные проблемы.
->   3. Сделай коммит и предоставь отчет по формату из Раздела 7 в `AGENTS.md`.
+> Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
----
+## Codex continuation — 2026-10-20
 
-## 🚦 Текущий статус передачи смены
+- **ACTIVE_AGENT:** `codex`
+- **Ветка:** `agent/codex/recorder`
+- **Night Pilot:** заново запущены три paper-сессии на текущем runtime через `preflight → start`: BTCUSDT `overnight_btcusdt_1792521744`, ETHUSDT `overnight_ethusdt_1792521744`, SOLUSDT `overnight_solusdt_1792521744`; runtime-проверка: `Running=True`, `Data=connected`, `errors=0`, equity `$10000` каждая.
+- **Live poll:** последующая read-only проверка подтвердила те же session_id, `forecast/paper=connected`, equity `$10000`, `errors=0`; `aggregate=False`, потому что порт `8000` обслуживает старый listener PID `57480`.
+- **Проверка:** `scripts/check.ps1` — PASS: `133 passed, 26 skipped` из 159 собранных тестов, frontend build, 8/8 critical smoke, blocking UI smoke и live Binance WS smoke. Локальный socket smoke запускался с разрешением на localhost-доступ; без него Windows sandbox возвращает `WinError 10013`.
+- **OOS optimizer:** генетический `/api/backtest/optimize` теперь ищет параметры только на chronological train-части (по умолчанию 70%) и отдельно прогоняет лучший набор на отложенной OOS-части; ответ содержит `oos.available`, границы времени, метрики и честный `warning` при малой выборке. BacktestPanel и OvernightPilotPanel показывают OOS явно как проверку, а не как часть подбора. Добавлены `test_genetic_optimizer_oos.py` (2 теста на отсутствие leakage и insufficient history).
+- **Truthful market UI:** `ScreenerWidget.jsx` больше не строит синтетическую sparkline из 24h OHLC — до получения реальных Binance 1h klines показывается пустое состояние. В `OrderBookDOM.jsx` и `Tape.jsx` удалены случайные идентификаторы сделок; fallback-ключи теперь детерминированы по реальному payload.
+- **UI smoke после truth-first правки:** production build PASS; blocking smoke PASS (13 canvas, chart/DOM видимы, переключение BTC→ETH, 0 console/page errors); live smoke PASS (Binance WS frames получены). Автоматический autostart-режим `check.ps1` в одной попытке завис на уже занятом/невидимом sandbox-порту 5173, поэтому smoke повторён с `--no-autostart` против чисто поднятого frontend.
+- **Persistence E2E:** `scripts/test_stage2_frontend_isolation.py` PASS — per-symbol параметры BTC/SOL/LINK изолированы, восстановлены после F5, quick backtest для SOL прошёл (37 trades), console errors=0.
+- **CLI fallback report:** `scripts/night-pilot.ps1 -Action report` теперь при старом backend без `aggregate` строит client-derived сводку из раздельных summary rows (Backtest / Forecast / Paper), не смешивая их и не подменяя отсутствующие данные нулями; server-native aggregate остаётся после штатного рестарта.
+- **Последнее изменение:** добавлен раздельный агрегированный morning report в `OvernightPilotManager.status()` (`aggregate.backtest`, `aggregate.forecast`, `aggregate.paper`, `aggregate.data`, best/worst symbols) и отображение в `OvernightPilotPanel.jsx`; тест — `test_pilot_status_exposes_separate_aggregate_morning_report`.
+- **Quality-gate anti-hang:** `scripts/check.ps1` проверяет локальные `/api/health` и frontend перед Playwright smoke; при уже работающих серверах передаёт `--no-autostart`, предотвращая второй Vite/backend и зависание на ожидании порта. Полный gate после правки: `133 passed, 26 skipped`, build, critical, blocking и live WS — PASS.
+- **Legacy aggregate UI fallback:** `OvernightPilotPanel.jsx` теперь показывает client-derived сводку Backtest / Forecast / Paper с явной пометкой источника, если старый backend ещё не отдаёт `aggregate`; production build и полный gate после правки — PASS.
+- **Fallback null safety:** client-derived Paper values теперь показывают `—` при отсутствии paper-данных, а не ложный `$0.00`; production build и `git diff --check` после правки — PASS.
+- **Trade timeline readability:** последние backtest-сделки в `OvernightPilotPanel.jsx` теперь показывают локальные дату/время входа и выхода, длительность и `exit_reason`; targeted blocking UI smoke после правки — PASS.
+- **Latest full gate:** после fallback/null-safety/timeline изменений повторно подтверждено `133 passed, 26 skipped`, frontend build, critical smoke, blocking UI smoke и live Binance WS — `ALL QUALITY CHECKS PASSED. READY TO COMMIT.`
+- **Quant alignment:** forecast теперь создаёт `UnifiedTradeSignal` через `build_forecast_signal()` и сохраняет выбранные `leverage` и `risk_per_trade_pct`; регрессионный тест `test_forecast_signal_parameters_preserve_leverage_and_risk` зелёный.
+- **Night Pilot CLI guard:** `scripts/night-pilot.ps1 start` теперь отклоняет частично запущенный пилот, а `preflight` отклоняет сессию без backtest или forecast.
+- **Paper accounting visibility:** `LivePaperRunner.get_status()` теперь публикует `available_margin`, `used_margin` и `funding_rate`; `LivePaperTradingView.jsx` и `OvernightPilotPanel.jsx` их отображают. Текущий backend-процесс загружен до этой правки, поэтому runtime-поля появятся после следующего рестарта.
+- **Backtest readability:** `OvernightPilotPanel.jsx` теперь показывает последние 5 исторических сделок с направлением, входом, выходом, длительностью и PnL, используя реальные `entry_time/exit_time` и `exit_reason`.
+- **Paper morning report:** `OvernightPilotManager.status()` и `OvernightPilotPanel.jsx` теперь отдельно считают и показывают paper win rate, profit factor, среднюю, лучшую и худшую закрытую сделку; добавлен регрессионный тест `test_pilot_morning_report_exposes_paper_trade_quality`.
+- **Forecast regime:** `compute_probabilistic_forecast()` теперь возвращает общий `market_regime` и `regime_metrics` из `RegimeClassifier` (`FLAT_DENSE`, `TREND_IMPULSE`, `TOXIC_VOLATILITY`); карточка forecast показывает режим, добавлен контрактный тест `test_forecast_regime_contract_exposes_classifier_label_and_metrics`.
+- **Reload contract:** добавлен тест `test_restore_rehydrates_snapshot_as_stale_and_keeps_session_id`, фиксирующий восстановление persisted backtest/forecast/paper snapshot с тем же `session_id` и честным статусом `stale` после backend restart.
+- **Risk sizing correction:** исправлена критичная формула в `OrderFlowBacktester`: при заданном `risk_per_trade_pct` абсолютная дистанция SL сначала переводится в долю цены, затем рассчитывается quote-notional. Ранее позиции были примерно в 100 раз меньше на дорогих инструментах; добавлен `test_explicit_risk_budget_sizes_notional_instead_of_base_units`.
+- **Paper leverage parity:** `PaperTradingSession` теперь учитывает leverage в ограничении размера позиции и блокировке/освобождении маржи, а `UnifiedTradeSignal` и `LivePaperRunner` прокидывают выбранное плечо в симулятор; добавлен `test_position_sizing_uses_leverage_only_for_margin_cap`. PnL не умножается на плечо, leverage влияет на требуемую маржу.
+- **Paper journal visibility:** `OvernightPilotPanel.jsx` теперь отдельно показывает закрытые paper-сделки и открытые виртуальные позиции: время входа/выхода, длительность, цены, PnL и причины. `OvernightPilotManager.status()` дополнительно заполняет Entry/SL/TP1/TP2/BE в summary из `trading_idea`, если их нет в `base_scenario`; добавлен `test_pilot_summary_uses_trading_idea_levels_when_forecast_has_no_base_levels`.
+- **ROI precision:** Night Pilot пересчитывает `backtest_roi_pct` из net PnL и стартового капитала с точностью 4 знака, чтобы малые результаты не отображались как `0.0%`; CLI и панель показывают до 3 знаков. Добавлен `test_pilot_summary_keeps_small_backtest_roi_visible`.
+- **Morning report risk/losses:** aggregate paper report теперь включает средний риск по конфигурациям и последние причины убыточных сделок; если старый snapshot не содержит `average_risk_pct`, используется риск из сохранённого config. Панель отображает `Risk` и `Loss reasons`.
+- **NO_TRADE diagnostics:** `OrderFlowBacktester.explain_latest_signal()` объясняет, какие проверки не прошёл последний полностью сформированный бар, не меняя правила входа; `LivePaperRunner.get_status()` публикует `last_decision_reason`, `last_decision_checks` и время решения. `OvernightPilotPanel.jsx` показывает причину ожидания рядом с каждой paper-сессией; добавлены целевой тест и контракт статуса. Уже запущенный ночной процесс потребует штатного рестарта, чтобы начать публиковать новые поля.
+- **Night report clarity:** сводка `OvernightPilotPanel.jsx` и `scripts/night-pilot.ps1` теперь отдельно показывают `Forecast NO_TRADE` и `Paper no-entry`, а также paper PnL и последнюю причину решения; эти поля прокинуты в строки агрегированного статуса.
+- **Think optimizer alignment:** `POST /api/quant/think-optimize` теперь передаёт в существующий `/api/backtest/optimize` текущие настройки стратегии и фильтры, включая алиасы пользовательских полей `stop_loss_pct`, `take_profit_pct` и `min_density_usd`; неизвестные поля отбрасываются. Добавлен контрактный тест `test_think_optimize_forwards_current_strategy_settings_to_existing_optimizer`.
+- **Think optimizer UI:** в каждой карточке `OvernightPilotPanel.jsx` добавлена кнопка запуска pre-run оптимизации по выбранной стратегии; результат показывает Before/After, SL/TP/Wall и явно сообщает, что параметры не применяются автоматически.
+- **Safe optimizer apply:** результат optimizer теперь можно применить только к конфигурации следующего запуска; при активной paper-сессии кнопка заблокирована и настройки текущего runner не изменяются. После применения UI просит повторить preflight.
+- **Forecast diagnostics:** `compute_probabilistic_forecast()` теперь возвращает `decision_diagnostic` с `failed_checks`, `observed` и объяснением `NO_TRADE`; карточка forecast показывает непройденные фильтры рядом с причиной ожидания. Полный gate после правки: `130 passed, 26 skipped`.
+- **Morning forecast reasons:** aggregate-отчёт Night Pilot теперь содержит `forecast.no_trade_reasons` по символам и отображает их в блоке Live Forecast; добавлен регрессионный тест.
+- **Paper countdown:** `LivePaperRunner.get_status()` публикует `started_at` и `duration_remaining_seconds`; карточка Night Pilot показывает оставшееся время до автоматической остановки. Контракт статуса покрыт тестом.
+- **Restart guard:** backend отклоняет `start/preflight`, если хотя бы одна paper-сессия уже работает; UI блокирует эти кнопки и оставляет явную кнопку остановки. Добавлен тест `_has_running_sessions()`.
+- **Strategy selector:** карточки Night Pilot теперь позволяют выбрать одну из трёх стратегий, поддержанных одновременно историческим backtest и live paper runner; смена сохраняется в конфигурации и применяется только после нового preflight.
+- **Morning report CLI:** `scripts/night-pilot.ps1 -Action report` добавляет read-only сводку Backtest / Forecast / Paper с причинами `NO_TRADE` и потерями; старый backend без aggregate не маскирует данные нулями, а выводит честное предупреждение до рестарта.
+- **Важно:** backend не перезапускать во время ночного теста без необходимости. Текущий процесс был запущен до добавления aggregate-контракта; новый ключ появится после следующего штатного рестарта.
+- **Dynamic runtime binding:** `backend/main.py` теперь выбирает первый свободный TCP-порт начиная с `BACKEND_PORT`, сохраняет активный endpoint в `.env` (`BACKEND_PORT` и `VITE_BACKEND_PORT`) и `data/backend_runtime.json`; `frontend/vite.config.js` читает этот порт для proxy. Старый backend на `8000` не прерывается. Проверено: новый backend на `8002` отдаёт native aggregate, Vite proxy на `5177` возвращает `status=ok`, `aggregate=true`.
+- **Dynamic binding tests:** добавлен `backend/tests/test_runtime_binding.py`; после изменения полный gate — `135 passed, 26 skipped`, frontend build, critical, blocking и live WS smoke — PASS.
+- **Dynamic CLI discovery:** `scripts/night-pilot.ps1` без `-ApiBase` теперь читает `data/backend_runtime.json` и обращается к актуальному backend (проверено на `8002`); явный `-ApiBase` сохранён для диагностики старого runtime.
+- **Paper ranking guard:** агрегированный morning report теперь передаёт `paper_closed_trades` по каждой сессии и не назначает `best_paper_symbol` / `worst_paper_symbol`, пока нет закрытых paper-сделок; открытая позиция и unrealized equity не считаются закрытым результатом. Targeted: `12 passed, 4 skipped`; полный gate после правки: `137 passed, 26 skipped`, build, critical, blocking UI и live WS — PASS. Уже работающий runtime `8002` не перезапускался, чтобы не прерывать ночной тест.
+- **Open paper position clarity:** `OvernightPilotPanel.jsx` в журнале paper теперь показывает для открытой позиции entry→current, длительность, SL, TP1/TP2, состояние BE, qty и unrealized PnL; полный gate после правки: `137 passed, 26 skipped`, build, critical, blocking UI и live WS — PASS. Backend runtime во время ночного теста не перезапускался.
+- **Aggregate drawdown correctness:** morning report нормализует legacy negative drawdown snapshots и считает worst-case `Max DD` по независимым backtest/paper-сессиям вместо ошибочного `0%`; добавлены assertions в `test_overnight_pilot.py`. Полный gate: `137 passed, 26 skipped`, build, critical, blocking UI и live WS — PASS.
+- **Realized vs floating clarity:** summary и aggregate теперь отдельно публикуют `paper_unrealized_pnl` / `unrealized_pnl_usd`; UI подписывает `Realized PnL`, `Floating` и `Equity`, чтобы открытая позиция не выглядела как закрытая прибыль. Полный gate: `137 passed, 26 skipped`, build, critical, blocking UI и live WS — PASS. Runtime `8002` не перезапускался во время ночного теста.
+- **Legacy runtime floating fallback:** `OvernightPilotPanel.jsx` вычисляет Floating PnL из `Equity - Starting balance - Realized PnL`, если старый backend ещё не отдаёт `unrealized_pnl`; текущий тест теперь показывает плавающий результат без рестарта. Полный gate: `137 passed, 26 skipped`, build, critical, blocking UI и live WS — PASS.
 
-- **ACTIVE_AGENT:** `none` *(смена Cline закрыта 2026-10-18; следующий агент обязан установить своё имя перед работой)*
-- **Текущая ветка:** `main` — итог слияния; `fb64666` + docs-коммит, актуализирующий этот файл
-- **`main` (слияние):** `fb64666` — **34 коммита** от прежнего `main` (`09a0c1d`), merge-коммитов нет
-- **`origin/main`:** `09a0c1d` — push **не выполнялся**, локальный `main` опережает его на 34 коммита (+1 docs)
-- **Последний тег:** `stable-20261018-merged` (на docs-коммит поверх `fb64666`); прежний `stable-20261018` (тег-объект `9e966bb` → `7114a26`) не двигался
-- **Время последнего обновления:** `2026-10-18 (сессия Cline: слияние веток + handoff)`
+## 🚦 Текущий статус
 
-### 🌿 Карта веток (после слияния; проверено `git rev-list`, `git merge-base`)
+- **ACTIVE_AGENT:** `none`
+- **Текущая ветка:** `agent/antigravity/paper-trading-openrouter`
+- **Последняя подтверждённая полная проверка:** `2026-10-20`, `scripts/check.ps1` — **PASS**: 103/103 pytest, frontend production build, 8/8 critical API smoke, blocking и live Playwright smoke (`ALL QUALITY CHECKS PASSED. READY TO COMMIT.`).
 
-| Ветка | Вершина | Статус |
-|---|---|---|
-| `main` ← **текущая** | docs-коммит поверх `fb64666` | итог слияния: 34 коммита от `09a0c1d` |
-| `integration/all-agent-branches` | `fb64666` | служебная, влита в `main` (FF) |
-| `agent/cline/token-economy-rules` | `fb64666` | влита в `main` (FF) |
-| `agent/cline/update-models-docs` | `7659b3d` | влита в `main` (FF) |
-| `ui-docking-refactor` | `7114a26` | влита в `main` (FF), = `stable-20261018` |
+## ✅ Подтверждённое состояние
 
-Все ветки — предки `main` (`main..<branch> = 0`), поэтому удаление любой из них не потеряет ни одного коммита. Слияние выполнено цепочкой FF: `main 09a0c1d` → `ui-docking-refactor 7114a26` → `agent/cline/update-models-docs 7659b3d` → `agent/cline/token-economy-rules fb64666` → `main fb64666`.
+1. **Честное разделение бэктеста и симулятора:**
+   - **Historical OHLCV Backtest:** в режиме истории скрыты L2-фильтры стакана (стенки и время жизни), выводятся честный информационный баннер и свечные индикаторы (ATR, RSI, поглощение объёма Price Action). Актуальный тикер синхронизирован без рассинхрона.
+   - **Live Paper Trading (Симулятор):** режим работы со стартовым балансом ($10,000 по умолчанию) и настраиваемым риском на сделку (1.0%). Движок `LivePaperRunner` подписывается на `FreeBinanceCollector` (Live L2 стакан + Liquidation Map), детектирует сетапы («Вход перед стенкой $500k+» и Quant Confluence 3 ядра), списывает маржу с виртуального баланса с учетом комиссий Maker/Taker и проскальзывания, строит интерактивную SVG equity-кривую в реальном времени.
+2. **Layout & State Persistence (Полное сохранение состояния интерфейса):**
+   - `App.jsx`: сохранение активного `symbol`, `timeframe`, состояния открытых панелей (`showBacktest`, `showAICopilot`, `showDecisionJournal`) в `localStorage`.
+   - `colorLinksStore.js`: сохранение 10 цветовых каналов, привязок панелей (`panelBindings`) и локальных тикеров через Zustand `persist` (`signalscript_color_links`).
+   - `layoutStore.js`: сохранение активного пресета (`signalscript_active_preset`) и локального снапшота раскладки dockview (`signalscript_last_dockview_layout`).
+   - `quantStore.js`: сохранение настроек слоев, плеч 25x-100x, фильтра плотностей, прозрачности и палитры через Zustand `persist` (`signalscript_quant_storage`).
+   - `backtestStore.js`: сохранение выбранного режима (`mode`), параметров по тикерам и конфигурации `livePaperConfig` через Zustand `persist` (`signalscript_backtest_storage`).
+3. **Надёжная цепочка моделей (Model Cascade) для AI Copilot & Risk Officer:**
+   - Сервис `backend/app/services/openrouter_client.py`:
+     1. Многоуровневый каскад: **Primary (платная дешёвая: `deepseek/deepseek-v4.1-flash`)** $\rightarrow$ **Fallback (Free Models Router OpenRouter: `openrouter/free` и пул бесплатных моделей)** $\rightarrow$ **детерминированный Cold Quant Fallback (`local_quant_fallback`)**.
+     2. Кэш доступности OpenRouter Models API (`https://openrouter.ai/api/v1/models`) на 1 час (3600 с). Недоступные модели отсекаются до сетевого вызова.
+     3. Обработка ошибок: HTTP 402 (исчерпание баланса) немедленно переходит к бесплатным fallback-моделям без повторов; HTTP 429 повторяется с экспоненциальной задержкой не более 2 раз; таймаут 20.0 с.
+     4. Телеметрия каждого вызова: `model`, `latency_ms`, `prompt_tokens`, `completion_tokens`, `total_tokens`, `cost`, `status`, `fallback`, `fallback_reason` + буфер истории вызовов.
+     5. Суточный потолок расходов (`OPENROUTER_DAILY_BUDGET_USD` в `config.py`): при превышении платные модели блокируются, вызовы автоматически направляются на бесплатный роутер.
+     6. Эндпоинт `GET /api/paper-trading/ai-model-chain-status` для аудита расходов и состояния кэша моделей.
+     7. UI-индикация в `LivePaperTradingView.jsx` и `Chart.jsx`: отображение ответившей модели, статуса `[Primary]` / `[Fallback]`, задержки вызова. При полном отказе сети выводится честное `"AI недоступен"`.
+     8. 8 юнит-тестов с моками сети в `backend/tests/test_openrouter_chain.py` (все 8 зелёные).
+4. **Компоненты интерфейса:**
+   - В `BacktestPanel.jsx` добавлена кнопка переключения режима `⚡ Симулятор (Paper)`.
+   - Создан компонент `LivePaperTradingView.jsx` с контролами `LivePaperTradingControls` и визуализатором `LivePaperTradingResults` (KPI-карточки баланса/equity/PnL, SVG equity chart, таблицы открытых/закрытых сделок и лог AI).
 
-### ✅ Что сделано (сессии Cline, 2026-10-18)
+## 🔒 Ограничения
 
-1. **Задача 1 — раздел моделей в `AGENTS.md`**: `d060836` (таблица моделей с проверенными ID OpenRouter), `f68aae3` (запасной эксперт `qwen/qwen3.8-max-0902`, цены и контекст).
-2. **Задача 2 — «Защитная сеть»** (`7659b3d`): «золотой» тест бэктестера (`backend/tests/test_golden_backtest.py` — 11 тестов, фикстуры `golden_ohlcv.csv` / `golden_backtest_expected.json`) + двухчастный Playwright UI-смоук (`scripts/smoke_ui_playwright.py`); обе части встроены в `scripts/check.ps1` (шаги `[4/5]` и `[5/5]`).
-3. **Раздел «Экономия токенов» в `AGENTS.md`** (`53d4ae3`): 6 правил — один чат = одна задача и контекст через `HANDOFF.md`; не менять модель посреди задачи (теряется кэш); файлы > 800 строк читать диапазонами; один файл за задачу читать один раз; ограничивать длинный вывод команд; `check.ps1` — в конце шага, а не после каждой правки.
-4. **Чистка документации** (docs-коммит этой сессии): убрана дублирующая строка «Ревью опасных диффов» в таблице моделей, примечание по Qwen сведено к одной формулировке (основной эксперт — `z-ai/glm-5.3`, запасной — `qwen/qwen3.8-max-0902`), этот файл приведён к фактическому состоянию.
-5. **Слияние веток в `main`** (`fb64666`): сначала docs/tooling-коммит (маршрутизатор Cline `scripts/cline-auto.*`, `config/model-routing.json`, `context/`, `docs/PROJECT_TRANSFER_AND_REVIEW.md`), затем fast-forward-цепочка в `integration/all-agent-branches` и FF в `main`. Проверено: 34 коммита, 0 merge-коммитов, все 4 вершины — предки `main`; `scripts/check.ps1` зелёный на итоговом дереве; тег `stable-20261018-merged`.
+- Никаких реальных ордеров, ключей или случайных данных рынка (строго консультативный терминал).
+- Не изменять `backend/app/engine/` и `backend/app/services/execution_simulator.py`.
+- Порты строго: backend `8000`, frontend `5173`; SQLite: `data/signals.db`.
+- Перед каждым коммитом обязателен полный прогон `scripts/check.ps1`.
 
-### 📋 Содержимое ветки `ui-docking-refactor` (28 коммитов над `main`: 71 файл, +12 750 / −1 132)
+## Recorder S0 handoff — 2026-10-20
 
-**Сделано (по коммитам и PROGRESS.md):**
-- **Докинг:** `dockview-react 8.6.0` — терминальная докинг-раскладка, управление табами, загрузчик пресетов раскладки (`c264204`); каталог виджетов `WidgetHubModal` + динамический спавн панелей с цветовой привязкой (`17d51ce`); Playwright E2E на докинг/цвета/canvas (`dd9698f`, `8a15b7c`).
-- **Цветовые связки:** модульные Zustand-сторы `colorLinksStore` / `layoutStore` / `marketDataStore` (`a5bfc6c`); диспетчер цветовых каналов в мини-тикерах вотчлиста (`ec62498`); двусторонняя синхронизация канала `c1` ↔ глобальный `symbol` в `App.jsx` (Решение 5 в DECISIONS.md) — переключение монеты в любом привязанном виджете обновляет AI-копилота и бэктестер.
-- **Пресеты:** воркспейсы и пресеты раскладок в SQLite (`accde6d`); стратегические пресеты SL/TP/плечо/фильтры в 1 клик в `BacktestPanel.jsx` + таблица `strategy_presets` (Этап 3).
-- **Сопутствующее (тоже в ветке):** Canvas 2D DOM-лестница (`2a6f076`, `5380f25`), виртуализированная лента сделок (`32b29ad`, `a3c4146`), модульная система индикаторов (`d1d07af`…`38c179c`), Risk/Reward оверлей (`c351072`), SMC-шаблоны рисования (`8a888c5`), этапы 1–3 live-readiness: WS-реконнект, журнал решений SQLite, второе мнение AI, пресеты (`e7269ec`), multi-agent протокол (`7114a26`).
-
-### 🧩 Открытые вопросы и бэклог (что дальше)
-
-1. **Push в `origin`** (`main` + тег `stable-20261018-merged`) — **не выполнен**: действие на удалённом репозитории, требует явного подтверждения пользователя.
-2. **Следующая функциональная задача (Приоритет 1 в `docs/PROJECT_TRANSFER_AND_REVIEW.md`):** симулятор одиночного лимитного сетапа `POST /api/backtest/simulate-limit-box` — комиссия maker на входе, taker/slippage на выходе, обязательный look-ahead-аудит и отдельные тесты.
-3. **Задача 3 — заблокирована:** файлы `docs/orderflow.py` и `docs/SIGNALSCRIPT_INDICATORS_SPEC.md` в репозитории **отсутствуют** (в `docs/` их нет). Источник нужно уточнить у пользователя.
-4. Тесты логики стакана/сканера — **не начаты** (остаток Задачи 2 после «золотого» теста и UI-смоука).
-5. Бэклог из DECISIONS.md: кольцевой буфер L2 на 7 дней, PDF/HTML-отчёт бэктеста (симулятор лимитника вынесен в п.2).
-
----
-
-## 📦 Текущее состояние проекта
-
-Терминал **SignalScript** полностью подготовлен к реальной торговой сессии и к поочередной разработке несколькими агентами:
-1. **Стабильность и автореконнект (Этап 0 завершен ✅):**
-   - Устранены дубли таймеров в `Chart.jsx`, сокеты стакана L2 (`OrderBookDOM.jsx`) и ленты сделок (`tradesStore.js`) восстанавливаются за 2 секунды после обрыва сети.
-   - Полностью удалена синтетическая симуляция сделок `Math.random()`.
-   - Профиль памяти JS Heap плоский (`28.2 MB`), утечек нет.
-2. **Журнал решений в SQLite (Этап 1 завершен ✅):**
-   - Таблица `decision_logs` автоматически фиксирует сигналы сканера, запросы второго мнения AI и ручные входы/выходы трейдера.
-   - Экран «📓 Журнал [J]» в UI с фильтрами по монете/типу и выгрузкой в CSV (`/api/journal/export-csv`).
-3. **Консультативное «Второе мнение AI» (Этап 2 завершен ✅):**
-   - Кнопки `🧠 Спросить мнение по этой позиции` в HUD сетапа на графике и `🧠 Мнение AI` в тулбаре.
-   - Строгий factual JSON (цена, EMA20/50 тренд, RSI, ATR%, CVD дельта, OI 24ч, L2 плотности, историческое EV).
-   - Честный статус `AI НЕДОСТУПЕН / AI недоступен, принимай решение сам` при отсутствии ключа или сбое OpenRouter.
-4. **Быстрые пресеты стратегий (Этап 3 завершен ✅):**
-   - Блок `⚡ Быстрые пресеты (1 клик)` в `BacktestPanel.jsx` позволяет переключать SL/TP, плечо и фильтры за 1 клик без перезапуска сервера, а также сохранять свои пресеты в SQLite.
-
-*Детальная история решений зафиксирована в [PROGRESS.md](PROGRESS.md) и [DECISIONS.md](DECISIONS.md).*
-
----
-
-## 🔄 Что сейчас в процессе
-- **Завершено:** Задача 1 (модели), Задача 2 «Защитная сеть», раздел «Экономия токенов» в `AGENTS.md` (`53d4ae3`), чистка дублей в таблице моделей (`e16f608`), docs/tooling-коммит с маршрутизатором Cline (`fb64666`) и **слияние всех веток в `main`** (34 коммита, FF, `check.ps1` зелёный, тег `stable-20261018-merged`).
-- **Следующее:** push в `origin` (после подтверждения) и Приоритет 1 — симулятор лимитного сетапа. Задача 3 по-прежнему заблокирована отсутствием `docs/orderflow.py`.
-
-### 🛡️ Защитная сеть (Задача 2, выполнено 2026-10-18, агент Cline)
-
-**Шаг А — «золотой» тест бэктестера** (`backend/tests/test_golden_backtest.py`):
-- Фикстура `backend/tests/fixtures/golden_ohlcv.csv` (480 баров, seed=42, детерминированные режимы; сети нет, случайности при прогоне нет).
-- Ожидаемые метрики в отдельном файле `backend/tests/fixtures/golden_backtest_expected.json` (4 сценария: trailing / TP1+TP2 / TP1+Breakeven / Stop Loss).
-- 11 тестов, сравнение метрик и причин выхода строго на равенство.
-- Проверка чувствительности проведена: подмена `net_pnl` 1.21 → 999.99 даёт `1 failed, 10 passed`, откат — `11 passed`.
-
-**Шаг Б — UI-смоук Playwright** (`scripts/smoke_ui_playwright.py`):
-- Блокирующая часть: страница открывается, canvas графика и стакана реально отрисованы (контроль размера), ошибок консоли нет (сетевые/WS-ошибки допустимы), смена монеты работает. Сама поднимает и гасит локальные dev-серверы, если они не запущены.
-- Живая часть (не блокирует): Binance WebSocket отдаёт кадры. В headless-браузере требуется «разбуживание» страницы (Chromium троттлит таймеры/WS в простое) — учтено в скрипте.
-- Обе части добавлены в `scripts/check.ps1` (шаги `[4/5]` и `[5/5]`).
-
-**Шаг В — аудит логики стакана/сканера:** перечень для выноса в чистые функции приведён в отчёте агента; рефакторинг не выполнялся (по условию задачи).
-
-
----
-
-## ⏭️ Следующий шаг (Next Steps)
-> 📘 **Полное архитектурное ревью и контекст для нового чата:** См. подробный разбор целей, достижений, ограничений и пошаговый план в [docs/PROJECT_TRANSFER_AND_REVIEW.md](file:///d:/AI_agent_space/gemini/docs/PROJECT_TRANSFER_AND_REVIEW.md).
-
-1. **Слияние выполнено:** `main` = `fb64666`, тег `stable-20261018-merged`. Осталось **отправить в `origin`** после подтверждения пользователя: `git push origin main` и `git push origin stable-20261018-merged`.
-2. Перед началом сессии запустить проект:
-   - Терминал 1: `.\.venv\Scripts\python.exe backend/main.py`
-   - Терминал 2: `cd frontend; npm run dev -- --host 127.0.0.1 --port 5173`
-3. Для любых новых доработок:
-   - Создать файл задачи в `tasks/<номер>-<название>.md` по образцу `tasks/TEMPLATE.md`.
-   - Назначить подходящий класс модели (слабая для UI, сильная для математики/рисков).
-
----
-
-## ⚠️ Список «НЕ ТРОГАТЬ» (Strict Protected Areas)
-Любому агенту **СТРОГО ЗАПРЕЩЕНО** модифицировать без предварительного явного согласования:
-1. `backend/app/services/orderflow_backtester.py` — ядро расчета комиссий, проскальзывания и PnL.
-2. `tradesStore.js` — запрещено возвращать генераторы случайных чисел (`Math.random()`) для имитации принтов.
-3. `backend/app/config.py` — запрещено хардкодить реальные ключи доступа (`OPENROUTER_API_KEY`, `BINANCE_API_KEY`).
-4. Сетевые порты: бэкенд строго `8000`, фронтенд строго `5173`.
-5. База данных SQLite: строго `data/signals.db`.
-6. Файлы-гиганты из [docs/MODULARIZATION_PLAN.md](docs/MODULARIZATION_PLAN.md) — не дробить на модули без предварительного написания покрывающих автотестов!
-
----
-
-## 🐞 Известные проблемы и ограничения
-1. **Биржа Binance не хранит исторический стакан L2**: Бэктест плотностей стакана за прошлые недели использует свечные кластеры объёма как суррогат. Честный анализ стакана L2 работает **только в реальном времени**.
-2. **Размер файлов**: `Chart.jsx` (3833 строк) и `BacktestPanel.jsx` (1950 строк) требуют аккуратного чтения и работы точечными патчами через `replace_file_content`.
-3. **OpenRouter API Key**: Если ключ в `.env` отсутствует, функция второго мнения AI честно сообщает о недоступности модели, предоставляя объективные рыночные метрики без галлюцинаций.
-4. **Окончания строк при мерже**: `core.autocrlf=true`, файла `.gitattributes` в репозитории нет. Fast-forward-мерж файлы не перезаписывает, но при трёхстороннем мерже или массовом пересохранении файлов возможен шумный diff по CRLF/LF.
+- **ACTIVE_AGENT:** `codex`
+- **Ветка:** `agent/codex/recorder`
+- **Сделано:** read-only аудит старого recorder и фактических Parquet-файлов; архитектурное решение нового отдельного recorder добавлено в `DECISIONS.md`.
+- **Подтверждённые разрывы:** общий gap около 5 ч 50 мин 19 Oct 2026; ETH depth gap около 18 ч 40 мин 17–18 Oct 2026.
+- **Данные не менялись:** `data/recorded`, backups и backend history не удалялись, не перемещались и не перезаписывались.
+- **Следующий шаг:** S1 — отдельный пакет recorder с envelope, config, spool, norm Parquet, gaps и Binance trade/book_ticker/mark_price/liquidation/kline_1m, без подключения к FastAPI.
+- **S1 progress:** новый пакет `recorder/` уже содержит канонический envelope, Binance normalizers, fsync spool, immutable zstd Parquet + SHA-256 manifest, gap journal и YAML config; покрытие — 6 тестов. WebSocket process, CLI/status и disk policy ещё не завершены.
+- **S1 completed:** WebSocket process, `python -m recorder run|status`, 50 GiB disk policy, closed-kline filtering, heartbeat/status, Dockerfile/Compose и Windows start/stop scripts добавлены; полный `scripts/check.ps1` — PASS (111 tests, build, smoke, UI and live WS checks).
+- **Deployment blocker:** локально доступен только Docker Desktop (`desktop-linux`); серверный SSH/Docker target не обнаружен. После предоставления hostname/IP, user и port либо Docker context выполнить remote build/up и smoke/status check.

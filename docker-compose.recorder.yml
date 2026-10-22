@@ -1,0 +1,15 @@
+services:
+  market-recorder:
+    build:
+      context: .
+      dockerfile: Dockerfile.recorder
+    container_name: market-data-recorder
+    restart: unless-stopped
+    environment:
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./data/lake:/app/data/lake
+      - ./data/spool:/app/data/spool
+      - ./data/gaps:/app/data/gaps
+      - ./recorder.yaml:/app/recorder.yaml:ro
+    stop_grace_period: 30s

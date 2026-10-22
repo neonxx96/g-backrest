@@ -82,3 +82,186 @@
 - **Успешно:** 16 (100%)
 - **Сбоев:** 0
 - **Сборка фронтенда (`npm run build`):** 0 ошибок, сборка за 528 мс.
+
+
+### 🔴 [AUTO-QA] Ошибки при сценарии #1 (BNBUSDT) (2026-10-19 02:53:55)
+- **Описание:** HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+- **Скриншот:** `D:\AI_agent_space\gemini\backend\logs\screenshots\bug_iteration_1_1792367635.png`
+- **Статус:** ⚠️ Требует исправления
+
+
+### 🔴 [AUTO-QA] Ошибки при сценарии #2 (SOLUSDT) (2026-10-19 02:54:15)
+- **Описание:** HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+- **Скриншот:** `D:\AI_agent_space\gemini\backend\logs\screenshots\bug_iteration_2_1792367655.png`
+- **Статус:** ⚠️ Требует исправления
+
+
+### 🔴 [AUTO-QA] Ошибки при сценарии #3 (BNBUSDT) (2026-10-19 02:54:26)
+- **Описание:** HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+- **Скриншот:** `D:\AI_agent_space\gemini\backend\logs\screenshots\bug_iteration_3_1792367666.png`
+- **Статус:** ⚠️ Требует исправления
+
+
+### 🔴 [AUTO-QA] Ошибки при сценарии #4 (DOGEUSDT) (2026-10-19 02:54:46)
+- **Описание:** HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+- **Скриншот:** `D:\AI_agent_space\gemini\backend\logs\screenshots\bug_iteration_4_1792367686.png`
+- **Статус:** ⚠️ Требует исправления
+
+
+### 🔴 [AUTO-QA] Ошибки при сценарии #5 (SOLUSDT) (2026-10-19 02:54:56)
+- **Описание:** HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+- **Скриншот:** `D:\AI_agent_space\gemini\backend\logs\screenshots\bug_iteration_5_1792367696.png`
+- **Статус:** ⚠️ Требует исправления
+
+
+### 🔴 [AUTO-QA] Ошибки при сценарии #6 (BTCUSDT) (2026-10-19 02:55:15)
+- **Описание:** HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+- **Скриншот:** `D:\AI_agent_space\gemini\backend\logs\screenshots\bug_iteration_6_1792367715.png`
+- **Статус:** ⚠️ Требует исправления
+
+
+### 🔴 [AUTO-QA] Ошибки при сценарии #7 (BTCUSDT) (2026-10-19 02:55:26)
+- **Описание:** HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+- **Скриншот:** `D:\AI_agent_space\gemini\backend\logs\screenshots\bug_iteration_7_1792367726.png`
+- **Статус:** ⚠️ Требует исправления
+
+
+### 🔴 [AUTO-QA] Ошибки при сценарии #8 (SOLUSDT) (2026-10-19 02:55:45)
+- **Описание:** HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+- **Скриншот:** `D:\AI_agent_space\gemini\backend\logs\screenshots\bug_iteration_8_1792367745.png`
+- **Статус:** ⚠️ Требует исправления
+
+
+### 🔴 [AUTO-QA] Ошибки при сценарии #9 (SOLUSDT) (2026-10-19 02:55:56)
+- **Описание:** HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+- **Скриншот:** `D:\AI_agent_space\gemini\backend\logs\screenshots\bug_iteration_9_1792367755.png`
+- **Статус:** ⚠️ Требует исправления
+
+
+### 🔴 [AUTO-QA] Ошибки при сценарии #10 (SOLUSDT) (2026-10-19 02:56:16)
+- **Описание:** HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+- **Скриншот:** `D:\AI_agent_space\gemini\backend\logs\screenshots\bug_iteration_10_1792367776.png`
+- **Статус:** ⚠️ Требует исправления
+
+
+### 🔴 [AUTO-QA] Ошибки при сценарии #11 (DOGEUSDT) (2026-10-19 02:56:26)
+- **Описание:** HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+- **Скриншот:** `D:\AI_agent_space\gemini\backend\logs\screenshots\bug_iteration_11_1792367786.png`
+- **Статус:** ⚠️ Требует исправления
+
+
+### 🔴 [AUTO-QA] Ошибки при сценарии #12 (XRPUSDT) (2026-10-19 02:56:46)
+- **Описание:** HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+- **Скриншот:** `D:\AI_agent_space\gemini\backend\logs\screenshots\bug_iteration_12_1792367806.png`
+- **Статус:** ⚠️ Требует исправления
+
+
+### 🔴 [AUTO-QA] Ошибки при сценарии #13 (ETHUSDT) (2026-10-19 02:56:57)
+- **Описание:** HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+- **Скриншот:** `D:\AI_agent_space\gemini\backend\logs\screenshots\bug_iteration_13_1792367817.png`
+- **Статус:** ⚠️ Требует исправления
+
+
+### 🔴 [AUTO-QA] Ошибки при сценарии #14 (XRPUSDT) (2026-10-19 02:57:17)
+- **Описание:** HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+- **Скриншот:** `D:\AI_agent_space\gemini\backend\logs\screenshots\bug_iteration_14_1792367837.png`
+- **Статус:** ⚠️ Требует исправления
+
+
+### 🔴 [AUTO-QA] Ошибки при сценарии #15 (BTCUSDT) (2026-10-19 02:57:28)
+- **Описание:** HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+HTTP 404 on http://127.0.0.1:5173/api/monitoring/state
+ConsoleError: Failed to load resource: the server responded with a status of 404 (Not Found)
+- **Скриншот:** `D:\AI_agent_space\gemini\backend\logs\screenshots\bug_iteration_15_1792367848.png`
+- **Статус:** ⚠️ Требует исправления

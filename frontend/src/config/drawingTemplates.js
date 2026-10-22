@@ -30,9 +30,9 @@ export const PRESEEDED_SMC_TEMPLATES = [
     tool: 'rect',
     styles: {
       polygon: {
-        color: 'rgba(16, 185, 129, 0.20)',
+        color: 'rgba(16, 185, 129, 0.15)',
         borderColor: '#10b981',
-        borderSize: 1.5,
+        borderSize: 1,
         borderStyle: 'solid'
       }
     },
@@ -47,9 +47,9 @@ export const PRESEEDED_SMC_TEMPLATES = [
     tool: 'rect',
     styles: {
       polygon: {
-        color: 'rgba(239, 68, 68, 0.20)',
+        color: 'rgba(239, 68, 68, 0.15)',
         borderColor: '#ef4444',
-        borderSize: 1.5,
+        borderSize: 1,
         borderStyle: 'solid'
       }
     },
@@ -65,7 +65,7 @@ export const PRESEEDED_SMC_TEMPLATES = [
     styles: {
       line: {
         color: '#a855f7',
-        size: 2,
+        size: 1.5,
         style: 'dashed',
         dashedValue: [4, 4]
       }
@@ -81,9 +81,9 @@ export const PRESEEDED_SMC_TEMPLATES = [
     tool: 'rect',
     styles: {
       polygon: {
-        color: 'rgba(56, 189, 248, 0.20)',
+        color: 'rgba(56, 189, 248, 0.15)',
         borderColor: '#38bdf8',
-        borderSize: 1.5,
+        borderSize: 1,
         borderStyle: 'dashed'
       }
     },

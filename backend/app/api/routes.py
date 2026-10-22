@@ -18,6 +18,7 @@ from backend.app.services.scanner import scanner
 from backend.app.services.recorder import recorder
 from backend.app.services.indicators.registry import registry
 from backend.app.services.bot import broadcast_signal
+from backend.app.services.drawing_persistence import choose_latest_drawing
 from backend.app.utils import format_kyiv
 
 router = APIRouter(prefix="/api")
@@ -180,9 +181,21 @@ async def get_signals(limit: int = Query(50), db: AsyncSession = Depends(get_db)
     ]
 
 @router.get("/klines")
-async def get_klines(symbol: str = Query("BTCUSDT"), timeframe: str = Query("15m"), limit: int = Query(200)):
+async def get_klines(
+    symbol: str = Query("BTCUSDT"),
+    timeframe: str = Query("15m"),
+    limit: int = Query(200),
+    start_time: Optional[int] = Query(None, description="UTC ms — start of deep history window (enables server-side pagination)"),
+    end_time: Optional[int] = Query(None, description="UTC ms — end of deep history window"),
+):
     try:
-        df = await binance_service.fetch_klines(symbol=symbol.upper(), timeframe=timeframe, limit=limit)
+        df = await binance_service.fetch_klines(
+            symbol=symbol.upper(),
+            timeframe=timeframe,
+            limit=min(int(limit), 1500),
+            start_time=start_time,
+            end_time=end_time,
+        )
         if df.empty:
             return []
         
@@ -216,7 +229,7 @@ async def get_drawings(symbol: str, timeframe: str, user_id: str = "0", db: Asyn
         DrawingData.symbol == symbol.upper(),
         DrawingData.timeframe == timeframe
     ))
-    drawing = res.scalar_one_or_none()
+    drawing = choose_latest_drawing(res.scalars().all())
     return {"elements_json": drawing.elements_json if drawing else "[]"}
 
 @router.post("/drawings")
@@ -227,7 +240,7 @@ async def save_drawings(payload: DrawingSaveSchema, db: AsyncSession = Depends(g
         DrawingData.symbol == sym,
         DrawingData.timeframe == payload.timeframe
     ))
-    drawing = res.scalar_one_or_none()
+    drawing = choose_latest_drawing(res.scalars().all())
     
     if drawing:
         drawing.elements_json = payload.elements_json

@@ -4,6 +4,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+.pytest-temp/
 
 # Local Environment Variables & Secrets
 .env
@@ -22,6 +23,7 @@ data/
 # Logs & Temporary Files
 *.log
 backend.log
+backend/logs/*.json
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
