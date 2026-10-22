@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { allocateCapital, configKey, validateConfigs, readReport } from './model.js';
 import { createPilotStore } from './store.js';
+import * as pilotModel from './model.js';
 
 const config = { symbol: 'BTCUSDT', strategy_type: 'confluence_ema', timeframe: '15m', days: 14, initial_capital: 1000, risk_per_trade_pct: 0.5, stop_loss_pct: 0.8, take_profit_pct: 2.2, leverage: 2, duration_hours: 1 };
 const ready = (configs) => ({ preflight_id: 'run-a', sessions: Object.fromEntries(configs.map(c => [c.symbol, { config: c, run_id: 'run-a', preflight_valid: true, forecast: { data_status: 'connected' }, backtest: {}, paper: null }])) });
@@ -79,4 +80,23 @@ test('late event response cannot replace the selected run journal', async () => 
   await store.getState().loadEvents('new');
   resolve({ events: [{ run_id: 'old', event_id: '1' }] }); await old;
   assert.equal(store.getState().events[0].run_id, 'new');
+});
+
+test('a timed paper run is labeled complete while a manual stop remains stopped', () => {
+  const timed = { is_running: false, logs: [{ category: 'SYSTEM', message: 'Paper-сессия автоматически остановлена после 12 ч' }] };
+  assert.equal(pilotModel.paperStatusLabel(timed), 'Завершена по таймеру');
+  assert.equal(pilotModel.paperStatusLabel({ is_running: false, logs: [] }), 'Остановлена');
+});
+
+test('decision journal distinguishes a pending limit order from a filled position', () => {
+  const pending = { event_type: 'POSITION_OPENED', reason: 'CVD absorption', payload: { order: { status: 'PENDING' } } };
+  assert.match(pilotModel.describePilotEvent(pending).title, /Заявка выставлена/);
+  assert.doesNotMatch(pilotModel.describePilotEvent(pending).title, /Позиция открыта/);
+});
+
+test('rejected RSI in an extreme-value strategy is explained without reversing the threshold', () => {
+  const skipped = { event_type: 'DECISION_SKIPPED', payload: { rejections: [{ filter: 'rsi_filter', actual: 49.63, operator: 'outside', threshold: [42, 58] }] } };
+  const description = pilotModel.describePilotEvent(skipped);
+  assert.match(description.reason, /49\.63/);
+  assert.match(description.reason, /ниже 42 или выше 58/);
 });

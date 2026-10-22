@@ -15,6 +15,46 @@ const canonical = value => Array.isArray(value) ? value.map(canonical) : value &
 export const configKey = configs => JSON.stringify(canonical(configs));
 export const hasRunning = status => Object.values(status?.sessions || {}).some(s => s.paper?.is_running === true);
 
+const filterNames = {
+  cvd_absorption_structure: 'нет подтверждённого поглощения CVD у экстремума',
+  volume_multiplier: 'объём свечи ниже порога',
+  rsi_filter: 'RSI не подходит для стратегии',
+  minimum_turnover: 'оборот свечи ниже порога',
+};
+export const pilotFilterLabel = key => filterNames[key] || key;
+
+export function paperStatusLabel(paper) {
+  if (!paper) return 'Ожидает запуска';
+  if (paper.is_running) return 'Сессия работает';
+  return (paper.logs || []).some(log => log.category === 'SYSTEM' && /автоматически остановлена после/.test(log.message || ''))
+    ? 'Завершена по таймеру' : 'Остановлена';
+}
+
+export function describePilotEvent(event, paper) {
+  if (event.event_type === 'DECISION_SKIPPED') {
+    const rejections = event.payload?.rejections || [];
+    const reason = rejections.map(rejection => {
+      const actual = rejection.actual;
+      if (rejection.filter === 'rsi_filter' && rejection.operator === 'outside' && Array.isArray(rejection.threshold)) {
+        return `RSI ${actual}: для этой стратегии нужен ниже ${rejection.threshold[0]} или выше ${rejection.threshold[1]}`;
+      }
+      if (['volume_multiplier', 'minimum_turnover'].includes(rejection.filter)) {
+        return `${pilotFilterLabel(rejection.filter)} (${actual} < ${rejection.threshold})`;
+      }
+      return pilotFilterLabel(rejection.filter);
+    }).join('; ');
+    return { title: 'Вход отклонён', reason: reason || event.reason || 'Условия стратегии не выполнены' };
+  }
+  if (event.event_type === 'POSITION_OPENED') {
+    const order = event.payload?.order;
+    const pending = order && ['PENDING', 'ACTIVE', 'PARTIALLY_FILLED'].includes(order.status);
+    return { title: pending ? 'Заявка выставлена (исполнение не подтверждено)' : 'Сигнал на вход', reason: event.reason || '' };
+  }
+  if (event.event_type === 'RUN_STOPPED') return { title: paperStatusLabel(paper), reason: paperStatusLabel(paper) === 'Завершена по таймеру' ? 'Плановое окончание срока наблюдения' : 'Наблюдение остановлено' };
+  if (event.event_type === 'RUN_STARTED') return { title: 'Сессия запущена', reason: event.reason || '' };
+  return { title: event.event_type || 'Событие', reason: event.reason || '' };
+}
+
 export function validateConfigs(configs) {
   const errors = [];
   if (!Array.isArray(configs) || !configs.length || configs.length > 5) return ['Выберите от 1 до 5 монет.'];
