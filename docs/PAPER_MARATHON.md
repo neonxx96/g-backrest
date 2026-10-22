@@ -3,6 +3,30 @@
 > Morning reports и ключевые события марафона production_robust на BTC/ETH/SOL.
 > Команда отчёта: `scripts/night-pilot.ps1 -Action report` (read-only).
 
+## 2026-10-22 (23:33–23:39 local) — Третья гибель backend и шестой запуск марафона
+
+**Событие:** backend (PID 17784, шим; интерпретатор — дочерний) **погиб между 23:33:18
+(последняя строка лога: scanner pass) и ~23:35** — `curl :8000` → connection refused.
+Диагностика: traceback в логах ОТСУТСТВУЕТ (uvicorn не писал shutdown — процесс убит
+намертво), свежего crash-dump нет (`python.exe.*.dmp` в CrashDumps — от 20.10), WER
+Application Error событий нет, check.ps1/smoke ничего не убивают. Похоже на внешнее
+kill-подобное завершение — **причина не установлена, отмечено в HANDOFF**.
+
+**Шестой запуск марафона (A/B-дизайн сохранён, конфиг `data/pilot_configs_ab_20261022.json`):**
+
+| Символ | session_id | use_m4_risk_gates | Роль |
+|---|---|---|---|
+| BTCUSDT | `overnight_btcusdt_1792701661` | **true** | Тестовая группа |
+| ETHUSDT | `overnight_ethusdt_1792701661` | false | Контрольная группа |
+| SOLUSDT | `overnight_solusdt_1792701661` | false | Контрольная группа |
+
+- Preflight: `172e77c575a74c83816a87814815bf47` (valid).
+- Backend перезапущен 23:39:35 (шим PID 36612, интерпретатор 8212; health ok за ~10 c).
+- Состояние после старта: все три `data_status=connected`, balance 10000, 0 сделок
+  (пятилетки сессий `1792698604` успели прожить ~15 мин — потерь нет).
+- Риск неповторимости: причина гибели процесса неизвестна — рекомендован внешний
+  watchdog (см. HANDOFF «Риски»); morning report имеет смысл завтра (`night-pilot.ps1 -Action report`).
+
 ## 2026-10-22 (вечер, ~22:50 local) — Второй рестарт backend (зависание без порта)
 
 **Событие:** процесс backend, поднятый при первом рестарте (~21:23), накапливал CPU (288 с)
@@ -53,6 +77,7 @@
 **Операционные заметки:**
 
 - Backend стартует напрямую: `.venv/Scripts/python.exe backend/main.py` (минимизированное окно).
-  `scripts/run_app.ps1` под Windows PowerShell 5.1 сломан (UTF-8 без BOM + кириллица → parse error) — отдельная задача.
+  `scripts/run_app.ps1` восстановлен 2026-10-22 (UTF-8 with BOM, AST-проверка, живой прогон):
+  поднимает backend+frontend, пропускает компонент, если порт занят, ждёт /api/health до 60 с.
 - Recorder-soak (`scripts/run_recorder.ps1`, до ~24.10) — независимый процесс, рестарт backend его не затрагивает.
 - Не запускать второй backend: gate (check.ps1 шаг 0) падает при >1 процессе.

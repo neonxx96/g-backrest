@@ -2,6 +2,14 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-4.5 + инцидент гибели backend + run_app.ps1 — 2026-10-22 (ночь 23:39+)
+
+- **ACTIVE_AGENT:** `kimi` (main)
+- **⚠️ Инцидент (не раскрыт):** backend (PID 17784 + дочерний интерпретатор) погиб между 23:33:18 и ~23:35. **Нет traceback в логах, нет shutdown-сообщения uvicorn, нет свежего crash-dump (в CrashDumps только от 20.10), нет WER Application Error.** Ни check.ps1, ни smoke ничего не убивают → похоже на внешнее kill-подобное завершение. Причина НЕ установлена. Если повторится — проверять, кто держал консоли/скрипты (Di?), включить ProcDump или аналог. **Рекомендация: внешний watchdog** (раз в 2–5 мин: нет /api/health → перезапуск по процедуре 6.1) — единственная надёжная защита марафона от тихой смерти процесса.
+- **Восстановление (23:39):** backend перезапущен по процедуре 6.1 (Start-Process, логи backend-runtime.*.log). Шим PID 36612, реальный интерпретатор — **дочерний PID 8212** (стандартное поведение .venv-шима; gate считает «логические процессы» по parent — ок). Марафон перезапущен **6-й раз**: preflight `172e77c575a74c83816a87814815bf47`, session_id `overnight_{btc,eth,sol}usdt_1792701661`, BTC `use_m4_risk_gates=true` (конфиг `data/pilot_configs_ab_20261022.json`). Статус после старта: все `data_status=connected`, balance 10000, 0 сделок. Подробности — `docs/PAPER_MARATHON.md`.
+- **run_app.ps1 восстановлен** (risk из прошлого отчёта, файл отсутствовал): создан заново, **UTF-8 with BOM** (правило из 6.3!), AST-парсинг проверен, живой прогон проверен (корректно пропустил занятый :8000, поднял/остановлен тестовый frontend). Поднимает backend+frontend, пропускает занятые порта, ждёт /api/health 60 с.
+- **Gate после 4.5:** `check.ps1` PASS — **351 passed, 28 skipped**, build (19 JS-тестов в prebuild), smoke, live WS.
+
 ## Kimi phase-4.5 (WebGL-heatmap плотностей) — 2026-10-22 (вечер)
 
 - **ACTIVE_AGENT:** `kimi` (main, коммит см. git log)
