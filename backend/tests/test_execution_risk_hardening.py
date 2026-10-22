@@ -127,6 +127,92 @@ def test_kill_switch_releases_pending_and_filled_margin_at_leverage():
     assert state.balance == pytest.approx(1000.0 - 2 * 100 * (session.maker_fee + session.taker_fee))
 
 
+def test_live_tick_does_not_invent_trade_volume_and_requires_strict_limit_cross():
+    """A price observation at the limit is not an aggTrade and cannot consume queue."""
+    session = PaperTradingSession(
+        initial_balance=1_000.0,
+        signal_lag_ms=0,
+        order_rtt_ms=0,
+    )
+    session.place_order(
+        "BTCUSDT", "BUY", "LIMIT", 100.0, 1.0,
+        stop_price=98.0, target_price=104.0, signal_ts=1_000,
+    )
+
+    session.process_market_tick(
+        "BTCUSDT", 100.0,
+        bids=[(99.9, 2.0)], asks=[(100.1, 2.0)], timestamp=1_000,
+    )
+    assert session.positions == {}
+
+    session.process_market_tick(
+        "BTCUSDT", 99.9,
+        bids=[(99.8, 2.0)], asks=[(100.0, 2.0)], timestamp=1_001,
+    )
+    assert session.positions["BTCUSDT"].qty == pytest.approx(1.0)
+
+
+def test_live_market_fill_uses_adverse_configured_slippage_and_reports_cost():
+    session = PaperTradingSession(
+        initial_balance=1_000.0,
+        signal_lag_ms=0,
+        order_rtt_ms=0,
+    )
+    session.place_order(
+        "BTCUSDT", "BUY", "MARKET", 100.0, 1.0,
+        stop_price=98.0, target_price=104.0, signal_ts=1_000,
+    )
+
+    session.process_market_tick(
+        "BTCUSDT", 100.0,
+        bids=[(99.9, 2.0)], asks=[(100.0, 2.0)], timestamp=1_000,
+        market_slippage_bps=10.0,
+    )
+
+    position = session.positions["BTCUSDT"]
+    assert position.avg_entry_price == pytest.approx(100.1)
+    assert position.slippage_paid == pytest.approx(0.1)
+    assert session.get_state().total_slippage_paid == pytest.approx(0.1)
+
+
+def test_market_exit_keeps_slippage_visible_without_double_counting_net_pnl():
+    session = PaperTradingSession(
+        initial_balance=1_000.0,
+        signal_lag_ms=0,
+        order_rtt_ms=0,
+    )
+    session.place_order(
+        "BTCUSDT", "BUY", "MARKET", 100.0, 1.0,
+        stop_price=98.0, target_price=104.0, signal_ts=1_000,
+    )
+    session.process_market_tick(
+        "BTCUSDT", 100.0,
+        bids=[(99.9, 2.0)], asks=[(100.0, 2.0)], timestamp=1_000,
+        market_slippage_bps=10.0,
+    )
+    session.close_position(
+        "BTCUSDT", 101.0, order_type="MARKET", reason="STOP_LOSS", signal_ts=2_000,
+    )
+    session.process_market_tick(
+        "BTCUSDT", 101.0,
+        bids=[(101.0, 2.0)], asks=[(101.1, 2.0)], timestamp=2_000,
+        market_slippage_bps=10.0,
+    )
+
+    closed = session.get_state().closed_trades[-1]
+    assert closed["slippage_cost"] == pytest.approx(0.201)
+    assert closed["net_pnl"] == pytest.approx(closed["gross_pnl"] - closed["fee_drag"])
+    assert session.get_state().total_slippage_paid == pytest.approx(0.201)
+
+
+def test_runner_market_slippage_uses_atr_when_it_exceeds_tick_floor():
+    runner = LivePaperRunner(session=PaperTradingSession())
+    runner.slippage_ticks = 2
+    runner._indicator_context = {"latest": {"atr": 10.0}}
+
+    assert runner._market_slippage_bps(1_000.0) == pytest.approx(5.0)
+
+
 def test_runner_does_not_resubmit_signal_from_same_closed_candle(monkeypatch):
     session = PaperTradingSession(initial_balance=1000.0, risk_per_trade_pct=0.005)
     runner = LivePaperRunner(session=session)

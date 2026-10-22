@@ -364,17 +364,19 @@ class TestPaperTradingSessionLifecycle(unittest.TestCase):
             target_price=104.0,
             signal_ts=1000,
         )
+        # A live tick is a price observation, not a fabricated aggTrade.
+        # It must cross the resting bid strictly before a limit fill occurs.
         session.process_market_tick(
             "BTCUSDT",
-            100.0,
-            bids=[(99.9, 2.0)],
+            99.9,
+            bids=[(99.8, 2.0)],
             asks=[(100.1, 2.0)],
             timestamp=1000,
         )
         state = session.get_state()
         self.assertEqual(len(state.positions), 1)
         self.assertEqual(state.positions[0]["symbol"], "BTCUSDT")
-        self.assertAlmostEqual(session.last_prices["BTCUSDT"], 100.0)
+        self.assertAlmostEqual(session.last_prices["BTCUSDT"], 99.9)
 
     def test_partial_exit_and_funding_are_accounted_separately(self):
         session = PaperTradingSession(

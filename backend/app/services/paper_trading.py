@@ -61,6 +61,7 @@ class PaperPosition:
     trailing_high_price: float = 0.0
     trailing_low_price: float = 0.0
     fees_paid: float = 0.0
+    slippage_paid: float = 0.0
     closed: bool = False
     breakeven_triggered: bool = False
     reason: str = "Technical Signal"
@@ -121,6 +122,7 @@ class PaperSessionState:
     active_orders: List[dict] = field(default_factory=list)
     closed_trades: List[dict] = field(default_factory=list)
     total_fees_paid: float = 0.0
+    total_slippage_paid: float = 0.0
     total_funding_paid: float = 0.0
     uptime_seconds: int = 0
     is_halted: bool = False
@@ -142,6 +144,7 @@ class PaperSessionState:
             "active_orders": self.active_orders,
             "closed_trades": self.closed_trades,
             "total_fees_paid": self.total_fees_paid,
+            "total_slippage_paid": self.total_slippage_paid,
             "total_funding_paid": self.total_funding_paid,
             "uptime_seconds": self.uptime_seconds,
             "is_halted": self.is_halted,
@@ -184,6 +187,7 @@ class PaperTradingSession:
         self.available_margin = float(initial_balance)
         self.locked_margin = 0.0
         self.total_fees_paid = 0.0
+        self.total_slippage_paid = 0.0
         self.total_funding_paid = 0.0
 
         # Live state
@@ -493,7 +497,7 @@ class PaperTradingSession:
         self._last_event_ts = max(self._last_event_ts, ts)
 
         kind = getattr(event, "kind", "")
-        if kind == "trade":
+        if kind in ("trade", "mark"):
             price = float(event.payload.get("price", 0.0))
             symbol = getattr(event, "symbol", None) or event.payload.get("symbol")
             if symbol and price > 0:
@@ -530,6 +534,7 @@ class PaperTradingSession:
         bids: Optional[List[tuple]] = None,
         asks: Optional[List[tuple]] = None,
         timestamp: Optional[int] = None,
+        market_slippage_bps: float = 0.0,
     ) -> None:
         """Feed one real live price/depth observation into the paper engine.
 
@@ -559,13 +564,12 @@ class PaperTradingSession:
         ))
         self.process_event(SimpleNamespace(
             timestamp=ts,
-            kind="trade",
+            kind="mark",
             symbol=symbol,
-            payload={"price": float(price), "quantity": max(1.0, sum(
-                float(po.sim.state.remaining_qty)
-                for po in self.orders.values()
-                if po.symbol == symbol and po.sim.state.remaining_qty > 0
-            ))},
+            payload={
+                "price": float(price),
+                "market_slippage_bps": max(0.0, float(market_slippage_bps)),
+            },
         ))
 
     def _on_order_fill(self, po: PaperOrder) -> None:
@@ -582,12 +586,13 @@ class PaperTradingSession:
         price = float(fill.price)
         qty = float(fill.quantity)
         fee = float(fill.fee)
+        slippage_cost = float(getattr(fill, "slippage_cost", 0.0))
         if po.role == PaperOrderRole.ENTRY:
-            self._apply_entry_fill(symbol, po, price, qty, fee)
+            self._apply_entry_fill(symbol, po, price, qty, fee, slippage_cost)
         else:
-            self._apply_exit_fill(symbol, po, price, qty, fee)
+            self._apply_exit_fill(symbol, po, price, qty, fee, slippage_cost)
 
-    def _apply_entry_fill(self, symbol: str, po: PaperOrder, price: float, qty: float, fee: float) -> None:
+    def _apply_entry_fill(self, symbol: str, po: PaperOrder, price: float, qty: float, fee: float, slippage_cost: float) -> None:
         pos = self.positions.get(symbol)
         entry_side = po.sim.cfg.side.value  # BUY -> LONG, SELL -> SHORT
         pos_side = "LONG" if entry_side == "BUY" else "SHORT"
@@ -629,6 +634,7 @@ class PaperTradingSession:
         pos.avg_entry_price = ((pos.avg_entry_price * pos.qty) + (price * qty)) / total_qty
         pos.qty = total_qty
         pos.fees_paid += fee
+        pos.slippage_paid += slippage_cost
         pos.entry_ts = pos.entry_ts or po.created_ts
 
         # Convert only this fill's pending collateral to position margin.
@@ -643,6 +649,7 @@ class PaperTradingSession:
         self.locked_margin += margin_used - reserved_slice
         self.available_margin += reserved_slice - margin_used
         self.total_fees_paid += fee
+        self.total_slippage_paid += slippage_cost
 
         logger.info(
             f"[TRADE] ENTRY fill [{self.session_id}] {symbol}: "
@@ -660,7 +667,7 @@ class PaperTradingSession:
         )
 
 
-    def _apply_exit_fill(self, symbol: str, po: PaperOrder, price: float, qty: float, fee: float) -> None:
+    def _apply_exit_fill(self, symbol: str, po: PaperOrder, price: float, qty: float, fee: float, slippage_cost: float) -> None:
         pos = self.positions.get(symbol)
         if pos is None or pos.closed or pos.qty <= 0:
             logger.warning(f"[PaperSession] exit fill without open position: {symbol}")
@@ -676,6 +683,7 @@ class PaperTradingSession:
         open_qty_before_exit = pos.qty
         # Allocate entry fees proportionally so Net PnL stays truthful on partial exits.
         entry_fee_share = pos.fees_paid * (close_qty / open_qty_before_exit) if open_qty_before_exit > 0 else 0.0
+        entry_slippage_share = pos.slippage_paid * (close_qty / open_qty_before_exit) if open_qty_before_exit > 0 else 0.0
         if pos.side == "LONG":
             gross = (price - pos.avg_entry_price) * close_qty
         else:
@@ -683,7 +691,9 @@ class PaperTradingSession:
         net = gross - entry_fee_share - fee
         self.realized_pnl += net
         pos.fees_paid = max(0.0, pos.fees_paid - entry_fee_share)
+        pos.slippage_paid = max(0.0, pos.slippage_paid - entry_slippage_share)
         self.total_fees_paid += fee
+        self.total_slippage_paid += slippage_cost
         pos.qty -= close_qty
 
         pnl_pct = ((price - pos.avg_entry_price) / pos.avg_entry_price * 100.0) if pos.side == "LONG" else ((pos.avg_entry_price - price) / pos.avg_entry_price * 100.0)
@@ -706,6 +716,7 @@ class PaperTradingSession:
             "pnl_percent": round(pnl_pct, 2),
             "fee": fee,
             "fee_drag": fee_drag,
+            "slippage_cost": entry_slippage_share + slippage_cost,
             "mfe": track.mfe if track else 0.0,
             "mae": track.mae if track else 0.0,
             "mfe_r": round(track.mfe_r, 4) if track else 0.0,
@@ -717,7 +728,6 @@ class PaperTradingSession:
             "entry_ts": pos.entry_ts,
             "exit_ts": self._last_event_ts,
             "is_final_exit": is_final_exit,
-            "slippage_cost": 0.0,
         })
 
         # Release margin
@@ -956,6 +966,7 @@ class PaperTradingSession:
         self.locked_margin = 0.0
         self.realized_pnl = 0.0
         self.total_fees_paid = 0.0
+        self.total_slippage_paid = 0.0
         self.start_time = time.time()
         self.is_halted = False
         self.halt_reason = None
@@ -1047,6 +1058,7 @@ class PaperTradingSession:
             active_orders=active_orders,
             closed_trades=list(self.closed_trades),
             total_fees_paid=self.total_fees_paid,
+            total_slippage_paid=self.total_slippage_paid,
             total_funding_paid=self.total_funding_paid,
             uptime_seconds=uptime,
             is_halted=self.is_halted,

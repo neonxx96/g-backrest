@@ -55,6 +55,7 @@ class Fill:
     quantity: float
     fee: float
     liquidity: str
+    slippage_cost: float = 0.0
 
     @property
     def notional(self) -> float:
@@ -73,6 +74,7 @@ class OrderConfig:
     order_rtt_ms: int = DEFAULT_ORDER_RTT_MS
     maker_fee: float = DEFAULT_MAKER_FEE
     taker_fee: float = DEFAULT_TAKER_FEE
+    market_slippage_bps: float = 0.0
 
     @property
     def order_active_ts(self) -> int:
@@ -152,6 +154,8 @@ class ExecutionSimulator:
             self._on_depth(event)
         elif event.kind == "trade":
             self._on_trade(event)
+        elif event.kind == "mark":
+            self._on_mark(event)
 
     def _on_depth(self, event) -> None:
         self._last_bids = [(float(p), float(q)) for p, q in event.payload["bids"]]
@@ -206,6 +210,24 @@ class ExecutionSimulator:
         else:
             self._on_trade_market(event)
 
+    def _on_mark(self, event) -> None:
+        """Process a quote/mark observation without fabricating traded quantity."""
+        price = float(event.payload["price"])
+        if self.cfg.order_type == OrderType.MARKET:
+            self._execute_market_order(float(event.payload.get("market_slippage_bps", self.cfg.market_slippage_bps)))
+            return
+        if self.state.status == OrderStatus.REJECTED:
+            return
+        limit = self.cfg.price
+        crossed = (
+            self.cfg.side == OrderSide.BUY and price < limit - 1e-9
+        ) or (
+            self.cfg.side == OrderSide.SELL and price > limit + 1e-9
+        )
+        if crossed:
+            self._fill(self.state.remaining_qty, limit, "maker")
+            self.exit_reason = "observed_price_crossed"
+
     def _on_trade_limit(self, event) -> None:
         price = float(event.payload["price"])
         qty = float(event.payload["quantity"])
@@ -252,9 +274,9 @@ class ExecutionSimulator:
                     self.exit_reason = "queue_exhausted"
 
     def _on_trade_market(self, event) -> None:
-        self._execute_market_order()
+        self._execute_market_order(float(event.payload.get("market_slippage_bps", self.cfg.market_slippage_bps)))
 
-    def _execute_market_order(self) -> None:
+    def _execute_market_order(self, market_slippage_bps: float = 0.0) -> None:
         if self.state.status in (OrderStatus.FILLED, OrderStatus.REJECTED):
             return
 
@@ -268,6 +290,7 @@ class ExecutionSimulator:
         gross_cost = 0.0
         filled = 0.0
         worst_price = book[-1][0]
+        slippage_cost = 0.0
 
         for level_price, level_qty in book:
             if remaining <= 1e-9:
@@ -285,12 +308,19 @@ class ExecutionSimulator:
                              else worst_price - tick_penalty)
             gross_cost += shortfall * penalty_price
             filled += shortfall
+            slippage_cost += shortfall * abs(penalty_price - worst_price)
 
         avg_px = gross_cost / filled if filled > 0 else 0.0
-        self._fill(filled, avg_px, "taker")
+        adverse_bps = max(0.0, float(market_slippage_bps))
+        if adverse_bps > 0 and avg_px > 0:
+            multiplier = adverse_bps / 10_000.0
+            adjusted_price = avg_px * (1.0 + multiplier if self.cfg.side == OrderSide.BUY else 1.0 - multiplier)
+            slippage_cost += filled * abs(adjusted_price - avg_px)
+            avg_px = adjusted_price
+        self._fill(filled, avg_px, "taker", slippage_cost=slippage_cost)
         self.exit_reason = "depth_walk"
 
-    def _fill(self, qty: float, price: float, liquidity: str) -> None:
+    def _fill(self, qty: float, price: float, liquidity: str, slippage_cost: float = 0.0) -> None:
         qty = min(qty, self.state.remaining_qty)
         if qty <= 0:
             return
@@ -299,6 +329,7 @@ class ExecutionSimulator:
         fee = notional * fee_rate
         self.state.fills.append(Fill(
             timestamp=0, price=price, quantity=qty, fee=fee, liquidity=liquidity,
+            slippage_cost=slippage_cost,
         ))
         self.state.filled_qty += qty
         self.state.remaining_qty -= qty

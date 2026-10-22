@@ -592,6 +592,7 @@ class LivePaperRunner:
             bids=data.orderbook_depth.bids,
             asks=data.orderbook_depth.asks,
             timestamp=self._last_tick_time,
+            market_slippage_bps=self._market_slippage_bps(current_price),
         )
         now_ms = self._last_tick_time
         if self._last_funding_timestamp == 0:
@@ -1051,6 +1052,22 @@ class LivePaperRunner:
             }
 
         return None
+
+    def _market_slippage_bps(self, current_price: float) -> float:
+        """Return a deterministic adverse market-order penalty from tick size and ATR."""
+        if current_price <= 0:
+            return 2.0
+        tick_bps = (
+            max(0, self.slippage_ticks)
+            * self.session.estimate_tick_size(current_price)
+            / current_price
+            * 10_000.0
+        )
+        latest = (self._indicator_context or {}).get("latest") or {}
+        atr = float(latest.get("atr", 0.0) or 0.0)
+        atr_bps = atr / current_price * 10_000.0 if atr > 0 else 0.0
+        volatility_bps = min(25.0, max(2.0, atr_bps * 0.05))
+        return round(max(tick_bps, volatility_bps), 6)
 
     def _update_open_positions(self, current_price: float):
         """Simulates price ticks against open positions: triggers Stop Loss / Take Profit / Trailing."""
