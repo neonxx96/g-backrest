@@ -2,6 +2,16 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-6.1 + рестарт backend и A/B-перезапуск марафона — 2026-10-22 (вечер)
+
+- **ACTIVE_AGENT:** `kimi` (main)
+- **6.1 (M5.1):** `backend/app/engine/sweep_leaderboard.py` + API `/api/sweep/run|leaderboard|runs` (коммит `d584a20`); M4-поля default-off в `OvernightPilotConfig` (коммит `355cd8c`). Gate PASS; **341 passed, 28 skipped**.
+- **Рестарт backend разрешён Di и выполнен:** снапшот марафона до рестарта — `data/pilot_status_prerestart_20261022.json` (все 3 сессии equity 10000, **0 сделок**). Kill по PID из `netstat -ano | findstr ":8000"` (убивать оба PID: .venv-шим + реальный интерпретатор), старт: `powershell -Command "Start-Process -FilePath 'D:\AI_agent_space\gemini\.venv\Scripts\python.exe' -ArgumentList 'backend/main.py' -WorkingDirectory 'D:\AI_agent_space\gemini' -WindowStyle Minimized"`.
+- **⚠️ `scripts/run_app.ps1` сломан под Windows PowerShell 5.1** (файл UTF-8 без BOM + кириллица → parse error в 5.1; pwsh на машине нет). Workaround — прямой запуск как выше. Чинить отдельной задачей (пересохранить как UTF-8 with BOM).
+- **Марафон перезапущен (A/B для 5.6):** BTC с `use_m4_risk_gates=true` vs ETH/SOL с флагом OFF; session_id `overnight_{btc,eth,sol}usdt_1792693498`, preflight `ece56945259641eca011da92ac3f5614` (исторический PnL пресета отрицательный — известно, не баг). После старта проверено: все три `data_status=connected`, errors=0, у BTC блок `m4_risk_gates.enabled=true`. Критерии сверки — `docs/PAPER_MARATHON.md`.
+- **Recorder-soak** (`scripts/run_recorder.ps1`, до ~24.10) рестартом backend не затронут — это отдельный процесс, не трогать.
+- **Проверено после рестарта:** `/api/profile/tpo?symbol=BTCUSDT` (data_available, TPOC 81580), `/api/risk/heat-check`, `/api/verdict/evaluate` → PASS.
+
 ## Kimi phase-5.1 Position Sizer — 2026-10-22
 
 - **ACTIVE_AGENT:** `kimi` (main)
