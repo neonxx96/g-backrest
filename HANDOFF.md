@@ -2,6 +2,14 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-5.1 Position Sizer — 2026-10-22
+
+- **ACTIVE_AGENT:** `kimi` (main)
+- **5.1 (M4.2a):** `backend/app/services/position_sizer.py` — чистый расчёт поверх execution_simulator (не тронут): `fixed_fractional` (qty = equity×risk% / |entry−stop|), `budgeted_dca_ladder` (ноги против хода по offsets%, суммарный риск лестницы до общего стопа строго ≤ бюджета; доли риска на ногу, weighted_entry; нога за стопом / shares≠1 / offsets не растут → ValueError — truth-first, молча не чиним), `portfolio_heat` + `check_heat` (allowed, heat_after). API `/api/risk/position-size|dca-ladder|heat-check`, зарегистрирован в main.py (после рестарта). Тесты: `test_position_sizer.py` (12).
+- **НЕ подключено:** LivePaperRunner не использует sizer — интеграция sizing-режимов + валидация на марафоне = задача 5.6. Ордеров модуль не создаёт, только расчёты.
+- **Gate:** `check.ps1` PASS; `pytest backend/tests` — **306 passed, 28 skipped**.
+- **Напоминание:** backend не перезапускать (марафон + soak до 24.10).
+
 ## Kimi phase-4.3/4.4 слои графика + тултип сделки — 2026-10-22
 
 - **ACTIVE_AGENT:** `kimi` (main)

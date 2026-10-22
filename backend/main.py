@@ -119,6 +119,7 @@ from backend.app.routers.ai_settings import router as ai_settings_router
 from backend.app.routers.walls import router as walls_router
 from backend.app.routers.confluence import router as confluence_router
 from backend.app.routers.verdict import router as verdict_router
+from backend.app.routers.risk import router as risk_router
 
 app.include_router(api_router)
 app.include_router(data_router)
@@ -135,6 +136,7 @@ app.include_router(ai_settings_router)
 app.include_router(walls_router)
 app.include_router(confluence_router)
 app.include_router(verdict_router)
+app.include_router(risk_router)
 
 from backend.app.routers.quant_router import router as quant_router
 app.include_router(quant_router)
