@@ -116,6 +116,7 @@ from backend.app.routers.paper_trading_router import router as paper_trading_rou
 from backend.app.routers.adaptive_router import adaptive_router
 from backend.app.routers.overnight_pilot import router as overnight_pilot_router
 from backend.app.routers.ai_settings import router as ai_settings_router
+from backend.app.routers.walls import router as walls_router
 
 app.include_router(api_router)
 app.include_router(data_router)
@@ -129,6 +130,7 @@ app.include_router(paper_trading_router)
 app.include_router(adaptive_router)
 app.include_router(overnight_pilot_router)
 app.include_router(ai_settings_router)
+app.include_router(walls_router)
 
 from backend.app.routers.quant_router import router as quant_router
 app.include_router(quant_router)

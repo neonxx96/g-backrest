@@ -70,10 +70,10 @@
 - [ ] 1.4 Критерии перехода (Di утверждает): PF ≥ 1.2, max DD ≤ X%, fee drag < Y%
 
 ### 📦 ФАЗА 2 — Recorder production + M1.3 (SRS Data Ingestion)
-- [ ] 2.1 **Локальный приём recorder в эксплуатацию** (решение Di 2026-10-22: деплой на сервер отложен до полной готовности проекта; машина работает 24/7): запуск нового recorder локально (`run_recorder.ps1` или Docker Desktop), 48 ч параллельно со старым, сверка gap-журнала, только потом старый recorder выключить
-- [ ] 2.2 **M1.3a:** watchlist-driven подписки — recorder читает активный WatchlistWidget, а не фиксированный список
-- [ ] 2.3 **M1.3b:** Wall TTL на бэкенде (persist, API) + Auto-режим плотности (99-й перцентиль / K×median за N мин) рядом с Manual ≥$500k/TTL≥15с
-- [ ] 2.4 **M1.1:** машиночитаемый Data Manifest (диапазоны, гэпы, типы данных) поверх lake; выравнивание layout под SRS
+- [x] 2.1 **Локальный приём recorder в эксплуатацию** (решение Di 2026-10-22: деплой на сервер отложен до полной готовности проекта; машина работает 24/7): запуск нового recorder локально (`run_recorder.ps1` или Docker Desktop), 48 ч параллельно со старым, сверка gap-журнала, только потом старый recorder выключить (2026-10-22: `scripts/run_recorder.ps1` + `recorder.local.yaml`, запущен PID-файлом, soak 48 ч идёт; сеть рвётся раз в ~1–2 мин, reconnect+gap-журнал работают — сверить перед выключением старого)
+- [x] 2.2 **M1.3a:** watchlist-driven подписки — recorder читает активный WatchlistWidget, а не фиксированный список (2026-10-22: backend публикует `data/active_watchlist.json` из background_worker; recorder мержит tier1+watchlist и ротирует подписки на лету)
+- [x] 2.3 **M1.3b:** Wall TTL на бэкенде (persist, API) + Auto-режим плотности (99-й перцентиль / K×median за N мин) рядом с Manual ≥$500k/TTL≥15с (2026-10-22: `wall_settings.py` + `/api/walls/*`; в продакшен попадёт после штатного рестарта backend)
+- [x] 2.4 **M1.1:** машиночитаемый Data Manifest (диапазоны, гэпы, типы данных) поверх lake; выравнивание layout под SRS (2026-10-22: `recorder/manifest.py`, `python -m recorder manifest` → `data/data_manifest.json`)
 - [ ] 2.5 Replay-плеер из lake (Play/Pause/Step/скорость) — опция: влить `agent/cline/replay-engine`
 - [ ] 2.6 L2-honest бэктест density/wall стратегий после ≥7 дней lake
 

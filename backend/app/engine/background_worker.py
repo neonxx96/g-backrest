@@ -158,6 +158,10 @@ class BackgroundWorker:
                 "updated_at": int(time.time() * 1000)
             }
 
+        # Make the initial focus list visible to the standalone recorder (M1.3a)
+        # even before the first UI toggle.
+        self._persist_active_watchlist()
+
     @property
     def semaphore(self) -> asyncio.Semaphore:
         """Lazily initialize asyncio.Semaphore bound to the current running event loop."""
@@ -243,6 +247,29 @@ class BackgroundWorker:
             if self._running:
                 task = asyncio.create_task(self._process_ticker_safely(sym))
                 self.active_tasks[sym] = task
+
+        self._persist_active_watchlist()
+
+    def _persist_active_watchlist(self):
+        """Writes the active watchlist to data/active_watchlist.json (M1.3a).
+
+        The standalone recorder package tails this file and rotates its Binance
+        subscriptions to follow the UI watchlist. Persistence failures must never
+        break monitoring, so they are logged and swallowed.
+        """
+        import json as _json
+        from backend.app.config import DATA_DIR
+        payload = {
+            "updated_at": int(time.time() * 1000),
+            "symbols": sorted(self.monitored_tickers),
+        }
+        path = DATA_DIR / "active_watchlist.json"
+        tmp_path = path.with_suffix(".json.tmp")
+        try:
+            tmp_path.write_text(_json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            tmp_path.replace(path)
+        except OSError:
+            logger.warning("Failed to persist active watchlist to %s", path, exc_info=True)
 
     def is_monitored(self, ticker: str) -> bool:
         """Returns True if the ticker is currently in the monitored list."""

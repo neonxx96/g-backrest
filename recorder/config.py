@@ -18,6 +18,7 @@ class RecorderConfig:
     tier2_symbols: tuple[str, ...] = ()
     enabled_streams: tuple[str, ...] = ("trades", "book_ticker", "mark_price", "liquidation", "kline_1m")
     binance_ws_url: str = ""
+    watchlist_file: str = ""
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -33,5 +34,6 @@ def load_config(path: Path) -> RecorderConfig:
         tier2_symbols=tuple(str(s).upper() for s in raw.get("tier2_symbols", [])),
         enabled_streams=tuple(str(s) for s in raw.get("enabled_streams", ["trades", "book_ticker", "mark_price", "liquidation", "kline_1m"])),
         binance_ws_url=str(raw.get("binance_ws_url", "")),
+        watchlist_file=str(raw.get("watchlist_file", "")),
         extra=raw,
     )
