@@ -2,6 +2,14 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-6.4 слайс 4 (OrderBookDOM -> dom/, п.4 закрыт) — 2026-10-23 (день)
+
+- **ACTIVE_AGENT:** `kimi` (main: `cdc654c`, gate **395 passed**)
+- `OrderBookDOM.jsx` (1339→621, −718) разбит по п.4 MODULARIZATION_PLAN: `dom/useDepthStream.js` (REST deep snapshot 8 с + failover, сид aggTrades, WS @depth20@100ms + @aggTrade с автореконнектом; депс эффекта строго [symbol, baseTick]), `dom/useAggregatedOrderbook.js` (агрегация + детекция спуфа, тело useMemo 1:1, мутабельные сторы-refs передаются параметрами), `dom/DOMControlsHeader.jsx` (шапка FPS/агрегация/Центр/Настройки/Закрыть + quick settings), `dom/constants.js`. Canvas-рендер был вынесен ранее (`OrderBookCanvasLadder.jsx`) — это и есть плановый OrderBookCanvas.
+- **Ловушка при переносе:** второй `setTimeout` детектора спуфа ставит `dirtyRef.current = true` — при копировании не потерять (поймал до сборки).
+- **E2E:** `scripts/verify_modularization_6_4d.py` — 5/5 PASS (лестница 57 sr-only строк, FPS-бейдж, x25, quick settings, сквозной спуф-цикл simulateSpoofWall → spoof-removed-badge). Порт 5199 дочищен.
+- Backend/марафон не тронуты. **Дальше по плану:** п.3 `orderflow_backtester.py` (backend, фин. ядро — только с golden-тестом побитового совпадения PnL/WinRate/Sharpe на фиксированных 500 свечах) или п.5 App.jsx (средний риск). П.1 `Chart.jsx` — 🔴, ждёт отдельного решения.
+
 ## Kimi phase-6.4 слайс 3 (OptimizerView — п.2 закрыт) — 2026-10-23 (день)
 
 - **ACTIVE_AGENT:** `kimi` (main: `2696582`, gate **395 passed**)
