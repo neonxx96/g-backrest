@@ -146,6 +146,20 @@ export const useBacktestStore = create(
         }
       },
 
+      depositLivePaper: async (amount, reason = 'UI top-up') => {
+        const res = await fetch(`${API_BASE}/paper-trading/live/deposit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount, reason }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || 'Deposit failed');
+        if (data.runner) {
+          set({ livePaperStatus: data.runner });
+        }
+        return data;
+      },
+
       // Isolated parameter map: { [SYMBOL]: { ...params } }
       customParamsBySymbol: {},
 

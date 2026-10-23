@@ -21,6 +21,11 @@ class ResetWalletRequest(BaseModel):
     initial_balance: float = Field(default=100.0, description="Virtual balance to reset to")
 
 
+class DepositRequest(BaseModel):
+    amount: float = Field(gt=0, description="Сумма пополнения виртуального кошелька, USDT")
+    reason: str = Field(default="Manual top-up", max_length=120)
+
+
 class OrderSignalRequest(BaseModel):
     symbol: str
     side: str
@@ -66,6 +71,21 @@ async def reset_paper_wallet(req: ResetWalletRequest = ResetWalletRequest()):
             "message": f"Paper trading wallet successfully reset to ${req.initial_balance:.2f} USD",
             "state": state.to_dict()
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/deposit")
+async def deposit_paper_wallet(req: DepositRequest):
+    """
+    Пополнение виртуального кошелька paper-сессии (paper money, без реальных денег).
+    Не трогает позиции/ордера/историю — только увеличивает базу баланса и маржу.
+    """
+    try:
+        result = paper_trading_session.deposit(req.amount, reason=req.reason)
+        return {"status": "ok", **result, "state": paper_trading_session.get_state().to_dict()}
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -151,6 +171,18 @@ async def start_live_paper_trading(req: LiveStartRequest):
     try:
         status = live_paper_runner.start(req.model_dump())
         return {"status": "ok", "runner": status}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/live/deposit")
+async def deposit_live_paper_wallet(req: DepositRequest):
+    """Пополнение виртуального кошелька запущенного live paper-раннера."""
+    try:
+        result = live_paper_runner.session.deposit(req.amount, reason=req.reason)
+        return {"status": "ok", **result, "runner": live_paper_runner.get_status()}
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

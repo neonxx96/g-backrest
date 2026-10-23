@@ -392,6 +392,29 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
   const status = useBacktestStore((s) => s.livePaperStatus);
   const config = useBacktestStore((s) => s.livePaperConfig);
   const fetchStatus = useBacktestStore((s) => s.fetchLivePaperStatus);
+  const depositLivePaper = useBacktestStore((s) => s.depositLivePaper);
+
+  const [depositAmount, setDepositAmount] = useState('1000');
+  const [depositBusy, setDepositBusy] = useState(false);
+  const [depositMsg, setDepositMsg] = useState(null);
+
+  const handleDeposit = async () => {
+    const amount = parseFloat(depositAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setDepositMsg('Сумма должна быть > 0');
+      return;
+    }
+    setDepositBusy(true);
+    setDepositMsg(null);
+    try {
+      const res = await depositLivePaper(amount, 'UI top-up');
+      setDepositMsg(`+${res.deposited?.toFixed?.(2) ?? amount}$ пополнено`);
+    } catch (err) {
+      setDepositMsg(err.message || 'Ошибка пополнения');
+    } finally {
+      setDepositBusy(false);
+    }
+  };
 
   // Poll status every 2.5 seconds when active
   useEffect(() => {
@@ -429,7 +452,36 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
           <span className="text-[14px] font-mono font-extrabold text-neutral-100">
             ${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
-          <span className="text-[8px] text-neutral-500 font-mono">Доступный остаток</span>
+          <span className="text-[8px] text-neutral-500 font-mono">Доступный остаток (вирт.)</span>
+        </div>
+
+        {/* Пополнение виртуального кошелька (paper money) */}
+        <div className="border border-neutral-800 rounded-md p-2 bg-[#0d1117] flex flex-col justify-between space-y-1">
+          <span className="text-[8px] text-neutral-400 font-mono uppercase font-bold">Пополнить (вирт.)</span>
+          <div className="flex items-center space-x-1">
+            <input
+              type="number"
+              min="1"
+              step="100"
+              value={depositAmount}
+              onChange={(e) => setDepositAmount(e.target.value)}
+              data-testid="live-deposit-amount"
+              className="w-20 bg-neutral-900 border border-neutral-700 rounded px-1 py-0.5 text-[10px] font-mono text-neutral-100"
+            />
+            <button
+              type="button"
+              onClick={handleDeposit}
+              disabled={depositBusy}
+              data-testid="live-deposit-btn"
+              title="Пополнить виртуальный баланс (paper money, без реальных денег)"
+              className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border transition cursor-pointer bg-emerald-900/40 text-emerald-300 border-emerald-800 hover:bg-emerald-900 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {depositBusy ? '…' : '+ $'}
+            </button>
+          </div>
+          <span className="text-[8px] text-neutral-500 font-mono" data-testid="live-deposit-msg">
+            {depositMsg || 'Paper money · не реальные деньги'}
+          </span>
         </div>
 
         <div className="border border-neutral-800 rounded-md p-2 bg-[#0d1117] flex flex-col justify-between">

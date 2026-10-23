@@ -971,6 +971,30 @@ class PaperTradingSession:
             "state": self.get_state().to_dict(),
         }
 
+    def deposit(self, amount: float, reason: str = "Manual top-up") -> dict:
+        """Пополнение виртуального кошелька (paper money).
+
+        Не трогает позиции, ордера и историю сделок — только увеличивает
+        базу кошелька и доступную маржу. Полностью виртуально: реальных
+        денег и ключей не существует (инвариант AGENTS.md §5.1).
+        """
+        amount = float(amount)
+        if not math.isfinite(amount) or amount <= 0:
+            raise ValueError("Deposit amount must be a positive finite number")
+        self.initial_balance += amount
+        self.available_margin += amount
+        self._last_event_ts = int(time.time() * 1000)
+        logger.info(
+            f"[TRADE] Virtual wallet topped up +${amount:.2f} USD "
+            f"(balance base now ${self.initial_balance:.2f}) | reason='{reason}'"
+        )
+        return {
+            "deposited": amount,
+            "initial_balance": self.initial_balance,
+            "available_margin": self.available_margin,
+            "reason": reason,
+        }
+
     def reset_wallet(self, initial_balance: float = 100.0) -> None:
         """Strictly resets the paper trading virtual wallet to initial_balance ($100.00 USD)."""
         self.initial_balance = float(initial_balance)
