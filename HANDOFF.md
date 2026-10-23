@@ -2,6 +2,14 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-6.4 слайс 7 (AICopilotSidebar -> copilot/, п.7 закрыт) — 2026-10-23 (день)
+
+- **ACTIVE_AGENT:** `kimi` (main: `c124988`, gate **ALL QUALITY CHECKS PASSED**; фронтенд-only слайс — pytest не менялся, 425 passed)
+- `AICopilotSidebar.jsx` (1340→585, −755) разбит по п.7 MODULARIZATION_PLAN: управляемые карточки в `frontend/src/components/copilot/` — `CopilotHeader`, `HealthMeterCard`, `ExpressAnalysisCard`, `SweepLeaderboardCard`, `DataFeedContextCard`, `AnalysisResults` (+`TradeSetupCard`, `ExpectedValueCard`, `LiquidityMagnetCard`, `VolatilityConeCard`), `QuickPromptChips`, `ChatMessages`, `constants.js` (AI_MODELS). Сайдбар — только оркестрация состояния/запросов (fetch, streaming-чат, apply-levels, sweep, экспресс-анализ).
+- **Совместимость:** сигнатура пропов `isOpen/onClose/symbol/timeframe/onProjectPositionSetup/onApplyLevels` не менялась — `ModalsHost` (слайс 5) потребляет сайдбар без правок. Сентинел data-testid `ai-copilot-sidebar` сохранён.
+- **E2E:** `scripts/verify_modularization_6_4f.py` — 5/5 PASS (открытие, sentinel, экспресс-анализ против живого backend — EV-карточка/Magnet/Cone, apply-levels, чат-ответ, закрытие). В скрипт добавлен `wait_for_frontend()` — гонка старта vite (port refused) лечится поллингом порта до goto. Порт 5199 дочищен.
+- Backend/марафон не тронуты (перезапуск НЕ нужен). **По плану остались:** п.3 `orderflow_backtester.py` (фин. ядро — только с golden-тестом побитового совпадения PnL/WinRate/Sharpe), п.8 `SettingsModal` (~873 строки). П.1 `Chart.jsx` — 🔴, ждёт отдельного решения Di.
+
 ## Kimi phase-6.4 слайс 6 (ai_copilot.py -> сервис, п.6 закрыт) — 2026-10-23 (день)
 
 - **ACTIVE_AGENT:** `kimi` (main: `8ae8d85`, gate **425 passed** = 395 + 30 новых)
