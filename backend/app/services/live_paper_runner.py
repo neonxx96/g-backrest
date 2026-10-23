@@ -918,7 +918,7 @@ class LivePaperRunner:
             from backend.app.routers.backtest import fetch_history
             from backend.app.services.orderflow_backtester import OrderFlowBacktester
 
-            frame = await fetch_history(self.symbol, self.timeframe, days=2)
+            frame = await fetch_history(self.symbol, self.timeframe, days=2, require_fresh=True)
             frame = self._closed_candle_history(frame, self.timeframe, int(time.time() * 1000))
             validation = OrderFlowBacktester.validate_ohlcv_integrity(frame, min_bars=60)
             if not validation["valid"]:

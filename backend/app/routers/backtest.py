@@ -304,15 +304,31 @@ def _read_cached_history(symbol: str, timeframe: str, days: int) -> Optional[pd.
     return _ensure_delta_column(cached)
 
 
-async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
-    """Paginated Binance klines with multi-endpoint fallback (Futures -> Spot -> Vision) and 60s TTL cache."""
-    cache_key = (symbol.upper(), timeframe, int(days))
+async def fetch_history(symbol: str, timeframe: str, days: int, require_fresh: bool = False) -> pd.DataFrame:
+    """Paginated Binance klines with multi-endpoint fallback (Futures -> Spot -> Vision) and 60s TTL cache.
+
+    By default backtests stay bounded by the locally recorded Parquet period.
+    Live consumers (paper runner) pass require_fresh=True: a Parquet tail older
+    than ~2 candle intervals is treated as a miss and the frame is refetched
+    from Binance, so freshness gates never silently consume stale candles.
+    """
+    tf_min = TF_MINUTES.get(timeframe, 5)
+    # A frame whose last candle closed more than ~2 intervals ago can never
+    # satisfy live freshness checks (interval + 60s grace on candle close).
+    fresh_max_age_ms = (2 * tf_min * 60_000) + 60_000
     now_ts = time.time()
+
+    def _frame_is_fresh(df: pd.DataFrame) -> bool:
+        if df is None or df.empty or "timestamp" not in df.columns:
+            return False
+        return (int(now_ts * 1000) - int(df["timestamp"].max())) <= fresh_max_age_ms
+
+    cache_key = (symbol.upper(), timeframe, int(days), bool(require_fresh))
     cached = _HISTORY_CACHE.get(cache_key)
     if cached is not None and (now_ts - cached[0]) < _HISTORY_CACHE_TTL_SEC:
-        return cached[1].copy()
+        if not require_fresh or _frame_is_fresh(cached[1]):
+            return cached[1].copy()
 
-    tf_min = TF_MINUTES.get(timeframe, 5)
     # Non-native intervals (45m, 6h) fetch a native base timeframe and resample.
     custom_tf = CUSTOM_TF_MAP_BT.get(timeframe)
     fetch_interval = custom_tf["base"] if custom_tf else timeframe
@@ -327,7 +343,7 @@ async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
             # calling the incremental loader first would block on Binance and
             # make preflight hang when the exchange is unavailable.
             df_parquet = _read_cached_history(symbol, timeframe, days)
-            if df_parquet is not None:
+            if df_parquet is not None and (not require_fresh or _frame_is_fresh(df_parquet)):
                 df = df_parquet
                 _HISTORY_CACHE[cache_key] = (now_ts, df.copy())
                 return df
