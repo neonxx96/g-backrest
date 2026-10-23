@@ -446,23 +446,34 @@ class OpenRouterClient:
                                     is_fallback_hop = True
                                     break  # Try next model
 
-                                content = choices[0].get("message", {}).get("content", "")
+                                msg = choices[0].get("message", {})
+                                content = msg.get("content", "")
                                 if not content or not content.strip():
-                                    logger.warning(f"OpenRouter returned empty content for model '{model}'")
-                                    self._record_call(
-                                        model=model,
-                                        latency_ms=elapsed_ms,
-                                        prompt_tokens=0,
-                                        completion_tokens=0,
-                                        total_tokens=0,
-                                        cost=0.0,
-                                        status="EMPTY_RESPONSE",
-                                        fallback=is_fallback_hop,
-                                        fallback_reason="Empty message content",
-                                    )
-                                    last_failure_reason = "Empty content"
-                                    is_fallback_hop = True
-                                    break  # Try next model
+                                    # Reasoning-модели (flint, nemotron и др.) возвращают
+                                    # рассуждение в поле `reasoning`, а content=None.
+                                    # Решение (CONFIRM/VETO/JSON) извлекается из reasoning.
+                                    reasoning = msg.get("reasoning", "")
+                                    if reasoning and reasoning.strip():
+                                        content = reasoning.strip()
+                                        logger.info(
+                                            f"Model '{model}' returned reasoning instead of content; using reasoning as content"
+                                        )
+                                    else:
+                                        logger.warning(f"OpenRouter returned empty content for model '{model}'")
+                                        self._record_call(
+                                            model=model,
+                                            latency_ms=elapsed_ms,
+                                            prompt_tokens=0,
+                                            completion_tokens=0,
+                                            total_tokens=0,
+                                            cost=0.0,
+                                            status="EMPTY_RESPONSE",
+                                            fallback=is_fallback_hop,
+                                            fallback_reason="Empty message content",
+                                        )
+                                        last_failure_reason = "Empty content"
+                                        is_fallback_hop = True
+                                        break  # Try next model
 
                                 usage = res_json.get("usage", {})
                                 p_tok = int(usage.get("prompt_tokens", 0))
