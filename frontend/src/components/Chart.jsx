@@ -6,15 +6,13 @@ import { useChartLifecycle } from './chart/useChartLifecycle.js';
 import { useChartAnnotations } from './chart/useChartAnnotations.js';
 import { useChartIndicators } from './chart/useChartIndicators.js';
 import { useSecondOpinion } from './chart/useSecondOpinion.js';
+import ToxicVolatilityOverlay from './chart/ToxicVolatilityOverlay.jsx';
+import BtTooltipOverlay from './chart/BtTooltipOverlay.jsx';
+import SaveTemplateModal from './chart/SaveTemplateModal.jsx';
+import IndicatorsDock from './chart/IndicatorsDock.jsx';
 import PositionSetupHUD from './chart/PositionSetupHUD.jsx';
-import { 
-  X,
-  AlertTriangle
-} from 'lucide-react';
+import { X } from 'lucide-react';
 import { DEFAULT_ACTIVE_INDICATORS } from '../config/indicatorsRegistry';
-import IndicatorsModal from './indicators/IndicatorsModal';
-import IndicatorSettingsDialog from './indicators/IndicatorSettingsDialog';
-import ActiveIndicatorStack from './indicators/ActiveIndicatorStack';
 import { useLayoutStore } from '../stores/layoutStore';
 import { useColorLinksStore } from '../stores/colorLinksStore';
 import { useMarketDataStore } from '../stores/marketDataStore';
@@ -445,33 +443,12 @@ export default function Chart({
           onToggleCone={toggleVolatilityCone}
         />
 
-        {/* Market Regime: Toxic Volatility Warning Overlay */}
-        {isToxicRegime && !isToxicDismissed && (
-          <div
-            data-testid="toxic-volatility-overlay"
-            className="absolute inset-x-4 top-3 z-30 flex items-center justify-between p-3 rounded-lg bg-rose-950/85 border border-rose-500/50 backdrop-blur-xs text-rose-200 shadow-2xl animate-pulse select-none font-mono"
-          >
-            <div className="flex items-center space-x-2.5">
-              <AlertTriangle className="text-rose-400 shrink-0" size={18} />
-              <div>
-                <div className="text-xs font-bold uppercase tracking-wider text-rose-300">
-                  Рыночный режим изменен: Токсичная ликвидность. Торги приостановлены
-                </div>
-                <div className="text-[10px] text-rose-200/80">
-                  Высокая волатильность при разреженном стакане (ATR% &gt; 1.8%, плотность &lt; 0.6). Входы в сделки заблокированы ядром.
-                </div>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsToxicDismissed(true)}
-              className="p-1 rounded hover:bg-rose-900/60 text-rose-300 hover:text-white transition cursor-pointer"
-              title="Скрыть предупреждение"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        )}
+        {/* Market Regime: Toxic Volatility Warning Overlay — chart/ToxicVolatilityOverlay.jsx (слайс 6.4o) */}
+        <ToxicVolatilityOverlay
+          isToxicRegime={isToxicRegime}
+          isToxicDismissed={isToxicDismissed}
+          onDismiss={setIsToxicDismissed}
+        />
 
         {/* ТАКТ 2.1: Interactive Position Setup HUD Overlay (Entry / SL / TP1 / TP2 / R:R) */}
         <PositionSetupHUD
@@ -488,56 +465,8 @@ export default function Chart({
           handleDecisionFromOpinion={handleDecisionFromOpinion}
         />
 
-        {/* Backtest marker & trade tooltip: detailed financial metrics */}
-        {btTooltip && (
-          <div
-            className="absolute z-30 pointer-events-none px-2.5 py-1.5 rounded border text-[10px] font-mono bg-[#0c1017f0] backdrop-blur-md shadow-2xl min-w-[190px]"
-            style={{
-              left: Math.min(btTooltip.x + 12, (chartContainerRef.current?.clientWidth || 600) - 210),
-              top: Math.max(btTooltip.y - 70, 8),
-              borderColor: (btTooltip.isTrade ? (btTooltip.trade.pnl_usd >= 0) : ((btTooltip.sig?.pnl_pct ?? 0) >= 0)) ? '#10b981' : '#ef4444'
-            }}
-          >
-            {btTooltip.isTrade ? (
-              <>
-                <div className="flex items-center justify-between border-b border-[#1f293d] pb-1 mb-1">
-                  <span className={btTooltip.trade.direction === 'LONG' || btTooltip.trade.type === 'BUY' ? 'text-[#34d399] font-bold' : 'text-[#f87171] font-bold'}>
-                    {btTooltip.source === 'paper' ? 'PAPER' : 'BACKTEST'} · #{btTooltip.trade.id} · {btTooltip.trade.direction || btTooltip.trade.type}
-                  </span>
-                  <span className="text-[#94a3b8] text-[9px]">{btTooltip.trade.regime || 'Regime: No data'}</span>
-                </div>
-                <div className="text-[#cbd5e1] text-[9.5px] leading-tight">
-                  <div>Вход: <span className="text-white">${btTooltip.trade.entry_price}</span> → Выход: <span className="text-white">${btTooltip.trade.exit_price}</span></div>
-                  <div>Entry: <span className="text-white">{Array.isArray(btTooltip.trade.entry_reason || btTooltip.trade.reason) ? (btTooltip.trade.entry_reason || btTooltip.trade.reason).join(' · ') : (btTooltip.trade.entry_reason || btTooltip.trade.reason || 'No data')}</span></div>
-                  <div>Exit: <span className="text-white">{btTooltip.trade.exit_reason || 'No data'}</span></div>
-                </div>
-                <div className={`font-bold mt-1 text-[11px] ${(btTooltip.trade.pnl_usd ?? 0) >= 0 ? 'text-[#34d399]' : 'text-[#f87171]'}`}>
-                  Чистый PnL: {(btTooltip.trade.pnl_usd ?? 0) >= 0 ? '+' : ''}${btTooltip.trade.pnl_usd} ({(btTooltip.trade.pnl_pct ?? 0) >= 0 ? '+' : ''}{btTooltip.trade.pnl_pct}%)
-                </div>
-                <div className="text-[8.5px] text-[#64748b] mt-0.5 flex justify-between">
-                  <span>Gross: {btTooltip.trade.gross_pnl_usd ?? 'No data'}</span>
-                  <span>Комиссия: -${Number(btTooltip.trade.fee_paid_usd || 0).toFixed(2)}</span>
-                  <span>Слиппейдж: -${Number(btTooltip.trade.slippage_cost_usd || 0).toFixed(2)}</span>
-                </div>
-                <div className="text-[8.5px] text-[#94a3b8] mt-0.5 flex justify-between">
-                  <span>MFE: +{Number(btTooltip.trade.mfe || 0).toFixed(2)}%</span>
-                  <span>MAE: {Number(btTooltip.trade.mae || 0).toFixed(2)}%</span>
-                  <span>Fee Drag: {btTooltip.trade.fee_drag_pct != null ? `${Number(btTooltip.trade.fee_drag_pct).toFixed(2)}%` : 'No data'}</span>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className={btTooltip.sig.type === 'BUY' ? 'text-[#26a69a] font-bold' : 'text-[#ef5350] font-bold'}>
-                  {btTooltip.sig.label} @ {btTooltip.sig.price}
-                </div>
-                <div className="text-[#d1d4dc]">Причина: {btTooltip.sig.reason || '—'}</div>
-                <div className={(btTooltip.sig.pnl_pct ?? 0) >= 0 ? 'text-[#26a69a]' : 'text-[#ef5350]'}>
-                  PnL: {(btTooltip.sig.pnl_pct ?? 0) >= 0 ? '+' : ''}{btTooltip.sig.pnl_pct}% (${btTooltip.sig.pnl_usd})
-                </div>
-              </>
-            )}
-          </div>
-        )}
+        {/* Backtest marker & trade tooltip — chart/BtTooltipOverlay.jsx (слайс 6.4o) */}
+        <BtTooltipOverlay btTooltip={btTooltip} chartContainerRef={chartContainerRef} />
 
 
         {/* Right-Click Context Menu + Level Inspector (ТАКТ 3) — chart/ChartContextMenu.jsx */}
@@ -568,92 +497,28 @@ export default function Chart({
           </div>
         )}
 
-        {/* Save Custom Template Modal */}
-        {showSaveTemplateModal && (
-          <div 
-            data-testid="modal-save-template"
-            className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 font-sans"
-          >
-            <div className="bg-[#0f1420] border border-[#253248] rounded-lg p-4 w-80 shadow-2xl font-mono text-xs text-[#d1d4dc]">
-              <div className="flex items-center justify-between mb-3 border-b border-[#1f2738] pb-2">
-                <span className="font-bold text-white text-sm">Сохранить как шаблон SMC</span>
-                <button 
-                  type="button"
-                  onClick={() => setShowSaveTemplateModal(false)} 
-                  className="text-[#64748b] hover:text-white cursor-pointer"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-              <div className="mb-3">
-                <label className="text-[10px] text-[#94a3b8] block mb-1">Название шаблона:</label>
-                <input
-                  data-testid="input-template-name"
-                  type="text"
-                  value={newTemplateName}
-                  onChange={(e) => setNewTemplateName(e.target.value)}
-                  placeholder="например, Мой FVG H1"
-                  className="w-full bg-[#070a10] border border-[#2a364f] rounded px-2 py-1 text-white text-xs outline-none focus:border-[#38bdf8]"
-                  autoFocus
-                />
-              </div>
-              <div className="flex items-center justify-between text-[10px] text-[#64748b] mb-4">
-                <span>Инструмент: {activeTool || 'Линия'}</span>
-                <div className="flex items-center space-x-1">
-                  <span>Цвет:</span>
-                  <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: activeDrawingStyle.strokeColor }} />
-                  <span>({activeDrawingStyle.lineWidth}px)</span>
-                </div>
-              </div>
-              <div className="flex justify-end space-x-2">
-                <button
-                  type="button"
-                  onClick={() => setShowSaveTemplateModal(false)}
-                  className="px-2.5 py-1 rounded bg-[#1e2536] hover:bg-[#2a3449] text-[#94a3b8] text-xs cursor-pointer"
-                >
-                  Отмена
-                </button>
-                <button
-                  data-testid="btn-confirm-save-template"
-                  type="button"
-                  onClick={handleSaveCurrentAsTemplate}
-                  disabled={!newTemplateName.trim()}
-                  className="px-3 py-1 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-bold text-xs disabled:opacity-40 cursor-pointer"
-                >
-                  Сохранить
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Active Indicators Stack (Top-left below toolbar) */}
-        <ActiveIndicatorStack
-          activeIndicators={activeIndicators}
-          onToggleVisibility={handleToggleVisibility}
-          onOpenSettings={(id) => setSettingsDialogIndId(id)}
-          onRemoveIndicator={handleRemoveIndicator}
-          onOpenCatalog={() => setIsCatalogOpen(true)}
+        {/* Save Custom Template Modal — chart/SaveTemplateModal.jsx (слайс 6.4o) */}
+        <SaveTemplateModal
+          showSaveTemplateModal={showSaveTemplateModal}
+          setShowSaveTemplateModal={setShowSaveTemplateModal}
+          newTemplateName={newTemplateName}
+          setNewTemplateName={setNewTemplateName}
+          activeTool={activeTool}
+          activeDrawingStyle={activeDrawingStyle}
+          handleSaveCurrentAsTemplate={handleSaveCurrentAsTemplate}
         />
 
-        {/* Indicators Catalog Modal */}
-        <IndicatorsModal
-          isOpen={isCatalogOpen}
-          onClose={() => setIsCatalogOpen(false)}
+        {/* Индикаторы: стек + каталог + настройки — chart/IndicatorsDock.jsx (слайс 6.4o) */}
+        <IndicatorsDock
           activeIndicators={activeIndicators}
-          onAddIndicator={handleAddIndicator}
-          onRemoveIndicator={handleRemoveIndicator}
-          onOpenSettings={(id) => setSettingsDialogIndId(id)}
-        />
-
-        {/* Indicator Settings Dialog */}
-        <IndicatorSettingsDialog
-          isOpen={Boolean(settingsDialogIndId)}
-          indicatorId={settingsDialogIndId}
-          currentInputs={activeIndicators.find((i) => i.id === settingsDialogIndId)?.inputs}
-          currentStyles={activeIndicators.find((i) => i.id === settingsDialogIndId)?.styles}
-          onClose={() => setSettingsDialogIndId(null)}
-          onSave={handleSaveSettings}
+          settingsDialogIndId={settingsDialogIndId}
+          setSettingsDialogIndId={setSettingsDialogIndId}
+          isCatalogOpen={isCatalogOpen}
+          setIsCatalogOpen={setIsCatalogOpen}
+          handleToggleVisibility={handleToggleVisibility}
+          handleRemoveIndicator={handleRemoveIndicator}
+          handleAddIndicator={handleAddIndicator}
+          handleSaveSettings={handleSaveSettings}
         />
       </div>
     </div>
