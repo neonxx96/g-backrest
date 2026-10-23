@@ -2,6 +2,18 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-6.4 п.1 слайс 5 (Chart.jsx -> chartStyles + useChartLifecycle + PositionSetupHUD) — 2026-10-23 (вечер)
+
+- **ACTIVE_AGENT:** `kimi` (main: `1d54ff0`, gate **ALL QUALITY CHECKS PASSED**; фронтенд-only слайс — pytest не менялся, 448 passed)
+- `Chart.jsx` (**2230→1537, −693**; прогресс п.1: 5065→4659→4445→4102→2230→**1537**): три модуля одной экстракцией (скрипт с автонорм-сверкой, удалён):
+  - **`chart/chartStyles.js`** (99 строк): `hexToRgba` + `buildChartStyles` (темы tealstreet/tiger/bloomberg) дословно; `buildChartStyles` — **export** (ловушка: тела переносятся без export, сборка rolldown падает MISSING_EXPORT). Импортёры: Chart.jsx (uiConfig-effect), useChartLifecycle (init).
+  - **`chart/useChartLifecycle.js`** (~330 строк): константы истории (`INITIAL_HISTORY_BARS`/`LOAD_MORE_WINDOW_BARS`/`HISTORY_FLOOR_DAYS`) + init/dispose/ResizeObserver эффект + fetch/WS эффект (deep load 1500, `chart.loadMore` до дневного пола, live WS kline failover spot/futures, кастомные TF 45m/6h, heartbeat REST 3с). **Депсы пропами: `{chartContainerRef, chartRef, chartId, uiConfig, wsRef, chartReady, setChartReady, setChartInstance, symbol, timeframe, currentKlines, setStatusMsg, setErrorDetails, setKlinesVersion, loadDrawings, updateVwapOverlay, loadLiquidations, loadHeatmap, loadFootprint, loadTpoProfile}`** — 🔴 `wsRef` обязателен (ReferenceError в рантайме иначе; сборка НЕ ловит).
+  - **`chart/PositionSetupHUD.jsx`** (~215 строк JSX): HUD сетапа (бейджи Entry/SL/TP1/TP2/R:R, «Тест сетапа», «Спросить мнение») + карточка второго мнения AI — дословно, управляемый компонент; `Loader2`/`Zap` переехали сюда из импортов Chart.jsx.
+  - **Норм-сверка: 713/713 строк MATCH.**
+- **E2E:** `scripts/verify_modularization_6_4l.py` — 5/5 PASS (deep load ровно 1500 баров + `__historyOldestTs`; ResizeObserver считает ресайзы; apply-position-setup → HUD+бейджи+overlay positionSetupBox 11→12→11, ✕ скрывает; живое второе мнение `/api/journal/second-opinion` → карточка с вердиктом, ✕ закрывает; live-свеча свежая). **Ловушки скрипта:** (1) `__chartResizeCounts` ключ — chartId графика (не 'primary'!): суммировать `Object.values()`; (2) возраст последней свечи 15m до 900 с — норма (проверять > 2 интервалов); (3) вердикт «AI НЕДОСТУПЕН» — живой фактический ответ backend (квота OpenRouter), не баг. Тест-записи в decision_logs НЕ вносятся (кнопки журнала не кликаются).
+- Backend/марафон/guardian не тронуты (перезапуск НЕ нужен).
+- **Дальше по п.1 (слайс 6):** остатки Chart.jsx (~1537) — bt-сигналы (1357–1470), paper trades (1472–1543), live signals (1545–1566), whales (1568–1599), position-setup box effect + strategy levels (1100–1163), volatility cone + AI levels (507–568), toxic regime (174–196), sync/uiConfig effects (799–957), второе мнение handlers (239–330), бэктест-тултип + модалки JSX. Цель: < 350 строк; вероятный сплит: useChartAnnotations (bt/paper/live/whale) + useChartSignals (cone/AI-levels/toxic) + чистка JSX.
+
 ## Kimi phase-6.4 п.1 слайс 4 (Chart.jsx -> chart/registerCustomElements.js + chart/useChartOverlays.js) — 2026-10-23 (вечер)
 
 - **ACTIVE_AGENT:** `kimi` (main: `95cc4f5`, gate **ALL QUALITY CHECKS PASSED**; фронтенд-only слайс — pytest не менялся, 448 passed)
