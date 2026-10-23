@@ -2,6 +2,18 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi — ночной прогон «максимум нагрузки» 2026-10-23 → утро 24.10
+
+- **HEAD:** `7f34046` (main). Коммиты ночи: `d941558` (MAX_SESSIONS=7 + тест), `8256836` + `011b2fd` (актуальные free-модели OpenRouter), `266c562` (openrouter/free не отсекается каталогом), `7f34046` (reasoning-поле как content).
+- **⚠️ Процессы:** guardian (venv, PID 37900) дважды НЕ поднял backend после убийства :8000 — backend поднят вручную через Start-Process (лог `logs/backend_20261024.log`). Зомби-guardian на системном Python убит. Guardian-автономность — разобрать отдельной задачей.
+- **Работает всю ночь:**
+  - **Марафон 13-й запуск** `t_1792786655`: 7 пар (ETH,XRP,BTC,SOL,BNB,DOGE,LINK) ema_trend 5m, $1k x10, SL 0.4/TP 0.8, 168 ч, m4-гейты у BTC. Все running, equity 1000, сделок 0 на момент передачи (стратегия ждёт EMA 20/50-кросс; по бэктесту 20/50 прибыльны ETH +$24.76 PF 1.5, XRP +$7.07).
+  - **Demo live-раннер** BTC live_density_bounce 15m $1k x10 ai_control=true — AI SUCCESS через openrouter/free (живой пробник CONFIRM, $0, 629 токенов).
+  - Вотчлист мониторинга восстановлен до 7 пар (сбрасывается рестартом — state в памяти, рассмотреть персистентность).
+  - Recorder PID 31248, sentinel enabled.
+- **Батарея E2E 20/20 PASS** → `docs/MORNING_BATTERY_20261024.md` (14 API + 6 UI: терминал, свечи, переключение символа, бэктест, PDF/HTML-экспорт, журнал).
+- **Утром:** `scripts/night-pilot.ps1 -Action report` + сверка AI-логов (`grep AI_CONFIRM\|AI_VETO logs/backend_20261024.log`). Первый gate ночи упал транзиентно на UI smoke — не воспроизвёлся.
+
 ## Kimi — ночная симуляция «пользователя» 2026-10-23 (22:30)
 
 - **HEAD:** `628ed27` (deposit пополнения вирт. кошелька) + сводка sweep; тег `stable-20261023` — на `ccaca61` (переставить при следующем коммите, если важно).
