@@ -158,3 +158,31 @@ fee drag, события M4_BLOCK/M4_KILL_SWITCH только у BTC, max drawdo
   `load_dataset_async(force_refresh=False)` — вопрос отдельной задачи (фоновый sync 15m
   для marathon-символов или on-demand refresh при backtest).
 - Сделок пока мало для A/B-выводов — morning report завтра (`night-pilot.ps1 -Action report`).
+
+**Девятый и десятый запуски (23.10 вечер) — fix guardian resume:**
+
+- Найден дефект: guardian-резюм марафона **никогда не работал** (3 причины: критерий
+  живости `len(sessions)>0` ловил мёртвый снапшот; resume только после собственного
+  рестарта backend; `start` без `preflight_id` → 400). Исправлено в
+  `scripts/backend_guardian.py` + 8 тестов (`test_guardian_pilot_liveness.py`,
+  `test_guardian_resume_pilot.py`), коммит `263ee5c`.
+- 9-й запуск `overnight_*_1792758627` — поднят вручную после чистки двух сиротских
+  backend-деревьев (одно держало :8000 без движка марафона). Подтверждение: все
+  `is_running=True`, data connected.
+- 10-й запуск `overnight_*_1792778547` — **поднят автоматически новым guardian-ом**
+  после контрольного рестарта backend (проверка фикса end-to-end: health up ~130 с,
+  PILOT_UP ~140 с). Зафиксировано как валидация guardian-fix.
+- Разбор сделок (7.3) теперь видит марафон: `/api/journal/session-review?source=all|demo|marathon`
+  (commit `851c4b4`) — closed_trades марафонных сессий подтягиваются в журнал разбора.
+
+**Наблюдение за 10-м запуском (~30 мин, 23.10 ~21:20 local):**
+
+| Символ | m4 | evals | blocked | open/closed | Оценка |
+|---|---|---|---|---|---|
+| BTCUSDT | true | 1 | 1 | 0/0 | NO_TRADE (volume_multiplier, ema20_cross) |
+| ETHUSDT | false | 1 | 1 | 0/0 | NO_TRADE (те же фильтры) |
+| SOLUSDT | false | 1 | 1 | 0/0 | NO_TRADE (те же фильтры) |
+
+- Отказы — штатные entry-фильтры стратегии (одинаковы у теста и контроля), **не**
+  M4_BLOCK. Сделок пока нет — A/B-различий ждём накопления выборки.
+- data errors = 0 у всех; оценки идут на close 15m (1 evaluation за ~30 мин — норма).
