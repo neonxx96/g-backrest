@@ -2,6 +2,21 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi — ночная симуляция «пользователя» 2026-10-23 (22:30)
+
+- **HEAD:** `628ed27` (deposit пополнения вирт. кошелька) + сводка sweep; тег `stable-20261023` — на `ccaca61` (переставить при следующем коммите, если важно).
+- **OpenRouter-ключ Di (тестовый, бесплатные модели)** записан в `.env` (в gitignore; дубликаты вычищены). Backend перезапущен — ключ подхвачен. ⚠️ НЕ коммитить `.env`.
+- **Что работает ночью (машина не выключается):**
+  - Backend :8000 под guardian-ом (PID меняется при рестартах; guardian `scripts/backend_guardian.py --resume-pilot data/pilot_configs_ab_20261022`).
+  - **Марафон 12-й запуск** `overnight_*_1792783031` (BTC с M4-гейтами A/B vs ETH/SOL) — resume через guardian после чистки дублирующих backend-процессов. ВНИМАНИЕ: volume_multiplier live 0.2–0.5 против порога 1.25 → сделок может не быть всю ночь, NO_TRADE — норма, не баг.
+  - **Demo live-раннер BTC** `live_density_bounce` (стенки ≥$300k, `ai_control=true`) — живой тест OpenRouter-ключа: каждый сетап проходит AI-риск-менеджер (логи AI_VETO/AI_CONFIRM). Перезапущен в 22:15 после рестарта backend.
+  - **Recorder** PID 31248 (`run_recorder.ps1 -Action start`), lake пополняется.
+  - Warning Sentinel → Telegram (SENTINEL_ENABLED).
+- **Sweep ночной** (24 бэктеста, 8 пар × 3 стратегии): `docs/NIGHT_SWEEP_20261023.md` + `data/night_sweep.json`. Главное: ema_trend — 0 сделок везде; только ADA confluence_ema +$12; рынок спокойный.
+- **Deposit (новое, 628ed27):** `PaperTradingSession.deposit()` + `POST /api/paper-trading/deposit` и `/live/deposit` + UI-карточка «Пополнить (вирт.)» в LivePaperTradingResults. ⚠️ Живой backend до следующего рестарта эндпоинты НЕ видит (код закоммичен, процесс старый) — рестартнут при первом падении через guardian.
+- **⚠️ Процессы:** была связка guardian 37900 → guardian 31612 (system python!) → backend 4940 (мёртвый дубликат) + backend 1984 (системный python, слушал :8000). Убит 4940 (Telegram-конфликт getUpdates в логах был от двойного backend). Guardian-цепочку НЕ трогал — разобраться днём: почему guardian порождает guardian и почему backend на системном Python.
+- **Утро:** марафон + demo-раннер + recorder дадут логи; `scripts/night-pilot.ps1 -Action report` для morning report.
+
 ## Kimi — HTML-отчёт бэктеста (закрытие 6.4 «PDF/HTML — ПОЛНОСТЬЮ») — 2026-10-23 (вечер)
 
 - **Что сделано:** `render_backtest_report_html` в `backend/app/services/backtest_report.py` (самодостаточный HTML: inline CSS/SVG, тёмная тема, html.escape, equity-SVG net/gross, МК — бейдж+перцентили, heatmap 7×24 rgba-таблицей, топ-20 сделок); эндпоинт `POST /api/backtest/report-html` (тот же контракт тела, что у PDF, inline text/html); кнопка «HTML отчёт» (`btn-export-html`) в BacktestPanel открывает blob в новой вкладке; 11 тестов `test_backtest_report_html.py`; E2E `scripts/verify_html_report_ui.py` (popup, 4 секции). ROADMAP 6.4 → ПОЛНОСТЬЮ.
