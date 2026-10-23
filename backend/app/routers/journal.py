@@ -23,9 +23,11 @@ from backend.app.db.database import AsyncSessionLocal
 from backend.app.db.models import DecisionLog, StrategyPreset, SignalHistory
 from backend.app.services.binance_service import binance_service
 from backend.app.services.paper_trading import paper_trading_session
+from backend.app.services.overnight_pilot import overnight_pilot_manager
 from backend.app.services.session_review import (
     DEFAULT_MAX_LAG_MS,
     build_session_review,
+    collect_review_trades,
 )
 from backend.app.services.indicators import compute_indicators
 from backend.app.services.orderflow_backtester import OrderFlowBacktester
@@ -270,13 +272,23 @@ async def get_session_review(
     hours: int = Query(24, ge=1, le=24 * 30, description="Окно decision_logs, часов"),
     max_lag_ms: int = Query(DEFAULT_MAX_LAG_MS, ge=1_000, le=3_600_000,
                             description="Макс. разрыв решение→вход, мс"),
+    source: str = Query("all", description="Источник сделок: all | demo | marathon"),
 ):
     """Пост-сессионный разбор (задача 7.3): закрытые сделки paper-сессии,
-    связанные с decision_logs за окном. Читает живую paper-сессию и SQLite —
-    строго read-only, на торговлю не влияет.
+    связанные с decision_logs за окном. Читает demo paper-сессию, марафонные
+    сессии overnight-pilot и SQLite — строго read-only, на торговлю не влияет.
     """
-    state = paper_trading_session.get_state()
-    trades = list(getattr(state, "closed_trades", None) or [])
+    source = (source or "all").strip().lower()
+    if source not in ("all", "demo", "marathon"):
+        raise HTTPException(status_code=422, detail="source must be one of: all, demo, marathon")
+
+    demo_state = paper_trading_session.get_state()
+    collected = collect_review_trades(
+        source,
+        demo_trades=list(getattr(demo_state, "closed_trades", None) or []),
+        marathon_items=[s.to_dict() for s in overnight_pilot_manager.sessions.values()],
+    )
+    trades = collected["trades"]
 
     now_utc = datetime.now(timezone.utc)
     since_naive = (now_utc - timedelta(hours=hours)).replace(tzinfo=None)  # БД хранит naive-UTC
@@ -304,7 +316,10 @@ async def get_session_review(
 
     review = build_session_review(trades, decisions, max_lag_ms=max_lag_ms)
     review["window_hours"] = hours
-    review["paper_session_id"] = getattr(state, "session_id", None)
+    review["paper_session_id"] = getattr(demo_state, "session_id", None)
+    review["marathon_session_ids"] = collected["marathon_session_ids"]
+    review["trades_by_source"] = collected["trades_by_source"]
+    review["source"] = source
     review["decisions_in_window"] = len(decisions)
     return review
 

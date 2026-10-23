@@ -21,12 +21,13 @@ export default function SessionReviewPanel() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [source, setSource] = useState('all');
 
-  const fetchReview = useCallback(async () => {
+  const fetchReview = useCallback(async (src) => {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/journal/session-review?hours=24');
+      const res = await fetch(`/api/journal/session-review?hours=24&source=${src || source}`);
       if (!res.ok) {
         setError(`HTTP ${res.status}`);
         setData(null);
@@ -38,9 +39,9 @@ export default function SessionReviewPanel() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [source]);
 
-  useEffect(() => { fetchReview(); }, [fetchReview]);
+  useEffect(() => { fetchReview(source); }, [source, fetchReview]);
 
   const s = data?.summary;
   const pairs = (data?.pairs || []).slice(0, 50);
@@ -57,10 +58,32 @@ export default function SessionReviewPanel() {
         </span>
         <span style={{ fontSize: '9px', color: '#475569', fontFamily: 'monospace' }}>
           окно {data?.window_hours ?? 24}ч · {data?.paper_session_id ?? '—'}
+          {data?.marathon_session_ids?.length > 0 && ` · марафон: ${data.marathon_session_ids.length} сесс.`}
+        </span>
+        <span style={{ display: 'flex', gap: '4px', marginLeft: '8px' }}>
+          {['all', 'demo', 'marathon'].map((src) => (
+            <button
+              key={src}
+              data-testid={`session-review-source-${src}`}
+              onClick={() => setSource(src)}
+              style={{
+                fontSize: '9px',
+                padding: '2px 7px',
+                borderRadius: '5px',
+                cursor: 'pointer',
+                fontFamily: 'monospace',
+                background: source === src ? '#1d4ed8' : '#131a26',
+                color: source === src ? '#fff' : '#64748b',
+                border: '1px solid #1e2736',
+              }}
+            >
+              {src === 'all' ? 'Все' : src === 'demo' ? 'Demo' : 'Марафон'}
+            </button>
+          ))}
         </span>
         <button
           data-testid="session-review-refresh"
-          onClick={fetchReview}
+          onClick={() => fetchReview()}
           disabled={loading}
           style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: '#94a3b8', background: '#131a26', border: '1px solid #1e2736', borderRadius: '5px', padding: '2px 8px', cursor: 'pointer' }}
         >
@@ -74,6 +97,7 @@ export default function SessionReviewPanel() {
         <>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
             <Stat label="Сделок" value={s.trades_total} />
+            <Stat label="Источник (demo/марафон)" value={`${data?.trades_by_source?.demo ?? 0}/${data?.trades_by_source?.marathon ?? 0}`} />
             <Stat label="Связано с решениями" value={`${s.trades_matched} (${s.match_rate_pct}%)`} />
             <Stat label="Net PnL все" value={fmtUsd(s.pnl.net_all)} color={pnlColor(s.pnl.net_all)} />
             <Stat label="Net PnL со связкой" value={fmtUsd(s.pnl.net_matched)} color={pnlColor(s.pnl.net_matched)} />
@@ -105,7 +129,11 @@ export default function SessionReviewPanel() {
                     return (
                       <tr key={i} style={{ borderTop: '1px solid #16202e', color: '#94a3b8' }}>
                         <td style={{ padding: '3px 6px' }}>{fmtTime(t.entry_ts)}</td>
-                        <td style={{ padding: '3px 6px' }}>{t.symbol}</td>
+                        <td style={{ padding: '3px 6px' }}>
+                          <span style={{ color: t.source === 'marathon' ? '#38bdf8' : '#64748b' }}>
+                            {t.symbol}{t.source === 'marathon' ? ' ⚡' : ''}
+                          </span>
+                        </td>
                         <td style={{ padding: '3px 6px', color: t.side === 'LONG' ? '#26a69a' : '#ef5350' }}>{t.side}</td>
                         <td style={{ padding: '3px 6px' }}>{Number(t.entry_price).toFixed(1)} → {Number(t.exit_price).toFixed(1)}</td>
                         <td style={{ padding: '3px 6px', color: pnlColor(t.net_pnl) }}>{fmtUsd(t.net_pnl)}</td>

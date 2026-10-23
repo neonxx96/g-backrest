@@ -119,3 +119,41 @@ def build_session_review(
         "pairs": pairs,
         "max_lag_ms": max_lag_ms,
     }
+
+
+def collect_review_trades(
+    source: str,
+    demo_trades: Optional[List[Dict[str, Any]]],
+    marathon_items: Optional[List[Dict[str, Any]]],
+) -> Dict[str, Any]:
+    """Сбор закрытых сделок из demo paper-сессии и марафонных сессий.
+
+    source: "all" | "demo" | "marathon" (иначе ValueError).
+    demo_trades: closed_trades живой demo paper-сессии.
+    marathon_items: to_dict() сессий overnight-pilot ({"paper": {...}, "session_id": ...}).
+    Каждая сделка тегируется source; марафонные дополнительно session_id.
+    Чистая функция — вся интеграция (менеджеры/БД) остаётся в роутере.
+    """
+    if source not in ("all", "demo", "marathon"):
+        raise ValueError("source must be one of: all, demo, marathon")
+    trades: List[Dict[str, Any]] = []
+    marathon_session_ids: List[str] = []
+    if source in ("all", "demo"):
+        for t in list(demo_trades or []):
+            trades.append({**t, "source": "demo"})
+    if source in ("all", "marathon"):
+        for item in list(marathon_items or []):
+            paper = (item or {}).get("paper") or {}
+            session_id = (item or {}).get("session_id")
+            if session_id:
+                marathon_session_ids.append(str(session_id))
+            for t in list(paper.get("closed_trades") or []):
+                trades.append({**t, "source": "marathon", "session_id": session_id})
+    return {
+        "trades": trades,
+        "marathon_session_ids": marathon_session_ids,
+        "trades_by_source": {
+            "demo": sum(1 for t in trades if t.get("source") == "demo"),
+            "marathon": sum(1 for t in trades if t.get("source") == "marathon"),
+        },
+    }

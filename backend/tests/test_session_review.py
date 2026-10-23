@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from backend.app.services.session_review import (
     build_session_review,
+    collect_review_trades,
     find_decision_for_trade,
     link_trades_to_decisions,
     summarize_session,
@@ -113,3 +114,54 @@ class TestSummarize:
         assert set(review) == {"summary", "pairs", "max_lag_ms"}
         assert review["pairs"][0]["decision"] is None
         assert review["summary"]["trades_total"] == 1
+
+
+def _marathon_item(session_id: str, trades):
+    return {"session_id": session_id, "paper": {"session_id": session_id, "closed_trades": trades}}
+
+
+class TestCollectReviewTrades:
+    def test_all_merges_demo_and_marathon_with_tags(self):
+        demo = [_trade("BTCUSDT", 1_000_000, 5.0)]
+        marathon = [_trade("SOLUSDT", 2_000_000, -3.0)]
+        out = collect_review_trades("all", demo, [_marathon_item("overnight_solusdt_1", marathon)])
+        assert out["trades_by_source"] == {"demo": 1, "marathon": 1}
+        demo_trade = next(t for t in out["trades"] if t["source"] == "demo")
+        marathon_trade = next(t for t in out["trades"] if t["source"] == "marathon")
+        assert marathon_trade["session_id"] == "overnight_solusdt_1"
+        assert "session_id" not in demo_trade
+        assert out["marathon_session_ids"] == ["overnight_solusdt_1"]
+
+    def test_demo_source_skips_marathon(self):
+        demo = [_trade("BTCUSDT", 1_000_000, 5.0)]
+        marathon = [_trade("SOLUSDT", 2_000_000, -3.0)]
+        out = collect_review_trades("demo", demo, [_marathon_item("s1", marathon)])
+        assert out["trades_by_source"] == {"demo": 1, "marathon": 0}
+        assert out["marathon_session_ids"] == []
+
+    def test_marathon_source_skips_demo(self):
+        demo = [_trade("BTCUSDT", 1_000_000, 5.0)]
+        marathon = [_trade("SOLUSDT", 2_000_000, -3.0), _trade("ETHUSDT", 3_000_000, 7.0)]
+        out = collect_review_trades("marathon", demo, [_marathon_item("s1", marathon)])
+        assert out["trades_by_source"] == {"demo": 0, "marathon": 2}
+        assert all(t["source"] == "marathon" for t in out["trades"])
+
+    def test_none_inputs_are_empty(self):
+        out = collect_review_trades("all", None, None)
+        assert out["trades"] == []
+        assert out["trades_by_source"] == {"demo": 0, "marathon": 0}
+        assert out["marathon_session_ids"] == []
+
+    def test_invalid_source_raises(self):
+        try:
+            collect_review_trades("bogus", [], [])
+        except ValueError as exc:
+            assert "source" in str(exc)
+        else:
+            raise AssertionError("ValueError не поднят")
+
+    def test_session_without_id_not_listed_but_trades_kept(self):
+        marathon = [_trade("SOLUSDT", 2_000_000, -3.0)]
+        out = collect_review_trades("marathon", [], [{"paper": {"closed_trades": marathon}}])
+        assert out["trades_by_source"]["marathon"] == 1
+        assert out["marathon_session_ids"] == []
