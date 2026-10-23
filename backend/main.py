@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 from backend.app.config import BACKEND_HOST, BACKEND_PORT, DATA_DIR, ENV_PATH, LOG_LEVEL
-from backend.app.services.runtime_binding import find_available_port, persist_runtime_port
+from backend.app.services.runtime_binding import find_available_port, persist_runtime_port_guarded
 from backend.app.db.database import init_db
 from backend.app.api.routes import router as api_router
 from backend.app.api.data_routes import data_router
@@ -177,11 +177,12 @@ if __name__ == "__main__":
             BACKEND_PORT,
             active_port,
         )
-    persist_runtime_port(
+    persist_runtime_port_guarded(
         ENV_PATH,
         DATA_DIR / "backend_runtime.json",
         BACKEND_HOST,
         active_port,
+        BACKEND_PORT,
     )
     logger.info("SignalScript backend listening on http://%s:%s", BACKEND_HOST, active_port)
     uvicorn.run("backend.main:app", host=BACKEND_HOST, port=active_port, reload=False)
