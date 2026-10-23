@@ -2,6 +2,15 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-6.4 слайс 3 (OptimizerView — п.2 закрыт) — 2026-10-23 (день)
+
+- **ACTIVE_AGENT:** `kimi` (main: `2696582`, gate **395 passed**)
+- Из `BacktestPanel.jsx` (2203→1996, −207) извлечён `backtest/BacktestOptimizerView.jsx` — управляемое тело вкладок 'optimizer' (карточки До/После, OOS-валидация, лидерборд генетики top-15) и 'matrix' (связки факторов с кнопкой «Включить»). Принимает `viewTab` + derived-данные (`beforeOpt/afterOpt/oosOpt/gridRows/confluenceMatrix`) и два колбэка; `applySetup`/`applyConfluenceSetup` (store + сеттеры + rerun) остались в панели. Все data-testid 1:1.
+- **П.2 MODULARIZATION_PLAN закрыт полностью**: панель 2867→1996 (−871) за 3 слайса; в `backtest/` теперь: MonteCarloEquityChart, BacktestTradesTable, BacktestPresetsBar, BacktestParametersForm, BacktestOptimizerView, format.js, constants.js, fields.jsx.
+- **E2E:** `scripts/verify_modularization_6_4c.py` — 6/6 PASS (single-прогон → матрица 15 строк; «Включить» связку → appliedFeedback; генетика на 1 день → card-after-opt + лидерборд 15; «Применить лучший» → appliedFeedback). Порт 5199 дочищен.
+- **Ловушка E2E (повторяется):** dockview-sash перехватывает нативные playwright-клики по кнопкам панели → кликать через `page.evaluate(el.click())` (уже в трёх verify-скриптах).
+- Backend/марафон не тронуты. **Дальше по плану:** п.3 OrderBookDOM (~850 строк), п.4 `Chart.jsx` — только после явного решения (файл-гигант, AGENTS.md §5.4).
+
 ## Kimi phase-6.4 слайс 2 (PresetsBar + ParametersForm) — 2026-10-23 (ночь)
 
 - **ACTIVE_AGENT:** `kimi` (main: `dcade1d`, gate **395 passed**)
