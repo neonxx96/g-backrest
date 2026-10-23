@@ -2,6 +2,14 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-6.4 слайс 8 (SettingsModal -> settings/, п.8 закрыт) — 2026-10-23 (день)
+
+- **ACTIVE_AGENT:** `kimi` (main: `a1e5191`, gate **ALL QUALITY CHECKS PASSED**; фронтенд-only слайс — pytest не менялся, 425 passed)
+- `SettingsModal.jsx` (932→266, −666) разбит по п.8 MODULARIZATION_PLAN: `settings/uiConfig.js` (DEFAULT_UI_CONFIG/THEME_PRESETS/MONO_FONTS/loadLocalUiConfig/applyUiConfigToDOM — тела дословно), `settings/constants.js` (TIMEFRAMES/OVERRIDE_COINS), управляемые вкладки `AppearanceTab`/`ChartsTab`/`OrderflowTab` ({cfg, updateUi}) и `ScannerTab` ({settings, handleChange, selectedCoin, setSelectedCoin, currentCoinCfg, handleCoinOverrideChange}). Остов: state/fetch/updateUi/handleSave + шапка/таб-бар/футер.
+- **Совместимость:** uiConfig-хелперы реэкспортируются из SettingsModal.jsx — `App.jsx` (loadLocalUiConfig/applyUiConfigToDOM) и `ModalsHost` (default) без правок.
+- **E2E:** `scripts/verify_modularization_6_4g.py` — 6/6 PASS. Ловушки скрипта: (1) короткие метки ('5m', 'ETH') матчат чужие кнопки тулбара/чарта — все клики и проверки строго в скоупе модала (`div.fixed` с текстом «Центр настроек терминала»); (2) React не ре-рендерит в том же JS-тике — между кликом ETH и чтением label нужен sleep; (3) начальное состояние subpanes приходит с сервера (ui_config user 0) — RSI-проверка сравнивает «до/после», а не абсолют; (4) «Сохранить» пишет в SQLite → снапшот /api/settings?user_id=0 до теста и восстановление после.
+- Backend/марафон не тронуты (перезапуск НЕ нужен). **По MODULARIZATION_PLAN остались:** п.3 `orderflow_backtester.py` (фин. ядро — только с golden-тестом побитового совпадения PnL/WinRate/Sharpe) и п.1 `Chart.jsx` — 🔴, ждёт отдельного решения Di.
+
 ## Kimi phase-6.4 слайс 7 (AICopilotSidebar -> copilot/, п.7 закрыт) — 2026-10-23 (день)
 
 - **ACTIVE_AGENT:** `kimi` (main: `c124988`, gate **ALL QUALITY CHECKS PASSED**; фронтенд-only слайс — pytest не менялся, 425 passed)
