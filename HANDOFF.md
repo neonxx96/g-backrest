@@ -2,6 +2,12 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi — HTML-отчёт бэктеста (закрытие 6.4 «PDF/HTML — ПОЛНОСТЬЮ») — 2026-10-23 (вечер)
+
+- **Что сделано:** `render_backtest_report_html` в `backend/app/services/backtest_report.py` (самодостаточный HTML: inline CSS/SVG, тёмная тема, html.escape, equity-SVG net/gross, МК — бейдж+перцентили, heatmap 7×24 rgba-таблицей, топ-20 сделок); эндпоинт `POST /api/backtest/report-html` (тот же контракт тела, что у PDF, inline text/html); кнопка «HTML отчёт» (`btn-export-html`) в BacktestPanel открывает blob в новой вкладке; 11 тестов `test_backtest_report_html.py`; E2E `scripts/verify_html_report_ui.py` (popup, 4 секции). ROADMAP 6.4 → ПОЛНОСТЬЮ.
+- **Backend перезапущен** контрольным убийством PID :8000 — guardian поднял автоматически (фикс resume `263ee5c` валидирован повторно). Новый эндпоинт подхвачен. **Марафон 11-й запуск** `overnight_{btc,eth,sol}usdt_1792780120`: все connected, errors=0, closed=0 (молодой, ~1 ч — оценки NO_TRADE, blocked_evaluations=1 у каждой, ai_control=False).
+- **⚠️ Для следующего агента:** A/B-наблюдения марафона начались заново после рестарта — сверка winrate/NetPnL/M4_BLOCK по `docs/PAPER_MARATHON.md` теперь от 18:28 UTC 23.10. Старая история наблюдений (с 22.10) стёрта рестартом — зафиксировано честно.
+
 ## Kimi phase-6.4 п.1 — ФИНАЛ (слайсы 7–8: Chart.jsx 996→526) + fix guardian resume — 2026-10-23 (вечер)
 
 - **ACTIVE_AGENT:** `kimi` (main: `263ee5c`, gate **ALL QUALITY CHECKS PASSED**, pytest 453 passed)

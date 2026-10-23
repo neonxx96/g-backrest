@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   Dna,
   Download,
+  FileCode2,
   ArrowUpDown,
   Zap
 } from 'lucide-react';
@@ -1188,6 +1189,36 @@ export default function BacktestPanel({
     }
   }, [result, symbol]);
 
+  // HTML Report Export (задача 6.4) — серверный рендер, открывается в новой вкладке
+  const [htmlExporting, setHtmlExporting] = useState(false);
+  const [htmlExportError, setHtmlExportError] = useState(null);
+
+  const handleExportHTML = useCallback(async () => {
+    if (!result) return;
+    setHtmlExporting(true);
+    setHtmlExportError(null);
+    let url = null;
+    try {
+      const res = await fetch(`${API_BASE}/backtest/report-html`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(result),
+      });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.detail || `Ошибка сервера (${res.status})`);
+      }
+      const blob = await res.blob();
+      url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener');
+    } catch (err) {
+      setHtmlExportError(err.message || 'Ошибка формирования HTML-отчёта');
+    } finally {
+      if (url) URL.revokeObjectURL(url);
+      setHtmlExporting(false);
+    }
+  }, [result]);
+
   if (!isOpen) return null;
 
   return (
@@ -1844,9 +1875,22 @@ export default function BacktestPanel({
                     <span>PDF отчёт</span>
                   </button>
                 )}
-                {pdfExportError && (
+                {result && (
+                  <button
+                    type="button"
+                    data-testid="btn-export-html"
+                    onClick={handleExportHTML}
+                    disabled={htmlExporting}
+                    title="Открыть HTML-отчёт в новой вкладке: сводка, equity, Монте-Карло, тепловая карта"
+                    className="px-2 py-0.5 rounded font-mono font-bold text-[9.5px] border transition cursor-pointer bg-neutral-900 text-neutral-300 border-neutral-700 hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                  >
+                    {htmlExporting ? <Loader2 size={10} className="animate-spin" /> : <FileCode2 size={10} />}
+                    <span>HTML отчёт</span>
+                  </button>
+                )}
+                {(pdfExportError || htmlExportError) && (
                   <span data-testid="pdf-export-error" className="text-[9.5px] text-[#ef5350] font-mono">
-                    {pdfExportError}
+                    {pdfExportError || htmlExportError}
                   </span>
                 )}
               </div>

@@ -1,22 +1,27 @@
-"""PDF-отчёт бэктеста (задача 6.5).
+"""PDF- и HTML-отчёты бэктеста (задача 6.5 + 6.4 HTML).
 
-Рендерит многостраничный PDF из ответа /api/backtest/run (тот же JSON, что хранится
-в backtestStore.result на фронте). Только matplotlib (PdfPages) — новых
+PDF: рендерит многостраничный PDF из ответа /api/backtest/run (тот же JSON, что
+хранится в backtestStore.result на фронте). Только matplotlib (PdfPages) — новых
 зависимостей нет; DejaVu Sans покрывает кириллицу.
 
-Страницы:
+Страницы PDF:
   1. Сводка — заголовок, таблица метрик, кривая equity (net vs gross).
   2. Монте-Карло — веер P5–P95, медиана, фактическая кривая, вердикт робастности.
   3. Разбор сделок — тепловая карта Net PnL по дням недели × часам (UTC), топ-20 сделок.
 
+HTML: render_backtest_report_html — самодостаточный документ (inline CSS/SVG, тёмная
+тема терминала, без внешних зависимостей): те же секции, кривая equity как inline SVG,
+тепловая карта как HTML-таблица с rgba-заливкой, Монте-Карло — вердикт + перцентили.
+
 Все расчёты — только из переданного payload, без обращений к движку/бирже.
-Degenerate-входы (пустые сделки/кривые) рендерят страницу с честным «Нет данных».
+Degenerate-входы (пустые сделки/кривые) рендерят секцию с честным «Нет данных».
 """
 
 from __future__ import annotations
 
 import io
 import math
+from html import escape
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -347,3 +352,357 @@ def render_backtest_report_pdf(payload: Dict[str, Any]) -> bytes:
         _page_monte_carlo(pdf, payload)
         _page_trades(pdf, payload)
     return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# HTML-отчёт (задача 6.4): самодостаточный документ, тёмная тема терминала.
+# Никаких внешних зависимостей — только stdlib (html.escape) и stringbuilding.
+# ---------------------------------------------------------------------------
+
+_HTML_CSS = """
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 24px;
+  background: #0B0E11; color: #e5e7eb;
+  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-size: 13px; line-height: 1.45;
+}
+.report { max-width: 980px; margin: 0 auto; }
+h1 { font-size: 20px; margin: 0 0 4px; color: #f9fafb; }
+h2 {
+  font-size: 15px; margin: 28px 0 10px; padding-bottom: 6px;
+  border-bottom: 1px solid #1f2937; color: #f3f4f6;
+}
+.sub { color: #9ca3af; font-size: 12px; margin: 0 0 2px; }
+.net-pnl { font-size: 26px; font-weight: 700; margin: 10px 0 0; }
+.pos { color: #16a34a; } .neg { color: #dc2626; } .neu { color: #9ca3af; }
+table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+th, td {
+  padding: 6px 10px; text-align: left; font-size: 12px;
+  border-bottom: 1px solid #1f2937;
+}
+th { color: #9ca3af; font-weight: 600; text-transform: uppercase; font-size: 10.5px; letter-spacing: .04em; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tr.metric td:first-child { color: #9ca3af; }
+tr.metric td:last-child { font-weight: 600; color: #f3f4f6; }
+.badge {
+  display: inline-block; padding: 4px 10px; border-radius: 6px;
+  font-weight: 700; font-size: 12px; margin: 4px 0;
+}
+.badge.robust { background: rgba(22,163,74,.15); color: #4ade80; border: 1px solid rgba(22,163,74,.4); }
+.badge.over { background: rgba(217,119,6,.15); color: #fbbf24; border: 1px solid rgba(217,119,6,.4); }
+.mc-meta { color: #9ca3af; font-size: 12px; margin: 4px 0; }
+.reason { color: #6b7280; font-size: 11.5px; margin: 4px 0 10px; }
+.heatmap th, .heatmap td { padding: 3px 4px; text-align: center; font-size: 10px; border-bottom: none; }
+.heatmap td { min-width: 30px; border-radius: 2px; color: #e5e7eb; }
+.heatmap td.axis { background: transparent; color: #6b7280; font-weight: 600; }
+.legend { color: #6b7280; font-size: 11px; margin-top: 6px; }
+.footer {
+  margin-top: 32px; padding-top: 10px; border-top: 1px solid #1f2937;
+  color: #4b5563; font-size: 10.5px;
+}
+.no-data { color: #60697b; padding: 18px; text-align: center; border: 1px dashed #374151; border-radius: 6px; }
+svg.chart { width: 100%; height: auto; background: #0f1419; border: 1px solid #1f2937; border-radius: 6px; }
+"""
+
+
+def _svg_polyline(points: List[tuple], color: str, width: float, dash: Optional[str] = None) -> str:
+    pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
+    dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
+    return (
+        f'<polyline fill="none" stroke="{color}" stroke-width="{width}"'
+        f'{dash_attr} stroke-linejoin="round" stroke-linecap="round" points="{pts}"/>'
+    )
+
+
+def _equity_svg(equity_curve: List[Dict[str, Any]], capital: float) -> str:
+    """Кривая equity (net vs gross) как inline SVG. Возвращает пустую строку при <2 точек."""
+    if len(equity_curve) < 2:
+        return ""
+    eq = [_safe_float(p.get("equity")) for p in equity_curve]
+    gq = [_safe_float(p.get("gross_equity"), eq[i]) for i, p in enumerate(equity_curve)]
+    all_v = [v for v in eq + gq if math.isfinite(v)]
+    if not all_v:
+        return ""
+    lo, hi = min(all_v), max(all_v)
+    if hi - lo < 1e-9:
+        hi = lo + 1.0
+    pad = (hi - lo) * 0.08
+    lo -= pad
+    hi += pad
+
+    w, h, ml, mr, mt, mb = 960, 300, 56, 12, 12, 26
+    n = len(equity_curve)
+
+    def xy(i: int, v: float) -> tuple:
+        x = ml + (w - ml - mr) * (i / max(1, n - 1))
+        y = mt + (h - mt - mb) * (1.0 - (v - lo) / (hi - lo))
+        return x, y
+
+    net_pts = [xy(i, v) for i, v in enumerate(eq) if math.isfinite(v)]
+    gross_pts = [xy(i, v) for i, v in enumerate(gq) if math.isfinite(v)]
+    if len(net_pts) < 2:
+        return ""
+
+    zero_pts = None
+    if lo <= capital <= hi:
+        zy = mt + (h - mt - mb) * (1.0 - (capital - lo) / (hi - lo))
+        zero_pts = f'<line x1="{ml}" y1="{zy:.1f}" x2="{w - mr}" y2="{zy:.1f}" stroke="#6b7280" stroke-width="1" stroke-dasharray="3,4"/>'
+
+    has_gross = len(gross_pts) >= 2 and any(abs(g - e) > 1e-9 for g, e in zip(gq, eq))
+    parts = [f'<svg class="chart" viewBox="0 0 {w} {h}" xmlns="http://www.w3.org/2000/svg" role="img">']
+    if zero_pts:
+        parts.append(zero_pts)
+    if has_gross:
+        parts.append(_svg_polyline(gross_pts, "#d97706", 1.2, "5,4"))
+    parts.append(_svg_polyline(net_pts, "#16a34a", 2.0))
+    # Подписи min/max по оси Y
+    for v, anchor in ((hi, mt), (lo, h - mb)):
+        y = mt + (h - mt - mb) * (1.0 - (v - lo) / (hi - lo))
+        parts.append(
+            f'<text x="{ml - 6}" y="{y + 3:.1f}" text-anchor="end" fill="#6b7280" font-size="10">{v:,.0f}</text>'
+        )
+    parts.append(
+        '<text x="' + str(ml + 8) + '" y="' + str(mt + 14) +
+        '" fill="#16a34a" font-size="11" font-weight="600">Чистый equity (Net)</text>'
+    )
+    if has_gross:
+        parts.append(
+            '<text x="' + str(ml + 8) + '" y="' + str(mt + 30) +
+            '" fill="#d97706" font-size="11">До комиссий (Gross)</text>'
+        )
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def _heatmap_html(trades: List[Dict[str, Any]]) -> str:
+    """Тепловая карта Net PnL (день недели × час UTC) как HTML-таблица с rgba-заливкой."""
+    grid = [[0.0] * 24 for _ in range(7)]
+    counts = [[0] * 24 for _ in range(7)]
+    for t in trades:
+        dt = _ms_to_dt(t.get("entry_time"))
+        if dt is None:
+            continue
+        grid[dt.weekday()][dt.hour] += _safe_float(t.get("pnl_usd"))
+        counts[dt.weekday()][dt.hour] += 1
+    vmax = max(1e-9, max(abs(grid[wd][h]) for wd in range(7) for h in range(24)))
+
+    flat = [(grid[wd][h], wd, h) for wd in range(7) for h in range(24) if counts[wd][h] > 0]
+    best = max(flat) if flat else None
+    worst = min(flat) if flat else None
+
+    parts = ['<table class="heatmap"><thead><tr><th></th>']
+    parts += [f"<th>{h:02d}</th>" for h in range(24)]
+    parts.append("</tr></thead><tbody>")
+    for wd in range(7):
+        parts.append(f'<tr><td class="axis">{_WEEKDAYS[wd]}</td>')
+        for h in range(24):
+            if counts[wd][h] == 0:
+                parts.append('<td style="background:#111827;color:#374151">·</td>')
+                continue
+            v = grid[wd][h]
+            alpha = min(1.0, 0.18 + 0.82 * (abs(v) / vmax))
+            if v >= 0:
+                style = f"background:rgba(22,163,74,{alpha:.2f})"
+            else:
+                style = f"background:rgba(220,38,38,{alpha:.2f})"
+            parts.append(f'<td style="{style}" title="{_WEEKDAYS[wd]} {h:02d}:00 UTC: {v:+.2f}$ ({counts[wd][h]})">{v:+.0f}</td>')
+        parts.append("</tr>")
+    parts.append("</tbody></table>")
+
+    if best and worst:
+        parts.append(
+            '<div class="legend">Лучший слот: '
+            f'<b class="pos">{_WEEKDAYS[best[1]]} {best[2]:02d}:00 UTC ({best[0]:+.2f}$)</b>'
+            " &nbsp;•&nbsp; Худший слот: "
+            f'<b class="neg">{_WEEKDAYS[worst[1]]} {worst[2]:02d}:00 UTC ({worst[0]:+.2f}$)</b>'
+            " &nbsp;•&nbsp; интенсивность заливки — модуль Net PnL слота.</div>"
+        )
+    return "".join(parts)
+
+
+def _trades_table_html(trades: List[Dict[str, Any]]) -> str:
+    """Топ-20 сделок (первые по времени входа) — HTML-таблица."""
+    recent = sorted(trades, key=lambda t: _safe_float(t.get("entry_time")))[:20]
+    if not recent:
+        return '<div class="no-data">Нет закрытых сделок за период</div>'
+    parts = [
+        "<table><thead><tr>",
+        "<th>#</th><th>Вход (UTC)</th><th>Тип</th>",
+        '<th class="num">Цена вх.</th><th class="num">Цена вых.</th>',
+        '<th class="num">Чистый PnL</th><th>Выход</th>',
+        "</tr></thead><tbody>",
+    ]
+    for t in recent:
+        reason = t.get("exit_reason") or t.get("reason") or "—"
+        if isinstance(reason, list):
+            reason = reason[0] if reason else "—"
+        pnl = _safe_float(t.get("pnl_usd"))
+        cls = "pos" if pnl >= 0 else "neg"
+        parts.append(
+            "<tr>"
+            f"<td>{escape(str(t.get('id') or '—'))}</td>"
+            f"<td>{escape(_fmt_ms(t.get('entry_time'))[:16])}</td>"
+            f"<td>{escape(str(t.get('type') or t.get('direction') or '—'))}</td>"
+            f'<td class="num">{_safe_float(t.get("entry_price")):,.2f}</td>'
+            f'<td class="num">{_safe_float(t.get("exit_price")):,.2f}</td>'
+            f'<td class="num {cls}">{pnl:+,.2f}$</td>'
+            f"<td>{escape(str(reason)[:28])}</td>"
+            "</tr>"
+        )
+    parts.append("</tbody></table>")
+    if len(trades) > len(recent):
+        parts.append(f'<div class="legend">Показано {len(recent)} из {len(trades)} сделок (первые по времени входа).</div>')
+    return "".join(parts)
+
+
+def _mc_percentiles_html(mc: Dict[str, Any]) -> str:
+    """Компактная таблица перцентилей из fan_chart (до 11 равномерных точек)."""
+    fan = mc.get("fan_chart") or []
+    if len(fan) < 2:
+        return ""
+    if len(fan) > 11:
+        step = max(1, (len(fan) - 1) // 10)
+        idxs = list(range(0, len(fan), step))
+        if idxs[-1] != len(fan) - 1:
+            idxs.append(len(fan) - 1)
+    else:
+        idxs = list(range(len(fan)))
+    cols = ["p5", "p25", "p50", "p75", "p95", "actual", "gross"]
+    labels = {"p5": "P5", "p25": "P25", "p50": "P50", "p75": "P75", "p95": "P95",
+              "actual": "Факт (Net)", "gross": "Факт (Gross)"}
+    parts = [
+        "<table><thead><tr><th>Шаг</th>",
+        "".join(f'<th class="num">{labels[c]}</th>' for c in cols),
+        "</tr></thead><tbody>",
+    ]
+    for i in idxs:
+        p = fan[i]
+        parts.append(f"<tr><td>{i}</td>")
+        for c in cols:
+            v = _safe_float(p.get(c))
+            parts.append(f'<td class="num">{v:,.0f}</td>')
+        parts.append("</tr>")
+    parts.append("</tbody></table>")
+    return "".join(parts)
+
+
+def render_backtest_report_html(payload: Dict[str, Any]) -> str:
+    """Рендерит самодостаточный HTML-отчёт из payload ответа /api/backtest/run."""
+    summary = payload.get("summary") or {}
+    meta = payload.get("meta") or {}
+    mc = payload.get("monte_carlo") or {}
+    trades: List[Dict[str, Any]] = list(payload.get("trades") or [])
+
+    symbol = str(payload.get("symbol") or meta.get("symbol") or "UNKNOWN")
+    strategy = str(payload.get("strategy_type") or meta.get("strategy_type") or "—")
+    timeframe = str(payload.get("timeframe") or meta.get("timeframe") or "—")
+
+    net = _safe_float(summary.get("net_pnl_usd"))
+    gross = _safe_float(summary.get("gross_pnl_usd"))
+    fees = _safe_float(summary.get("total_fees_usd"))
+    slip = _safe_float(summary.get("total_slippage_usd"))
+    cost = _safe_float(summary.get("total_exchange_cost_usd"), fees + slip)
+    roi = _safe_float(summary.get("total_pnl_pct"))
+    win = _safe_float(summary.get("win_rate_pct"))
+    pf = _safe_float(summary.get("profit_factor"))
+    rec = _safe_float(summary.get("recovery_factor"))
+    dd = _safe_float(summary.get("max_drawdown_pct"))
+    sharpe = _safe_float(summary.get("sharpe_ratio"))
+    sortino = _safe_float(summary.get("sortino_ratio"))
+    total = int(_safe_float(summary.get("total_trades")))
+    wins = int(_safe_float(summary.get("winning_trades")))
+    losses = int(_safe_float(summary.get("losing_trades")))
+
+    capital = _safe_float(payload.get("initial_capital"), 10000.0)
+    cost_pct_capital = (cost / max(1e-9, capital)) * 100.0
+    net_cls = "pos" if net > 0 else ("neg" if net < 0 else "neu")
+
+    e = escape
+    parts: List[str] = []
+    parts.append("<!DOCTYPE html><html lang=\"ru\"><head><meta charset=\"utf-8\">")
+    parts.append(
+        f"<title>SignalScript — Отчёт бэктеста {e(symbol)}</title>"
+        f"<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+        f"<style>{_HTML_CSS}</style></head><body><div class=\"report\">"
+    )
+
+    # Шапка
+    parts.append("<h1>SignalScript — Отчёт бэктеста</h1>")
+    parts.append(
+        f'<p class="sub">{e(symbol)} &nbsp;•&nbsp; {e(strategy)} &nbsp;•&nbsp; '
+        f"{e(timeframe)} &nbsp;•&nbsp; начальный капитал {capital:,.0f}$</p>"
+    )
+    parts.append(f'<p class="sub">Сформирован: {datetime.now(timezone.utc):%d.%m.%Y %H:%M UTC}</p>')
+    parts.append(f'<div class="net-pnl {net_cls}">{_money(net)} <span style="font-size:15px">{_pct(roi)}</span></div>')
+
+    # Сводка
+    parts.append("<h2>Сводка</h2><table>")
+    rows = [
+        ("Net PnL", f"{_money(net)}  ({_pct(roi)})"),
+        ("Gross PnL (до комиссий)", _money(gross)),
+        ("Комиссии + проскальзывание", f"{_money(-cost)}  ({cost_pct_capital:.2f}% от капитала)"),
+        ("Win Rate", f"{win:.1f}%"),
+        ("Profit Factor", f"{pf:.2f}"),
+        ("Recovery Factor", f"{rec:.2f}"),
+        ("Max Drawdown", f"-{dd:.2f}%"),
+        ("Sharpe / Sortino", f"{sharpe:.2f} / {sortino:.2f}"),
+        ("Сделок", f"{total} (прибыльных {wins} / убыточных {losses})"),
+        ("Свечей", str(meta.get("candles") or "—")),
+        ("Период", f"{_fmt_ms(meta.get('from_time'))} — {_fmt_ms(meta.get('to_time'))}"),
+        ("Просмотрено дней (запрос)", str(meta.get("requested_days") or "—")),
+    ]
+    for label, value in rows:
+        parts.append(f'<tr class="metric"><td>{e(label)}</td><td>{e(value)}</td></tr>')
+    parts.append("</table>")
+
+    parts.append("<h2>Кривая Equity</h2>")
+    equity_svg = _equity_svg(payload.get("equity_curve") or [], capital)
+    parts.append(equity_svg or '<div class="no-data">Нет данных equity_curve</div>')
+
+    # Монте-Карло
+    parts.append("<h2>Стресс-тест Монте-Карло</h2>")
+    if not mc:
+        parts.append('<div class="no-data">Монте-Карло: нет данных</div>')
+    elif len(mc.get("fan_chart") or []) < 2:
+        parts.append('<div class="no-data">Монте-Карло: недостаточно сделок для веера траекторий</div>')
+        verdict = str(mc.get("verdict") or "—")
+        badge = str(mc.get("badge_text") or verdict)
+        cls = "robust" if verdict.upper() == "ROBUST" else "over"
+        parts.append(f'<div><span class="badge {cls}">{e(badge)}</span></div>')
+    else:
+        verdict = str(mc.get("verdict") or "—")
+        score = _safe_float(mc.get("robustness_score"))
+        prob_dd = _safe_float(mc.get("prob_drawdown_gt_10_pct"))
+        worst_dd = _safe_float(mc.get("worst_case_dd_pct"))
+        sims = int(_safe_float(mc.get("simulations_count")))
+        badge = str(mc.get("badge_text") or verdict)
+        cls = "robust" if verdict.upper() == "ROBUST" else "over"
+        parts.append(f'<div><span class="badge {cls}">{e(badge)}</span></div>')
+        parts.append(
+            '<p class="mc-meta">'
+            f"Score: {score:.0f}/100 &nbsp;•&nbsp; Вероятность просадки &gt;10%: {prob_dd:.1f}%"
+            f" &nbsp;•&nbsp; Худший DD (95%): -{worst_dd:.1f}% &nbsp;•&nbsp; Симуляций: {sims}"
+            "</p>"
+        )
+        reason = str(mc.get("reason") or "")
+        if reason:
+            parts.append(f'<p class="reason">{e(reason[:180])}</p>')
+        parts.append(_mc_percentiles_html(mc))
+
+    # Разбор сделок
+    parts.append("<h2>Разбор сделок</h2>")
+    if trades:
+        parts.append("<h2 style=\"border:none;margin:0 0 6px;font-size:12px;color:#9ca3af\">Тепловая карта Net PnL: день недели × час (UTC)</h2>")
+        parts.append(_heatmap_html(trades))
+    else:
+        parts.append('<div class="no-data">Нет сделок</div>')
+    parts.append(_trades_table_html(trades))
+
+    parts.append(
+        '<div class="footer">Строго консультативно. Симуляция на реальных исторических данных; '
+        "не является финансовой рекомендацией. SignalScript Terminal.</div>"
+    )
+    parts.append("</div></body></html>")
+    return "".join(parts)

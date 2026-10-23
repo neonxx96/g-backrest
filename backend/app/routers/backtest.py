@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field, model_validator
 from starlette.concurrency import run_in_threadpool
 
 from backend.app.adapters.exchange.binance import BINANCE_FUTURES_REST
-from backend.app.services.backtest_report import render_backtest_report_pdf
+from backend.app.services.backtest_report import render_backtest_report_html, render_backtest_report_pdf
 from backend.app.services.binance_service import binance_service
 from backend.app.services.orderflow_backtester import OrderFlowBacktester, orderflow_backtester
 
@@ -1118,4 +1118,28 @@ async def export_backtest_report(req: BacktestReportRequest):
         content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@backtest_router.post("/report-html")
+async def export_backtest_report_html(req: BacktestReportRequest):
+    """HTML-отчёт по готовому результату бэктеста (задача 6.4 HTML).
+
+    Тот же контракт тела, что у /api/backtest/report; ответ отдаётся inline
+    (text/html) — фронт открывает его в новой вкладке через blob-URL.
+    """
+    symbol = req.symbol.strip().upper()
+    if not symbol:
+        raise HTTPException(status_code=422, detail="symbol is required")
+
+    payload = req.model_dump()
+    payload["symbol"] = symbol
+    try:
+        html_text = await run_in_threadpool(render_backtest_report_html, payload)
+    except Exception as e:  # pragma: no cover - защита от ошибок рендера
+        raise HTTPException(status_code=500, detail=f"Report render failed: {e}")
+
+    return Response(
+        content=html_text,
+        media_type="text/html; charset=utf-8",
     )
