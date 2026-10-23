@@ -49,7 +49,12 @@ class LivePaperRunner:
         self._last_tick_time: int = 0
         self._last_signal_time: int = 0
         self._signal_cooldown_sec: int = 30  # Cooldown between opening signals on same coin
-        self._last_entry_candle: int = 0
+        # -1: «нет записанного входа». НЕ 0 — иначе при старте совпадает с
+        # indicator_candle_close_time (=0 до первого _load_indicator_context) и
+        # гвард в tick_cycle мёртво блокирует цикл оценки (баг aad9717, см. тест
+        # test_paper_entry_guard_not_deadlocked). Дубль-вход на свечу по-прежнему
+        # блокируется: после входа _last_entry_candle = indicator_candle_close_time.
+        self._last_entry_candle: int = -1
 
         # Configuration
         self.symbol: str = "BTCUSDT"
@@ -147,7 +152,10 @@ class LivePaperRunner:
         self.config_fingerprint = config_fingerprint
         self._active_trade_ids = {}
         self._recorded_closed_trade_ids = set()
-        self._last_entry_candle = 0
+        # -1 — не 0: 0 == indicator_candle_close_time (0 до первой загрузки индикаторов)
+        # мёртво блокировало бы оценку сигналов в tick_cycle (см. __init__ и тест
+        # test_paper_entry_guard_not_deadlocked).
+        self._last_entry_candle = -1
         self.initial_capital = float(config.get("initial_capital", 10000.0))
         self.risk_per_trade_pct = float(config.get("risk_per_trade_pct", 1.0))
         self.min_density_usd = float(config.get("min_density_usd", 500000.0))

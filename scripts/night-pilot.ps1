@@ -5,7 +5,7 @@ param(
     [ValidateSet('production_robust', 'diagnostics_lenient', 'naked_test', 'optimal_live', 'diversified_paper', 'default')]
     [string]$Preset = 'diversified_paper',
     [ValidateRange(1, 65535)]
-    [int]$Port = 8002,
+    [int]$Port = 8000,
     [ValidateRange(0, 1440)]
     [int]$MonitorMinutes = 0,
     [string]$ApiBase = ''
