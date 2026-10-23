@@ -2,6 +2,15 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-6.4 п.3 (orderflow_backtester -> engine/, фин. ядро закрыто) — 2026-10-23 (вечер)
+
+- **ACTIVE_AGENT:** `kimi` (main: `27a1378`, gate **434 passed** = 425 + сборка/смоуки; golden 30/30)
+- `orderflow_backtester.py` (2225→1716, −509): вынос в `backend/app/engine/` — `strategies.py` (compute_raw_signal, if/elif-цепочка стратегий дословно), `execution.py` (simulate_execution, симуляция исполнения дословно), `monte_carlo.py` (run_monte_carlo_simulation дословно). Класс OrderFlowBacktester — тонкие делегаты; API и синглтон `orderflow_backtester` неизменны, все 9 импортёров без правок.
+- **Метод переноса (обязателен для фин. ядра):** (1) фиксация границ диапазонов якорями, (2) извлечение sed, (3) **построчная norm-сверка с оригиналом до правок** (игнор отступов + единственная sanctioned-замена `self._estimate_tick_size`), (4) только после MATCH — хирургия в сервисе снизу вверх, (5) статический поиск свободных имён AST, (6) прогон golden-сценариев, (7) полный pytest, (8) gate.
+- **Задокументированные семантически нейтральные отличия execution.py:** `self._estimate_tick_size`→модульная копия (staticmethod без состояния); `len(data)`→`len(ts_vals)` (массивы из той же data); `float(self.initial_capital)`→`float(initial_capital)` (из cfg). Поймано прогонами и исправлено: `use_atr_sl` не был прокинут в cfg; `safe_lev` использовался в DFC-секции run_backtest — перевычислен после делегирования.
+- **Golden-контроль:** test_golden_backtest.py + test_backtest_golden_scenarios.py — 30/30 (фикстура seed 42, побитовое совпадение метрик/MC/exit-reasons). Полный pytest 434 passed, 28 skipped.
+- Backend/марафон на :8000 работают на старом коде — сигнатуры совместимы, перезапуск НЕ требуется (подхватится при следующем). **По MODULARIZATION_PLAN остался только п.1 `Chart.jsx`** — 🔴, ждёт отдельного решения Di.
+
 ## Kimi phase-6.4 слайс 8 (SettingsModal -> settings/, п.8 закрыт) — 2026-10-23 (день)
 
 - **ACTIVE_AGENT:** `kimi` (main: `a1e5191`, gate **ALL QUALITY CHECKS PASSED**; фронтенд-only слайс — pytest не менялся, 425 passed)
