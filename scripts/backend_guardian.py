@@ -103,14 +103,27 @@ def restart_backend() -> bool:
     return False
 
 
+def any_session_running(payload: dict) -> bool:
+    """True, если хотя бы одна paper-сессия реально работает (is_running).
+
+    Старый критерий len(sessions) > 0 ловил восстановленный из снапшота
+    статус после рестарта backend: записи сессий есть, а движок не запущен —
+    guardian пропускал resume, и марафон оставался мёртвым.
+    """
+    sessions = (payload or {}).get("sessions") or {}
+    for s in sessions.values():
+        paper = s.get("paper") or {}
+        if paper.get("is_running"):
+            return True
+    return False
+
+
 def pilot_sessions_alive(host: str, port: int) -> bool:
     try:
         res = requests.get(f"http://{host}:{port}/api/overnight-pilot/status", timeout=10)
         if res.status_code != 200:
             return False
-        payload = res.json()
-        sessions = payload.get("sessions") or {}
-        return len(sessions) > 0
+        return any_session_running(res.json())
     except Exception:
         return False
 
@@ -129,7 +142,21 @@ def resume_pilot(host: str, port: int, config_path: Path) -> bool:
         if pre.status_code != 200:
             log(f"[PILOT][FAIL] preflight HTTP {pre.status_code}: {pre.text[:200]}")
             return False
-        start = requests.post(f"{base}/api/overnight-pilot/start", data=body, headers=headers, timeout=60)
+        # start требует preflight_id из ответа preflight (сессии хранят его как
+        # run_id; без него _preflight_matches отклоняет старт с 400).
+        try:
+            preflight_id = (pre.json() or {}).get("preflight_id")
+        except ValueError:
+            preflight_id = None
+        if not preflight_id:
+            log("[PILOT][FAIL] preflight прошёл, но preflight_id не выдан "
+                "(сессии невалидны — смотри /api/overnight-pilot/status)")
+            return False
+        start = requests.post(
+            f"{base}/api/overnight-pilot/start",
+            params={"preflight_id": preflight_id},
+            data=body, headers=headers, timeout=60,
+        )
         if start.status_code != 200:
             log(f"[PILOT][FAIL] start HTTP {start.status_code}: {start.text[:200]}")
             return False
@@ -155,14 +182,24 @@ def main():
 
     fails = 0
     restart_times: list[float] = []
+    last_resume_attempt = 0.0
+    RESUME_MIN_INTERVAL = 300.0  # не чаще одной попытки resume за 5 минут
 
     def check_once() -> str:
-        nonlocal fails, restart_times
+        nonlocal fails, restart_times, last_resume_attempt
         host, port = read_endpoint()
         if is_healthy(host, port):
             if fails:
                 log(f"[OK] backend снова healthy на {host}:{port} (было {fails} подряд неудач)")
             fails = 0
+            # Resume марафона и на healthy-бэкенде: снапшот сессий может быть
+            # восстановлен при рестарте backend вне guardian (is_running=False),
+            # а старая логика резюмила только после собственного рестарта.
+            if args.resume_pilot and time.time() - last_resume_attempt >= RESUME_MIN_INTERVAL:
+                last_resume_attempt = time.time()
+                if not pilot_sessions_alive(host, port):
+                    log("[PILOT] Сессии не живы — пробую resume марафона")
+                    resume_pilot(host, port, ROOT_DIR / args.resume_pilot)
             return "ok"
 
         fails += 1
