@@ -97,3 +97,64 @@ kill-подобное завершение — **причина не устан�
   поднимает backend+frontend, пропускает компонент, если порт занят, ждёт /api/health до 60 с.
 - Recorder-soak (`scripts/run_recorder.ps1`, до ~24.10) — независимый процесс, рестарт backend его не затрагивает.
 - Не запускать второй backend: gate (check.ps1 шаг 0) падает при >1 процессе.
+
+## 2026-10-23 (день, ~13:30–15:50 local) — Корень evaluations=0 найден: протухший 15m parquet; фикс require_fresh; восьмой запуск
+
+**Симптом:** после фикса дедлока (`be07ec5`) раннер стал доходить до загрузки индикаторов, но
+все оценки по-прежнему отклонялись: `Blocked by: indicator_data (stale requires fresh)`,
+evaluations=0, растёт только `data_quality_count`.
+
+**Корень (два слоя):**
+
+1. `fetch_history()` (backtest.py) имеет fast path: локальный parquet отдаётся безусловно,
+   если в нём ≥50 строк (осознанный дизайн — бэктесты ограничены записанным периодом).
+2. Но parquet-файлы **15m никто не обновляет**: background worker пишет в кэш только 5m
+   (`_process_ticker`/`auto_optimize_strategies`). `BTCUSDT_15m.parquet` кончался
+   21.10 22:20 (+03:00), ETH/SOL 15m — 22.10 16:32. Раннер получал свечи ~41-часовой давности,
+   гейт свежести (`interval + 60s` на close свечи) отклонял всё.
+
+Изолированный repro: прямой вызов `_load_indicator_context()` → `indicator_last_update
+= 1792610100000` (age ≈ 40,8 ч), `indicator_data_status: connected`, fresh check = False.
+
+**Фикс (коммит `70b0bba`):** `fetch_history(..., require_fresh: bool = False)`.
+При `require_fresh=True` parquet older ~2 интервалов трактуется как промах (и in-memory TTL
+кэш проверяется на свежесть), кадр перечитывается с Binance (fallback-цепочка
+Futures→Spot→Vision, 8s таймауты). Бэктесты по умолчанию не меняются — по-прежнему bounded
+записанным периодом. Раннер вызывает с `require_fresh=True`. В parquet ничего не дописывается
+(инвариант backtest-бounded сохранён). Регрессионные тесты: `test_fetch_history_freshness.py` —
+4/4 (stale-served-by-default / stale-skipped-fresh / fresh-served / in-memory не отравлен).
+Gate: ALL QUALITY CHECKS PASSED (436 passed), живой WS-smoke 12 сокетов.
+
+**Восьмой запуск марафона (A/B сохранён):**
+
+| Символ | session_id | use_m4_risk_gates | Роль |
+|---|---|---|---|
+| BTCUSDT | `overnight_btcusdt_1792758627` | **true** | Тестовая группа |
+| ETHUSDT | `overnight_ethusdt_1792758627` | false | Контрольная группа |
+| SOLUSDT | `overnight_solusdt_1792758627` | false | Контрольная группа |
+
+- Preflight: `3baf27669cb648b2bfae519c688d1cf2`. Backend перезапущен на новом коде
+  (~12:28 local, один процесс, health ok).
+- **Нюанс API:** `/start` требует тело конфига (как и `/preflight`), иначе fingerprint
+  не совпадёт: «No current preflight matches this configuration». Правильно:
+  `curl -X POST ".../start?preflight_id=..." --data-binary @data/pilot_configs_ab_20261022.json`.
+
+**Подтверждение оживления (~15:50, через ~20 мин):**
+
+- ETH: evaluations 1→2, `indicator fresh`, entry_ready True, dq=0.
+- BTC: evaluations 1, **открыта LONG 0.0765 @ 81698.8** (EMA20 cross up, Volume ratio 6.05x,
+  Delta +2011.75), equity 10000.91, есть paper-алерт Time_Stop «Momentum lost» (штата-логика).
+- SOL: evaluations 1, **открыта LONG 59.76 @ 104.59** (Volume ratio 1.72x, Delta +11929.10),
+  equity 9970.01 (позиция в просадке −0.27R — живой риск, не баг).
+- `indicator stale` у BTC/SOL между закрытиями свечей — норма (оценки только на close 15m).
+
+**Критерии сверки A/B из записи 22.10 остаются в силе** (winrate/Net PnL BTC vs ETH+SOL,
+fee drag, события M4_BLOCK/M4_KILL_SWITCH только у BTC, max drawdown).
+
+**Открытые наблюдения:**
+
+- 15m parquet до сих пор протух — это не мешает раннеру (require_fresh читает сеть), но
+  бэктесты на 15m остаются bounded записями до 21–22.10. Обновлять parquet умеет
+  `load_dataset_async(force_refresh=False)` — вопрос отдельной задачи (фоновый sync 15m
+  для marathon-символов или on-demand refresh при backtest).
+- Сделок пока мало для A/B-выводов — morning report завтра (`night-pilot.ps1 -Action report`).

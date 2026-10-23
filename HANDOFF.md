@@ -2,6 +2,16 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi: фикс марафона evaluations=0 (протухший 15m parquet → require_fresh) — 2026-10-23 (день)
+
+- **ACTIVE_AGENT:** `kimi` (main: `70b0bba`, gate **ALL QUALITY CHECKS PASSED**, pytest 436 passed)
+- **Корень бага марафона (два слоя):** (1) `fetch_history()` отдаёт локальный parquet безусловно (fast path, дизайн для бэктестов bounded записанным периодом); (2) background worker обновляет parquet-кэш **только для 5m** — 15m файлы (BTC 21.10 22:20, ETH/SOL 22.10 16:32 +03:00) протухли на ~41 ч. Paper-раннер (15m) получал старые свечи → гейт `indicator_data` отклонял все оценки → evaluations=0, рос только `data_quality_count`. Дедлок `_last_entry_candle` был первым слоем (фикс `be07ec5`), это — второй.
+- **Фикс:** `fetch_history(..., require_fresh: bool = False)` — при True parquet/in-memory кэш старше ~2 интервалов = промах, кадр перечитывается с Binance (fallback Futures→Spot→Vision). По умолчанию поведение бэктестов НЕ изменилось; в parquet ничего не пишется (инвариант сохранён). Раннер: `fetch_history(..., require_fresh=True)` (`live_paper_runner._load_indicator_context`). Тесты: `backend/tests/test_fetch_history_freshness.py` — 4/4.
+- **Марафон ожил (восьмой запуск, A/B сохранён):** sessions `overnight_{btc,eth,sol}usdt_1792758627`, preflight `3baf27669cb648b2bfae519c688d1cf2`, BTC m4=True. Backend перезапущен на новом коде (~12:28 local, один процесс :8000). Через ~20 мин: ETH evaluations 1→2 (fresh), BTC и SOL — по открытой LONG-позиции, dq=0, errors=0. Детали и критерии A/B — `docs/PAPER_MARATHON.md` (запись 23.10 день).
+- **⚠️ API-нюанс:** `/api/overnight-pilot/start` требует тело конфига (как `/preflight`), иначе «No current preflight matches this configuration» — передавать `--data-binary @data/pilot_configs_ab_20261022.json` в обоих запросах.
+- **Открыто:** 15m parquet по-прежнему протух (раннеру не мешает, но бэктесты 15m bounded 21–22.10) — кандидат в отдельную задачу: фоновый 15m-sync для marathon-символов через `load_dataset_async`. Сделок мало для A/B-выводов — morning report завтра.
+- **По MODULARIZATION_PLAN остался только п.1 `Chart.jsx`** — 🔴, ждёт явного решения Di.
+
 ## Kimi phase-6.4 п.3 (orderflow_backtester -> engine/, фин. ядро закрыто) — 2026-10-23 (вечер)
 
 - **ACTIVE_AGENT:** `kimi` (main: `27a1378`, gate **434 passed** = 425 + сборка/смоуки; golden 30/30)
