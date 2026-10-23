@@ -6,108 +6,84 @@ import { buildChartStyles } from './chartStyles.js';
 // chartIndicators (ema/vol/cvd/rsi/macd/atr/deltaBars/vwap/walls/liquidations/
 // heatmap), syncIndicatorsWithChart по INDICATORS_REGISTRY, ref-зеркало
 // activeIndicators, обработчики каталога (add/remove/toggle/save) и динамическое
-// применение uiConfig (buildChartStyles + pricePrecision).
-// Извлечено ДОСЛОВНО из Chart.jsx (слайс 6.4n, п.1 MODULARIZATION_PLAN).
+// Применение uiConfig (buildChartStyles + pricePrecision).
+// Извлечено ДОСЛОВНО из Chart.jsx (слайс 6.4n, п.1 MODULARIZATION_PLAN);
+// эффект синка chartIndicators исправлен после слайса (latent-баг оригинала:
+// мёртвое обращение к несуществующему state `indicators`) — см. комментарий
+// у эффекта.
 // Депсы: chartRef, chartId, uiConfig, symbol, chartReady, chartIndicators,
 // activeIndicators, setActiveIndicators, setPanelIndicators (useLayoutStore,
 // из Chart.jsx), setStatusMsg, setShowVwap, setShowWalls, setShowLiquidations,
 // setShowHeatmap.
-// ИЗВЕСТНЫЙ LATENT-БАГ (дословно из оригинала, не исправляем в слайсе): в эффекте
-// синка chartIndicators используется несуществующий сеттер setIndicators —
-// мёртвый код, т.к. проп chartIndicators ни один родитель не передаёт (early
-// return на null). При передаче пропа ветка ema/vol/... кинула бы ReferenceError
-// — поведение 1:1 с оригиналом, чинить отдельной задачей.
 
 export function useChartIndicators({
   chartRef, chartId, uiConfig, symbol, chartReady, chartIndicators,
   activeIndicators, setActiveIndicators, setPanelIndicators,
   setStatusMsg, setShowVwap, setShowWalls, setShowLiquidations, setShowHeatmap,
 }) {
-  // Synchronize indicators with external IndicatorsModal state
+  // Synchronize indicators with external IndicatorsModal state.
+  // FIX (после слайса 6.4n): оригинал миррировал состояние в несуществующий
+  // state `indicators` (setIndicators) — ветка мёртвая (проп chartIndicators
+  // никто не передаёт), но при пробросе пропа кинула бы ReferenceError.
+  // Дедуп-зеркало перенесено в ref: повторный create/remove только при смене
+  // значения; эффект по-прежнему гоняется на [chartIndicators, uiConfig].
+  const appliedChartIndicatorsRef = useRef({});
   useEffect(() => {
     if (!chartIndicators) return;
-    if (typeof chartIndicators.ema === 'boolean') {
-      setIndicators(prev => {
-        if (prev.ema !== chartIndicators.ema) {
-          if (chartRef.current) {
-            if (chartIndicators.ema) {
-              chartRef.current.createIndicator({
-                name: 'EMA',
-                calcParams: uiConfig?.emaPeriods || [9, 21, 50]
-              }, true, { id: 'candle_pane' });
-            } else {
-              chartRef.current.removeIndicator('candle_pane', 'EMA');
-            }
-          }
-          return { ...prev, ema: chartIndicators.ema };
-        }
-        return prev;
-      });
-    }
-    if (typeof chartIndicators.vol === 'boolean') {
-      setIndicators(prev => {
-        if (prev.vol !== chartIndicators.vol) {
-          if (chartRef.current) {
-            if (chartIndicators.vol) {
-              chartRef.current.createIndicator('VOL', false, { id: 'pane_vol', height: 70 });
-            } else {
-              try { chartRef.current.removeIndicator('pane_vol', 'VOL'); } catch (_) {}
-              try { chartRef.current.removeIndicator({ name: 'VOL' }); } catch (_) {}
-            }
-          }
-          return { ...prev, vol: chartIndicators.vol };
-        }
-        return prev;
-      });
-    }
-    if (typeof chartIndicators.cvd === 'boolean') {
-      setIndicators(prev => {
-        if (prev.cvd !== chartIndicators.cvd) {
-          if (chartRef.current) {
-            if (chartIndicators.cvd) {
-              chartRef.current.createIndicator('CVD', false, { id: 'pane_cvd', height: 75 });
-            } else {
-              try { chartRef.current.removeIndicator('pane_cvd', 'CVD'); } catch (_) {}
-              try { chartRef.current.removeIndicator({ name: 'CVD' }); } catch (_) {}
-            }
-          }
-          return { ...prev, cvd: chartIndicators.cvd };
-        }
-        return prev;
-      });
-    }
-    if (typeof chartIndicators.rsi === 'boolean') {
-      setIndicators(prev => {
-        if (prev.rsi !== chartIndicators.rsi) {
-          if (chartRef.current) {
-            if (chartIndicators.rsi) {
-              chartRef.current.createIndicator('RSI', false, { id: 'pane_rsi', height: 70 });
-            } else {
-              try { chartRef.current.removeIndicator('pane_rsi', 'RSI'); } catch (_) {}
-              try { chartRef.current.removeIndicator({ name: 'RSI' }); } catch (_) {}
-            }
-          }
-          return { ...prev, rsi: chartIndicators.rsi };
-        }
-        return prev;
-      });
-    }
-    if (typeof chartIndicators.macd === 'boolean') {
-      setIndicators(prev => {
-        if (prev.macd !== chartIndicators.macd) {
-          if (chartRef.current) {
-            if (chartIndicators.macd) {
-              chartRef.current.createIndicator('MACD', false, { id: 'pane_macd', height: 75 });
-            } else {
-              try { chartRef.current.removeIndicator('pane_macd', 'MACD'); } catch (_) {}
-              try { chartRef.current.removeIndicator({ name: 'MACD' }); } catch (_) {}
-            }
-          }
-          return { ...prev, macd: chartIndicators.macd };
-        }
-        return prev;
-      });
-    }
+    const applied = appliedChartIndicatorsRef.current;
+    const syncFlag = (key, value, apply) => {
+      if (typeof value !== 'boolean') return;
+      if (applied[key] === value) return;
+      applied[key] = value;
+      apply(value);
+    };
+    syncFlag('ema', chartIndicators.ema, (v) => {
+      if (!chartRef.current) return;
+      if (v) {
+        chartRef.current.createIndicator({
+          name: 'EMA',
+          calcParams: uiConfig?.emaPeriods || [9, 21, 50]
+        }, true, { id: 'candle_pane' });
+      } else {
+        chartRef.current.removeIndicator('candle_pane', 'EMA');
+      }
+    });
+    syncFlag('vol', chartIndicators.vol, (v) => {
+      if (!chartRef.current) return;
+      if (v) {
+        chartRef.current.createIndicator('VOL', false, { id: 'pane_vol', height: 70 });
+      } else {
+        try { chartRef.current.removeIndicator('pane_vol', 'VOL'); } catch (_) {}
+        try { chartRef.current.removeIndicator({ name: 'VOL' }); } catch (_) {}
+      }
+    });
+    syncFlag('cvd', chartIndicators.cvd, (v) => {
+      if (!chartRef.current) return;
+      if (v) {
+        chartRef.current.createIndicator('CVD', false, { id: 'pane_cvd', height: 75 });
+      } else {
+        try { chartRef.current.removeIndicator('pane_cvd', 'CVD'); } catch (_) {}
+        try { chartRef.current.removeIndicator({ name: 'CVD' }); } catch (_) {}
+      }
+    });
+    syncFlag('rsi', chartIndicators.rsi, (v) => {
+      if (!chartRef.current) return;
+      if (v) {
+        chartRef.current.createIndicator('RSI', false, { id: 'pane_rsi', height: 70 });
+      } else {
+        try { chartRef.current.removeIndicator('pane_rsi', 'RSI'); } catch (_) {}
+        try { chartRef.current.removeIndicator({ name: 'RSI' }); } catch (_) {}
+      }
+    });
+    syncFlag('macd', chartIndicators.macd, (v) => {
+      if (!chartRef.current) return;
+      if (v) {
+        chartRef.current.createIndicator('MACD', false, { id: 'pane_macd', height: 75 });
+      } else {
+        try { chartRef.current.removeIndicator('pane_macd', 'MACD'); } catch (_) {}
+        try { chartRef.current.removeIndicator({ name: 'MACD' }); } catch (_) {}
+      }
+    });
     if (typeof chartIndicators.atr === 'boolean') {
       if (chartRef.current) {
         if (chartIndicators.atr) {
@@ -128,10 +104,9 @@ export function useChartIndicators({
         }
       }
     }
-    if (typeof chartIndicators.vwap === 'boolean') {
-      setShowVwap(chartIndicators.vwap);
-      setIndicators(prev => ({ ...prev, vwap: chartIndicators.vwap }));
-    }
+    syncFlag('vwap', chartIndicators.vwap, (v) => {
+      setShowVwap(v);
+    });
     if (typeof chartIndicators.walls === 'boolean') {
       setShowWalls(chartIndicators.walls);
     }
