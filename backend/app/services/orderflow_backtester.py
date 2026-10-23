@@ -211,6 +211,17 @@ class OrderFlowBacktester:
             elif passes_wall and previous_close >= float(prev.get("ema20", 0.0)) and close < float(cur.get("ema20", 0.0)) and volume_ok and delta < 0 and 35 <= rsi <= 60:
                 direction = -1
                 reasons = ["EMA20 cross down", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
+        elif profile == "ema_trend":
+            # Пересечение EMA fast/slow (ema20/ema50) — семантика 1:1 с бэктестом
+            # engine/strategies.py::compute_raw_signal (ema_trend).
+            cross_up = float(prev.get("ema20", 0.0)) <= float(prev.get("ema50", 0.0)) and float(cur.get("ema20", 0.0)) > float(cur.get("ema50", 0.0))
+            cross_down = float(prev.get("ema20", 0.0)) >= float(prev.get("ema50", 0.0)) and float(cur.get("ema20", 0.0)) < float(cur.get("ema50", 0.0))
+            if passes_wall and cross_up and volume_ok and delta > 0:
+                direction = 1
+                reasons = [f"EMA cross up ({float(cur.get('ema20', 0.0)):.2f} > {float(cur.get('ema50', 0.0)):.2f})", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
+            elif passes_wall and cross_down and volume_ok and delta < 0:
+                direction = -1
+                reasons = [f"EMA cross down ({float(cur.get('ema20', 0.0)):.2f} < {float(cur.get('ema50', 0.0)):.2f})", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
         elif profile == "diagnostics_lenient":
             # Diagnostic-only profile: keeps real OHLCV/EMA/delta inputs but
             # intentionally drops production-only confirmation gates so the
@@ -330,7 +341,19 @@ class OrderFlowBacktester:
 
         if profile not in {"diagnostics_lenient", "naked_test"} and volume_ratio < float(volume_multiplier):
             reject("volume_multiplier", round(volume_ratio, 4), ">=", float(volume_multiplier))
-        if profile == "confluence_ema":
+        if profile == "ema_trend":
+            cross_up = float(prev.get("ema20", 0.0)) <= float(prev.get("ema50", 0.0)) and float(cur.get("ema20", 0.0)) > float(cur.get("ema50", 0.0))
+            cross_down = float(prev.get("ema20", 0.0)) >= float(prev.get("ema50", 0.0)) and float(cur.get("ema20", 0.0)) < float(cur.get("ema50", 0.0))
+            if not (cross_up or cross_down):
+                reject(
+                    "ema_cross",
+                    [round(float(prev.get("ema20", 0.0)), 8), round(float(cur.get("ema20", 0.0)), 8)],
+                    "crosses",
+                    [round(float(prev.get("ema50", 0.0)), 8), round(float(cur.get("ema50", 0.0)), 8)],
+                )
+            if delta == 0:
+                reject("delta_direction", round(delta, 4), "!=", 0.0)
+        elif profile == "confluence_ema":
             cross_up = previous_close <= float(prev.get("ema20", 0.0)) and close > float(cur.get("ema20", 0.0))
             cross_down = previous_close >= float(prev.get("ema20", 0.0)) and close < float(cur.get("ema20", 0.0))
             if not (cross_up or cross_down):

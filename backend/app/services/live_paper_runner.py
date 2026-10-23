@@ -33,6 +33,7 @@ PAPER_HISTORICAL_STRATEGIES = frozenset({
     "cvd_absorption",
     "cluster_volume_bounce",
     "diagnostics_lenient",
+    "ema_trend",
     "naked_test",
 })
 
