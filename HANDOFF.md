@@ -2,6 +2,17 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-6.4 п.1 слайс 6 (Chart.jsx -> chart/useChartAnnotations.js) — 2026-10-23 (вечер)
+
+- **ACTIVE_AGENT:** `kimi` (main: `2845774`, gate **ALL QUALITY CHECKS PASSED**; фронтенд-only слайс — pytest не менялся, 448 passed)
+- `Chart.jsx` (**1537→996, −541**; прогресс п.1: 5065→4659→4445→4102→2230→1537→**996**): аннотации/сигнальные оверлеи вынесены в `chart/useChartAnnotations.js` (~570 строк):
+  - **Внутри хука (дословно, norm-сверка 554/554):** рефы `btOverlayIds`/`activeStrategyLevelOverlays`/`activeVolatilityConeOverlayId`/`activePositionOverlayId`/`lastScrolledResult`/`paperOverlayIds`/`liveSignalOverlayIds`/`whaleOverlayIds`; state `paperTrades` + `isToxicRegime`/`isToxicDismissed` (возвращаются в Chart.jsx); эффекты: toxic polling 4с, `loadPaperTrades` 5с, `apply-ai-strategy-levels`, конус волатильности (ATR-фан 16 баров из klines + `apply-volatility-cone`/`clear-volatility-cone`), bt-маркеры/линии с тултипом (`clearBacktestSignals`+effect), `focus-backtest-trade`, paper-оверлеи, live-сигналы (`renderLiveSignals`/`clearLiveSignals`), whale ≥$500k (`renderWhaleTrades`/`clearWhaleTrades`, буфер 40), `apply-position-setup` listener, `positionSetupBox` render, `strategyLevels`-зоны. Импорты хука: `utils/chartAnnotations`, `stores/tradesStore`, `stores/marketDataStore`, `TF_MS`.
+  - **Депсы (20 пропов):** `{chartRef, chartContainerRef, currentKlines, symbol, timeframe, chartReady, klinesVersion, setStatusMsg, setBtTooltip, setIsConeActive, effectiveBacktestSignals, effectiveShowBtSignals, strategyLevels, liveSignals, showLiveSignals, activePositionSetup, localPositionSetup, setLocalPositionSetup, effectivePositionSetup}`. 🔴 **`setLocalPositionSetup` обязателен** — его state остался в Chart.jsx (handleAskSecondOpinion объявлен ВЫШЕ вызова хука, перенос state сломал бы порядок). Та же ловушка класса, что `wsRef` в слайсе 5: ReferenceError видит только браузер/E2E.
+  - **Осталось в Chart.jsx:** `isConeActive` state (проп тулбару/AssistantHUD), `effectivePositionSetup` (конст перенесён выше вызова хука — чистая перестановка), второе мнение handlers (138–208), индикаторы-sync (294–413, 587–745), crosshair-sync/mouseup/recenter/save-drawings (753–853), storageInfo, toggleIndicator, btTooltip state + JSX (тулбар, canvas, тултип bt, toxic-overlay, модалки save-template/индикаторов).
+- **E2E:** `scripts/verify_modularization_6_4m.py` — 5/5 PASS (базовая загрузка без pageerror — ловуш ReferenceError-класса; конус on/off по overlay-store; AI-уровни 2→0; positionSetupBox 11→12 + HUD; второе мнение с вердиктом «AI НЕДОСТУПЕН» — фактическая квота OpenRouter).
+- Backend/марафон/guardian не тронуты (перезапуск НЕ нужен).
+- **Дальше по п.1 (слайс 7):** остаток ~996 строк: useChartIndicators (sync modular indicators 294–413 + 587–745, ~270 строк), второе мнение в hook (138–208), storageInfo effect, JSX-модалки (save-template ~90, btTooltip ~50, toxic overlay ~40). После слайса 7 Chart.jsx ~550; слайс 8 — JSX split (SaveTemplateModal + BtTooltip + ToxicOverlay компоненты) → ~350.
+
 ## Kimi phase-6.4 п.1 слайс 5 (Chart.jsx -> chartStyles + useChartLifecycle + PositionSetupHUD) — 2026-10-23 (вечер)
 
 - **ACTIVE_AGENT:** `kimi` (main: `1d54ff0`, gate **ALL QUALITY CHECKS PASSED**; фронтенд-only слайс — pytest не менялся, 448 passed)
