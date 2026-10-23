@@ -255,11 +255,19 @@ class OvernightPilotManager:
         session.backtest = backtest
         session.forecast = forecast
 
+    # MAX_SESSIONS: 7 сессий (запрос Di 2026-10-23: scalp-прогон по 5–7 парам
+    # вотчлиста одновременно). Каждая сессия — LivePaperRunner со своим тик-циклом
+    # (sleep 4–60 c между опросами) и forecast-циклом (300 c) — нагрузка на
+    # Binance REST умеренная (~7x10 req/мин в худшем случае).
+    MAX_SESSIONS = 7
+
     @staticmethod
     def _validate_configs(configs: Optional[List[OvernightPilotConfig]]) -> List[OvernightPilotConfig]:
         selected = configs or OvernightPilotManager.default_configs()
-        if not 1 <= len(selected) <= 3:
-            raise ValueError("overnight pilot accepts one to three sessions")
+        if not 1 <= len(selected) <= OvernightPilotManager.MAX_SESSIONS:
+            raise ValueError(
+                f"overnight pilot accepts one to {OvernightPilotManager.MAX_SESSIONS} sessions"
+            )
         symbols = [config.symbol.strip().upper() for config in selected]
         if len(set(symbols)) != len(symbols):
             raise ValueError("overnight pilot requires unique symbols")
