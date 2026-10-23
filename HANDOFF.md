@@ -2,6 +2,15 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi: фикс дрейфа BACKEND_PORT (.env 8001→8000) + фоновый 15m-sync parquet — 2026-10-23 (вечер)
+
+- **ACTIVE_AGENT:** `kimi` (main: `b84e60a`, gate **ALL QUALITY CHECKS PASSED**, pytest **444 passed**, 28 skipped)
+- **⚠️ Инцидент дрейфа порта (закрыт):** gate упал на BLOCKING UI smoke — console error «Could not load drawings: Unexpected end of JSON input». Корень: `.env` и `data/backend_runtime.json` были перезаписаны в **15:55:35** значением `BACKEND_PORT=8001` / `VITE_BACKEND_PORT=8001` (механизм dynamic runtime binding из `services/runtime_binding.py` — вероятно, попытка второго старта backend при занятом :8000; процесса на 8001 нет, живой backend — PID-шим 23004 + воркер 37320, старт 15:28, слушает :8000). Vite-прокси `/api` → 8001 → ECONNREFUSED → 502 с пустым телом → падение `res.json()`. Симптом-маска: chart работал (свечи через WS/failover), ломались только REST `/api/*`. **Фикс:** `.env` и `backend_runtime.json` возвращены на 8000 (оба файла вне git). Диагностика на будущее: `curl /api/health` через :5173 → 502 + лог vite `http proxy error ... ECONNREFUSED 127.0.0.1:XXXX` = дрейф порта.
+- **Задача 15m-sync (из «Открыто» прошлой записи — ЗАКРЫТО в коде):** `background_worker._sync_marathon_history()` — после gather квант-цикла инкрементальный tail-sync 15m parquet для `MARATHON_SYNC_SYMBOLS=(BTC,ETH,SOL)USDT` через `load_dataset_async(days=14)` под тем же семафором; ошибка одного символа не блокирует остальные. ETH не входит в 5m focus-лист — отдельный синк обязателен. Тесты: `test_marathon_15m_sync.py` (4; async через `asyncio.run`, pytest-asyncio в проекте НЕТ). Ветка `agent/kimi/15m-parquet-sync` влита ff.
+- **Backend НЕ перезапускался** (марафон на :8000 жив с 15:28, сигнатуры совместимы) — 15m-sync активируется при следующем естественном рестарте. 15m parquet пока протух для бэктестов, раннеру не мешает (require_fresh).
+- **Марафон (8-й запуск, ~3.5 ч):** все 3 сессии connected, errors=0, dq=0, telemetry healthy. BTC eval=1 (открыт LONG, equity 9979), SOL eval=1 (открыта позиция, equity 9953), ETH eval=4 / blocked=4 (гейты, позиции нет), closed=0 у всех. Сделок по-прежнему мало для A/B — morning report 24.10.
+- **По MODULARIZATION_PLAN остался только п.1 `Chart.jsx`** — 🔴, ждёт явного решения Di.
+
 ## Kimi: фикс марафона evaluations=0 (протухший 15m parquet → require_fresh) — 2026-10-23 (день)
 
 - **ACTIVE_AGENT:** `kimi` (main: `70b0bba`, gate **ALL QUALITY CHECKS PASSED**, pytest 436 passed)
