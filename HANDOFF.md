@@ -2,6 +2,14 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-6.4 п.1 слайс 1 (Chart.jsx -> chart/ChartToolbar) — 2026-10-23 (вечер)
+
+- **ACTIVE_AGENT:** `kimi` (main: `c6880f2`, gate **ALL QUALITY CHECKS PASSED**; фронтенд-only слайс — pytest не менялся, 448 passed)
+- П.1 MODULARIZATION_PLAN открыт (решение Di: «продолжай»). `Chart.jsx` (5065→4659, −406): верхняя полоса инструментов вынесена в `chart/ChartToolbar.jsx` — **управляемый** компонент (все значения и колбэки пропами, ~45 шт.), 441 строка JSX дословно (построчная norm-сверка с оригиналом MATCH 441/441). Все data-testid 1:1 (`tool-risk-reward`, `btn-smc-templates`, `btn-toolbar-*`, `density-mode-control`...). Удалены 12 неиспользуемых lucide-импортов (Minus/MoveRight/Square/Hash/TrendingUp/Eye/MousePointer/Sliders/Bookmark/Palette/Layers/ChevronDown); Trash2/Magnet/Save/Ruler/X/RotateCcw/Check/BarChart3/Loader2/Zap/AlertTriangle используются ниже — оставлены.
+- **E2E:** `scripts/verify_modularization_6_4h.py` — 6/6 PASS (12 testid тулбара, выбор/сброс инструмента «Линия»→«Курсор», дропдаун SMC открытие/закрытие, heatmap on/off + localStorage, density-mode compact→auto, каталог индикаторов открытие/закрытие). Ловушка: заголовок модала — «Каталог **технических** индикаторов» (искать по testid `indicators-modal`, закрытие — `btn-close-indicators-modal`). Порт 5199 дочищен.
+- Backend/марафон/guardian не тронуты (перезапуск НЕ нужен).
+- **Дальше по п.1:** слайс 2 — ChartContextMenu + инспектор отскоков (JSX ~4500–4650 + state 1934+); слайс 3 — useChartDrawings (рисование/SMC/undo ~2546–2823, 3823–4009); слайс 4 — useChartOverlays; слайс 5 — useChartLifecycle (2267–2387, 3185–3476). Цель: Chart.jsx < 350 строк.
+
 ## Kimi: защита портов (anti-hijack .env) + Backend Guardian watchdog — 2026-10-23 (вечер)
 
 - **ACTIVE_AGENT:** `kimi` (main: `e08387d`, gate **ALL QUALITY CHECKS PASSED**, pytest **448 passed**, 28 skipped)
