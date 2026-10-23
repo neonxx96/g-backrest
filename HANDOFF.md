@@ -2,6 +2,14 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-6.4 п.1 слайс 3 (Chart.jsx -> chart/useChartDrawings) — 2026-10-23 (вечер)
+
+- **ACTIVE_AGENT:** `kimi` (main: `eeeffa0`, gate **ALL QUALITY CHECKS PASSED**; фронтенд-only слайс — pytest не менялся, 448 passed)
+- `Chart.jsx` (4445→4102, −343): рисование / SMC-шаблоны / undo вынесены в `chart/useChartDrawings.js` (~450 строк) — **хук** (рефы `selectedOverlayId`/`trackedOverlays`/`drawingHistory`/`activeDrawingOverlayId`, state `activeTool`/`drawingTemplates`/`isTemplateMenuOpen`/`activeDrawingStyle`/`showSaveTemplateModal`/`newTemplateName`, `saveDrawingsFor`/`saveDrawings`/`loadDrawings`/`handleUndo`/`cancelActiveDrawing`/`handleSelectTool`/`applyTemplate`/`updateStyle`/`handleSaveCurrentAsTemplate`/`handleClearDrawings`, keydown-эффект Ctrl+Z/Delete/Escape/'i', undo-event-эффект, константа `USER_DRAWING_TYPES`). Тела дословно, norm-сверка git diff **12/12 MATCH**. Депсы хука: `{chartRef, symbol, timeframe, userId, setStatusMsg, magnetEnabled, setContextMenu, setIsCatalogOpen, setSettingsDialogIndId}`. В Chart.jsx хук вызван после `useChartContextMenu`; save-on-switch эффекты идут через возвращённый `saveDrawingsFor`, модалка save-template — через возвращённые state, тулбару/меню — через пропы. `magnetEnabled` остался в Chart (нужен вне хука); `useTradeOverlayStore`/`calculatePositionMetrics` **не удалять** — используются в Chart (1050/1057/1782/3538 в старой нумерации).
+- **E2E:** `scripts/verify_modularization_6_4j.py` — 7/7 PASS (инструмент, рисование→сохранение, Ctrl+Z ровно −1, Escape, SMC-шаблон, модалка save-template→дропдаун, очистка через контекст-меню). **Ловушки скрипта (важно для слайса 4+):** (1) 🔴 `page.mouse.click()` НЕ срабатывает на канвасе KLineCharts v9 (сегмент не ставится, POST не уходит) — только явные `mouse.down()`/`mouse.up()` с sleep ≥50 мс; (2) кнопка[0] дропдауна `smc-templates-dropdown` — «+ Сохранить текущий», шаблоны — кнопки без этого текста; (3) сохранение на бэкенде поллить (`wait_drawings_count`), фиксированные слипы недостаточны; (4) снапшот /api/drawings (BTCUSDT/15m/user 0) в начале + восстановление POST в finally. После прогонов drawings возвращены к исходным 11 (`positionSetupBox` ×11).
+- Backend/марафон/guardian не тронуты (перезапуск НЕ нужен).
+- **Дальше по п.1:** слайс 4 — useChartOverlays; слайс 5 — useChartLifecycle + PositionSetupHUD. Цель: Chart.jsx < 350 строк. Прогресс: 5065 → 4659 (слайс 1) → 4445 (слайс 2) → 4102 (слайс 3).
+
 ## Kimi phase-6.4 п.1 слайс 2 (Chart.jsx -> chart/ChartContextMenu) — 2026-10-23 (вечер)
 
 - **ACTIVE_AGENT:** `kimi` (main: `64240a4`, gate **ALL QUALITY CHECKS PASSED**; фронтенд-only слайс — pytest не менялся, 448 passed)
