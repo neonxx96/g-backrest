@@ -49,9 +49,10 @@ OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", OPENROUTER_PRIMARY_MODEL)
 OPENROUTER_FREE_MODELS = [
     m.strip() for m in os.getenv(
         "OPENROUTER_FREE_MODELS",
-        # Актуальный каталог бесплатных моделей OpenRouter (проверено 2026-10-23:
-        # llama-3.1-8b / gemma-2-9b / qwen-2.5-7b удалены из каталога).
-        "openrouter/free,google/gemma-4-31b-it:free,google/gemma-4-26b-a4b-it:free,thinkingmachines/inkling:free"
+        # Актуальный каталог бесплатных моделей OpenRouter (проверено 2026-10-23
+        # прямыми вызовами: flint и nemotron-3.5-lightning отвечают, gemma-4 и
+        # inkling отдают 429/403; llama-3.1-8b/gemma-2-9b/qwen-2.5-7b удалены).
+        "recursive/flint-v1.0:free,nvidia/nemotron-3.5-lightning:free,openrouter/free,google/gemma-4-31b-it:free"
     ).split(",") if m.strip()
 ]
 OPENROUTER_DAILY_BUDGET_USD = float(os.getenv("OPENROUTER_DAILY_BUDGET_USD", "1.00"))
