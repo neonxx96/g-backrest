@@ -2,6 +2,14 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi: защита портов (anti-hijack .env) + Backend Guardian watchdog — 2026-10-23 (вечер)
+
+- **ACTIVE_AGENT:** `kimi` (main: `e08387d`, gate **ALL QUALITY CHECKS PASSED**, pytest **448 passed**, 28 skipped)
+- **Anti-hijack портов (корень вчерашнего инцидента закрыт в коде):** `runtime_binding.is_healthy_backend_running()` (GET /api/health, 2 с) + `persist_runtime_port_guarded()` — роуминг-инстанс на НЕ-preferred порту больше НЕ перезаписывает `.env` / `data/backend_runtime.json`, пока primary на preferred порту жив. Биндинг preferred порта персистит без self-probe; роуминг при мёртвом primary персистит (fallback сохранён). `main.py` переведён на guarded-вариант. Тесты: `test_runtime_binding.py` +4 (6/6).
+- **Backend Guardian (риск «тихая смерть backend» — рекомендация из 4.5-инцидента):** `scripts/backend_guardian.py` — внешний watchdog: health каждые 120 с, 2 подряд неудачи → рестарт по процедуре 6.1 (Start-Process, логи `backend/logs/backend-runtime.*.log`), лимит 3 рестарта/час (далее HALT с логом), `--resume-pilot data/pilot_configs_ab_20261022.json` восстанавливает марафон (preflight+start с одним телом). **Запущен постоянно** (shim+worker PID 33732/15872, лог `backend/logs/backend_guardian.log`). ⚠️ Теперь при гибели backend марафон поднимется АВТОМАТИЧЕСКИ — A/B-часы считать от guardian-рестарта (маркер `[RESTART]`/`[PILOT]` в логе).
+- **Guardian в gate не участвует** (не backend-процесс); check.ps1 зелёный с ним запущенным.
+- **Марафон:** без изменений, 8-й запуск жив, guardian — страховка, не вмешательство. **По MODULARIZATION_PLAN остался только п.1 `Chart.jsx`** — 🔴, ждёт явного решения Di.
+
 ## Kimi: фикс дрейфа BACKEND_PORT (.env 8001→8000) + фоновый 15m-sync parquet — 2026-10-23 (вечер)
 
 - **ACTIVE_AGENT:** `kimi` (main: `b84e60a`, gate **ALL QUALITY CHECKS PASSED**, pytest **444 passed**, 28 skipped)
