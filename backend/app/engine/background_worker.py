@@ -32,6 +32,14 @@ DEFAULT_FOCUS_LIST = [
     "ZECUSDT"
 ]
 
+# Symbols with live 15m consumers (overnight marathon / live paper runner).
+# Their 15m parquet cache is NOT covered by the 5m quant cycle below, so it
+# goes stale and 15m backtests become bounded to the last sync. Each master
+# cycle incrementally tail-syncs these symbols on 15m via load_dataset_async.
+MARATHON_SYNC_SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT")
+MARATHON_SYNC_TIMEFRAME = "15m"
+MARATHON_SYNC_DAYS = 14
+
 CANDIDATE_STRATEGIES = [
     {
         "name": "Confluence Momentum (CVD+EMA+ATR)",
@@ -610,6 +618,29 @@ class BackgroundWorker:
                 f"WinRate {win_rate}% | TradeAllowed: {is_trade_allowed}"
             )
 
+    async def _sync_marathon_history(self):
+        """Incrementally tail-syncs the 15m parquet cache for marathon symbols.
+
+        Runs once per master cycle under the same concurrency semaphore.
+        A failure for one symbol is logged and never blocks the others or
+        the main quant cycle.
+        """
+        for sym in MARATHON_SYNC_SYMBOLS:
+            try:
+                async with self.semaphore:
+                    df = await historical_loader.load_dataset_async(
+                        symbol=sym,
+                        timeframe=MARATHON_SYNC_TIMEFRAME,
+                        days=MARATHON_SYNC_DAYS,
+                        force_refresh=False,
+                    )
+                logger.info(
+                    f"[15M-SYNC] {sym}: parquet tail-synced "
+                    f"({len(df) if df is not None else 0} candles in window)."
+                )
+            except Exception as e:
+                logger.warning(f"[15M-SYNC] {sym}: sync failed: {e}", exc_info=True)
+
     async def _process_ticker_safely(self, ticker: str):
         """Wrapper ensuring task cancellation and exceptions are safely caught."""
         try:
@@ -659,6 +690,10 @@ class BackgroundWorker:
 
                 if tasks:
                     await asyncio.gather(*tasks, return_exceptions=True)
+
+                # Keep the 15m parquet cache of marathon symbols fresh
+                # (the quant cycle above only syncs 5m).
+                await self._sync_marathon_history()
 
                 reconnect_attempts = 0  # Reset on successful cycle
                 # Wait for next cycle
