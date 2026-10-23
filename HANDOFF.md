@@ -2,6 +2,16 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-6.4 слайс 6 (ai_copilot.py -> сервис, п.6 закрыт) — 2026-10-23 (день)
+
+- **ACTIVE_AGENT:** `kimi` (main: `8ae8d85`, gate **425 passed** = 395 + 30 новых)
+- `backend/app/routers/ai_copilot.py` (1507→718) разбит по п.6 MODULARIZATION_PLAN: вычислительное ядро в `backend/app/services/ai_copilot_service.py` (1174 строки) — NLP-парсер, LLM-запрос, квант-хелперы market-analysis и forecast. Тела функций перенесены дословно (поведение 1:1).
+- **Совместимость:** роутер реэкспортирует `compute_probabilistic_forecast`/`build_forecast_signal`/`classify_forecast_regime` — импортёры (`services/overnight_pilot.py`, тесты) не менялись. **ВАЖНО:** патчить `fetch_history` в тестах теперь только как `backend.app.services.ai_copilot_service.fetch_history` (старый таргет роутера больше не действует).
+- **Дедуп без смены поведения:** ATR(14) и синтез дельты (извлечены в `compute_atr14`/`get_or_synthesize_delta`, у forecast fallback `atr<=0 → price*0.005` через параметр `fallback_price`); EV-dict — единый `build_expected_value` для обеих веток. Fan-points market-analysis и forecast НЕ унифицированы (разные key-наборы) — намеренно.
+- **Латентный баг оригинала, сохранён 1:1:** если `binance_service.fetch_order_book` бросает, `bid_items`/`ask_items` остаются несвязанными → NameError в Liquidity Magnet (оригинал падал бы так же). Не чинить заодно — фикс отдельной задачей при желании.
+- **Тесты:** `backend/tests/test_ai_copilot_service.py` — 30 контрактных (NLP-парсер, ATR/дельта, метрики, уровни, фаза/сетап LONG/SHORT-геометрия, health-зоны и скор, cone/magnet/EV, forecast-fan, SL/TP-цены, реэкспорты).
+- Backend/марафон не тронуты (перезапуск НЕ нужен — роутер подхватится только при рестарте; живой процесс работает на старом коде, что безопасно: сигнатуры совместимы). **По плану остались:** п.3 `orderflow_backtester.py` (только с golden-тестом), п.7 `AICopilotSidebar` (~1052), п.8 `SettingsModal` (~873). П.1 `Chart.jsx` — 🔴, ждёт отдельного решения Di.
+
 ## Kimi phase-6.4 слайс 5 (App.jsx -> components/app/, п.5 закрыт) — 2026-10-23 (день)
 
 - **ACTIVE_AGENT:** `kimi` (main: `be17e4a`, gate **395 passed**)
