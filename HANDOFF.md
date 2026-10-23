@@ -2,6 +2,15 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-6.4 п.1 слайс 2 (Chart.jsx -> chart/ChartContextMenu) — 2026-10-23 (вечер)
+
+- **ACTIVE_AGENT:** `kimi` (main: `64240a4`, gate **ALL QUALITY CHECKS PASSED**; фронтенд-only слайс — pytest не менялся, 448 passed)
+- `Chart.jsx` (4659→4445, −214): контекстное меню (правый клик) и карточка экспресс-инспектора отскоков вынесены в `chart/ChartContextMenu.jsx` — **управляемый компонент + хук `useChartContextMenu`** (state `contextMenu`/`levelInspectorData`/`inspectingLevel`, `handleInspectLevel`, `handleContextMenu`, `handleResetScale`, effect закрытия по клику вне — тела дословно, norm-сверка MATCH; deps хука: `chartContainerRef`, `chartRef`, `currentKlines`, `setStatusMsg`, `symbol`, `timeframe`). JSX 126 строк дословно (отличие только фрагмент-обёртка `<>`). В Chart.jsx: `onContextMenu={handleContextMenu}` и `<ChartContextMenu .../>` (пропы с теми же именами, что в JSX); keydown Escape закрытие меню — через деструктурированный `setContextMenu`. Удалены мёртвые lucide-импорты Trash2/Magnet/Save/Ruler/RotateCcw/Check/BarChart3 (Save/Ruler мертвы уже со слайса 1 — только в комментариях); оставлены X/Loader2/Zap/AlertTriangle.
+- **🔴 Latent-баг оригинала (исправлен в слайсе):** JSX меню читал `indicators.ema`/`indicators.vol`, но переменной `indicators` в Chart.jsx никогда не существовало → ReferenceError при первом же открытии меню (меню правого клика падало целиком). Источник истины галочек — `activeIndicators` (тот же паттерн `some(i => i.id === 'ema' && i.enabled !== false)`, что в ChartToolbar); компонент вычисляет `indicators` из пропа `activeIndicators`. E2E подтвердил: галочки EMA/магнит работают.
+- **E2E:** `scripts/verify_modularization_6_4i.py` — 5/5 PASS (7 пунктов меню по нативному `contextmenu`-диспатчу на канвас; магнит и EMA переключаются с галочкой и возвратом; «✕ Закрыть» и Escape закрывают; карточка инспектора от живого `POST /api/backtest/inspect-level` — КАСАНИЙ/WINRATE/СР. ИМПУЛЬС, закрытие по ✕). Ловушки скрипта: (1) у «Магнит» иконка Magnet всегда в DOM — галочка Check = второй svg; (2) инспектор искать по `div.w-80` (без якоря матчится предок с текстом всей страницы). Порт 5199 дочищен.
+- Backend/марафон/guardian не тронуты (перезапуск НЕ нужен).
+- **Дальше по п.1:** слайс 3 — useChartDrawings (рисование/SMC/undo ~2546–2823, 3823–4009 в актуальной нумерации минус ~214); слайс 4 — useChartOverlays; слайс 5 — useChartLifecycle + PositionSetupHUD (HUD — отдельный компонент по плану). Цель: Chart.jsx < 350 строк.
+
 ## Kimi phase-6.4 п.1 слайс 1 (Chart.jsx -> chart/ChartToolbar) — 2026-10-23 (вечер)
 
 - **ACTIVE_AGENT:** `kimi` (main: `c6880f2`, gate **ALL QUALITY CHECKS PASSED**; фронтенд-only слайс — pytest не менялся, 448 passed)
