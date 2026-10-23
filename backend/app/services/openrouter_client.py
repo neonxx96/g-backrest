@@ -209,7 +209,13 @@ class OpenRouterClient:
                 skip_reason = f"Daily budget ceiling reached (${self.daily_spent_usd:.4f} >= ${self.daily_budget_usd:.2f})"
 
             # Check 2: Model availability in OpenRouter models catalog (1-hr cache)
-            elif avail and not self.is_model_available(model, avail):
+            # 'openrouter/free' — маршрутизатор бесплатных моделей, его ID нет в
+            # каталоге, но API его принимает: не отсекаем проверкой каталога.
+            elif (
+                avail
+                and model != "openrouter/free"
+                and not self.is_model_available(model, avail)
+            ):
                 skip_reason = f"Model '{model}' not present in OpenRouter models catalog"
 
             chain.append((model, is_paid, skip_reason))
