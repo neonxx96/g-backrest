@@ -2,6 +2,16 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi phase-6.4 слайс 5 (App.jsx -> components/app/, п.5 закрыт) — 2026-10-23 (день)
+
+- **ACTIVE_AGENT:** `kimi` (main: `be17e4a`, gate **395 passed**)
+- `App.jsx` (1545→992, −553) разбит по п.5 MODULARIZATION_PLAN: `components/app/AppTopBar.jsx` (управляемая шапка ~470 строк; глобальные сторы `useAlertsStore`/`useLayoutStore` — прямые импорты внутри), `components/app/ModalsHost.jsx` (тосты с `getUsableMarketPrice`, hotkeys-оверлей, AICopilotSidebar, журнал, Replay, индикаторы, алерты; обёртки `onApplyLevels` (pushToast) и `onIndicatorsChange` (saveChartIndicators) перенесены дословно), `components/app/constants.js` (TIMEFRAMES/POPULAR_SYMBOLS/THEME_BADGE).
+- В App остались: `handleAddWidget(id)` (единый колбэк пунктов дропдауна «+ Add Widget»: chart→setShowHtfChart+addWidgetPanel('chart'), tpo→'footprint', orderbook/dom→setShowOrderBook+addWidgetPanel(id), trades→setShowTape+addWidgetPanel('trades')), горячие клавиши ↑/↓ по `POPULAR_SYMBOLS` (константа осталась в App — импорт из constants), `THEME_CYCLE` (не выносить — используется в cycleTheme).
+- **Чистка импортов:** удалено 26 неиспользуемых иконок lucide (X и Target реально используются — оставлены), default-импорты выносимых модалок; именованные `loadLocalUiConfig/applyUiConfigToDOM/loadChartIndicators/saveChartIndicators` — НЕ трогать.
+- **E2E:** `scripts/verify_modularization_6_4e.py` — 6/6 PASS (таймфрейм 5m→active, деноминация USDT, дропдаун→widget-toggle-alerts→alerts-modal, журнал откр/закр, hotkeys-оверлей, центр настроек). Порт 5199 дочищен. **Маркер теста:** активный класс деноминации — `bg-neutral-800`, НЕ `bg-[#2563eb]`.
+- **Ловушки слайса:** (1) пути из `components/app/` до сторов — `../../stores/...`; (2) watchlist-pills onClick → `onSymbolChange(sym)` (прокинут из App как setSymbol); (3) liq-panel кнопка — класс `border-[#e879f960]` без опечатки.
+- Backend/марафон не тронуты. **По плану остались:** п.3 backend `orderflow_backtester.py` (только с golden-тестом побитового совпадения), п.6 `ai_copilot.py` (~1053 строк), п.7 `AICopilotSidebar`, п.8 `SettingsModal`. П.1 `Chart.jsx` — 🔴, ждёт отдельного решения Di.
+
 ## Kimi phase-6.4 слайс 4 (OrderBookDOM -> dom/, п.4 закрыт) — 2026-10-23 (день)
 
 - **ACTIVE_AGENT:** `kimi` (main: `cdc654c`, gate **395 passed**)
