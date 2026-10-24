@@ -16,7 +16,9 @@ import {
   Settings2
 } from 'lucide-react';
 import { useBacktestStore } from '../../stores/backtestStore';
+import { useColorLinksStore } from '../../stores/colorLinksStore';
 import { collectMarathonPositions, collectMarathonTrades, mergePaperLists, hasMarathonData } from './marathonFeed';
+import { collectPaperPairs, pairTotalPnl } from './paperPairs';
 
 const API_BASE = '/api';
 
@@ -24,7 +26,7 @@ export default function TradeHistoryWidget(props) {
   const [sessionData, setSessionData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState('trades'); // 'trades' | 'positions' | 'regimes'
+  const [activeTab, setActiveTab] = useState('trades'); // 'trades' | 'positions' | 'pairs' | 'regimes'
   const [isResetting, setIsResetting] = useState(false);
   const [monitoringData, setMonitoringData] = useState(null);
   const [liveStatus, setLiveStatus] = useState(null);
@@ -169,6 +171,16 @@ export default function TradeHistoryWidget(props) {
     () => mergePaperLists(sessionData?.positions, pilotOpen),
     [sessionData, pilotOpen]
   );
+
+  // Единая сводка «по парам»: марафон + live-раннер (источник торговли, стратегия, PnL, статус)
+  const paperPairs = useMemo(() => collectPaperPairs(pilotStatus, liveStatus), [pilotStatus, liveStatus]);
+
+  // Открыть рабочее место пары: переключить график (канал c1), режим бэктест-панели и поднять её
+  const openPairWorkspace = (sym, mode) => {
+    try { useColorLinksStore.getState().setChannelSymbol('c1', sym); } catch (_) {}
+    try { useBacktestStore.getState().setMode(mode); } catch (_) {}
+    window.dispatchEvent(new CustomEvent('signalscript:open-backtest'));
+  };
 
   // Metrics calculation — торговая статистика по объединённым paper-системам (live-раннер + марафон)
   const metrics = useMemo(() => {
@@ -441,6 +453,19 @@ export default function TradeHistoryWidget(props) {
           </button>
           <button
             type="button"
+            data-testid="tab-paper-pairs"
+            onClick={() => setActiveTab('pairs')}
+            className={`px-2.5 py-1 rounded text-xs font-mono transition cursor-pointer flex items-center space-x-1.5 ${
+              activeTab === 'pairs'
+                ? 'bg-neutral-800 text-white font-medium border border-neutral-700'
+                : 'text-neutral-400 hover:text-white hover:bg-neutral-800/50'
+            }`}
+          >
+            <Settings2 size={12} />
+            <span>По парам ({paperPairs.length})</span>
+          </button>
+          <button
+            type="button"
             onClick={() => setActiveTab('regimes')}
             className={`px-2.5 py-1 rounded text-xs font-mono transition cursor-pointer flex items-center space-x-1.5 ${
               activeTab === 'regimes'
@@ -621,6 +646,130 @@ export default function TradeHistoryWidget(props) {
                 </tbody>
               </table>
             )}
+          </div>
+        )}
+
+        {activeTab === 'pairs' && (
+          <div className="min-w-full p-2">
+            {paperPairs.length === 0 ? (
+              <div className="h-40 flex flex-col items-center justify-center text-neutral-500 text-xs">
+                <Settings2 size={24} className="mb-2 text-neutral-600" />
+                <span>Нет активных paper-сессий. Запустите марафон или live-раннер из панели бэктеста.</span>
+              </div>
+            ) : (
+              <table className="w-full text-left border-collapse text-[11px] font-mono" data-testid="paper-pairs-table">
+                <thead>
+                  <tr className="border-b border-neutral-800 bg-[#0E1217] text-neutral-400 uppercase text-[9.5px]">
+                    <th className="py-1.5 px-2">Пара</th>
+                    <th className="py-1.5 px-2">Источник</th>
+                    <th className="py-1.5 px-2">Стратегия</th>
+                    <th className="py-1.5 px-2 text-right">Equity</th>
+                    <th className="py-1.5 px-2 text-right">PnL</th>
+                    <th className="py-1.5 px-2 text-right">ROI</th>
+                    <th className="py-1.5 px-2 text-center">Откр./Закр.</th>
+                    <th className="py-1.5 px-2 text-center">WinRate</th>
+                    <th className="py-1.5 px-2 text-center">Статус</th>
+                    <th className="py-1.5 px-2 text-right">Действия</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-neutral-800/50">
+                  {paperPairs.map((pair) => {
+                    const totalPnl = pairTotalPnl(pair);
+                    return (
+                      <tr key={pair.symbol} className="hover:bg-neutral-800/40 transition">
+                        <td className="py-1.5 px-2 font-bold text-white">
+                          <button
+                            type="button"
+                            className="hover:text-cyan-300 cursor-pointer"
+                            title="Показать пару на графике (канал c1)"
+                            onClick={() => openPairWorkspace(pair.symbol, 'single')}
+                          >
+                            {pair.symbol}
+                          </button>
+                        </td>
+                        <td className="py-1.5 px-2">
+                          <span className="flex items-center space-x-1">
+                            {pair.sources.includes('marathon') && (
+                              <span className="px-1 rounded text-[8px] font-bold bg-amber-950 text-amber-300 border border-amber-700" title="Ночной марафон (тестовый paper-баланс)">МАРАФОН</span>
+                            )}
+                            {pair.sources.includes('live') && (
+                              <span className="px-1 rounded text-[8px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-700" title="Live paper-раннер (тестовый paper-баланс)">LIVE</span>
+                            )}
+                          </span>
+                        </td>
+                        <td className="py-1.5 px-2 text-neutral-300 max-w-[160px] truncate" title={`${pair.strategy || '—'} · ${pair.timeframe || '—'} · плечо ${pair.leverage ?? '—'}x${pair.aiControl ? ' · AI' : ''}`}>
+                          {pair.strategy || '—'}
+                          <span className="text-neutral-600"> {pair.timeframe || ''}{pair.aiControl ? ' · AI' : ''}</span>
+                        </td>
+                        <td className="py-1.5 px-2 text-right text-neutral-200 tabular-nums">
+                          {pair.equity != null ? `$${pair.equity.toFixed(2)}` : '—'}
+                        </td>
+                        <td className={`py-1.5 px-2 text-right font-bold tabular-nums ${totalPnl == null ? 'text-neutral-500' : totalPnl >= 0 ? 'text-[#10b981]' : 'text-[#ef4444]'}`}>
+                          {totalPnl == null ? '—' : `${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`}
+                        </td>
+                        <td className={`py-1.5 px-2 text-right tabular-nums ${(pair.roiPct ?? 0) >= 0 ? 'text-neutral-300' : 'text-rose-300'}`}>
+                          {pair.roiPct != null ? `${pair.roiPct > 0 ? '+' : ''}${pair.roiPct.toFixed(2)}%` : '—'}
+                        </td>
+                        <td className="py-1.5 px-2 text-center text-neutral-300 tabular-nums">
+                          {pair.openCount} / {pair.closedCount}
+                        </td>
+                        <td className="py-1.5 px-2 text-center text-neutral-300 tabular-nums">
+                          {pair.winRatePct != null ? `${pair.winRatePct}%` : '—'}
+                        </td>
+                        <td className="py-1.5 px-2 text-center">
+                          <span
+                            className={`px-1 rounded text-[9px] font-bold border ${
+                              pair.dataStatus === 'stale' || pair.dataStatus === 'disconnected'
+                                ? 'bg-rose-950 text-rose-300 border-rose-700'
+                                : pair.running
+                                  ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
+                                  : 'bg-neutral-800 text-neutral-400 border-neutral-700'
+                            }`}
+                            title={pair.dataStatus ? `данные: ${pair.dataStatus}` : undefined}
+                          >
+                            {pair.dataStatus === 'stale' || pair.dataStatus === 'disconnected'
+                              ? 'DATA!'
+                              : pair.running
+                                ? 'RUNNING'
+                                : 'STOPPED'}
+                          </span>
+                        </td>
+                        <td className="py-1.5 px-2 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => openPairWorkspace(pair.symbol, 'single')}
+                            className="px-1.5 py-0.5 rounded bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-300 text-[9px] font-mono cursor-pointer"
+                            title="Бэктест стратегии на этой паре (график переключится на пару)"
+                          >
+                            Бэктест
+                          </button>{' '}
+                          <button
+                            type="button"
+                            onClick={() => openPairWorkspace(pair.symbol, 'ai')}
+                            className="px-1.5 py-0.5 rounded bg-violet-950 hover:bg-violet-900 border border-violet-700 text-violet-200 text-[9px] font-mono cursor-pointer"
+                            title="AI-подбор стратегии по данным бэктеста для этой пары"
+                          >
+                            AI-подбор
+                          </button>{' '}
+                          <button
+                            type="button"
+                            data-testid={`btn-pair-trade-${pair.symbol}`}
+                            onClick={() => openPairWorkspace(pair.symbol, 'live_paper')}
+                            className="px-1.5 py-0.5 rounded bg-cyan-900/60 hover:bg-cyan-800 border border-cyan-700 text-cyan-100 text-[9px] font-mono cursor-pointer"
+                            title="Настроить и запустить paper-торговлю по этой паре"
+                          >
+                            Торговать
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+            <div className="mt-2 text-[9.5px] text-neutral-500 font-mono px-1">
+              Единый paper-модуль: подбор стратегии (бэктест / AI) → запуск торговли по паре → позиции и сделки выше. Баланс везде тестовый (paper), реальные деньги не используются.
+            </div>
           </div>
         )}
 

@@ -17,6 +17,16 @@ This is the shared queue for LibreChat, Cline, and Antigravity.
   closeout ROADMAP 1.1–1.2, ветка `agent/kimi/phase1-production-robust-closeout`, агент Kimi Work.
   Ожидает решения Di: запуск paper-марафона 3–5 суток (вне рамок задачи).
 
+## Backlog (приоритет сверху, добавлено Di / Kimi 2026-10-24)
+
+1. `READY_FOR_CLINE` — **Кластерные индикаторы в торговых стратегиях** (запрос Di, аннотация к панели
+   Футпринт): спец-индикаторы поверх footprint (stacked imbalance, absorption, POC-migration,
+   дельта-дивергенции) должны стать сигнальными фильтрами в `orderflow_backtester` и live-раннерах.
+   Источник данных готов: `/api/recorder/clusters` + `annotate_cluster_metrics` (poc_price уже есть).
+2. `DRAFT` — **Единый paper-модуль, этап 2**: из вкладки «По парам» (TradeHistoryWidget) —
+   запуск/остановка торговли по паре прямо из таблицы (сейчас — переход в мастер paper-торговли),
+   применение AI-рекомендаций оптимизатора в один клик (продолжение ROADMAP 6.2 «Apply Strategy #X»).
+
 ## Rules
 
 1. Only one agent may have an active task at a time.
