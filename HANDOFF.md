@@ -2,6 +2,17 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi — доводка до ума: E2E-прогон всего блока «Бэктест+Прогноз» 2026-10-24 (вечер, HEAD e26a8d5)
+
+- **Задача Di:** «довести до ума проект, чтобы всё работало и можно было оставить тестить». Прогнан E2E весь пользовательский путь бэктеста/прогноза.
+- **Все PASSED:** verify_backtest (после калибровки), verify_advanced_backtest (Монте-Карло/оптимизация), verify_backtest_chart_integration, verify_stage3_forecast_cone, verify_html_report_ui, verify_pdf_report_ui, verify_sweep_apply_ui (Apply Strategy #1 → fast=8/slow=26 в форме), verify_honest_backtest_table, verify_modularization_6_4 / 6_4b / 6_4e, verify_closed_trade_invariant (NetPnL == Gross − Fees, diff 0), verify_confluence_matrix.
+- **Фиксы E2E-скриптов (`e26a8d5`, только тесты, приложение не тронуто):**
+  - `verify_backtest.py` — чек «знак PnL = направлению движения цены» давал ложный фейл на сделках внутри полосы издержек (maker+taker+slippage ~0.1%): добавлен `move_pct` и порог 0.1%.
+  - `verify_modularization_6_4b.py` — гонки: селект пресетов читался до async-fetch (поллинг option до 25с); goto падал с ERR_CONNECTION_REFUSED, т.к. vite на 5199 не успевал подняться (ожидание порта); feedback после сохранения ждался 5с (→12с + дебаг-лог). Приложение исправно — пресеты реально грузились и сохранялись.
+- **Gate:** `scripts/check.ps1` → 🎉 ALL QUALITY CHECKS PASSED (341 pytest, build, smoke, live WS).
+- **Инфраструктура теста НЕ тронута:** марафон 14/14 и ETH live-раннер работают, backend не перезапускался. Один backend на :8000. Dev-серверы почищены (5173/5199 свободны).
+- ⚠️ Вкладка Di: символ графика BTCUSDT. Если много мусорных untracked (`_tmp_*`, `context/qa/`, `моя комора/`) — не коммитить.
+
 ## Kimi — живые позиции на графике + краш-фикс терминала 2026-10-24 (вечер, HEAD 9d9009d)
 
 - **Задача №1 из приоритетов Di:** отрисовка открытых paper-позиций на графике в реальном времени.
