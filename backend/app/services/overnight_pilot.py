@@ -255,11 +255,11 @@ class OvernightPilotManager:
         session.backtest = backtest
         session.forecast = forecast
 
-    # MAX_SESSIONS: 7 сессий (запрос Di 2026-10-23: scalp-прогон по 5–7 парам
-    # вотчлиста одновременно). Каждая сессия — LivePaperRunner со своим тик-циклом
-    # (sleep 4–60 c между опросами) и forecast-циклом (300 c) — нагрузка на
-    # Binance REST умеренная (~7x10 req/мин в худшем случае).
-    MAX_SESSIONS = 7
+    # MAX_SESSIONS: 14 сессий (запрос Di 2026-10-24: расширение прогона до 14
+    # волатильных пар — 7 основных + 7 новых ZEC/NEAR/ENA/WLD/SUI/UNI/AVAX).
+    # Каждая сессия — LivePaperRunner со своим тик-циклом (sleep 4–60 c между
+    # опросами) и forecast-циклом (300 c) — нагрузка на Binance REST умеренная.
+    MAX_SESSIONS = 14
 
     @staticmethod
     def _validate_configs(configs: Optional[List[OvernightPilotConfig]]) -> List[OvernightPilotConfig]:
