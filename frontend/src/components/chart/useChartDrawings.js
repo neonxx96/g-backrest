@@ -106,7 +106,12 @@ export function useChartDrawings({
     if (!chartRef.current) return;
 
     fetch(`${API_BASE}/drawings?symbol=${symbol}&timeframe=${timeframe}&user_id=${userId}`)
-      .then(res => res.json())
+      .then(res => {
+        // Пустое тело/не-JSON (например, обрыв ответа под нагрузкой) — не ошибка приложения
+        const type = res.headers.get('content-type') || '';
+        if (!res.ok || !type.includes('json')) return null;
+        return res.text().then(text => (text ? JSON.parse(text) : null));
+      })
       .then(data => {
         if (data && data.elements_json && chartRef.current) {
           try {
