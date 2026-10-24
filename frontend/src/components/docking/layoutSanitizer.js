@@ -1,6 +1,6 @@
 export const DOCKVIEW_COMPONENT_IDS = new Set([
   'chart', 'orderbook', 'dom', 'watchlist', 'screener', 'signals', 'trades',
-  'footprint_placeholder', 'cvd_placeholder', 'papertrade', 'tradehistory',
+  'footprint', 'footprint_placeholder', 'cvd_placeholder', 'papertrade', 'tradehistory',
   'liq_analytics', 'liquidations'
 ]);
 

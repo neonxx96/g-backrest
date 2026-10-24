@@ -12,7 +12,8 @@ import ScreenerWidget from './ScreenerWidget';
 import TradesWidget from './TradesWidget';
 import WidgetHubModal from './WidgetHubModal';
 import TradeHistoryWidget from './TradeHistoryWidget';
-import { FootprintPlaceholderWidget, CvdPlaceholderWidget } from './Placeholders';
+import { CvdPlaceholderWidget } from './Placeholders';
+import FootprintPanel from './FootprintPanel';
 import { sanitizeDockviewLayout } from './layoutSanitizer';
 import {
   readCachedDockviewLayout,
@@ -437,7 +438,8 @@ export default function TerminalDockview({
       screener: ScreenerWidget,
       signals: SignalsDockPanel,
       trades: TradesWidget,
-      footprint_placeholder: FootprintPlaceholderWidget,
+      footprint: FootprintPanel,
+      footprint_placeholder: FootprintPanel, // обратная совместимость с сохранёнными раскладками
       cvd_placeholder: CvdPlaceholderWidget,
       papertrade: TradeHistoryWidget,
       tradehistory: TradeHistoryWidget,
@@ -706,7 +708,7 @@ export default function TerminalDockview({
         }
       } else if (type === 'footprint') {
         title = 'Футпринт / Кластеры';
-        component = 'footprint_placeholder';
+        component = 'footprint';
         const ref = domPanels[0] || panels[0];
         if (ref) {
           position = { referencePanel: ref, direction: 'right' };
