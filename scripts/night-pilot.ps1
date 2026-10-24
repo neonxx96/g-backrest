@@ -105,11 +105,17 @@ function Write-PaperMorningTable {
     param([Parameter(Mandatory = $true)][object]$Result)
 
     $rows = @($Result.summary | ForEach-Object {
+        # ROADMAP 1.2 (closeout 2026-10-24): отсутствующие данные показываем как '—',
+        # подмена null нулём имитирует торговлю с нулевым результатом и маскирует
+        # неисправный канал данных (truth-first, см. ROADMAP §0.1).
+        $winRate = if ($null -eq $_.paper_win_rate_pct) { '—' } else { '{0:N2}%' -f [double]$_.paper_win_rate_pct }
+        $netPnL = if ($null -eq $_.paper_pnl) { '—' } else { '$' + ('{0:N2}' -f [double]$_.paper_pnl) }
+        $totalFees = if ($null -eq $_.paper_total_fees) { '—' } else { '$' + ('{0:N2}' -f [double]$_.paper_total_fees) }
         [PSCustomObject]@{
             Symbol = $_.symbol
-            WinRate = ('{0:N2}%' -f $(if ($null -eq $_.paper_win_rate_pct) { 0.0 } else { [double]$_.paper_win_rate_pct }))
-            NetPnL = ('$' + ('{0:N2}' -f $(if ($null -eq $_.paper_pnl) { 0.0 } else { [double]$_.paper_pnl })))
-            TotalFees = ('$' + ('{0:N2}' -f $(if ($null -eq $_.paper_total_fees) { 0.0 } else { [double]$_.paper_total_fees })))
+            WinRate = $winRate
+            NetPnL = $netPnL
+            TotalFees = $totalFees
         }
     })
     if ($rows.Count -gt 0) {
