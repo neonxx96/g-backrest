@@ -30,7 +30,7 @@ from sqlalchemy import select
 
 
 HISTORICAL_STRATEGIES = {"confluence_ema", "cvd_absorption", "cluster_volume_bounce", "diagnostics_lenient", "ema_trend", "naked_test"}
-OPTIMIZABLE_STRATEGIES = {"confluence_ema", "cvd_absorption", "cluster_volume_bounce"}
+OPTIMIZABLE_STRATEGIES = {"confluence_ema", "cvd_absorption", "cluster_volume_bounce", "ema_trend"}
 logger = logging.getLogger(__name__)
 
 

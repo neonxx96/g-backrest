@@ -44,6 +44,13 @@ def test_interval_is_sane():
     assert OvernightPilotManager.OPTIMIZATION_INTERVAL_SEC >= 3600
 
 
+def test_ema_trend_is_optimizable():
+    """Марафон Di (2026-10-24) весь на ema_trend — без неё в списке оптимизация
+    периодического цикла бесполезна (проверено живым прогоном optimize)."""
+    from backend.app.services.overnight_pilot import OPTIMIZABLE_STRATEGIES
+    assert "ema_trend" in OPTIMIZABLE_STRATEGIES
+
+
 def test_session_exposes_last_optimization_at():
     session = PilotSession(OvernightPilotConfig(symbol="BTCUSDT", strategy_type="ema_trend"))
     assert session.to_dict()["last_optimization_at"] is None
