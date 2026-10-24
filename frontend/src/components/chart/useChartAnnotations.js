@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { renderLiveSignals, clearLiveSignals, renderWhaleTrades, clearWhaleTrades } from '../../utils/chartAnnotations';
 import { useTradesStore } from '../../stores/tradesStore';
 import { useMarketDataStore } from '../../stores/marketDataStore';
+import { collectOpenPositions } from './livePositions';
 import { TF_MS } from '../../services/marketDataFetcher';
 
 // Аннотации и сигнальные оверлеи графика: бэктест-маркеры/линии сделок (btSignal/
@@ -443,6 +444,57 @@ export function useChartAnnotations({
       }
     };
   }, [liveSignals, showLiveSignals, symbol, chartReady]);
+  // Живые paper-позиции на графике (задача Di 2026-10-24): открытые позиции всех
+  // активных сессий (марафон overnight-pilot + live-раннер) по символу графика.
+  // Entry — сплошная линия с бейджем (side/qty/PnL/источник), SL/TP — пунктир.
+  const livePositionOverlayIds = useRef([]);
+  useEffect(() => {
+    let active = true;
+    const clearAll = () => {
+      livePositionOverlayIds.current.forEach((id) => { try { chartRef.current?.removeOverlay({ id }); } catch (_) {} });
+      livePositionOverlayIds.current = [];
+    };
+    const draw = async () => {
+      if (!chartRef.current || chartReady === 0) return;
+      let positions = [];
+      try {
+        const [pilotRes, liveRes] = await Promise.all([
+          fetch('/api/overnight-pilot/status'),
+          fetch('/api/paper-trading/live/status'),
+        ]);
+        const pilot = pilotRes.ok ? await pilotRes.json() : {};
+        const live = liveRes.ok ? await liveRes.json() : {};
+        positions = collectOpenPositions(pilot, live, symbol.toUpperCase());
+      } catch (_) { return; }
+      if (!active) return;
+      // Перерисовка при любом изменении (в т.ч. PnL-тик) — позиций мало, оверлей лёгкий.
+      clearAll();
+      const klines = currentKlines.current;
+      if (!positions.length || !klines || klines.length === 0) return;
+      const firstTs = klines[0].timestamp;
+      const lastTs = klines[klines.length - 1].timestamp;
+      positions.forEach((pos) => {
+        if (!Number.isFinite(pos.entryPrice) || pos.entryPrice <= 0) return;
+        const ts = pos.entryTs ? Math.min(Math.max(pos.entryTs, firstTs), lastTs) : lastTs;
+        try {
+          const id = chartRef.current.createOverlay({
+            name: 'livePosition',
+            lock: true,
+            points: [{ timestamp: ts, value: pos.entryPrice }],
+            extendData: pos,
+          });
+          if (id) livePositionOverlayIds.current.push(id);
+        } catch (_) {}
+      });
+    };
+    draw();
+    const interval = setInterval(draw, 4000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+      clearAll();
+    };
+  }, [symbol, chartReady]);
   // Real-time Whale Trade (large orders >= $500k) floating annotations on chart
   const whaleOverlayIds = useRef([]);
   useEffect(() => {

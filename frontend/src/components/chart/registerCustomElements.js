@@ -1,8 +1,8 @@
 // Регистрация кастомных оверлеев и индикаторов KLineCharts v9.
 // Извлечено ДОСЛОВНО из Chart.jsx (слайс 6.4k, п.1 MODULARIZATION_PLAN) —
-// модульный преамбул: 12 registerOverlay (rect/measure/btSignal/whaleTradeMarker/
+// модульный преамбул: 13 registerOverlay (rect/measure/btSignal/whaleTradeMarker/
 // backtestTradeLine/volatilityCone/liqMarker/footprintCandle/tpoProfile/
-// strategyLevelZone/positionSetupBox/orderbookWall) + 4 registerIndicator
+// strategyLevelZone/positionSetupBox/livePosition/orderbookWall) + 4 registerIndicator
 // (CVD/DeltaBars/ATR/SuperTrend). Подключается из Chart.jsx side-effect импортом.
 import { registerOverlay, registerIndicator } from 'klinecharts';
 import { useTradeOverlayStore, calculatePositionMetrics } from '../../stores/tradeOverlayStore';
@@ -1282,7 +1282,95 @@ try {
   });
 } catch (_) {}
 
-// 6. Register custom 'orderbookWall' (OrderBook Densities > $1M with right-aligned badge)
+// 6. Register custom 'livePosition' (живые paper-позиции: entry/SL/TP линии с бейджами;
+// задача Di 2026-10-24 «отрисовка позиций на графике в реальном времени»)
+try {
+  registerOverlay({
+    name: 'livePosition',
+    totalStep: 1,
+    lock: true,
+    needDefaultPointFigure: false,
+    needDefaultXAxisFigure: false,
+    needDefaultYAxisFigure: false,
+    createPointFigures: ({ bounding, coordinates, overlay, yAxis }) => {
+      const ext = overlay?.extendData || {};
+      if (!yAxis || typeof yAxis.convertToPixel !== 'function') return [];
+
+      const entryP = Number(ext.entryPrice);
+      if (!Number.isFinite(entryP) || entryP <= 0) return [];
+
+      const width = (bounding && bounding.width) ? bounding.width : 1200;
+      const x0Raw = coordinates?.[0]?.x;
+      const x0 = Number.isFinite(x0Raw) ? Math.max(4, Math.min(x0Raw, width - 40)) : 12;
+      const x1 = width - 8;
+
+      const isLong = ext.side !== 'SHORT';
+      const entryColor = isLong ? '#22c55e' : '#ef4444';
+      const slColor = '#f87171';
+      const tpColor = '#4ade80';
+
+      const yEntry = yAxis.convertToPixel(entryP);
+      const slP = Number(ext.stopPrice);
+      const tpP = Number(ext.targetPrice);
+      const tp2P = Number(ext.tp2Price);
+      const ySl = Number.isFinite(slP) && slP > 0 ? yAxis.convertToPixel(slP) : null;
+      const yTp = Number.isFinite(tpP) && tpP > 0 ? yAxis.convertToPixel(tpP) : null;
+      const yTp2 = Number.isFinite(tp2P) && tp2P > 0 ? yAxis.convertToPixel(tp2P) : null;
+      if (!Number.isFinite(yEntry)) return [];
+
+      const dec = entryP >= 1000 ? 1 : entryP >= 1 ? 2 : 4;
+      const qtyStr = ext.qty != null ? ` ${Number(ext.qty).toPrecision(3)}` : '';
+      const pnl = ext.unrealizedPnl;
+      const pnlStr = Number.isFinite(Number(pnl))
+        ? ` | PnL ${Number(pnl) >= 0 ? '+' : ''}$${Number(pnl).toFixed(2)}`
+        : '';
+      const entryBadge = `[${ext.side || (isLong ? 'LONG' : 'SHORT')}${qtyStr} @ ${entryP.toFixed(dec)}${pnlStr}]`;
+
+      const figures = [];
+      const line = (y, color, dashed) => ({
+        type: 'line',
+        attrs: { coordinates: [{ x: x0, y }, { x: x1, y }] },
+        styles: dashed
+          ? { style: 'dashed_line', color, size: 1, dashedValue: [4, 4] }
+          : { style: 'solid_line', color, size: 1 },
+        ignoreEvent: true
+      });
+      const badge = (y, text, color, alignRight) => ({
+        type: 'text',
+        attrs: { x: alignRight ? x1 : x0 + 6, y: y - 14, text, align: alignRight ? 'right' : 'left' },
+        styles: {
+          color,
+          backgroundColor: 'rgba(15, 23, 42, 0.75)',
+          borderColor: color,
+          borderSize: 1,
+          size: 10,
+          padding: 2,
+          borderRadius: 3
+        },
+        ignoreEvent: true
+      });
+
+      figures.push(line(yEntry, entryColor, false));
+      figures.push(badge(yEntry, `${entryBadge}${ext.sourceLabel ? ' · ' + ext.sourceLabel : ''}`, entryColor));
+
+      if (ySl != null && Number.isFinite(ySl)) {
+        figures.push(line(ySl, slColor, true));
+        figures.push(badge(ySl, `[SL @ ${slP.toFixed(dec)}]`, slColor));
+      }
+      if (yTp != null && Number.isFinite(yTp)) {
+        figures.push(line(yTp, tpColor, true));
+        figures.push(badge(yTp, `[TP @ ${tpP.toFixed(dec)}]`, tpColor));
+      }
+      if (yTp2 != null && Number.isFinite(yTp2)) {
+        figures.push(line(yTp2, tpColor, true));
+        figures.push(badge(yTp2, `[TP2 @ ${tp2P.toFixed(dec)}]`, tpColor));
+      }
+      return figures;
+    }
+  });
+} catch (_) {}
+
+// 7. Register custom 'orderbookWall' (OrderBook Densities > $1M with right-aligned badge)
 try {
   registerOverlay({
     name: 'orderbookWall',
