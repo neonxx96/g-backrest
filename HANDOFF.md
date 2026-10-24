@@ -2,6 +2,21 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi — аудит стопов/тейков/PnL + маркеры сделок + настройки TPO/стен 2026-10-24 (вечер, HEAD 30e0510)
+
+- **Задача Di (22:23):** «проверь чтобы правильно работали стопы тейки, отмечались точки входа/выхода, правильно считался PnL, позицией правильно управляет AI, стены/TPO не должны летать при скролле, дай основные настройки». Проведён полный аудит, 3 реальных бага найдены и исправлены (`30e0510`):
+  1. **`tp2_price` терялся:** `paper_trading.py::_apply_entry_fill` не передавал `tp2_price` в конструктор PaperPosition (поле есть в датаклассе). Multi-TP деградировал в один TP — каждый тик с ценой ≥ target ставил ПОЛНЫЙ exit-ордер (у SUI 24 дубля за 2.5 мин). Исправлено.
+  2. **Спам exit-ордеров:** в `place_order` добавлена replace-семантика — перед созданием EXIT-ордера отменяются working exit-ордера той же пары (защита от oversell сверх qty).
+  3. **Протухшие снапшоты при входе:** SUI fill +0.6% от сигнала (TP1 0.6% — сразу выбит сразу), DOGE −4%. Добавлен guard `max_entry_slippage_pct` (default 0.5%, конфиг-сессии; атрибут сессии default 0.0 = выкл, пробрасывается в `live_paper_runner.start`): вход с fill, отклонившимся от сигнала дальше порога → REJECTED + резерв высвобождается.
+- **PnL-аудит:** математика корректна — по всем закрытым сделкам марафона `net == gross − fee_drag` (с точностью до fp; slippage уже внутри gross через цены исполнения). Открытые BE=True со стопом ВЫШЕ входа — корректный breakeven, не баг.
+- **Маркеры сделок марафона на графике** (`useChartAnnotations.js`): вход/выход закрытых сделок из `/api/overnight-pilot/status`, мерж с live-раннером, формат совместим (entry_ts/exit_ts/prices). Открытые живые позиции на графике — уже есть (livePosition-оверлей, 9d9009d).
+- **TPO привязан к краю** (`registerCustomElements.js` tpoProfile): `pinToEdge` (default true) — гистограмма рисуется от `bounding.width`, а не от якорной свечи → не летает при скролле. Стены (orderbookWall) и так через `yAxis.convertToPixel(price)` (Y pinned, корректно).
+- **Настройки TPO/стен на тулбаре графика** (`useChartOverlays.js` + `ChartToolbar.jsx`): шестерёнки ⚙ рядом с TPO и Стенки → поповеры (period_minutes=30, value_area=0.7, tick_size; min_usd=400000, max_walls=4), localStorage `chart_tpo_settings`/`chart_walls_settings`, событие `signalscript:chart-settings-changed` перезагружает оверлеи, параметры уходят в `/api/profile/tpo` (API принимает).
+- **Проверки:** `test_paper_position_management.py` 7/7; срез `-k "paper or runner or execution or contract"` 150 passed; `test:pilot` 34/34; полный `scripts/check.ps1` → 🎉 ALL QUALITY CHECKS PASSED. В UI Di (HMR): маркеры, обе шестерёнки, чип марафона на месте.
+- ⚠️ **РЕСТАРТ ТРЕБУЕТСЯ:** бэкенд-фиксы (tp2, exit-replace, slippage-guard) вступят в силу только после рестарта backend — он убьёт текущий тест Di (14 пар, `1792862665` от 20:24, PID 40088). Решение за Di; до рестарта фиксы в проде не работают.
+- ⚠️ AI-управление позицией: в марафоне `ai_control=false` (детерминированные BE/trailing/early-exit) — входы/выходы AI не ветирует; AI у Di активен в live-раннере (ai_control=true, free-model fallback работает). Включать AI в марафоне — конфиг-решение Di.
+- ⚠️ Untracked-мусор (`_tmp_*`, `context/qa/`, `моя комора/`, `calibration_results.json`, `check_pilot.py`) — не коммитить.
+
 ## Kimi — фикс «статистика/позиции не видны в виджетах» 2026-10-24 (вечер, HEAD b980256)
 
 - **Жалоба Di:** «не вижу открытых и закрытых позиций в виджетах, статистика не пишется». Причина: `TradeHistoryWidget` опрашивал только одиночный live-раннер (`/api/paper-trading/status`), а реальные сделки шли ночным марафоном (14 пар, `/api/overnight-pilot/status`) и в виджет не попадали; плюс `OvernightPilotPanel` читал открытые позиции из несуществующего ключа `paper.positions` (backend отдаёт `paper.open_positions`) — блок open всегда был 0.
