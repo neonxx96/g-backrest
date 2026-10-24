@@ -2,6 +2,18 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi — closeout ROADMAP 1.1–1.2: production_robust + Night Pilot CLI 2026-10-24 (день)
+
+- **Ветка:** `agent/kimi/phase1-production-robust-closeout` (от main). Задача: `tasks/003-phase1-production-robust-closeout.md`.
+- **1.1 подтверждён кодом:** `production_robust_configs()` — vol_mult 1.25, SL 0.8 / TP 2.2 (R:R 2.75), BTC/ETH/SOL, ai_control=False. RSI-полоса 42–58 для confluence_ema уже реализована во всех трёх движках (`orderflow_backtester` evaluate/explain/main-loop, `live_paper_runner._passes_live_indicator_filters`); дублировать не стал — добавил сквозные тесты.
+- **RSI-цепочка зафиксирована тестом:** preflight `_prepare` маппит пресет в `BacktestParams(use_rsi_filter=True, …)` и `strategy_params` forecast; `compute_probabilistic_forecast` передаёт флаг в `evaluate_latest_signal`.
+- **1.2 CLI:** в `scripts/night-pilot.ps1` закрыт дефект — `Write-PaperMorningTable` подменяла отсутствующие WinRate/NetPnL/TotalFees нулями → теперь «—» (truth-first). Контракты: порт 8000, `production-robust/*` endpoints, обязательный preflight перед start, sentinel (HIGH NO_ENTRY + FEE DRAG) — подтверждены текст-контрактным тестом.
+- **Тесты:** `backend/tests/test_phase1_production_robust_closeout.py` (5 passed); gate зелёный.
+- **Активный тест НЕ тронут:** марафон 14/14 и live-раннер работают; backend не перезапускался. Марафон в рамках задачи НЕ запускался — команда для Di ниже.
+- **Порча:** `context/CURRENT_TASK.md` в рабочем дереве содержал случайный markmap-SVG (незакоммиченный) — восстановлен осмысленный формат.
+- **Команда для отдельного запуска paper-марафона 3–5 суток (после остановки текущего теста Di, НЕ выполнять внутри активного пилота):**
+  `powershell -ExecutionPolicy Bypass -File scripts/night-pilot.ps1 -Action preflight -Preset production_robust` → затем `-Action start -Preset production_robust -MonitorMinutes 0`.
+
 ## Kimi — аннотации Di + P0-фиксы 2026-10-24 (день, HEAD fd3fcce)
 
 - **Коммиты:** `800bfd7` (REST-фолбэк скринера) → `ce305f6` (аннотации 1–7 + SW) → `fd3fcce` (P0 ночного теста). Gate зелёный оба раза.

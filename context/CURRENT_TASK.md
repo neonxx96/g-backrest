@@ -1,33 +1,27 @@
-# Current Task: Слияние recorder-ветки в main (2026-10-22)
+# Current Task: Closeout ROADMAP Фазы 1.1–1.2 — production_robust + Night Pilot CLI (2026-10-24)
 
 ## Status
-- **Priority**: 🟡 СЛИЯНИЕ ВЫПОЛНЕНО (merge main + agent/codex/recorder)
-- **Agent**: Kimi Work (новый агент)
-- **Branch**: main (merge commit)
-- **Gate**: scripts/check.ps1 — ALL QUALITY CHECKS PASSED (212 pytest, build, blocking + live UI smoke)
+- **Priority**: DONE
+- **Agent**: Kimi Work (main)
+- **Branch**: `agent/kimi/phase1-production-robust-closeout`
+- **Task file**: `tasks/003-phase1-production-robust-closeout.md`
 
 ## Completed
-- ✅ Все ветки слиты в main (merge, 1 конфликт в CURRENT_TASK.md — разрешён)
-- ✅ scripts/check.ps1 GREEN (212 passed, 28 skipped; build; Playwright blocking + live WS)
-- ✅ Tag stable-20261018-merged создан (main = a129916, tag pushed)
-- ✅ Model routing synchronized (config/model-routing.json = OpenRouter budget models)
-- ✅ Recorder S1: canonical envelope, нормализаторы, fsync spool, immutable zstd Parquet + SHA-256 манифесты, gap-журнал, YAML-конфиг; Docker-артефакты собраны
-- ✅ ROADMAP.md и CODEGRAPH.md добавлены (мастер-план + карта кода)
-
-## Quant Constraints (limit-fill task)
-- Zero look-ahead bias: bars with open_time <= created_at_ts are ignored.
-- Limit fill: low <= entry (BUY) / high >= entry (SELL), price = entry, fee = maker.
-- TP = limit (maker), SL = market (taker + adverse slippage).
-- Tie-break (TP & SL in same bar): conservative → SL first (worst case).
-- Timestamps: UTC ms, deterministic (no Math.random()).
-
-## Next Steps
-1. Remote deployment recorder (нужен SSH/Docker target от пользователя) + 48 ч параллельного прогона.
-2. Внедрить пресет production_robust в overnight_pilot.py (см. AI_HANDOFF.md §3).
-3. Судьба веток agent/cline/* (replay-engine, limit-fill-simulator, live-assistant) — решение Di.
-4. Дальнейшие шаги — по ROADMAP.md (редактирует Di).
+- ✅ Пресет `production_robust` подтверждён кодом и тестами: vol_mult 1.25, RSI-фильтр ON
+  (полоса 42–58 в движке для confluence_ema), SL 0.8 / TP 2.2 (R:R 2.75), BTC/ETH/SOL,
+  ai_control=False (paper/consultative-only)
+- ✅ RSI 42–58 прослежена сквозь цепочку: BacktestParams (preflight `_prepare`) →
+  forecast `strategy_params` → движок бэктеста → LivePaperRunner; полоса уже была в коде,
+  дублирования не внесено; новые точечные тесты `backend/tests/test_phase1_production_robust_closeout.py` (5 passed)
+- ✅ `scripts/night-pilot.ps1`: дефект morning-таблицы закрыт — отсутствующие WinRate/NetPnL/TotalFees
+  показываются как «—», а не 0.0; порт 8000, preflight-гейт, sentinel (NO_ENTRY + FEE DRAG) подтверждены
+- ✅ Gate зелёный перед коммитом
 
 ## Notes
-- Consultative mode only: auto-trading forbidden.
-- If scope creep detected → stop and ask user.
-- Backend: два runtime (старый listener 8000, новый 8002 по data/backend_runtime.json) — требует решения (ROADMAP Фаза 0.2).
+- `context/CURRENT_TASK.md` в рабочем дереве содержал случайно вставленный markmap-SVG
+  (незакоммиченная порча); восстановлен осмысленный формат по правилам проекта.
+- Активный марафон 14/14 и live-раннер НЕ тронуты; backend не перезапускался.
+
+## Next
+- Отдельная задача (по команде Di): paper-марафон 3–5 суток на production_robust /
+  продолжение текущего теста; критерии 1.3/1.4 (PF ≥ 1.2, max DD, fee drag) — на утверждении Di.

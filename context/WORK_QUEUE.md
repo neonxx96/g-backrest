@@ -13,7 +13,9 @@ This is the shared queue for LibreChat, Cline, and Antigravity.
 
 ## Active task
 
-No active task. LibreChat must create a numbered file in `tasks/` before work begins.
+- `DONE` — **003-phase1-production-robust-closeout** (`tasks/003-phase1-production-robust-closeout.md`):
+  closeout ROADMAP 1.1–1.2, ветка `agent/kimi/phase1-production-robust-closeout`, агент Kimi Work.
+  Ожидает решения Di: запуск paper-марафона 3–5 суток (вне рамок задачи).
 
 ## Rules
 
