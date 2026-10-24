@@ -54,7 +54,8 @@ def annotate_cluster_metrics(candles: List[Dict[str, Any]]) -> List[Dict[str, An
     """Обогащает кластерные свечи метриками (in-place по словарям, возвращает список):
     - `levels[].imbalance`: 'buy'/'sell'/None (ratio >= 3, объём >= 5% макс. уровня);
     - `stacked_imbalance`: {'buy': int, 'sell': int} — длины наибольших серий >= 3;
-    - `absorption`: True, если объём >= 1.5x медианы окна, а |delta| <= 20% объёма.
+    - `absorption`: True, если объём >= 1.5x медианы окна, а |delta| <= 20% объёма;
+    - `poc_price`: цена уровня с максимальным суммарным объёмом (None при пустой свече).
     """
     volumes = [float(c.get("total_volume", 0.0)) for c in candles]
     positive = sorted(v for v in volumes if v > 0)
@@ -81,6 +82,12 @@ def annotate_cluster_metrics(candles: List[Dict[str, Any]]) -> List[Dict[str, An
             "buy": buy_run if buy_run >= STACKED_MIN_RUN else 0,
             "sell": sell_run if sell_run >= STACKED_MIN_RUN else 0,
         }
+
+        # POC (Point of Control): уровень с максимальным суммарным объёмом в свече
+        candle["poc_price"] = max(
+            levels,
+            key=lambda l: float(l.get("buy_vol", 0.0)) + float(l.get("sell_vol", 0.0)),
+        )["price"] if levels else None
 
         total_vol = float(candle.get("total_volume", 0.0))
         total_delta = abs(float(candle.get("total_delta", 0.0)))
@@ -111,7 +118,7 @@ class OrderFlowRecorder:
         # Real-time footprint cluster cache:
         # { symbol: { candle_ts: { price_bucket: {'buy_vol': float, 'sell_vol': float, 'delta': float, 'trades': int} } } }
         self.footprint_cache: Dict[str, Dict[int, Dict[float, Dict[str, float]]]] = {
-            s: {} for s in self.focus_symbols
+            s: {} for s in list(self.focus_symbols) + list(self.watchlist_symbols)
         }
 
         # Stats tracking
@@ -475,12 +482,14 @@ class OrderFlowRecorder:
             try:
                 async with websockets.connect(ws_url, ping_interval=20, ping_timeout=15, max_size=10*1024*1024) as ws:
                     reconnect_attempts = 0  # Reset on successful connection
-                    # Subscribe to trades and depth for all focus symbols
+                    # Subscribe to trades for focus + watchlist (footprint для всех торгуемых пар),
+                    # depth20 — только для focus-символов (стакан в DOM-панели).
                     sub_params = []
+                    trade_symbols = list(dict.fromkeys(self.focus_symbols + self.watchlist_symbols))
+                    for s in trade_symbols:
+                        sub_params.append(f"{s.lower()}@trade")
                     for s in self.focus_symbols:
-                        s_lower = s.lower()
-                        sub_params.append(f"{s_lower}@trade")
-                        sub_params.append(f"{s_lower}@depth20@500ms")
+                        sub_params.append(f"{s.lower()}@depth20@500ms")
                     
                     sub_msg = {"method": "SUBSCRIBE", "params": sub_params, "id": 100}
                     await ws.send(json.dumps(sub_msg))

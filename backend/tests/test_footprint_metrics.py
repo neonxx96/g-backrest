@@ -99,3 +99,33 @@ def test_empty_and_zero_volume_candles_do_not_crash():
 
     assert result[0]["stacked_imbalance"] == {"buy": 0, "sell": 0}
     assert result[0]["absorption"] is False
+
+
+def test_poc_price_is_level_with_max_total_volume():
+    candles = [_candle(0, [
+        (100.0, 10.0, 10.0),   # vol 20
+        (101.0, 50.0, 5.0),    # vol 55 -> POC
+        (102.0, 5.0, 5.0),     # vol 10
+    ])]
+
+    annotate_cluster_metrics(candles)
+
+    assert candles[0]["poc_price"] == 101.0
+
+
+def test_poc_price_none_for_empty_candle():
+    candles = [{"timestamp": 0, "total_volume": 0.0, "total_delta": 0.0, "levels": []}]
+
+    annotate_cluster_metrics(candles)
+
+    assert candles[0]["poc_price"] is None
+
+
+def test_footprint_cache_covers_watchlist_symbols():
+    # watchlist-символы должны накапливать footprint так же, как focus (трейды подписаны на оба списка)
+    from backend.app.services.recorder import OrderFlowRecorder
+
+    rec = OrderFlowRecorder()
+
+    for sym in rec.watchlist_symbols:
+        assert sym in rec.footprint_cache
