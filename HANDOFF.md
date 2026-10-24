@@ -2,6 +2,24 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi — аннотации Di + P0-фиксы 2026-10-24 (день, HEAD fd3fcce)
+
+- **Коммиты:** `800bfd7` (REST-фолбэк скринера) → `ce305f6` (аннотации 1–7 + SW) → `fd3fcce` (P0 ночного теста). Gate зелёный оба раза.
+- **Аннотации Di (7 шт., закрыты все):**
+  - **1 (пустой скринер)** → `800bfd7`: в браузере Kimi WS-колбы к Binance открываются, но кадры не идут. Фолбэк: watchdog-тик marketDataStore при stale >10с дёргает `fapi.binance.com/fapi/v1/ticker/24hr`, `dataSource: 'ws'|'rest'`, бейдж REST в ScreenerWidget (`data-testid="screener-source-rest"`), dev-экспорт `window.__marketDataStore`. Проверено: 746 тикеров, source=rest.
+  - **2/3 (две формы добавления виджетов)** → `ce305f6`: кнопка «+ Виджет» убрана из PresetBar.jsx; единственная форма — «+ Виджеты» в топ-баре (testid `widgets-menu-button` сохранён, на него завязан gate-смоук).
+  - **4 (непонятно, какая стратегия активна)** → `ce305f6`: TradeHistoryWidget.jsx каждые 3с опрашивает `/api/paper-trading/live/status`, строка `active-strategy-row`: «Стратегия: X • SYMBOL • TF • [плечо Nx] • [AI] • RUNNING/STOPPED» + кнопка `btn-change-strategy` (setMode('live_paper') + событие `signalscript:open-backtest`, слушатель в App.jsx). В `live_paper_runner.get_status` добавлено поле `leverage` (нужен рестарт бэкенда — был).
+  - **5 (вьюпорт не к актуальному времени)** → `ce305f6`: кнопка `btn-scroll-to-now` (SkipForward) в ChartToolbar.jsx → `handleScrollToNow` (тот же scrollToRealTime, что Space); в useChartLifecycle.js после applyNewData добавлен `chart.scrollToRealTime()` — вьюпорт к правому краю при смене символа/ТФ.
+  - **6/7 (непонятные/наезжающие панели)** → в значительной степени лечились фолбэком + SW-фиксом; проверено по скриншоту вкладки (скринер заполнен, вкладки без наложений). Если Di вернётся с деталями — слушать.
+  - **SW (критично, скрытый корень каши модулей):** `sw.js` кешировал ВСЁ подряд, включая `/src/*.jsx` → вкладка получала смесь старых/новых модулей и падала с ПУСТЫМ root. Фикс: bypass кеша для `/src/`, `/node_modules/`, `/@`, `/index.html`; CACHE_NAME → 'signalscript-v2'. Живую вкладку лечить: unregister SW + caches.delete + перезагрузка `?v=N`.
+- **P0 из NIGHT_TEST_FINAL_20261024 (оба закрыты, `fd3fcce`):**
+  - **P0-1 (воркер спамил общий кошелёк: 685 ENTRY × 13 символов):** корень — `background_worker.py`, quant-цикл вызывал `execute_unified_signal` для любого тикера с сигналом. Добавлен модульный гейт `background_auto_trade_allowed(ticker)`: **ВЫКЛ по умолчанию**; при `BACKGROUND_WORKER_AUTO_TRADE=true` — только символ live-раннера. Тесты: `test_background_worker_auto_trade_gate.py` (4 passed).
+  - **P0-2 (ema_trend лимит сгорал):** раннер всегда слал `entry_type="LIMIT"`. Добавлен `MARKET_ENTRY_STRATEGIES = {"confluence_ema","cvd_absorption","diagnostics_lenient","ema_trend","naked_test"}` — для них `entry_type="MARKET"`. Wall-bounce (live_density_bounce, spot_wall_bounce, cluster_volume_bounce) остаются лимитными — решение принято. Тесты: `test_market_entry_strategies.py` (4 passed).
+- **Рестарт бэкенда** (после P0-фиксов): убить PID из `netstat :8000` через `powershell -Command "Stop-Process -Id N -Force"` (bash манглит /PID в taskkill), поднять: `Start-Process ... 'C:\Users\danil\AppData\Local\Programs\Python\Python311\python.exe' backend\main.py` — **прод-процесс на СИСТЕМНОМ Python 3.11, не venv**; gate ходит через venv. Подъём ~240с. Логи `logs/backend_20261024b*.log`. В err-логе есть старый `ModuleNotFoundError: uvicorn` — сервер работает, известный шум, не разбирал.
+- **Состояние после рестарта:** марафон 14/14 running (ema_trend 5m, $1k×10, 168ч, m4 только у BTC — A/B сохранён), live-раннер ETHUSDT live_density_bounce $1k×10 ai_control=true running; общий paper-кошелёк: balance 1000, 0 позиций, 0 ордеров. Один backend на :8000. Снапшот: `data/pilot_status_prerestart_20261024.json`.
+- **Перезапуск марафона — ТОЛЬКО `scripts/_tmp_activate14.py`** (старый `_tmp_activate.py` перезапишет конфиги семёркой — НЕ использовать; временные файлы не коммитить).
+- **Не трогал (P1, ждёт разговора о параметрах с Di):** редкость сигналов ema_cross/ema_trend в боковике, minimum_turnover ночью у альтов, preflight_valid=False (TTL).
+
 ## 📊 ИТОГ ТЕСТА 23–24.10 (финальный отчёт: docs/NIGHT_TEST_FINAL_20261024.md)
 
 - Тест окончен 24.10 12:40; марафон и live-раннер остановлены; дозор отключён.
