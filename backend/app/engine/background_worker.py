@@ -8,6 +8,7 @@ Streams real-time progress and telemetry updates to frontend clients via WebSock
 import asyncio
 import inspect
 import logging
+import os
 import time
 from typing import Dict, Any, List, Set, Optional
 import pandas as pd
@@ -128,6 +129,26 @@ CANDIDATE_STRATEGIES = [
         "use_rsi_filter": True,
     },
 ]
+
+
+def background_auto_trade_allowed(ticker: str) -> bool:
+    """
+    P0-гейт (ночной тест 23-24.10): авто-выставление shadow-ордеров в ОБЩИЙ
+    paper-кошелёк из quant-цикла. Без флага ВЫКЛЮЧЕНО по умолчанию; при
+    явном включении (BACKGROUND_WORKER_AUTO_TRADE=true) ордера принимаются
+    ТОЛЬКО по символу live-раннера — чтобы кошелёк не получал паразитные
+    заявки по всему фокус-листу (баг: 685 ENTRY-ордеров × 13 символов).
+    """
+    if os.getenv("BACKGROUND_WORKER_AUTO_TRADE", "false").lower() not in ("1", "true", "yes", "on"):
+        return False
+    try:
+        from backend.app.services.live_paper_runner import live_paper_runner
+    except Exception:
+        return False
+    runner_symbol = getattr(live_paper_runner, "symbol", None)
+    if not runner_symbol:
+        return False
+    return ticker.strip().upper() == str(runner_symbol).strip().upper()
 
 
 class BackgroundWorker:
@@ -540,9 +561,17 @@ class BackgroundWorker:
                     elif active_pos.target_price > 0 and last_close <= active_pos.target_price:
                         paper_trading_session.close_position(ticker, reason="Take Profit Hit", price=last_close, order_type="LIMIT")
 
-            # Open paper trade if profitable regime found and fresh signal exists
+            # Open paper trade if profitable regime found and fresh signal exists.
+            # P0 (night test 23-24.10): gate — только символ live-раннера и только
+            # при явном BACKGROUND_WORKER_AUTO_TRADE=true, иначе quant-цикл по
+            # фокус-листу спамит общий кошелёк ордерами по всем монетам.
             is_profitable = opt_cfg.get("is_profitable", True)
-            if is_profitable and is_trade_allowed and last_signal in ("LONG", "SHORT"):
+            if (
+                is_profitable
+                and is_trade_allowed
+                and last_signal in ("LONG", "SHORT")
+                and background_auto_trade_allowed(ticker)
+            ):
                 active_pos = paper_trading_session.positions.get(ticker)
                 has_open_pos = active_pos and not active_pos.closed and active_pos.qty > 0
                 has_pending = any(

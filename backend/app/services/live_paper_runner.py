@@ -37,6 +37,18 @@ PAPER_HISTORICAL_STRATEGIES = frozenset({
     "naked_test",
 })
 
+# P0 (night test 23-24.10): моментум/кросс-стратегии обязаны входить ПО РЫНКУ.
+# Лимитный вход по цене сигнала асимметричен: BUY LIMIT в росте не исполняется
+# часами (сигнал сгорает), а SELL LIMIT исполняется мгновенно — лонг-сигналы
+# теряются. Wall-bounce стратегии намеренно ждут у стенки и остаются лимитными.
+MARKET_ENTRY_STRATEGIES = frozenset({
+    "confluence_ema",
+    "cvd_absorption",
+    "diagnostics_lenient",
+    "ema_trend",
+    "naked_test",
+})
+
 
 class LivePaperRunner:
     """
@@ -792,7 +804,7 @@ class LivePaperRunner:
             timeframe=self.timeframe,
             timestamp=int(time.time() * 1000),
             direction=candidate_signal["direction"],
-            entry_type="LIMIT",
+            entry_type="MARKET" if self.strategy_type in MARKET_ENTRY_STRATEGIES else "LIMIT",
             entry_price=candidate_signal["entry_price"],
             sl=candidate_signal["sl"],
             tp1=candidate_signal["tp1"],
