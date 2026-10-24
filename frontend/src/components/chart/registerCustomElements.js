@@ -819,7 +819,7 @@ try {
     needDefaultPointFigure: false,
     needDefaultXAxisFigure: false,
     needDefaultYAxisFigure: false,
-    createPointFigures: ({ coordinates, yAxis, overlay }) => {
+    createPointFigures: ({ coordinates, bounding, yAxis, overlay }) => {
       if (!coordinates || coordinates.length === 0) return [];
       const anchor = coordinates[0];
       if (!Number.isFinite(anchor?.x)) return [];
@@ -831,7 +831,11 @@ try {
 
       const maxTpo = Math.max(...rows.map(r => r.tpo_count || 0), 1);
       const maxWidth = 140;
-      const right = anchor.x - 4;
+      // pinToEdge (default): гистограмма привязана к правому краю видимой области
+      // и не «уезжает» при скролле по времени; иначе — к якорной свече.
+      const right = data.pinToEdge === false
+        ? anchor.x - 4
+        : ((bounding && Number.isFinite(bounding.width) && bounding.width > 0) ? bounding.width : anchor.x) - 4;
 
       // Высота строки из соседних уровней
       let rowHeight = 5;

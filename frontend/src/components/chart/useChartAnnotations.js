@@ -50,14 +50,29 @@ export function useChartAnnotations({
     return () => { isSubscribed = false; clearInterval(interval); };
   }, [symbol]);
   // Paper trades share the same native overlay path as historical trades, with muted blue/violet colors.
+  // Источники: live-раннер (/api/paper-trading/status) + ночной марафон (/api/overnight-pilot/status) —
+  // обе системы paper (тестовый баланс), маркеры входа/выхода показываем для всех.
   useEffect(() => {
     let active = true;
     const loadPaperTrades = async () => {
       try {
-        const response = await fetch('/api/paper-trading/status');
-        if (!response.ok) return;
-        const payload = await response.json();
-        if (active) setPaperTrades((payload.closed_trades || []).filter((trade) => trade.symbol === symbol.toUpperCase()));
+        const [liveRes, pilotRes] = await Promise.all([
+          fetch('/api/paper-trading/status'),
+          fetch('/api/overnight-pilot/status'),
+        ]);
+        const liveTrades = liveRes.ok ? ((await liveRes.json()).closed_trades || []) : [];
+        let pilotTrades = [];
+        if (pilotRes.ok) {
+          const pilot = await pilotRes.json();
+          pilotTrades = Object.values(pilot.sessions || {})
+            .flatMap((s) => (s?.paper?.closed_trades) || [])
+            .map((t) => ({ ...t, _source: 'marathon' }));
+        }
+        if (active) {
+          setPaperTrades(
+            [...liveTrades, ...pilotTrades].filter((trade) => trade.symbol === symbol.toUpperCase())
+          );
+        }
       } catch (_) {
         if (active) setPaperTrades([]);
       }

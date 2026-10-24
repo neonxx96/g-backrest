@@ -95,6 +95,7 @@ class LivePaperRunner:
         self.trailing_activation_pct: float = 0.0
         self.tp1_rr_ratio: float = 1.5
         self.tp2_rr_ratio: float = 2.8
+        self.max_entry_slippage_pct: float = 0.5
         self._last_funding_timestamp: int = 0
         self._last_funding_rate: float = 0.0
         self.started_at: float = 0.0
@@ -191,6 +192,11 @@ class LivePaperRunner:
         self.trailing_activation_pct = float(config.get("trailing_activation_pct", 0.0))
         self.tp1_rr_ratio = float(config.get("tp1_rr_ratio", 1.5))
         self.tp2_rr_ratio = float(config.get("tp2_rr_ratio", 2.8))
+        # Guard отклонения fill'а входа от цены сигнала (%). Защищает от протухших
+        # снапшотов: SL/TP сетапа считаются от цены сигнала, и вход «по протухшей
+        # цене» (напр. на +0.6% при TP1 0.6%) заранее обречён.
+        self.max_entry_slippage_pct = float(config.get("max_entry_slippage_pct", 0.5))
+        self.session.max_entry_slippage_pct = self.max_entry_slippage_pct
         # M4 Risk Manager gates (SRS M4) — все default-off, марафон не затрагивается
         self.use_m4_risk_gates = bool(config.get("use_m4_risk_gates", False))
         self.max_portfolio_heat_pct = float(config.get("max_portfolio_heat_pct", 6.0))

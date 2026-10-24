@@ -181,6 +181,10 @@ class PaperTradingSession:
         self.taker_fee = taker_fee
         self.signal_lag_ms = signal_lag_ms
         self.order_rtt_ms = order_rtt_ms
+        # Максимальное отклонение fill'а входа от цены сигнала, % (0 = guard выключен).
+        # Защита от протухших снапшотов: уровни SL/TP считаются от цены сигнала,
+        # и вход с отклонением больше порога делает сетап бессмысленным/убыточным.
+        self.max_entry_slippage_pct: float = 0.0
 
         # Balance accounting (all in USDT)
         self.realized_pnl = 0.0
@@ -319,6 +323,19 @@ class PaperTradingSession:
             required_margin = float(price) * float(quantity) / effective_leverage
             if required_margin > self.available_margin + 1e-9:
                 raise ValueError(f"insufficient_margin: {symbol}")
+
+        if role == PaperOrderRole.EXIT.value:
+            # Replace-семантика: не копим конкурирующие exit-ордера по одной позиции.
+            # Ранее каждый тик с ценой >= target ставил новый TP-ордер (12+ дублей
+            # за минуту); при пробое цены обратно через уровень это дало бы серию
+            # fill'ов сверх qty позиции (oversell). Сначала отменяем working-выходы.
+            for existing_id, existing in list(self.orders.items()):
+                if (
+                    existing.symbol == symbol
+                    and existing.role == PaperOrderRole.EXIT
+                    and existing.sim.state.status in (OrderStatus.PENDING, OrderStatus.ACTIVE, OrderStatus.PARTIALLY_FILLED)
+                ):
+                    self.cancel_order(existing_id)
 
         ts = signal_ts if signal_ts is not None else self._last_event_ts
         cfg = OrderConfig(
@@ -595,6 +612,21 @@ class PaperTradingSession:
             self._apply_exit_fill(symbol, po, price, qty, fee, slippage_cost)
 
     def _apply_entry_fill(self, symbol: str, po: PaperOrder, price: float, qty: float, fee: float, slippage_cost: float) -> None:
+        # Guard протухшего снапшота: fill сильно ушёл от цены сигнала — сетап
+        # (SL/TP посчитаны от цены сигнала) уже невалиден; отклоняем fill входа.
+        max_slip_pct = float(getattr(self, "max_entry_slippage_pct", 0.0) or 0.0)
+        ref_price = float(po.sim.cfg.price)
+        if max_slip_pct > 0 and ref_price > 0:
+            deviation_pct = abs(float(price) - ref_price) / ref_price * 100.0
+            if deviation_pct > max_slip_pct:
+                po.sim.state.status = OrderStatus.REJECTED
+                self._release_entry_reservation(po)
+                logger.warning(
+                    f"[TRADE] ENTRY fill REJECTED [{self.session_id}] {symbol}: "
+                    f"fill {price:.6f} отклоняется от цены сигнала {ref_price:.6f} "
+                    f"на {deviation_pct:.3f}% > max_entry_slippage_pct={max_slip_pct:.3f}% | reason='{po.reason}'"
+                )
+                return
         pos = self.positions.get(symbol)
         entry_side = po.sim.cfg.side.value  # BUY -> LONG, SELL -> SHORT
         pos_side = "LONG" if entry_side == "BUY" else "SHORT"
@@ -610,6 +642,7 @@ class PaperTradingSession:
                 stop_price=stop_px,
                 initial_stop_price=stop_px,
                 target_price=float(getattr(po, "target_price", 0.0)),
+                tp2_price=float(getattr(po, "tp2_price", 0.0)),
                 reason=getattr(po, "reason", "Technical Signal"),
                 breakeven_triggered=False,
                 leverage=max(1.0, float(getattr(po, "leverage", 1.0))),

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Minus,
   MoveRight,
@@ -18,8 +18,25 @@ import {
   Palette,
   Layers,
   ChevronDown,
-  SkipForward
+  SkipForward,
+  Settings
 } from 'lucide-react';
+
+import { TPO_SETTINGS_DEFAULTS, WALL_SETTINGS_DEFAULTS } from './useChartOverlays.js';
+
+const readSettings = (key, fallback) => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || '{}');
+    return { ...fallback, ...(parsed && typeof parsed === 'object' ? parsed : {}) };
+  } catch (_) {
+    return { ...fallback };
+  }
+};
+
+const persistSettings = (key, next) => {
+  localStorage.setItem(key, JSON.stringify(next));
+  window.dispatchEvent(new CustomEvent('signalscript:chart-settings-changed'));
+};
 
 // Верхняя полоса инструментов рисования и индикаторов графика
 // (Tealstreet/Tiger style). Управляемый компонент: JSX извлечён ДОСЛОВНО из
@@ -39,6 +56,27 @@ export default function ChartToolbar({
   densityMode, setDensityMode, toggleVolatilityCone, isConeActive,
   toggleIndicator, showVwap,
 }) {
+  // Основные настройки TPO/стенок (запрос Di): период TPO, Value Area,
+  // привязка к правому краю; порог/бюджет стенок. Хранятся в localStorage,
+  // оверлеи перечитывают их через событие signalscript:chart-settings-changed.
+  const [tpoSettingsOpen, setTpoSettingsOpen] = useState(false);
+  const [wallSettingsOpen, setWallSettingsOpen] = useState(false);
+  const [tpoSettings, setTpoSettings] = useState(() => readSettings('chart_tpo_settings', TPO_SETTINGS_DEFAULTS));
+  const [wallSettings, setWallSettings] = useState(() => readSettings('chart_walls_settings', WALL_SETTINGS_DEFAULTS));
+  const updateTpoSettings = (patch) => {
+    const next = { ...tpoSettings, ...patch };
+    setTpoSettings(next);
+    persistSettings('chart_tpo_settings', next);
+  };
+  const updateWallSettings = (patch) => {
+    const next = { ...wallSettings, ...patch };
+    setWallSettings(next);
+    persistSettings('chart_walls_settings', next);
+  };
+  const settingsRow = 'flex items-center justify-between gap-2 px-2 py-1 text-[10px] font-mono text-[#94a3b8]';
+  const settingsSelect = 'bg-[#0c1017] border border-[#1f2937] rounded text-[10px] text-[#e2e8f0] px-1 py-0.5';
+  const settingsPanel = 'absolute top-full right-0 mt-1 w-60 bg-[#0f1420] border border-[#2a3449] rounded shadow-2xl z-50 py-1';
+
   return (
       <div
         style={{ backgroundColor: 'var(--bg-panel-header)', borderColor: 'var(--border-subtle)' }}
@@ -375,6 +413,39 @@ export default function ChartToolbar({
             <span>📊</span>
             <span className="hidden xl:inline ml-0.5">TPO</span>
           </button>
+          <span className="relative inline-flex">
+            <button
+              data-testid="btn-toolbar-tpo-settings"
+              title="Настройки TPO: период, Value Area, привязка к краю"
+              onClick={() => { setTpoSettingsOpen(v => !v); setWallSettingsOpen(false); }}
+              className={`px-0.5 py-0.2 rounded text-[9.5px] transition -ml-1 ${tpoSettingsOpen ? 'text-[#38bdf8]' : 'text-[#60697b] hover:text-white'}`}
+            >
+              <Settings size={10} />
+            </button>
+            {tpoSettingsOpen && (
+              <div data-testid="tpo-settings-panel" className={settingsPanel}>
+                <label className={settingsRow}>
+                  <span>Период TPO</span>
+                  <select aria-label="Период TPO" className={settingsSelect} value={tpoSettings.period_minutes}
+                    onChange={(e) => updateTpoSettings({ period_minutes: Number(e.target.value) })}>
+                    {[5, 15, 30, 60].map(v => <option key={v} value={v}>{v} мин</option>)}
+                  </select>
+                </label>
+                <label className={settingsRow}>
+                  <span>Value Area</span>
+                  <select aria-label="Доля Value Area" className={settingsSelect} value={tpoSettings.value_area}
+                    onChange={(e) => updateTpoSettings({ value_area: Number(e.target.value) })}>
+                    {[0.5, 0.6, 0.7, 0.8].map(v => <option key={v} value={v}>{Math.round(v * 100)}%</option>)}
+                  </select>
+                </label>
+                <label className={settingsRow}>
+                  <span>К правому краю</span>
+                  <input aria-label="Привязка TPO к правому краю" type="checkbox" checked={tpoSettings.pin_to_edge !== false}
+                    onChange={(e) => updateTpoSettings({ pin_to_edge: e.target.checked })} />
+                </label>
+              </div>
+            )}
+          </span>
 
           <button
             title="Маркеры ликвидаций Binance Futures"
@@ -402,6 +473,37 @@ export default function ChartToolbar({
             <span>🧲</span>
             <span className="hidden xl:inline ml-0.5">Стенки</span>
           </button>
+          <span className="relative inline-flex">
+            <button
+              data-testid="btn-toolbar-walls-settings"
+              title="Настройки стенок: минимальный объём, максимум уровней"
+              onClick={() => { setWallSettingsOpen(v => !v); setTpoSettingsOpen(false); }}
+              className={`px-0.5 py-0.2 rounded text-[9.5px] transition -ml-1 ${wallSettingsOpen ? 'text-[#10b981]' : 'text-[#60697b] hover:text-white'}`}
+            >
+              <Settings size={10} />
+            </button>
+            {wallSettingsOpen && (
+              <div data-testid="walls-settings-panel" className={settingsPanel}>
+                <label className={settingsRow}>
+                  <span>Мин. стенка</span>
+                  <select aria-label="Минимальный объём стенки" className={settingsSelect} value={wallSettings.min_usd}
+                    onChange={(e) => updateWallSettings({ min_usd: Number(e.target.value) })}>
+                    <option value={100000}>$100k</option>
+                    <option value={250000}>$250k</option>
+                    <option value={400000}>$400k</option>
+                    <option value={1000000}>$1M</option>
+                  </select>
+                </label>
+                <label className={settingsRow}>
+                  <span>Макс. уровней</span>
+                  <select aria-label="Максимум уровней стенок" className={settingsSelect} value={wallSettings.max_walls}
+                    onChange={(e) => updateWallSettings({ max_walls: Number(e.target.value) })}>
+                    {[2, 3, 4, 6].map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </label>
+              </div>
+            )}
+          </span>
 
           <label
             data-testid="density-mode-control"
