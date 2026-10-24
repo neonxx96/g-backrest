@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -84,6 +85,7 @@ class PilotSession:
     runner: Optional[LivePaperRunner] = None
     error: Optional[str] = None
     started_at: Optional[int] = None
+    last_optimization_at: Optional[int] = None
     paper_snapshot: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
@@ -101,6 +103,7 @@ class PilotSession:
             "paper": paper,
             "error": self.error,
             "started_at": self.started_at,
+            "last_optimization_at": self.last_optimization_at,
             "session_id": paper.get("session_id") if paper else self.session_id,
         }
 
@@ -109,6 +112,7 @@ class OvernightPilotManager:
     def __init__(self) -> None:
         self.sessions: Dict[str, PilotSession] = {}
         self._forecast_tasks: Dict[str, asyncio.Task] = {}
+        self._optimization_tasks: Dict[str, asyncio.Task] = {}
         self._snapshot_task: Optional[asyncio.Task] = None
         self._lock = asyncio.Lock()
         self.intent_logger = DeepIntentLogger()
@@ -267,6 +271,11 @@ class OvernightPilotManager:
     # опросами) и forecast-циклом (300 c) — нагрузка на Binance REST умеренная.
     MAX_SESSIONS = 20
 
+    # Период переоптимизации стратегий работающих сессий (запрос Di 2026-10-24:
+    # «оптимизация стратегий включена на период теста»). Первый прогон — сразу
+    # после start(), далее раз в интервал. Рекомендации консультативные.
+    OPTIMIZATION_INTERVAL_SEC = int(os.getenv("OVERNIGHT_OPTIMIZATION_INTERVAL_SEC", str(6 * 3600)))
+
     @staticmethod
     def _validate_configs(configs: Optional[List[OvernightPilotConfig]]) -> List[OvernightPilotConfig]:
         selected = configs or OvernightPilotManager.default_configs()
@@ -407,71 +416,7 @@ class OvernightPilotManager:
                         "updated_at": session.forecast.get("updated_at") or session.forecast.get("anchor_timestamp"),
                     },
                 )
-                if session.config.strategy_type in OPTIMIZABLE_STRATEGIES:
-                    config = session.config
-                    sl_min = max(0.1, config.stop_loss_pct * 0.5)
-                    sl_max = min(20.0, max(sl_min + 0.1, config.stop_loss_pct * 1.5))
-                    tp_min = max(0.1, config.take_profit_pct * 0.5)
-                    tp_max = min(100.0, max(tp_min + 0.1, config.take_profit_pct * 1.5))
-                    wall_min = max(0.0, config.min_density_usd * 0.5)
-                    wall_max = max(wall_min + 1000.0, config.min_density_usd * 1.5)
-                    optimizer_request = OptimizeRequest(
-                        symbol=config.symbol,
-                        timeframe=config.timeframe,
-                        days=config.days,
-                        strategy_type=config.strategy_type,
-                        sl_min=sl_min,
-                        sl_max=sl_max,
-                        sl_step=max(0.1, (sl_max - sl_min) / 4),
-                        tp_min=tp_min,
-                        tp_max=tp_max,
-                        tp_step=max(0.1, (tp_max - tp_min) / 4),
-                        wall_min_usd=wall_min,
-                        wall_max_usd=wall_max,
-                        wall_step_usd=max(1000.0, config.min_density_usd * 0.25),
-                        volume_multiplier=max(0.5, config.volume_multiplier),
-                        leverage=config.leverage,
-                        initial_capital=config.initial_capital,
-                        use_multi_tp=config.use_multi_tp,
-                        current_sl_pct=config.stop_loss_pct,
-                        current_tp_pct=config.take_profit_pct,
-                        current_wall_usd=config.min_density_usd,
-                        use_atr_filter=config.use_atr_filter,
-                        use_cvd_filter=config.use_cvd_filter,
-                        use_oi_filter=config.use_oi_filter,
-                        use_rsi_filter=config.use_rsi_filter,
-                        population_size=10,
-                        generations=3,
-                    )
-                    try:
-                        result = await optimize_backtest(optimizer_request)
-                        session.backtest["optimization"] = {
-                            "status": "complete",
-                            "mode": "pre_run",
-                            "recommendation": {
-                                "meta": result.get("meta") or {},
-                                "before_optimization": result.get("before_optimization") or {},
-                                "after_optimization": result.get("after_optimization") or {},
-                                "oos": result.get("oos") or (result.get("meta") or {}).get("oos"),
-                            },
-                            "disclaimer": "Параметры рекомендованы, но не применяются автоматически.",
-                        }
-                    except Exception as exc:
-                        session.backtest["optimization_error"] = str(exc)[:240]
-                        session.backtest["optimization"] = {
-                            "status": "error",
-                            "mode": "pre_run",
-                            "error": session.backtest["optimization_error"],
-                        }
-                else:
-                    session.backtest["optimization_error"] = (
-                        f"Genetic optimizer is unavailable for strategy '{session.config.strategy_type}'."
-                    )
-                    session.backtest["optimization"] = {
-                        "status": "unavailable",
-                        "mode": "pre_run",
-                        "error": session.backtest["optimization_error"],
-                    }
+                await self._run_session_optimizer(session, mode="pre_run")
             except Exception as exc:
                 session.error = str(exc)
             session.preflight_valid = bool(
@@ -489,6 +434,101 @@ class OvernightPilotManager:
                 reason="Preflight is valid" if session.preflight_valid else (session.error or "Backtest or forecast data is incomplete"),
                 payload={"preflight_valid": session.preflight_valid},
             )
+
+    async def _run_session_optimizer(self, session: "PilotSession", mode: str) -> None:
+        """Run the genetic optimizer for one session and store the recommendation.
+
+        Consultative only: parameters are recommended, never applied automatically
+        (конституция проекта — терминал строго advisory). mode: "pre_run" | "periodic".
+        """
+        config = session.config
+        if config.strategy_type in OPTIMIZABLE_STRATEGIES:
+            sl_min = max(0.1, config.stop_loss_pct * 0.5)
+            sl_max = min(20.0, max(sl_min + 0.1, config.stop_loss_pct * 1.5))
+            tp_min = max(0.1, config.take_profit_pct * 0.5)
+            tp_max = min(100.0, max(tp_min + 0.1, config.take_profit_pct * 1.5))
+            wall_min = max(0.0, config.min_density_usd * 0.5)
+            wall_max = max(wall_min + 1000.0, config.min_density_usd * 1.5)
+            optimizer_request = OptimizeRequest(
+                symbol=config.symbol,
+                timeframe=config.timeframe,
+                days=config.days,
+                strategy_type=config.strategy_type,
+                sl_min=sl_min,
+                sl_max=sl_max,
+                sl_step=max(0.1, (sl_max - sl_min) / 4),
+                tp_min=tp_min,
+                tp_max=tp_max,
+                tp_step=max(0.1, (tp_max - tp_min) / 4),
+                wall_min_usd=wall_min,
+                wall_max_usd=wall_max,
+                wall_step_usd=max(1000.0, config.min_density_usd * 0.25),
+                volume_multiplier=max(0.5, config.volume_multiplier),
+                leverage=config.leverage,
+                initial_capital=config.initial_capital,
+                use_multi_tp=config.use_multi_tp,
+                current_sl_pct=config.stop_loss_pct,
+                current_tp_pct=config.take_profit_pct,
+                current_wall_usd=config.min_density_usd,
+                use_atr_filter=config.use_atr_filter,
+                use_cvd_filter=config.use_cvd_filter,
+                use_oi_filter=config.use_oi_filter,
+                use_rsi_filter=config.use_rsi_filter,
+                population_size=10,
+                generations=3,
+            )
+            try:
+                result = await optimize_backtest(optimizer_request)
+                session.backtest["optimization"] = {
+                    "status": "complete",
+                    "mode": mode,
+                    "recommendation": {
+                        "meta": result.get("meta") or {},
+                        "before_optimization": result.get("before_optimization") or {},
+                        "after_optimization": result.get("after_optimization") or {},
+                        "oos": result.get("oos") or (result.get("meta") or {}).get("oos"),
+                    },
+                    "disclaimer": "Параметры рекомендованы, но не применяются автоматически.",
+                }
+            except Exception as exc:
+                session.backtest["optimization_error"] = str(exc)[:240]
+                session.backtest["optimization"] = {
+                    "status": "error",
+                    "mode": mode,
+                    "error": session.backtest["optimization_error"],
+                }
+        else:
+            session.backtest["optimization_error"] = (
+                f"Genetic optimizer is unavailable for strategy '{config.strategy_type}'."
+            )
+            session.backtest["optimization"] = {
+                "status": "unavailable",
+                "mode": mode,
+                "error": session.backtest["optimization_error"],
+            }
+        session.last_optimization_at = int(time.time() * 1000)
+        self._record_run_event(
+            session,
+            event_type="OPTIMIZATION_COMPLETED" if (session.backtest.get("optimization") or {}).get("status") == "complete" else "OPTIMIZATION_FAILED",
+            source="optimizer",
+            reason_code="OPTIMIZATION_DONE",
+            reason=f"Optimizer pass ({mode}) finished with status {(session.backtest.get('optimization') or {}).get('status')}",
+            payload={"mode": mode, "status": (session.backtest.get("optimization") or {}).get("status")},
+        )
+
+    async def _optimization_loop(self, session: "PilotSession") -> None:
+        """Periodic re-optimization while the paper session runs (запрос Di 24.10:
+        оптимизация стратегий должна работать всё время теста). Первый прогон —
+        сразу после старта, далее каждые OPTIMIZATION_INTERVAL_SEC. Рекомендации
+        консультативные, на работающую сессию не применяются."""
+        while session.runner and session.runner.is_running:
+            try:
+                await self._run_session_optimizer(session, mode="periodic")
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                session.backtest["optimization_error"] = str(exc)[:240]
+            await asyncio.sleep(self.OPTIMIZATION_INTERVAL_SEC)
 
     async def preflight(self, configs: Optional[List[OvernightPilotConfig]] = None) -> Dict[str, Any]:
         selected = self._validate_configs(configs)
@@ -530,6 +570,10 @@ class OvernightPilotManager:
                         self._forecast_loop(session),
                         name=f"overnight-forecast-{session.config.symbol.upper()}",
                     )
+                    self._optimization_tasks[session.config.symbol.upper()] = asyncio.create_task(
+                        self._optimization_loop(session),
+                        name=f"overnight-optimization-{session.config.symbol.upper()}",
+                    )
                 except Exception as exc:
                     session.error = str(exc)
             self._ensure_snapshot_task()
@@ -567,6 +611,12 @@ class OvernightPilotManager:
         if self._forecast_tasks:
             await asyncio.gather(*self._forecast_tasks.values(), return_exceptions=True)
         self._forecast_tasks.clear()
+        for task in self._optimization_tasks.values():
+            if not task.done():
+                task.cancel()
+        if self._optimization_tasks:
+            await asyncio.gather(*self._optimization_tasks.values(), return_exceptions=True)
+        self._optimization_tasks.clear()
         snapshot_task = self._snapshot_task
         self._snapshot_task = None
         if snapshot_task and snapshot_task is not asyncio.current_task() and not snapshot_task.done():
