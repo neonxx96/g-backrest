@@ -126,7 +126,7 @@ function RecentBacktestTrades({ backtest }) {
 
 function PaperTradeTimeline({ paper }) {
   const trades = (paper?.closed_trades || []).slice(-5).reverse();
-  const positions = (paper?.positions || []).filter((position) => !position.closed && Number(position.qty || 0) > 0);
+  const positions = (paper?.open_positions || paper?.positions || []).filter((position) => !position.closed && Number(position.qty || 0) > 0);
   const asDate = (value) => {
     if (value == null || value === '') return null;
     const numeric = Number(value);

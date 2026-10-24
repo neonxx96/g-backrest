@@ -16,6 +16,7 @@ import {
   Settings2
 } from 'lucide-react';
 import { useBacktestStore } from '../../stores/backtestStore';
+import { collectMarathonPositions, collectMarathonTrades, mergePaperLists, hasMarathonData } from './marathonFeed';
 
 const API_BASE = '/api';
 
@@ -27,6 +28,7 @@ export default function TradeHistoryWidget(props) {
   const [isResetting, setIsResetting] = useState(false);
   const [monitoringData, setMonitoringData] = useState(null);
   const [liveStatus, setLiveStatus] = useState(null);
+  const [pilotStatus, setPilotStatus] = useState(null);
 
   // Fetch Paper Trading Status
   const fetchStatus = useCallback(async () => {
@@ -70,17 +72,32 @@ export default function TradeHistoryWidget(props) {
     }
   }, []);
 
+  // Fetch Overnight Pilot (марафон) status — реальные paper-позиции/сделки по всем парам сессий
+  const fetchPilotStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/overnight-pilot/status`);
+      if (res.ok) {
+        const data = await res.json();
+        setPilotStatus(data);
+      }
+    } catch (err) {
+      console.debug('Failed to fetch overnight pilot status:', err);
+    }
+  }, []);
+
   useEffect(() => {
     fetchStatus();
     fetchMonitoring();
     fetchLiveStatus();
+    fetchPilotStatus();
     const interval = setInterval(() => {
       fetchStatus();
       fetchMonitoring();
       fetchLiveStatus();
+      fetchPilotStatus();
     }, 3000);
     return () => clearInterval(interval);
-  }, [fetchStatus, fetchMonitoring, fetchLiveStatus]);
+  }, [fetchStatus, fetchMonitoring, fetchLiveStatus, fetchPilotStatus]);
 
   // Handle Wallet Reset
   const handleResetWallet = async () => {
@@ -137,9 +154,25 @@ export default function TradeHistoryWidget(props) {
     }
   };
 
-  // Metrics calculation
+  // Позиции и сделки ночного марафона (Overnight Pilot) — единый список по всем сессиям
+  const pilotOpen = useMemo(() => collectMarathonPositions(pilotStatus), [pilotStatus]);
+  const pilotClosed = useMemo(() => collectMarathonTrades(pilotStatus), [pilotStatus]);
+  const pilotAgg = pilotStatus?.aggregate?.paper;
+  const hasPilotData = hasMarathonData(pilotStatus, pilotOpen, pilotClosed);
+
+  // Live-раннер + марафон: показываем всё, что реально торговалось на paper (баланс тестовый — paper)
+  const closedTrades = useMemo(
+    () => mergePaperLists(sessionData?.closed_trades, pilotClosed),
+    [sessionData, pilotClosed]
+  );
+  const openPositions = useMemo(
+    () => mergePaperLists(sessionData?.positions, pilotOpen),
+    [sessionData, pilotOpen]
+  );
+
+  // Metrics calculation — торговая статистика по объединённым paper-системам (live-раннер + марафон)
   const metrics = useMemo(() => {
-    if (!sessionData) {
+    if (!sessionData && closedTrades.length === 0 && openPositions.length === 0) {
       return {
         balance: 100.0,
         realizedPnl: 0.0,
@@ -154,34 +187,31 @@ export default function TradeHistoryWidget(props) {
       };
     }
 
-    const closed = sessionData.closed_trades || [];
+    const closed = closedTrades;
     const wins = closed.filter((t) => Number(t.net_pnl ?? 0) > 0);
     const wr = closed.length > 0 ? (wins.length / closed.length) * 100 : 0;
     const totalFeeDrag = closed.reduce((sum, trade) => sum + Number(trade.fee_drag ?? trade.fee ?? 0), 0);
     const bleedCount = closed.filter((trade) => trade.profit_bleed).length;
 
-    const uptimeSec = sessionData.uptime_seconds || 0;
+    const uptimeSec = sessionData?.uptime_seconds || 0;
     const hrs = Math.floor(uptimeSec / 3600);
     const mins = Math.floor((uptimeSec % 3600) / 60);
     const secs = uptimeSec % 60;
     const uptimeStr = `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 
     return {
-      balance: sessionData.balance ?? 100.0,
-      realizedPnl: sessionData.realized_pnl ?? 0.0,
-      unrealizedPnl: sessionData.unrealized_pnl ?? 0.0,
-      totalFees: sessionData.total_fees_paid ?? 0.0,
-      activePositions: (sessionData.positions || []).length,
+      balance: sessionData?.balance ?? 100.0,
+      realizedPnl: sessionData?.realized_pnl ?? 0.0,
+      unrealizedPnl: sessionData?.unrealized_pnl ?? 0.0,
+      totalFees: sessionData?.total_fees_paid ?? 0.0,
+      activePositions: openPositions.length,
       totalTrades: closed.length,
       winRate: Math.round(wr),
       avgFee: closed.length > 0 ? totalFeeDrag / closed.length : 0,
       profitBleedPct: closed.length > 0 ? (bleedCount / closed.length) * 100 : 0,
       uptimeStr
     };
-  }, [sessionData]);
-
-  const closedTrades = sessionData?.closed_trades || [];
-  const openPositions = sessionData?.positions || [];
+  }, [sessionData, closedTrades, openPositions]);
 
   return (
     <div
@@ -198,6 +228,16 @@ export default function TradeHistoryWidget(props) {
             <div>
               <span className="font-semibold text-xs tracking-wide text-white">Trade History & Forecasts</span>
               <span className="ml-2 text-[10px] text-neutral-500 font-mono">Paper Trading $100.00</span>
+              {hasPilotData && (
+                <span
+                  data-testid="marathon-summary-chip"
+                  className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-950 text-amber-300 border border-amber-700"
+                  title="Сводка ночного марафона (Overnight Pilot) — тестовый (paper) баланс, реальные деньги не используются"
+                >
+                  Марафон (тест): открыто {pilotOpen.length} · закрыто {pilotAgg?.closed_trades ?? pilotClosed.length} · Equity{' '}
+                  {pilotAgg?.equity != null ? `$${Number(pilotAgg.equity).toFixed(2)}` : '—'}
+                </span>
+              )}
               {sessionData?.is_halted ? (
                 <span data-testid="status-halted-badge" className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-rose-950 text-rose-300 border border-rose-700 animate-pulse">
                   HALTED
@@ -455,6 +495,15 @@ export default function TradeHistoryWidget(props) {
                         <td className="py-2 px-3 font-bold text-white flex items-center space-x-1">
                           <span className="w-1.5 h-1.5 rounded-full bg-neutral-600 inline-block" />
                           <span>{trade.symbol}</span>
+                          {trade._source === 'marathon' && (
+                            <span
+                              data-testid="marathon-trade-badge"
+                              className="px-1 rounded text-[8px] font-bold bg-amber-950 text-amber-300 border border-amber-700"
+                              title="Сделка ночного марафона на тестовом (paper) балансе"
+                            >
+                              МАРАФОН·ТЕСТ
+                            </span>
+                          )}
                         </td>
                         <td className="py-2 px-3">
                           <span
@@ -522,7 +571,20 @@ export default function TradeHistoryWidget(props) {
 
                     return (
                       <tr key={idx} className="hover:bg-neutral-800/40 transition">
-                        <td className="py-2 px-3 font-bold text-white">{pos.symbol}</td>
+                        <td className="py-2 px-3 font-bold text-white">
+                          <span className="flex items-center space-x-1">
+                            <span>{pos.symbol}</span>
+                            {pos._source === 'marathon' && (
+                              <span
+                                data-testid="marathon-position-badge"
+                                className="px-1 rounded text-[8px] font-bold bg-amber-950 text-amber-300 border border-amber-700"
+                                title="Позиция ночного марафона на тестовом (paper) балансе"
+                              >
+                                МАРАФОН·ТЕСТ
+                              </span>
+                            )}
+                          </span>
+                        </td>
                         <td className="py-2 px-3">
                           <span
                             className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold ${
