@@ -219,3 +219,36 @@ DOTUSDT quant_confluence 15m $1k×10 ai_control=true (Di переключал ч
 - Вывод на утро 25.10: morning report (`night-pilot.ps1 -Action report`) — ожидаем рост
   числа оценок до ~200+/сессия; если сделок снова ≤1–2 за ночь — это не баг инфраструктуры,
   а свойство ema_trend-фильтра в боковике, и вопрос выносится Di как решение по параметрам.
+
+## 2026-10-24 (вечер, ~19:10 local) — Двенадцатый запуск: тест Di на 10 пар (сессии `1792858067`)
+
+Запрос Di: 10 объёмных волатильных популярных монет, $1k × 10, оптимальные стратегии,
+полный цикл бэктест+прогноз+paper, плюс бесплатные нейронки в терминале с авто-фолбэком.
+
+**Состав (по объёму 24h Binance futures, отсеяны стоки/металлы/мусорные новолистинги):**
+BTC, ETH, ZEC, SOL, NEAR, XRP, DOGE, ENA, BNB, WLD, SUI + резерв INJ/AVAX/TAO/LINK…
+Итоговые 10: BTC, ETH, SOL, XRP, BNB, DOGE, NEAR, SUI, AVAX, TIA.
+
+**Подбор стратегии (бэктест 4 кандидатов × 20 символов, data/sweep20_results.json):**
+ema_trend — лучшая почти везде; ADA→confluence_ema. 1000PEPE отсеян (win 0% на всех
+стратегиях, −$900). Итог: все 10 пар единый ema_trend (подбор подтвердил текущий выбор).
+
+**Конфиг:** $1k×10, 5m, 168ч, SL 0.4/TP 0.8, trailing 0.3, multi-TP, M4-гейты только BTC
+(A/B сохранён). preflight 10/10 валиден, running 10/10, data connected, errors=0.
+Конфиги: `data/test10_configs.json`. `preflight_passed` (новое поле) в эфире: True.
+
+**Рестарт backend (19:0x):** убит PID :8000, поднят `.venv\Scripts\python.exe backend\main.py`
+(SYSTEM Python не умеет — нет uvicorn, шум известный). ⚠️ В .env нашёл `BACKEND_PORT=8001`
+(изменён ~18:57, Di?) — возвращено на 8000/5173 по конституции §5; если перенос был
+намеренным — скажи, верну. Live-раннер DOTUSDT погиб при рестарте (in-memory) — поднять
+из UI при желании; марафон его покрывает.
+
+**AI (запрос Di «бесплатная нейронка везде + авто-переключение»):** найден дефолт-баг —
+схемы AIChatRequest/MarketAnalysisRequest/ValidateKeyRequest жёстко дефолтились на
+ПЛАТНУЮ google/gemini-2.0-flash-001, свободная OPENROUTER_MODEL=recursive/flint-v1.0:free
+из .env никогда не применялась. Фикс (`381131f`): дефолт None → env; чат и live-sentinel
+идут через каскад `ai_service.query_with_fallback` (при ошибке/402/429 — следующая
+бесплатная модель); UI: опция «Авто — бесплатная модель OpenRouter» по умолчанию.
+Ключ Di (`sk-or-v1-a78d…`) в .env, живой тест чата: model=recursive/flint-v1.0:free, ответ ок.
+Тесты: `test_ai_free_models_default.py` (7 passed). Ключ Di в чате отображался как «?????»
+— это мангling кодировки Git Bash при curl, не баг приложения.
