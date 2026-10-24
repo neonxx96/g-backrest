@@ -67,11 +67,14 @@ def run_case(strategy, params, timeframe="15m", days=14):
         check(SIGNAL_KEYS <= set(signals[0]), "signal has required keys")
         check(all(t["type"] in ("BUY", "SELL") for t in trades), "trade types are BUY/SELL")
         check(all(t["exit_time"] >= t["entry_time"] for t in trades), "exit_time >= entry_time")
-        # PnL sanity: sign must match price move for the side
+        # PnL sanity: sign must match price move for the side. Допускаем смену знака
+        # только в полосе издержек: move% меньше суммы комиссий (≤0.07%) + slippage —
+        # тогда net-pnl легитимно отрицателен при микро-движении цены в плюс (2026-10-24).
         ok = True
         for t in trades:
             move = (t["exit_price"] - t["entry_price"]) * (1 if t["type"] == "BUY" else -1)
-            if (move > 0) != (t["pnl_pct"] > 0) and abs(move) > 1e-9 and abs(t["pnl_pct"]) > 0.05:
+            move_pct = abs(move) / t["entry_price"] * 100.0 if t["entry_price"] else 0.0
+            if (move > 0) != (t["pnl_pct"] > 0) and abs(move) > 1e-9 and abs(t["pnl_pct"]) > 0.05 and move_pct > 0.1:
                 ok = False
         check(ok, "pnl_pct sign matches price move")
         wins = sum(1 for t in trades if t["pnl_usd"] > 0)

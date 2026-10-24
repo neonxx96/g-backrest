@@ -71,6 +71,13 @@ def main() -> int:
         stderr=subprocess.DEVNULL,
     )
     failures: list[str] = []
+    # vite стартует несколько секунд — ждём готовности порта, иначе goto падает с ERR_CONNECTION_REFUSED
+    for _ in range(60):
+        try:
+            urllib.request.urlopen(FRONTEND, timeout=2)
+            break
+        except Exception:
+            time.sleep(1)
     try:
         from playwright.sync_api import sync_playwright
 
@@ -97,7 +104,13 @@ def main() -> int:
             page.keyboard.press("b")
             page.wait_for_selector('[data-testid="strategy-presets-bar"]', timeout=8000)
             page.wait_for_selector('[data-testid="input-days"]', timeout=8000)
-            n_options = page.locator('[data-testid="select-strategy-preset"] option').count()
+            # пресеты подгружаются асинхронным fetch после открытия панели — поллим до 25с
+            n_options = 0
+            for _ in range(50):
+                n_options = page.locator('[data-testid="select-strategy-preset"] option').count()
+                if n_options >= 1:
+                    break
+                time.sleep(0.5)
             log(f"      пресет-бар отрендерился, пресетов в селекте: {n_options}")
             if n_options < 1:
                 failures.append("в селекте пресетов нет ни одного набора (дефолтные не просеялись?)")
@@ -154,10 +167,15 @@ def main() -> int:
                 failures.append("btn-confirm-save-preset остался disabled при непустом имени")
             page.click('[data-testid="btn-confirm-save-preset"]')
             try:
-                page.wait_for_selector("text=сохранён", timeout=5000)
+                page.wait_for_selector("text=сохранён", timeout=12000)
                 log("      пресет сохранён, appliedFeedback показан")
             except Exception:
+                fb = page.evaluate(
+                    "() => document.querySelector('[data-testid=\"strategy-presets-bar\"]')?.textContent || ''"
+                )
+                log(f"      DEBUG appliedFeedback-зона: {fb[:200]!r}")
                 failures.append("appliedFeedback после сохранения пресета не появился")
+            time.sleep(0.5)
             rows = api("GET", "/api/journal/presets").get("presets", [])
             if not any(p.get("name") == TMP_PRESET_NAME for p in rows):
                 failures.append("сохранённый пресет не найден в SQLite через API")
