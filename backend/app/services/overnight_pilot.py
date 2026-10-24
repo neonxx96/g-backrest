@@ -75,6 +75,10 @@ class PilotSession:
     run_id: Optional[str] = None
     config_fingerprint: Optional[str] = None
     preflight_valid: bool = False
+    # Флаг «preflight-результат подтверждён» — в отличие от preflight_valid
+    # (который сбрасывается при start()/stop() как «потреблённый» гейт запуска),
+    # не сбрасывается и показывает, что backtest+forecast для конфига прошли.
+    preflight_passed: bool = False
     backtest: Optional[Dict[str, Any]] = None
     forecast: Optional[Dict[str, Any]] = None
     runner: Optional[LivePaperRunner] = None
@@ -91,6 +95,7 @@ class PilotSession:
             "run_id": self.run_id,
             "config_fingerprint": self.config_fingerprint,
             "preflight_valid": self.preflight_valid,
+            "preflight_passed": self.preflight_passed,
             "backtest": self.backtest,
             "forecast": self.forecast,
             "paper": paper,
@@ -474,6 +479,7 @@ class OvernightPilotManager:
                 and session.forecast is not None
                 and session.forecast.get("data_status") == "connected"
             )
+            session.preflight_passed = session.preflight_valid
             self._record_run_event(
                 session,
                 event_type="PREFLIGHT_COMPLETED" if session.preflight_valid else "PREFLIGHT_REJECTED",
