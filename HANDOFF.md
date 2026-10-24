@@ -2,6 +2,17 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Kimi — живые позиции на графике + краш-фикс терминала 2026-10-24 (вечер, HEAD 9d9009d)
+
+- **Задача №1 из приоритетов Di:** отрисовка открытых paper-позиций на графике в реальном времени.
+  - `frontend/src/components/chart/livePositions.js` — чистая нормализация открытых позиций из `/api/overnight-pilot/status` (марафон) и `/api/paper-trading/live/status` (live-раннер) по символу графика; truth-first (null вместо синтеза).
+  - `registerCustomElements.js` — новый оверлей `livePosition` (13-й): entry сплошная линия + бейдж `[LONG qty @ цена | PnL ±$] · источник`, SL/TP/TP2 пунктиром с бейджами; цвета LONG/SHORT.
+  - `useChartAnnotations.js` — поллинг 4 с, перерисовка диффом по данным, кламп entry_ts в видимый диапазон, чистка на смене символа.
+  - Тесты `livePositions.test.js` (4 шт) в `test:pilot` (29 passed). Проверено вживую на вкладке Di: BTC LONG марафона рисуется (entry 80832.2 / SL 80459.8 / TP 81267.6, «марафон · ema_trend»).
+- **Критический баг (пустой root у Di):** `LivePaperTradingView.jsx:68` — `currentEquity.toFixed is not a function`: точки equity из API приходили с null/строками, неперехваченная ошибка рендера валило ВСЁ приложение (React 19 размонтирует root). Фикс — санитизация points/initialCapital в `LiveEquityChart` (числа или дефолт). Коммит `9d9009d`.
+- Коммиты: `6c2ef5d` (фича), `9d9009d` (краш-фикс). Gate зелёный оба раза. Марафон 14/14 и live-раннер НЕ тронуты.
+- ⚠️ Вкладка Di: символ графика сейчас BTCUSDT (переключил для проверки). Скриншот через InAppBrowser подвисал (таймаут 15 с) — вкладка при этом работает.
+
 ## Kimi — closeout ROADMAP 1.1–1.2: production_robust + Night Pilot CLI 2026-10-24 (день)
 
 - **Ветка:** `agent/kimi/phase1-production-robust-closeout` (от main). Задача: `tasks/003-phase1-production-robust-closeout.md`.
