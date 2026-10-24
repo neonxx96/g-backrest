@@ -28,7 +28,9 @@ export default function AICopilotSidebar({
   onProjectPositionSetup = null
 }) {
   const [selectedModel, setSelectedModel] = useState(() => {
-    return localStorage.getItem('ai_selected_model') || 'google/gemini-2.0-flash-001';
+    // 'auto' — бэкенд сам выберет бесплатную модель OpenRouter из .env
+    // и переключится на следующую при ошибке (каскад в ai_service).
+    return localStorage.getItem('ai_selected_model') || 'auto';
   });
   const [apiKey, setApiKey] = useState(() => {
     return localStorage.getItem('openrouter_api_key') || '';
@@ -231,7 +233,8 @@ export default function AICopilotSidebar({
           body: JSON.stringify({
             symbol,
             timeframe,
-            model: selectedModel,
+            // 'auto' → не отправляем model: бэкенд возьмёт бесплатную из .env + каскад
+            ...(selectedModel !== 'auto' ? { model: selectedModel } : {}),
             api_key: apiKey.trim() || undefined,
             live_sentinel: Boolean(liveSentinelEnabled || isSilentPoll)
           })
@@ -251,7 +254,7 @@ export default function AICopilotSidebar({
             ...prev,
             {
               role: 'assistant',
-              content: `⚡ **Экспресс-анализ #${symbol} (${selectedModel}) готов!**\n\n• Фаза рынка: **${data.market_phase}** (Health: **${data.sentiment_meter?.score ?? 82}%**)\n• Сформирован сетап: **${data.trading_idea.order_type || data.trading_idea.direction}** @ $${data.trading_idea.entry_price}\n• Стоп: $${data.trading_idea.stop_loss} (${data.trading_idea.sl_pct ?? -0.28}%) | TP1: $${data.trading_idea.tp1_price ?? data.trading_idea.take_profit} | TP2: $${data.trading_idea.tp2_price ?? data.trading_idea.take_profit}`
+              content: `⚡ **Экспресс-анализ #${symbol} (${selectedModel === 'auto' ? 'бесплатная OpenRouter' : selectedModel}) готов!**\n\n• Фаза рынка: **${data.market_phase}** (Health: **${data.sentiment_meter?.score ?? 82}%**)\n• Сформирован сетап: **${data.trading_idea.order_type || data.trading_idea.direction}** @ $${data.trading_idea.entry_price}\n• Стоп: $${data.trading_idea.stop_loss} (${data.trading_idea.sl_pct ?? -0.28}%) | TP1: $${data.trading_idea.tp1_price ?? data.trading_idea.take_profit} | TP2: $${data.trading_idea.tp2_price ?? data.trading_idea.take_profit}`
             }
           ]);
         }
@@ -425,7 +428,7 @@ export default function AICopilotSidebar({
           message: textToSend,
           symbol,
           timeframe,
-          model: selectedModel,
+          ...(selectedModel !== 'auto' ? { model: selectedModel } : {}),
           api_key: apiKey.trim() || undefined,
           history: historyPayload
         })

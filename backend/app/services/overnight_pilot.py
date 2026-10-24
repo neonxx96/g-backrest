@@ -260,11 +260,12 @@ class OvernightPilotManager:
         session.backtest = backtest
         session.forecast = forecast
 
-    # MAX_SESSIONS: 14 сессий (запрос Di 2026-10-24: расширение прогона до 14
-    # волатильных пар — 7 основных + 7 новых ZEC/NEAR/ENA/WLD/SUI/UNI/AVAX).
+    # MAX_SESSIONS: 20 сессий (запрос Di 2026-10-24 вечер: тест на 20 объёмных
+    # волатильных пар с бэктест-подбором стратегии — data/test20_configs.json;
+    # ранее 14 — расширение прогона 2026-10-24 день).
     # Каждая сессия — LivePaperRunner со своим тик-циклом (sleep 4–60 c между
     # опросами) и forecast-циклом (300 c) — нагрузка на Binance REST умеренная.
-    MAX_SESSIONS = 14
+    MAX_SESSIONS = 20
 
     @staticmethod
     def _validate_configs(configs: Optional[List[OvernightPilotConfig]]) -> List[OvernightPilotConfig]:
@@ -924,7 +925,7 @@ class OvernightPilotManager:
             rows = result.scalars().all()
         restored: Dict[str, PilotSession] = {}
         for row in rows:
-            if row.symbol.upper() in restored or len(restored) >= 3:
+            if row.symbol.upper() in restored or len(restored) >= self.MAX_SESSIONS:
                 continue
             try:
                 config_data = json.loads(row.config_json or "{}")

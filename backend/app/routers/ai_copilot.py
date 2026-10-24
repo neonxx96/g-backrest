@@ -196,7 +196,9 @@ SUPPORTED_AI_MODELS = [
 class MarketAnalysisRequest(BaseModel):
     symbol: Optional[str] = "BTCUSDT"
     timeframe: Optional[str] = "15m"
-    model: Optional[str] = "google/gemini-2.0-flash-001"
+    # None → берётся OPENROUTER_MODEL (бесплатная по умолчанию из .env);
+    # платная модель — только если пользователь явно её выбрал.
+    model: Optional[str] = None
     api_key: Optional[str] = None
     live_sentinel: Optional[bool] = False
     entry_mode: Optional[str] = "limit_bounce"
@@ -209,14 +211,15 @@ class MarketAnalysisRequest(BaseModel):
 
 class ValidateKeyRequest(BaseModel):
     api_key: Optional[str] = None
-    model: Optional[str] = "google/gemini-2.0-flash-001"
+    model: Optional[str] = None
 
 
 class AIChatRequest(BaseModel):
     message: str = Field(..., description="Сообщение или вопрос трейдера")
     symbol: Optional[str] = "BTCUSDT"
     timeframe: Optional[str] = "15m"
-    model: Optional[str] = "google/gemini-2.0-flash-001"
+    # None → OPENROUTER_MODEL (бесплатная по умолчанию); явный выбор платной — осознанный.
+    model: Optional[str] = None
     api_key: Optional[str] = None
     history: Optional[List[Dict[str, str]]] = []
 
@@ -421,6 +424,7 @@ async def get_market_analysis(payload: MarketAnalysisRequest):
     )
 
     # Optional live OpenRouter enrichment for short_advice if a real model & key are active
+    # (каскад бесплатных моделей: при ошибке/402/429 — авто-переключение, запрос Di 24.10)
     llm_powered = False
     if selected_model != "local_orderflow_nlp" and active_key and "sk-or-" in active_key:
         try:
@@ -431,32 +435,23 @@ async def get_market_analysis(payload: MarketAnalysisRequest):
                 f"индекс здоровья рынка {sentiment_meter['score']}% ({sentiment_meter['zone']}). "
                 f"Дай краткий тактический совет скальперу строго на русском языке в 1-2 предложениях."
             )
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {active_key}",
-                        "Content-Type": "application/json",
-                        "HTTP-Referer": "http://localhost:5173",
-                        "X-Title": "SignalScript Live AI Sentinel",
-                    },
-                    json={
-                        "model": selected_model,
-                        "messages": [
-                            {"role": "system", "content": "Ты — институциональный Order Flow скальпер. Отвечай строго на русском языке, максимум 2 коротких предложения без приветствий."},
-                            {"role": "user", "content": prompt_ctx},
-                        ],
-                        "max_tokens": 140,
-                        "temperature": 0.25,
-                    },
-                    timeout=aiohttp.ClientTimeout(total=3.2),
-                ) as resp:
-                    if resp.status == 200:
-                        j = await resp.json()
-                        txt = j.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-                        if txt and len(txt) > 15:
-                            sentiment_meter["short_advice"] = txt
-                            llm_powered = True
+            from backend.app.services.ai_service import ai_service
+            txt, used_model = await ai_service.query_with_fallback(
+                messages=[
+                    {"role": "system", "content": "Ты — институциональный Order Flow скальпер. Отвечай строго на русском языке, максимум 2 коротких предложения без приветствий."},
+                    {"role": "user", "content": prompt_ctx},
+                ],
+                preferred_model=selected_model,
+                temperature=0.25,
+                max_tokens=140,
+                timeout_sec=8.0,
+                api_key_override=active_key,
+            )
+            if txt and len(txt.strip()) > 15:
+                sentiment_meter["short_advice"] = txt.strip()
+                llm_powered = True
+                if used_model:
+                    selected_model = used_model
         except Exception as e:
             logger.debug(f"Live sentinel OpenRouter call skipped/fallback: {e}")
 
@@ -612,39 +607,38 @@ async def chat_with_copilot(payload: AIChatRequest):
     active_key = (payload.api_key or OPENROUTER_API_KEY or "").strip()
 
     llm_reply = None
+    used_model = None
     if selected_model != "local_orderflow_nlp" and active_key and "sk-or-" in active_key:
-        try:
-            url = "https://openrouter.ai/api/v1/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {active_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "http://localhost:5173",
-                "X-Title": "SignalScript AI Trading Assistant"
-            }
-            system_msg = (
-                f"Ты — институциональный quantitative trader и эксперт по Order Flow терминала SignalScript. "
-                f"Текущий инструмент: {sym}, таймфрейм: {tf}. "
-                f"Отвечай строго на русском языке, профессионально, кратко и структурировано. "
-                f"Фокусируйся на кластерах Footprint, кумулятивной дельте CVD, плотностях в стакане DOM, "
-                f"ликвидациях и риск-менеджменте (ATR, Multi-TP 50% Б/У, R:R не менее 1:2.5)."
-            )
-            messages = [{"role": "system", "content": system_msg}]
-            if payload.history:
-                messages.extend(payload.history[-4:])
-            messages.append({"role": "user", "content": msg})
+        system_msg = (
+            f"Ты — институциональный quantitative trader и эксперт по Order Flow терминала SignalScript. "
+            f"Текущий инструмент: {sym}, таймфрейм: {tf}. "
+            f"Отвечай строго на русском языке, профессионально, кратко и структурировано. "
+            f"Фокусируйся на кластерах Footprint, кумулятивной дельте CVD, плотностях в стакане DOM, "
+            f"ликвидациях и риск-менеджменте (ATR, Multi-TP 50% Б/У, R:R не менее 1:2.5)."
+        )
+        messages = [{"role": "system", "content": system_msg}]
+        if payload.history:
+            messages.extend(payload.history[-4:])
+        messages.append({"role": "user", "content": msg})
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    url,
-                    headers=headers,
-                    json={"model": selected_model, "messages": messages, "max_tokens": 500, "temperature": 0.3},
-                    timeout=aiohttp.ClientTimeout(total=4)
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        llm_reply = data["choices"][0]["message"]["content"].strip()
+        try:
+            from backend.app.services.ai_service import ai_service
+            # Каскад: preferred → остальные бесплатные модели OpenRouter;
+            # при ошибке/429 автоматически переключается на следующую (запрос Di 24.10).
+            content, used_model = await ai_service.query_with_fallback(
+                messages=messages,
+                preferred_model=selected_model,
+                temperature=0.3,
+                max_tokens=500,
+                timeout_sec=8.0,
+                api_key_override=active_key,
+            )
+            if content:
+                llm_reply = content.strip()
         except Exception as e:
             logger.info(f"OpenRouter unavailable, engaging Quant Engine fallback: {e}")
+    if used_model:
+        selected_model = used_model
 
     # Fallback Quantitative Order Flow Assistant
     if not llm_reply:
