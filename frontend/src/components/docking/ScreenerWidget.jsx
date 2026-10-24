@@ -87,6 +87,7 @@ export default function ScreenerWidget({ panelId = 'watchlist_main' }) {
   const [, setSparklineVersion] = useState(0);
 
   const isConnected = useMarketDataStore((s) => s.isConnected);
+  const dataSource = useMarketDataStore((s) => s.dataSource);
   const tickersList = useMarketDataStore((s) => s.tickersList);
   const initStream = useMarketDataStore((s) => s.initMiniTickerStream);
   const monitoredTickers = useMarketDataStore((s) => s.monitoredTickers);
@@ -194,11 +195,22 @@ export default function ScreenerWidget({ panelId = 'watchlist_main' }) {
               className={isConnected ? 'text-[#10b981] animate-pulse' : 'text-[#64748b]'}
               title={
                 isConnected
-                  ? 'Binance Futures WS: !miniTicker@arr (Скринер 350+ инструментов)'
+                  ? dataSource === 'rest'
+                    ? 'Канал: Binance REST (WS-поток молчит — показываем те же реальные данные через REST)'
+                    : 'Binance Futures WS: !miniTicker@arr (Скринер 350+ инструментов)'
                   : 'Подключение к WebSocket...'
               }
             />
             <span className="font-bold text-[11px] text-white tracking-wide">Скринер рынка</span>
+            {isConnected && dataSource === 'rest' && (
+              <span
+                data-testid="screener-source-rest"
+                className="px-1 rounded bg-[#f59e0b20] border border-[#f59e0b60] text-[#f59e0b] text-[8.5px] font-bold"
+                title="WS-поток молчит; данные идут через REST-фолбэк (реальные котировки Binance)"
+              >
+                REST
+              </span>
+            )}
           </div>
           <span className="text-[9.5px] text-[#64748b] font-mono">
             ({sortedTickers.length})

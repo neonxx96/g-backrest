@@ -14,6 +14,10 @@ import { DEFAULT_FOCUS_LIST } from '../config/coinLibrary.js';
 import { deterministicSignalId } from '../utils/researchVerdict.js';
 
 const WS_MINI_TICKER_URL = 'wss://fstream.binance.com/ws/!miniTicker@arr';
+// REST-фолбэк: некоторые сети/клиенты открывают WS к Binance, но не пропускают
+// кадры потока (зависает «Подключение к WebSocket...» при живом сокете).
+// Binance REST отдаёт CORS * — честный запасной канал тех же реальных данных.
+const REST_24HR_URL = 'https://fapi.binance.com/fapi/v1/ticker/24hr';
 
 // Empty until real exchange data arrives; never seed tradable-looking prices.
 const INITIAL_TICKERS = {};
@@ -49,12 +53,64 @@ export const useMarketDataStore = create((set, get) => {
 
   let monitoringWs = null;
   let monitoringReconnectTimer = null;
+  let restFallbackInFlight = false;
+
+  const pollRestFallback = async () => {
+    if (restFallbackInFlight || stopped) return;
+    if (typeof window === 'undefined' || typeof fetch !== 'function') return;
+    if (Date.now() - lastMessageAt < 10000) return; // WS жив — фолбэк не нужен
+    restFallbackInFlight = true;
+    try {
+      const resp = await fetch(REST_24HR_URL, { cache: 'no-store' });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const arr = await resp.json();
+      if (!Array.isArray(arr)) throw new Error('bad payload');
+
+      const now = Date.now();
+      const next = { ...get().tickers };
+      for (const item of arr) {
+        const sym = item.symbol;
+        if (!sym || !sym.endsWith('USDT') || sym.includes('_')) continue;
+        const c = parseFloat(item.lastPrice) || 0;
+        const o = parseFloat(item.openPrice) || 0;
+        const q = parseFloat(item.quoteVolume) || 0;
+        const h = parseFloat(item.highPrice) || 0;
+        const l = parseFloat(item.lowPrice) || 0;
+        if (![c, o, q, h, l].every(Number.isFinite) || c <= 0 || o <= 0) continue;
+        const changePct = parseFloat(item.priceChangePercent);
+        next[sym] = {
+          symbol: sym,
+          price: c,
+          open24h: o,
+          high24h: h,
+          low24h: l,
+          change24hPct: Number.isFinite(changePct) ? changePct : Number((((c - o) / o) * 100).toFixed(2)),
+          volumeUsd: q,
+          ts: now
+        };
+      }
+      set({
+        tickers: next,
+        tickersList: Object.values(next),
+        isConnected: true,
+        dataSource: 'rest',
+        lastUpdateTs: now
+      });
+    } catch (_) {
+      // Честный статус: ни WS, ни REST недоступны
+      if (Date.now() - lastMessageAt > 30000) set({ isConnected: false });
+    } finally {
+      restFallbackInFlight = false;
+    }
+  };
 
   return {
     // Map of symbol -> { symbol, price, open24h, high24h, low24h, change24hPct, volumeUsd, ts }
     tickers: { ...INITIAL_TICKERS },
     tickersList: Object.values(INITIAL_TICKERS),
     isConnected: false,
+    // 'ws' | 'rest' — какой канал сейчас питает скринер
+    dataSource: 'ws',
     lastUpdateTs: null,
 
     // Monitored Focus Tickers & Background Telemetry
@@ -208,6 +264,11 @@ export const useMarketDataStore = create((set, get) => {
         const socket = ws;
         lastMessageAt = Date.now();
         watchdog = setInterval(() => {
+          if (Date.now() - lastMessageAt > 10000) {
+            // WS-поток молчит (сокет может быть открыт, но кадры не идут) —
+            // подпитываем скринер теми же реальными данными через REST.
+            pollRestFallback();
+          }
           if (Date.now() - lastMessageAt > 30000) {
             set({ isConnected: false });
             socket.close();
@@ -268,6 +329,7 @@ export const useMarketDataStore = create((set, get) => {
                 set({
                   tickers: currentTickers,
                   tickersList: list,
+                  dataSource: 'ws',
                   lastUpdateTs: Date.now()
                 });
               }, 350);
@@ -322,3 +384,8 @@ export const useMarketDataStore = create((set, get) => {
     }
   };
 });
+
+// Dev-отладка: доступ к стору из консоли/авто-тестов (только в dev-сборке).
+if (typeof window !== 'undefined' && import.meta.env && import.meta.env.DEV) {
+  window.__marketDataStore = useMarketDataStore;
+}
