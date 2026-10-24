@@ -523,6 +523,7 @@ class LivePaperRunner:
             "symbol": self.symbol,
             "strategy_type": self.strategy_type,
             "timeframe": self.timeframe,
+            "leverage": self.leverage,
             "initial_capital": self.initial_capital,
             "risk_per_trade_pct": self.risk_per_trade_pct,
             "min_density_usd": self.min_density_usd,

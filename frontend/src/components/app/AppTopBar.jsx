@@ -224,10 +224,10 @@ export default function AppTopBar({
             data-testid="widgets-menu-button"
             onClick={onToggleAddWidgetDropdown}
             className="px-2 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1.5 border transition cursor-pointer bg-[#0e1217] text-neutral-200 border-neutral-700/60 hover:bg-neutral-800 hover:text-white hover:border-neutral-600"
-            title="Добавить модуль в рабочую область (+ Add Widget)"
+            title="Добавить модуль в рабочую область (каталог виджетов)"
           >
             <Plus size={11} className="text-blue-400" />
-            <span className="font-medium">+ Add Widget</span>
+            <span className="font-medium">+ Виджеты</span>
             <ChevronDown size={10} className="text-neutral-400" />
           </button>
 

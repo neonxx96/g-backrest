@@ -184,6 +184,9 @@ const HISTORY_FLOOR_DAYS = {
           window.__historyOldestTs = candles[0]?.timestamp ?? null;
           window.__historyLoadedBars = candles.length;
           chart.applyNewData(candles, true);
+          // Форсируем переход к правому краю: при смене монеты/ТФ вьюпорт
+          // обязан показать актуальное время, а не сохранённый скролл старого графика.
+          try { chart.scrollToRealTime(); } catch (_) {}
           setStatusMsg("");
           setErrorDetails(null);
 

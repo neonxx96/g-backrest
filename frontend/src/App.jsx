@@ -168,6 +168,13 @@ export default function App() {
     try { localStorage.setItem('signalscript_show_backtest', showBacktest ? 'true' : 'false'); } catch (_) {}
   }, [showBacktest]);
 
+  // Глобальная шина: виджеты (например, Trade History) могут открыть панель бэктеста/paper-торговли
+  useEffect(() => {
+    const openBacktest = () => setShowBacktest(true);
+    window.addEventListener('signalscript:open-backtest', openBacktest);
+    return () => window.removeEventListener('signalscript:open-backtest', openBacktest);
+  }, []);
+
   useEffect(() => {
     try { localStorage.setItem('signalscript_show_ai_copilot', showAICopilot ? 'true' : 'false'); } catch (_) {}
   }, [showAICopilot]);

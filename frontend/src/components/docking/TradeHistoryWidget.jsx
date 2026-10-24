@@ -12,8 +12,10 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Settings2
 } from 'lucide-react';
+import { useBacktestStore } from '../../stores/backtestStore';
 
 const API_BASE = '/api';
 
@@ -24,6 +26,7 @@ export default function TradeHistoryWidget(props) {
   const [activeTab, setActiveTab] = useState('trades'); // 'trades' | 'positions' | 'regimes'
   const [isResetting, setIsResetting] = useState(false);
   const [monitoringData, setMonitoringData] = useState(null);
+  const [liveStatus, setLiveStatus] = useState(null);
 
   // Fetch Paper Trading Status
   const fetchStatus = useCallback(async () => {
@@ -54,15 +57,30 @@ export default function TradeHistoryWidget(props) {
     }
   }, []);
 
+  // Fetch Live Paper Runner status (активная стратегия, символ, плечо, AI-контроль)
+  const fetchLiveStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/paper-trading/live/status`);
+      if (res.ok) {
+        const data = await res.json();
+        setLiveStatus(data?.runner || null);
+      }
+    } catch (err) {
+      console.debug('Failed to fetch live paper status:', err);
+    }
+  }, []);
+
   useEffect(() => {
     fetchStatus();
     fetchMonitoring();
+    fetchLiveStatus();
     const interval = setInterval(() => {
       fetchStatus();
       fetchMonitoring();
+      fetchLiveStatus();
     }, 3000);
     return () => clearInterval(interval);
-  }, [fetchStatus, fetchMonitoring]);
+  }, [fetchStatus, fetchMonitoring, fetchLiveStatus]);
 
   // Handle Wallet Reset
   const handleResetWallet = async () => {
@@ -234,6 +252,57 @@ export default function TradeHistoryWidget(props) {
               <span>{isResetting ? 'Сброс...' : 'Сброс $100'}</span>
             </button>
           </div>
+        </div>
+
+        {/* Активная стратегия live paper-раннера */}
+        <div
+          data-testid="active-strategy-row"
+          className="flex items-center justify-between gap-2 rounded border border-cyan-900/60 bg-cyan-950/20 px-2 py-1"
+        >
+          <div className="flex items-center space-x-1.5 text-[10px] font-mono min-w-0">
+            <Zap size={11} className="text-cyan-400 shrink-0" />
+            {liveStatus ? (
+              <>
+                <span className="text-neutral-500 shrink-0">Стратегия:</span>
+                <span className="text-cyan-200 font-bold truncate" title={liveStatus.strategy_type}>{liveStatus.strategy_type}</span>
+                <span className="text-neutral-600 shrink-0">•</span>
+                <span className="text-white font-bold shrink-0">{liveStatus.symbol}</span>
+                <span className="text-neutral-600 shrink-0">•</span>
+                <span className="text-neutral-300 shrink-0">{liveStatus.timeframe}</span>
+                {liveStatus.leverage != null && (
+                  <>
+                    <span className="text-neutral-600 shrink-0">•</span>
+                    <span className="text-neutral-300 shrink-0">плечо {liveStatus.leverage}x</span>
+                  </>
+                )}
+                {liveStatus.ai_control && <span className="text-violet-300 shrink-0">• AI</span>}
+                <span
+                  className={`px-1 rounded text-[9px] font-bold border shrink-0 ${
+                    liveStatus.is_running
+                      ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
+                      : 'bg-neutral-800 text-neutral-400 border-neutral-700'
+                  }`}
+                >
+                  {liveStatus.is_running ? 'RUNNING' : 'STOPPED'}
+                </span>
+              </>
+            ) : (
+              <span className="text-neutral-500">Live-раннер не запущен — стратегия не активна</span>
+            )}
+          </div>
+          <button
+            type="button"
+            data-testid="btn-change-strategy"
+            onClick={() => {
+              try { useBacktestStore.getState().setMode('live_paper'); } catch (_) {}
+              window.dispatchEvent(new CustomEvent('signalscript:open-backtest'));
+            }}
+            className="shrink-0 flex items-center space-x-1 px-2 py-0.5 rounded bg-cyan-900/60 hover:bg-cyan-800 border border-cyan-700 text-cyan-100 text-[10px] font-mono transition cursor-pointer"
+            title="Открыть панель paper-торговли: выбрать монету, стратегию, депозит и риск"
+          >
+            <Settings2 size={10} />
+            <span>Сменить стратегию</span>
+          </button>
         </div>
 
         {sessionData?.is_halted && (

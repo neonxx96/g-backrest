@@ -283,19 +283,21 @@ export default function Chart({
   }, [saveDrawingsFor]);
 
   // Recenter chart to real time on Space key
+  const handleScrollToNow = useCallback(() => {
+    if (chartRef.current) {
+      try {
+        chartRef.current.scrollToRealTime();
+        setStatusMsg("Центрировано на текущей цене");
+        setTimeout(() => setStatusMsg(""), 1200);
+      } catch (_) {}
+    }
+  }, []);
+
   useEffect(() => {
-    const handleRecenter = () => {
-      if (chartRef.current) {
-        try {
-          chartRef.current.scrollToRealTime();
-          setStatusMsg("Центрировано на текущей цене");
-          setTimeout(() => setStatusMsg(""), 1200);
-        } catch (_) {}
-      }
-    };
+    const handleRecenter = () => handleScrollToNow();
     window.addEventListener('recenter-market-price', handleRecenter);
     return () => window.removeEventListener('recenter-market-price', handleRecenter);
-  }, []);
+  }, [handleScrollToNow]);
 
 
   const toggleVolatilityCone = useCallback(() => {
@@ -360,6 +362,7 @@ export default function Chart({
         titlePrefix={titlePrefix}
         timeframe={timeframe}
         onTimeframeChange={onTimeframeChange}
+        onScrollToNow={handleScrollToNow}
         onCloseWidget={onCloseWidget}
         chartId={chartId}
         activeTool={activeTool}

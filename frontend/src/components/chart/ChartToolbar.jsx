@@ -17,7 +17,8 @@ import {
   Bookmark,
   Palette,
   Layers,
-  ChevronDown
+  ChevronDown,
+  SkipForward
 } from 'lucide-react';
 
 // Верхняя полоса инструментов рисования и индикаторов графика
@@ -25,7 +26,7 @@ import {
 // Chart.jsx (слайс 6.4h, п.1 MODULARIZATION_PLAN) — вся логика, состояние и
 // колбэки остаются в Chart.jsx и приходят сюда пропами. Все data-testid 1:1.
 export default function ChartToolbar({
-  titlePrefix, timeframe, onTimeframeChange, onCloseWidget, chartId,
+  titlePrefix, timeframe, onTimeframeChange, onScrollToNow, onCloseWidget, chartId,
   activeTool, cancelActiveDrawing, handleSelectTool,
   magnetEnabled, setMagnetEnabled, handleUndo, handleClearDrawings, saveDrawings,
   isTemplateMenuOpen, setIsTemplateMenuOpen, setShowSaveTemplateModal,
@@ -67,6 +68,16 @@ export default function ChartToolbar({
           )}
 
           {/* Default Cursor / Pan Mode Button */}
+          <button
+            type="button"
+            data-testid="btn-scroll-to-now"
+            title="Пролистать к актуальному времени (Space)"
+            onClick={() => onScrollToNow && onScrollToNow()}
+            className="p-1 rounded text-[#787f91] hover:text-[#38bdf8] hover:bg-[#161922] transition"
+          >
+            <SkipForward size={12} />
+          </button>
+
           <button 
             type="button"
             title="Курсор / Свободное перетаскивание графика (Esc)" 
