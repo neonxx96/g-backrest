@@ -23,7 +23,14 @@ import {
  * Interactive SVG Live Equity Curve
  */
 export function LiveEquityChart({ points = [], initialCapital = 10000 }) {
-  if (!points || points.length === 0) {
+  // Защита от нечисловых точек из API (null/string/NaN) — иначе .toFixed() валил весь рендер
+  // приложения (React 19 размонтирует root при неперехваченной ошибке, 2026-10-24).
+  initialCapital = Number(initialCapital);
+  if (!Number.isFinite(initialCapital) || initialCapital <= 0) initialCapital = 10000;
+  points = (Array.isArray(points) ? points : [])
+    .map((v) => Number(v))
+    .filter((v) => Number.isFinite(v));
+  if (points.length === 0) {
     points = [initialCapital];
   }
 
