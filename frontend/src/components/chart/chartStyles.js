@@ -15,6 +15,14 @@ function hexToRgba(hex, alpha = 1) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+// Базовые тёмные токены терминала (общие для всех тем).
+const DARK = {
+  border: '#1f2638',
+  crosshair: '#3a4560',
+  label: '#141a26',
+  text: '#9ca3af'
+};
+
 export function buildChartStyles(uiConfig = {}) {
   const theme = uiConfig.theme || 'tealstreet';
   const gridOpacity = uiConfig.gridOpacity ?? 0.22;
@@ -40,6 +48,7 @@ export function buildChartStyles(uiConfig = {}) {
     },
     candle: {
       type: 'candle_solid',
+      tooltip: { text: { color: DARK.text, size: 11, family: 'var(--font-mono)' } },
       bar: {
         upColor: upCol,
         downColor: dnCol,
@@ -66,6 +75,7 @@ export function buildChartStyles(uiConfig = {}) {
       }
     },
     indicator: {
+      tooltip: { text: { color: DARK.text, size: 11, family: 'var(--font-mono)' } },
       bars: [{
         style: 'fill',
         borderStyle: 'solid',
@@ -90,10 +100,26 @@ export function buildChartStyles(uiConfig = {}) {
       tickLine: { show: true, color: palette.axis },
       tickText: { color: palette.tick, size: 10, family: 'var(--font-mono)' }
     },
+    // Единая тёмная палитра терминала: разделители панелей индикаторов,
+    // тултипы (OHLC/индикаторы) и подписи crosshair — в тон фону #0a0d14 / границам #1f2638.
+    separator: {
+      size: 1,
+      color: DARK.border,
+      fill: true,
+      activeBackgroundColor: 'rgba(56, 189, 248, 0.18)'
+    },
     crosshair: {
       show: true,
-      horizontal: { show: true, line: { color: '#2a3142', style: 'dash', dashedValue: [3, 3] }, text: { color: '#ffffff', backgroundColor: '#181c26' } },
-      vertical: { show: true, line: { color: '#2a3142', style: 'dash', dashedValue: [3, 3] }, text: { color: '#ffffff', backgroundColor: '#181c26' } }
+      horizontal: {
+        show: true,
+        line: { show: true, color: DARK.crosshair, style: 'dash', dashedValue: [3, 3], size: 1 },
+        text: { show: true, color: '#e5e7eb', size: 10, family: 'var(--font-mono)', borderColor: DARK.border, backgroundColor: DARK.label, borderSize: 1 }
+      },
+      vertical: {
+        show: true,
+        line: { show: true, color: DARK.crosshair, style: 'dash', dashedValue: [3, 3], size: 1 },
+        text: { show: true, color: '#e5e7eb', size: 10, family: 'var(--font-mono)', borderColor: DARK.border, backgroundColor: DARK.label, borderSize: 1 }
+      }
     }
   };
 }

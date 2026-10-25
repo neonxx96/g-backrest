@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { init, dispose } from 'klinecharts';
 import './chart/registerCustomElements.js';
 import { useChartOverlays } from './chart/useChartOverlays.js';
 import { useChartLifecycle } from './chart/useChartLifecycle.js';
@@ -56,6 +55,9 @@ export default function Chart({
   // Инстанс klinecharts в state — чтобы WebGL-heatmap (DepthHeatmapGL) реагировала на re-init
   const [chartInstance, setChartInstance] = useState(null);
   const chartRef = useRef(null);
+  // Адаптер ChartEngine (изолирует klinecharts); chartRef остаётся нативным инстансом для legacy-хуков
+  const engineRef = useRef(null);
+  const [chartEngine, setChartEngine] = useState(null);
   const wsRef = useRef(null);
   const [isConeActive, setIsConeActive] = useState(false);
   const [localPositionSetup, setLocalPositionSetup] = useState(null);
@@ -169,6 +171,7 @@ export default function Chart({
     chartReady, setChartReady, setChartInstance,
     symbol, timeframe, currentKlines, setStatusMsg, setErrorDetails, setKlinesVersion,
     loadDrawings, updateVwapOverlay, loadLiquidations, loadHeatmap, loadFootprint, loadTpoProfile,
+    engineRef, setEngine: setChartEngine,
   });
 
   const effectivePositionSetup = activePositionSetup || localPositionSetup;

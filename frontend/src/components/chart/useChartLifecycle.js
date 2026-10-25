@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
-import { init, dispose } from 'klinecharts';
 import { fetchKlinesDualSource, TF_MS } from '../../services/marketDataFetcher';
-import { buildChartStyles } from './chartStyles.js';
+import { createKLineChartsV9Adapter } from './engine/KLineChartsV9Adapter.js';
 
 const API_BASE = "/api";
 
@@ -20,6 +19,7 @@ export function useChartLifecycle({
   chartReady, setChartReady, setChartInstance,
   symbol, timeframe, currentKlines, setStatusMsg, setErrorDetails, setKlinesVersion,
   loadDrawings, updateVwapOverlay, loadLiquidations, loadHeatmap, loadFootprint, loadTpoProfile,
+  engineRef, setEngine,
 }) {
 // Binance на запрос); скролл влево подгружает более старые окна через
 // chart.loadMore до дневного пола истории (приёмка: 1m/1h >= 30д, 45m/6h >= 14д).
@@ -34,34 +34,25 @@ const HISTORY_FLOOR_DAYS = {
   useEffect(() => {
     if (!chartContainerRef.current) return;
     
-    try {
-      dispose(chartContainerRef.current);
-    } catch (_) {}
-
-    const chart = init(chartContainerRef.current);
+    // Движок графика изолирован адаптером ChartEngine. init/dispose, scroll/zoom,
+    // pane options, начальная тёмная тема, timezone Europe/Kyiv и zoom clamping 3..60px
+    // выполняются внутри KLineChartsV9Adapter.mount().
+    const engine = createKLineChartsV9Adapter();
+    engine.mount(chartContainerRef.current, {
+      uiConfig: uiConfig || {}, timezone: 'Europe/Kyiv', barSpaceMin: 3, barSpaceMax: 60,
+    });
+    if (engineRef) engineRef.current = engine;
+    if (setEngine) setEngine(engine);
+    // Legacy: ещё не мигрированные хуки/оверлеи работают с нативным инстансом v9.
+    const chart = engine.raw;
     chartRef.current = chart;
     setChartInstance(chart);
     window.__charts = window.__charts || {};
     window.__charts[chartId] = chart;
+    window.__chartEngines = window.__chartEngines || {};
+    window.__chartEngines[chartId] = engine;
     if (chartId === 'primary' || !window.__chart) {
       window.__chart = chart;
-    }
-
-    // Explicitly enable scroll & zoom navigation
-    chart.setScrollEnabled(true);
-    chart.setZoomEnabled(true);
-    try {
-      chart.setPaneOptions({ id: 'candle_pane', dragEnabled: true, axisOptions: { scrollZoomEnabled: true } });
-    } catch (_) {}
-
-    // Apply initial theme styles
-    chart.setStyles(buildChartStyles(uiConfig || {}));
-
-    // Set timezone to Europe/Kyiv
-    try {
-      chart.setTimezone('Europe/Kyiv');
-    } catch (e) {
-      console.warn("Timezone set warning:", e);
     }
 
     // Default indicators based on initial uiConfig
@@ -96,22 +87,7 @@ const HISTORY_FLOOR_DAYS = {
       }));
     });
 
-    // Zoom Clamping: clamp barSpace between 3px (max zoom out) and 60px (max zoom in)
-    // Prevents canvas division by zero and overlay distortion during mouse wheel zoom
-    try {
-      chart.subscribeAction('onZoom', () => {
-        try {
-          const bs = chart.getBarSpace();
-          if (typeof bs === 'number' && Number.isFinite(bs)) {
-            if (bs < 3) {
-              chart.setBarSpace(3);
-            } else if (bs > 60) {
-              chart.setBarSpace(60);
-            }
-          }
-        } catch (_) {}
-      });
-    } catch (_) {}
+    // Zoom Clamping 3..60px вынесен в KLineChartsV9Adapter.mount() (barSpaceMin/Max).
 
     setChartReady(prev => prev + 1);
 
@@ -121,7 +97,7 @@ const HISTORY_FLOOR_DAYS = {
       rafId = requestAnimationFrame(() => {
         if (chartRef.current) {
           try {
-            chartRef.current.resize();
+            engine.resize();
             window.__chartResizeCounts = window.__chartResizeCounts || {};
             window.__chartResizeCounts[chartId] = (window.__chartResizeCounts[chartId] || 0) + 1;
           } catch (_) {}
@@ -142,9 +118,12 @@ const HISTORY_FLOOR_DAYS = {
       if (rafId) cancelAnimationFrame(rafId);
       window.removeEventListener('resize', handleResize);
       if (ro) ro.disconnect();
-      try {
-        dispose(chartContainerRef.current);
-      } catch (_) {}
+      engine.destroy();
+      if (engineRef) engineRef.current = null;
+      if (setEngine) setEngine(null);
+      if (window.__chartEngines && window.__chartEngines[chartId] === engine) {
+        delete window.__chartEngines[chartId];
+      }
       chartRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -152,14 +131,12 @@ const HISTORY_FLOOR_DAYS = {
 
   // Fetch history candles & subscribe live WebSocket
   useEffect(() => {
-    if (!chartRef.current || chartReady === 0) return;
-    const chart = chartRef.current;
+    if (!chartRef.current || chartReady === 0 || !engineRef?.current) return;
+    const engine = engineRef.current;
     let isCancelled = false;
 
     // Instantly wipe previous coin's candles so old ticker data never lingers
-    try {
-      chart.clearData();
-    } catch (_) {}
+    engine.clear();
     currentKlines.current = [];
     setStatusMsg(`Загрузка свечей ${symbol}...`);
     setErrorDetails(null);
@@ -171,7 +148,7 @@ const HISTORY_FLOOR_DAYS = {
       try {
         // Deep initial window: startTime is always passed (Шаг A);
         // the backend paginates server-side if the window exceeds one request.
-        const { candles, source } = await fetchKlinesDualSource({
+        const { candles, source, isCached } = await fetchKlinesDualSource({
           symbol,
           timeframe,
           startTime: Date.now() - INITIAL_HISTORY_BARS * tfMs
@@ -183,11 +160,11 @@ const HISTORY_FLOOR_DAYS = {
           currentKlines.current = candles;
           window.__historyOldestTs = candles[0]?.timestamp ?? null;
           window.__historyLoadedBars = candles.length;
-          chart.applyNewData(candles, true);
+          engine.setHistory(candles, { hasMore: true });
           // Форсируем переход к правому краю: при смене монеты/ТФ вьюпорт
           // обязан показать актуальное время, а не сохранённый скролл старого графика.
-          try { chart.scrollToRealTime(); } catch (_) {}
-          setStatusMsg("");
+          engine.scrollToRealTime();
+          setStatusMsg(isCached ? "Автономный кэш" : "");
           setErrorDetails(null);
 
           // Restore saved drawings, vwap, liquidations, and heatmap
@@ -199,11 +176,12 @@ const HISTORY_FLOOR_DAYS = {
           loadTpoProfile();
           setKlinesVersion((v) => v + 1);
         } else {
-          setStatusMsg("Свечи отсутствуют");
+          setStatusMsg("Ожидание данных сети...");
+          setErrorDetails(null);
         }
       } catch (err) {
         if (isCancelled) return;
-        setStatusMsg("Ошибка загрузки");
+        setStatusMsg("Ожидание сети");
         setErrorDetails(err.message || String(err));
       }
     };
@@ -215,14 +193,16 @@ const HISTORY_FLOOR_DAYS = {
     // когда пользователь доскроллил к левому краю. Догружаем более старое окно
     // через пагинированный dual-source конвейер и восстанавливаем вьюпорт,
     // пока не достигнут дневной пол истории или конец данных Binance.
-    const floorTs = Date.now() - (HISTORY_FLOOR_DAYS[timeframe] ?? 30) * 86400000;
+    const floorSpanMs = (HISTORY_FLOOR_DAYS[timeframe] ?? 30) * 86400000;
     let loadingOlder = false;
     let historyExhausted = false;
 
     try {
-      chart.loadMore(async (oldestTs) => {
+      engine.setLoadMore(async (oldestTs) => {
         if (isCancelled || loadingOlder || historyExhausted) return;
         if (oldestTs == null) return;
+        const latestLoadedTs = currentKlines.current?.[currentKlines.current.length - 1]?.timestamp || Date.now();
+        const floorTs = latestLoadedTs - floorSpanMs;
         if (oldestTs <= floorTs) { historyExhausted = true; return; }
         loadingOlder = true;
         try {
@@ -240,8 +220,7 @@ const HISTORY_FLOOR_DAYS = {
             return;
           }
           // Слияние с ЖИВЫМ списком графика (WS мог дописать новые свечи).
-          let existing = [];
-          try { existing = chart.getDataList() || []; } catch (_) { existing = []; }
+          const existing = engine.getBars();
           const seen = new Set(existing.map(c => c && c.timestamp));
           const older = candles.filter(c => c && !seen.has(c.timestamp));
           if (older.length === 0) { historyExhausted = true; return; }
@@ -252,14 +231,12 @@ const HISTORY_FLOOR_DAYS = {
           window.__historyOldestTs = merged[0].timestamp;
           window.__historyLoadedBars = merged.length;
           const moreAvailable = merged[0].timestamp > floorTs;
-          let restoreTs = null;
-          try {
-            const range = chart.getVisibleRange();
-            restoreTs = range?.from?.timestamp ?? null;
-          } catch (_) {}
-          chart.applyNewData(merged, moreAvailable, () => {
-            if (restoreTs != null) {
-              try { chart.scrollToTimestamp(restoreTs, 0); } catch (_) {}
+          // v9 getVisibleRange().from — ИНДЕКС, не объект: время левого края берём через адаптер.
+          const restoreTs = engine.getVisibleRange().fromTs;
+          engine.setHistory(merged, {
+            hasMore: moreAvailable,
+            onDone: () => {
+              if (restoreTs != null) engine.scrollToTimestamp(restoreTs);
             }
           });
           setKlinesVersion(v => v + 1);
@@ -361,7 +338,7 @@ const HISTORY_FLOOR_DAYS = {
               }
             }
 
-            chartRef.current.updateData(bar);
+            engine.updateBar(bar);
           } catch (e) {
             console.warn("WS candle error:", e);
           }
@@ -413,7 +390,7 @@ const HISTORY_FLOOR_DAYS = {
                 volume: Number(latest.volume),
                 turnover: Number(latest.turnover || (latest.close * latest.volume))
               };
-              chartRef.current.updateData(bar);
+              engine.updateBar(bar);
               lastTickTime = Date.now();
             }
           }
