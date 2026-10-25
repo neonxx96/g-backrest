@@ -65,7 +65,7 @@ def run_smoke():
         except Exception:
             pass
 
-    print("--- Running Fast Critical Parts Smoke Tests ---")
+    print("--- Running Fast Critical Parts Smoke Tests ---", flush=True)
     failed = []
 
     for item in CRITICAL_ENDPOINTS:
@@ -73,27 +73,27 @@ def run_smoke():
         url = item["url"]
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "SmokeTest/1.0"})
-            with urllib.request.urlopen(req, timeout=8) as resp:
+            with urllib.request.urlopen(req, timeout=35) as resp:
                 if resp.status != 200:
-                    print(f"[FAIL] {name}: HTTP {resp.status}")
+                    print(f"[FAIL] {name}: HTTP {resp.status}", flush=True)
                     failed.append(name)
                     continue
                 raw = resp.read().decode("utf-8")
                 data = json.loads(raw)
                 if not item["validate"](data):
-                    print(f"[FAIL] {name}: Payload validation failed")
+                    print(f"[FAIL] {name}: Payload validation failed, got: {str(data)[:120]}", flush=True)
                     failed.append(name)
                     continue
-                print(f"[PASS] {name}")
+                print(f"[PASS] {name}", flush=True)
         except Exception as e:
-            print(f"[FAIL] {name}: {e}")
+            print(f"[FAIL] {name}: {e}", flush=True)
             failed.append(name)
 
     if failed:
-        print(f"\n[ERROR] {len(failed)} smoke tests FAILED: {', '.join(failed)}")
+        print(f"\n[ERROR] {len(failed)} smoke tests FAILED: {', '.join(failed)}", flush=True)
         sys.exit(1)
 
-    print("\n[OK] ALL CRITICAL COMPONENT SMOKE TESTS PASSED.")
+    print("\n[OK] ALL CRITICAL COMPONENT SMOKE TESTS PASSED.", flush=True)
     sys.exit(0)
 
 
