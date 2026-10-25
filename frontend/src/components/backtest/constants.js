@@ -39,6 +39,13 @@ export const STRATEGIES = [
     badge: 'Реальная история',
     description: 'Касание EMA20 и возврат по тренду — больше сигналов, чем у пересечения EMA(20/50)'
   },
+  {
+    id: 'ema_trend_window',
+    label: '🟢 EMA Trend Window (подтверждение кросса)',
+    group: 'historical',
+    badge: 'Реальная история',
+    description: 'Вход в окне 8 баров после кросса EMA(20/50): тренд сохранён, close вернулся по стороне кросса от EMA20'
+  },
   // Live Order Book Sentinel (Только Real-time L2)
   {
     id: 'live_density_bounce',

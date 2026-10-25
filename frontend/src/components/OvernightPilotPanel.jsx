@@ -8,6 +8,7 @@ const STRATEGY_OPTIONS = [
   { value: 'cluster_volume_bounce', label: 'Cluster Volume Bounce' },
   { value: 'ema_pullback', label: 'EMA Pullback · отскок к EMA20 в тренде' },
   { value: 'ema_trend', label: 'EMA Trend · пересечение 20/50' },
+  { value: 'ema_trend_window', label: 'EMA Trend Window · подтверждение кросса 8 баров' },
 ];
 
 function formatPct(value, digits = 3) {

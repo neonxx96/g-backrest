@@ -29,8 +29,8 @@ from backend.app.db.models import OvernightPilotRun
 from sqlalchemy import select
 
 
-HISTORICAL_STRATEGIES = {"confluence_ema", "cvd_absorption", "cluster_volume_bounce", "diagnostics_lenient", "ema_pullback", "ema_trend", "naked_test"}
-OPTIMIZABLE_STRATEGIES = {"confluence_ema", "cvd_absorption", "cluster_volume_bounce", "ema_pullback", "ema_trend"}
+HISTORICAL_STRATEGIES = {"confluence_ema", "cvd_absorption", "cluster_volume_bounce", "diagnostics_lenient", "ema_pullback", "ema_trend", "ema_trend_window", "naked_test"}
+OPTIMIZABLE_STRATEGIES = {"confluence_ema", "cvd_absorption", "cluster_volume_bounce", "ema_pullback", "ema_trend", "ema_trend_window"}
 logger = logging.getLogger(__name__)
 
 

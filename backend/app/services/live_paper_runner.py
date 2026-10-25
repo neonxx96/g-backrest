@@ -35,6 +35,7 @@ PAPER_HISTORICAL_STRATEGIES = frozenset({
     "diagnostics_lenient",
     "ema_pullback",
     "ema_trend",
+    "ema_trend_window",
     "naked_test",
 })
 
@@ -48,6 +49,7 @@ MARKET_ENTRY_STRATEGIES = frozenset({
     "diagnostics_lenient",
     "ema_pullback",
     "ema_trend",
+    "ema_trend_window",
     "naked_test",
 })
 

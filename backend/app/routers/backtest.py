@@ -77,6 +77,14 @@ STRATEGIES_CATALOG = [
         "badge": "Реальная история"
     },
     {
+        "id": "ema_trend_window",
+        "name": "Подтверждение кросса EMA(20/50) в окне 8 баров",
+        "engine_domain": "historical_flow",
+        "is_historical_ready": True,
+        "description": "Вход не на самом пересечении EMA20/50, а на следующих 8 барах: тренд сохранён и цена закрылась обратно по стороне кросса от EMA20. Закрывает главный провал ema_trend — сигнал есть только в день кросса.",
+        "badge": "Реальная история"
+    },
+    {
         "id": "live_density_bounce",
         "name": "Отскок от плотности стакана L2",
         "engine_domain": "live_orderbook",
@@ -104,6 +112,7 @@ STRATEGIES = {
     "cvd_absorption",
     "ema_pullback",
     "ema_trend",
+    "ema_trend_window",
     "confluence_ema",
     "diagnostics_lenient",
     "naked_test",

@@ -222,6 +222,36 @@ class OrderFlowBacktester:
             elif passes_wall and cross_down and volume_ok and delta < 0:
                 direction = -1
                 reasons = [f"EMA cross down ({float(cur.get('ema20', 0.0)):.2f} < {float(cur.get('ema50', 0.0)):.2f})", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
+        elif profile == "ema_trend_window":
+            # Окно после свежего кросса EMA20/50 (8 баров) — 1:1 с engine/strategies.py.
+            # Кросс строго раньше текущего бара; вход на подтверждении: тренд
+            # сохранён и close вернулся по стороне кросса относительно EMA20.
+            W = 8
+            tail = frame.iloc[-(W + 1):]
+            ema20_s = tail["ema20"].astype(float).tolist()
+            ema50_s = tail["ema50"].astype(float).tolist()
+            cross_idx = -1
+            cross_up = False
+            for k in range(len(ema20_s) - 1, 0, -1):
+                if ema20_s[k - 1] <= ema50_s[k - 1] and ema20_s[k] > ema50_s[k]:
+                    cross_idx, cross_up = k, True
+                    break
+                if ema20_s[k - 1] >= ema50_s[k - 1] and ema20_s[k] < ema50_s[k]:
+                    cross_idx, cross_up = k, False
+                    break
+            in_window = 0 < cross_idx < len(ema20_s) - 1
+            cur_ema20w = float(cur.get("ema20", 0.0))
+            cur_ema50w = float(cur.get("ema50", 0.0))
+            trend_up = cur_ema20w > cur_ema50w
+            trend_down = cur_ema20w < cur_ema50w
+            if passes_wall and in_window and cross_up and trend_up and close > cur_ema20w and volume_ok and delta > 0:
+                direction = 1
+                bars_since = len(ema20_s) - 1 - cross_idx
+                reasons = [f"Cross up {bars_since} bar(s) ago confirmed (close {close:.4f} > EMA20 {cur_ema20w:.4f})", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
+            elif passes_wall and in_window and (not cross_up) and trend_down and close < cur_ema20w and volume_ok and delta < 0:
+                direction = -1
+                bars_since = len(ema20_s) - 1 - cross_idx
+                reasons = [f"Cross down {bars_since} bar(s) ago confirmed (close {close:.4f} < EMA20 {cur_ema20w:.4f})", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
         elif profile == "ema_pullback":
             # Отскок к EMA20 внутри тренда — 1:1 с engine/strategies.py (ema_pullback).
             cur_ema20 = float(cur.get("ema20", 0.0))
@@ -365,6 +395,41 @@ class OrderFlowBacktester:
                     "crosses",
                     [round(float(prev.get("ema50", 0.0)), 8), round(float(cur.get("ema50", 0.0)), 8)],
                 )
+            if delta == 0:
+                reject("delta_direction", round(delta, 4), "!=", 0.0)
+        elif profile == "ema_trend_window":
+            W = 8
+            tail = frame.iloc[-(W + 1):]
+            ema20_s = tail["ema20"].astype(float).tolist()
+            ema50_s = tail["ema50"].astype(float).tolist()
+            cross_idx = -1
+            cross_up = False
+            for k in range(len(ema20_s) - 1, 0, -1):
+                if ema20_s[k - 1] <= ema50_s[k - 1] and ema20_s[k] > ema50_s[k]:
+                    cross_idx, cross_up = k, True
+                    break
+                if ema20_s[k - 1] >= ema50_s[k - 1] and ema20_s[k] < ema50_s[k]:
+                    cross_idx, cross_up = k, False
+                    break
+            in_window = 0 < cross_idx < len(ema20_s) - 1
+            cur_ema20w = float(cur.get("ema20", 0.0))
+            cur_ema50w = float(cur.get("ema50", 0.0))
+            if not in_window:
+                reject(
+                    "cross_window",
+                    {"bars_scanned": len(ema20_s) - 1, "cross_idx": cross_idx},
+                    "requires",
+                    f"кросс EMA20/50 в окне {W} баров строго до текущего",
+                )
+            else:
+                if cross_up and cur_ema20w <= cur_ema50w:
+                    reject("trend_structure", round(cur_ema20w - cur_ema50w, 8), "requires", "EMA20 > EMA50 после ап-кросса")
+                if (not cross_up) and cur_ema20w >= cur_ema50w:
+                    reject("trend_structure", round(cur_ema20w - cur_ema50w, 8), "requires", "EMA20 < EMA50 после даун-кросса")
+                if cross_up and not close > cur_ema20w:
+                    reject("close_vs_ema20", round(close, 8), ">", round(cur_ema20w, 8))
+                if (not cross_up) and not close < cur_ema20w:
+                    reject("close_vs_ema20", round(close, 8), "<", round(cur_ema20w, 8))
             if delta == 0:
                 reject("delta_direction", round(delta, 4), "!=", 0.0)
         elif profile == "ema_pullback":

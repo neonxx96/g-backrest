@@ -9,6 +9,8 @@ Per-bar strategy signal generation (MODULARIZATION_PLAN п.3, слайс 6.4).
 Стратегии:
 - confluence_ema     — отскок/пробой EMA20 с объёмом, дельтой и RSI-фильтром
 - ema_trend          — пересечение EMA fast/slow
+- ema_trend_window   — подтверждение в окне 8 баров после свежего кросса EMA20/50
+- ema_pullback       — отскок к EMA20 внутри тренда
 - delta_absorption   — поглощение на экстремумах CVD (low_min10/high_max10)
 - density_bounce     — пин-бар у плотности (limit_bounce alias)
 - diagnostics_lenient / naked_test — диагностические генераторы
@@ -55,6 +57,29 @@ def compute_raw_signal(i: int, ctx: SimpleNamespace, eff_strategy: str) -> int:
             raw_signal = 1
         elif passes_wall and passes_lifetime and cross_dn and v_rat >= volume_multiplier and delta < 0:
             raw_signal = -1
+
+    elif eff_strategy == "ema_trend_window":
+        # Окно после свежего кросса EMA20/50 (W баров): вход не на самом кроссе
+        # (это ema_trend), а на подтверждении — близость тренда сохранена и цена
+        # закрылась обратно по стороне кросса. Реже pullback, чаще чистого кросса.
+        W = 8
+        j = 0
+        cross_up_at_j = False
+        for k in range(i, max(1, i - W), -1):
+            if ema20_vals[k - 1] <= ema50_vals[k - 1] and ema20_vals[k] > ema50_vals[k]:
+                j, cross_up_at_j = k, True
+                break
+            if ema20_vals[k - 1] >= ema50_vals[k - 1] and ema20_vals[k] < ema50_vals[k]:
+                j, cross_up_at_j = k, False
+                break
+        # j < i: кросс строго раньше текущего бара (текущий кросс — зона ema_trend)
+        if j and j < i:
+            trend_up = ema20_vals[i] > ema50_vals[i]
+            trend_dn = ema20_vals[i] < ema50_vals[i]
+            if passes_wall and cross_up_at_j and trend_up and c > ema20_vals[i] and v_rat >= volume_multiplier and delta > 0:
+                raw_signal = 1
+            elif passes_wall and (not cross_up_at_j) and trend_dn and c < ema20_vals[i] and v_rat >= volume_multiplier and delta < 0:
+                raw_signal = -1
 
     elif eff_strategy == "ema_pullback":
         # Отскок к EMA20 внутри тренда: касание EMA20 и закрытие обратно по направлению

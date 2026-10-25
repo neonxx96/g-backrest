@@ -60,7 +60,7 @@ async def query_openrouter_llm(prompt: str, base_symbol: str = "BTCUSDT", base_t
         "{\n"
         '  "symbol": "BTCUSDT",\n'
         '  "timeframe": "5m",\n'
-        '  "strategy_type": "density_bounce" | "delta_absorption" | "confluence_ema" | "ema_pullback" | "ema_trend",\n'
+        '  "strategy_type": "density_bounce" | "delta_absorption" | "confluence_ema" | "ema_pullback" | "ema_trend" | "ema_trend_window",\n'
         '  "reasoning": "Краткое обоснование стратегии на русском языке",\n'
         '  "params": {\n'
         '    "stop_loss_pct": 0.6,\n'
