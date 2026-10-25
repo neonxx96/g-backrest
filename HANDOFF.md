@@ -48,7 +48,7 @@
 - **Активный контекст:** [`context/CURRENT_TASK.md`](file:///d:/AI_agent_space/gemini/context/CURRENT_TASK.md)
 - **Рекомендуемая модель для старта:** `Claude Sonnet 5.5 Medium` (Expert class).
 - **План готов к исполнению:** Пользователю достаточно переключить модель в UI и написать «Поехали» / «Го».
-- **Статус:** Этапы 1-2 выполнены (ChartEngine; On-Chart DOM + liquidityWallStore). Следующий — Этап 3 (Canvas Footprint). ⚠️ В dom/useAggregatedOrderbook.js есть выдуманные референс-стенки — убрать в Этапе 4.
+- **Статус:** Этапы 1-3 выполнены (ChartEngine; On-Chart DOM + liquidityWallStore; Canvas Footprint & Naked POC). Следующий — Этап 4 (апгрейд CScalp-стакана). ⚠️ В dom/useAggregatedOrderbook.js есть выдуманные референс-стенки — убрать в Этапе 4.
 - **Стартовая точка (исторически):** Этап 1 (`ChartEngine` интерфейс + `KLineChartsV9Adapter` + унификация тёмной темы графика без изменения внешнего поведения).
 - **Инфраструктура и тесты:** Зелёные (`scripts/check.ps1`), рабочий марафон на фоне не затрагивается.
 
@@ -796,4 +796,5 @@
 - **S1 progress:** новый пакет `recorder/` уже содержит канонический envelope, Binance normalizers, fsync spool, immutable zstd Parquet + SHA-256 manifest, gap journal и YAML config; покрытие — 6 тестов. WebSocket process, CLI/status и disk policy ещё не завершены.
 - **S1 completed:** WebSocket process, `python -m recorder run|status`, 50 GiB disk policy, closed-kline filtering, heartbeat/status, Dockerfile/Compose и Windows start/stop scripts добавлены; полный `scripts/check.ps1` — PASS (111 tests, build, smoke, UI and live WS checks).
 - **Deployment blocker:** локально доступен только Docker Desktop (`desktop-linux`); серверный SSH/Docker target не обнаружен. После предоставления hostname/IP, user и port либо Docker context выполнить remote build/up и smoke/status check.
+
 

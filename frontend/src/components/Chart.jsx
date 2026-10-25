@@ -11,6 +11,7 @@ import SaveTemplateModal from './chart/SaveTemplateModal.jsx';
 import IndicatorsDock from './chart/IndicatorsDock.jsx';
 import PositionSetupHUD from './chart/PositionSetupHUD.jsx';
 import OnChartDOM from './chart/OnChartDOM.jsx';
+import FootprintCanvasLayer from './chart/FootprintCanvasLayer.jsx';
 import { X } from 'lucide-react';
 import { DEFAULT_ACTIVE_INDICATORS } from '../config/indicatorsRegistry';
 import { useLayoutStore } from '../stores/layoutStore';
@@ -437,6 +438,9 @@ export default function Chart({
 
         {/* On-Chart DOM: плотности L2 у шкалы цен (Canvas, через ChartEngine) + LiquidityWallStore */}
         {chartEngine && <OnChartDOM engine={chartEngine} symbol={symbol} />}
+
+        {/* Footprint Canvas Layer: кластеры объёмов Bid x Ask, дельта, POC и Naked POC (Canvas 2D) */}
+        {chartEngine && <FootprintCanvasLayer engine={chartEngine} symbol={symbol} timeframe={timeframe} />}
 
         {/* Tactical Assistant HUD: Floating Predictive & Market Regime Overlay (Stage 5) */}
         <AssistantHUD

@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "test:pilot": "node --test src/features/pilot/pilot.test.js src/stores/marketDataStore.test.js src/components/chart/densityHeatmapMath.test.js src/features/replay/replayPlayerMath.test.js src/components/chart/livePositions.test.js src/components/docking/marathonFeed.test.js src/components/docking/footprintGrid.test.js src/components/docking/paperPairs.test.js src/components/chart/engine/chartEngine.test.js src/components/chart/onChartDomMath.test.js src/stores/liquidityWallStore.test.js",
+    "test:pilot": "node --test src/features/pilot/pilot.test.js src/stores/marketDataStore.test.js src/components/chart/densityHeatmapMath.test.js src/features/replay/replayPlayerMath.test.js src/components/chart/livePositions.test.js src/components/docking/marathonFeed.test.js src/components/docking/footprintGrid.test.js src/components/docking/paperPairs.test.js src/components/chart/engine/chartEngine.test.js src/components/chart/onChartDomMath.test.js src/stores/liquidityWallStore.test.js src/components/chart/footprintLayerMath.test.js",
     "prebuild": "npm run test:pilot",
     "dev": "vite",
     "build": "vite build",
