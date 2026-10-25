@@ -123,6 +123,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Signal Script API", lifespan=lifespan)
 
+@app.get("/api/health")
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
 # Allow CORS for React/Vite development & localhost
 app.add_middleware(
     CORSMiddleware,

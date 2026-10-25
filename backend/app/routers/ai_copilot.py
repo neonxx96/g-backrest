@@ -171,6 +171,26 @@ async def optimize_strategy(payload: AIOptimizeRequest):
 
 SUPPORTED_AI_MODELS = [
     {
+        "id": "deepseek/deepseek-v4.1-flash",
+        "label": "DeepSeek V4.1 Flash (Primary / Default)",
+        "tier": "primary"
+    },
+    {
+        "id": "qwen/qwen3.8-flash",
+        "label": "Qwen 3.8 Flash (Secondary)",
+        "tier": "secondary"
+    },
+    {
+        "id": "qwen/qwen3.5-flash-02-23",
+        "label": "Qwen 3.5 Flash (Budget)",
+        "tier": "budget"
+    },
+    {
+        "id": "openrouter/free",
+        "label": "Free Models Router OpenRouter (Backup)",
+        "tier": "free"
+    },
+    {
         "id": "google/gemini-2.0-flash-001",
         "label": "google/gemini-2.0-flash-001 (Быстрая, скальпинг)",
         "tier": "fast"

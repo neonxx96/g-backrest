@@ -44,6 +44,26 @@ export default function AIEngineSettings({ onConfigChange }) {
   return <div className="space-y-3">
     <div className="rounded border border-[#2a3150] bg-[#10131a] p-3 space-y-2">
       <div className="text-white font-bold">AI Engine Settings</div>
+      <div className="flex flex-wrap gap-1.5 pt-1">
+        {[
+          { id: 'deepseek/deepseek-v4.1-flash', label: '🚀 DeepSeek V4.1 Flash (Основная)' },
+          { id: 'qwen/qwen3.8-flash', label: '⚡ Qwen 3.8 Flash (2-й вариант)' },
+          { id: 'qwen/qwen3.5-flash-02-23', label: '🪙 Qwen 3.5 Flash (Бюджет)' },
+        ].map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => select(item.id)}
+            className={`px-2 py-1 rounded text-[10px] font-mono transition cursor-pointer border ${
+              config.selected_model === item.id
+                ? 'bg-emerald-950/80 border-emerald-500/60 text-emerald-300 font-bold'
+                : 'bg-[#151924] border-[#252c3d] text-neutral-300 hover:text-white hover:border-neutral-500'
+            }`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
       <div className="flex gap-2"><input value={config.selected_model} onChange={e => setConfig({ ...config, selected_model: e.target.value })} placeholder="provider/model-id" className="flex-1 bg-[#090b10] border border-[#283044] rounded px-2 py-1.5 text-white" /><button onClick={() => save(config, true).catch(e => setMessage(e.message))} className="px-2 rounded bg-[#4f46e5] text-white text-[10px] font-bold">Сохранить и тест</button></div>
       <div className="flex items-center gap-2 text-[10px] text-[#98a3b8]">Temperature <input type="number" min="0" max="2" step="0.1" value={config.temperature} onChange={e => setConfig({ ...config, temperature: Number(e.target.value) })} className="w-14 bg-[#090b10] border border-[#283044] rounded px-1 py-0.5 text-white" /> <Wifi size={11} className="text-[#22c55e]" /> {message}</div>
     </div>

@@ -33,6 +33,28 @@ import { InfoTip } from './backtest/fields';
 
 const API_BASE = '/api';
 
+async function safeParseResponse(res) {
+  const rawText = await res.text();
+  let data = null;
+  if (rawText) {
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      data = null;
+    }
+  }
+  if (!res.ok) {
+    const errorMsg = data?.detail
+      ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail))
+      : (rawText ? rawText.slice(0, 250) : `Ошибка сервера (${res.status} ${res.statusText || 'Bad Gateway'})`);
+    throw new Error(errorMsg);
+  }
+  if (data === null) {
+    throw new Error(`Сервер вернул пустой ответ (HTTP ${res.status})`);
+  }
+  return data;
+}
+
 const PRESET_CHIPS = [
   { label: '🛡️ Консервативный BTC (5m)', text: 'Сделай консервативный сетап для скальпинга BTC на 5m с низким риском' },
   { label: '⚡ Агрессивный импульс CVD', text: 'Агрессивный лонг по поглощению дельты CVD с коротким стопом и плечом 5х' },
@@ -749,9 +771,7 @@ export default function BacktestPanel({
             }
           })
         });
-        const data = await res.json();
-        if (!res.ok)
-          throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail));
+        const data = await safeParseResponse(res);
         handleSetResult({ ...data, symbol, timeframe, mode: 'single' });
         if (symbol && setParamsForSymbol) {
           setParamsForSymbol(symbol, {
@@ -901,9 +921,7 @@ export default function BacktestPanel({
           generations: 5
         })
       });
-      const data = await res.json();
-      if (!res.ok)
-        throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail));
+      const data = await safeParseResponse(res);
       setOptProgress(100);
       handleSetResult({ ...data, symbol, timeframe, mode: 'grid' });
       if (data.active_position_setup) {
@@ -971,9 +989,7 @@ export default function BacktestPanel({
             initial_capital: 10000.0
           })
         });
-        const data = await res.json();
-        if (!res.ok)
-          throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail));
+        const data = await safeParseResponse(res);
         setAiResult(data);
         onResult({
           ...data,

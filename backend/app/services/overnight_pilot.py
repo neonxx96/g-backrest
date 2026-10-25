@@ -121,6 +121,7 @@ class OvernightPilotManager:
         self._snapshot_task: Optional[asyncio.Task] = None
         self._lock = asyncio.Lock()
         self.intent_logger = DeepIntentLogger()
+        self._shared_paper_session: Optional[PaperTradingSession] = None
 
     def _record_run_event(self, session: PilotSession, *, event_type: str, source: str, reason_code: str, reason: str, payload: Optional[Dict[str, Any]] = None) -> None:
         try:
@@ -560,13 +561,20 @@ class OvernightPilotManager:
                 raise ValueError("overnight pilot is already running; stop all paper sessions before starting again")
             if not self._preflight_matches(selected, preflight_id):
                 raise ValueError("No current preflight matches this configuration; run preflight again before starting paper")
+            # Create one shared PaperTradingSession ($1,000.00 total account capital shared across all active pairs)
+            shared_capital = 1000.0
+            shared_paper_session = PaperTradingSession(
+                initial_balance=shared_capital,
+                session_id=f"overnight_shared_{int(time.time())}"
+            )
+            self._shared_paper_session = shared_paper_session
+
             for session in self.sessions.values():
                 try:
                     if session.error or session.backtest is None or session.forecast is None:
                         continue
-                    paper_session = PaperTradingSession(initial_balance=session.config.initial_capital, session_id=f"overnight_{session.config.symbol.lower()}_{int(time.time())}")
-                    session.session_id = paper_session.session_id
-                    runner = LivePaperRunner(session=paper_session)
+                    session.session_id = shared_paper_session.session_id
+                    runner = LivePaperRunner(session=shared_paper_session)
                     runner.intent_logger = self.intent_logger
                     session.runner = runner
                     session.started_at = int(time.time() * 1000)
@@ -574,6 +582,7 @@ class OvernightPilotManager:
                         session.config.model_dump(),
                         run_id=getattr(session, "run_id", None),
                         config_fingerprint=getattr(session, "config_fingerprint", None),
+                        reset_wallet=False,
                     )
                     session.preflight_valid = False
                     self._forecast_tasks[session.config.symbol.upper()] = asyncio.create_task(
@@ -632,6 +641,7 @@ class OvernightPilotManager:
         if snapshot_task and snapshot_task is not asyncio.current_task() and not snapshot_task.done():
             snapshot_task.cancel()
             await asyncio.gather(snapshot_task, return_exceptions=True)
+        self._shared_paper_session = None
         for session in self.sessions.values():
             if session.runner:
                 session.runner.stop()
@@ -801,7 +811,7 @@ class OvernightPilotManager:
             "preflight_id": self._current_preflight_id(sessions),
             "sessions": sessions,
             "summary": rows,
-            "aggregate": self._aggregate_report(sessions, rows),
+            "aggregate": self._aggregate_report(sessions, rows, shared_session=getattr(self, "_shared_paper_session", None)),
         }
 
     @staticmethod
@@ -815,6 +825,7 @@ class OvernightPilotManager:
     def _aggregate_report(
         sessions: Dict[str, Dict[str, Any]],
         rows: List[Dict[str, Any]],
+        shared_session: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Build the morning report without mixing historical and live metrics."""
 
@@ -845,28 +856,46 @@ class OvernightPilotManager:
         gross_wins = sum(max(0.0, float(trade.get("pnl_usd", trade.get("net_pnl", 0.0)) or 0.0)) for trade in backtest_trades)
         gross_losses = abs(sum(min(0.0, float(trade.get("pnl_usd", trade.get("net_pnl", 0.0)) or 0.0)) for trade in backtest_trades))
         paper_items = [item.get("paper") for item in sessions.values() if item.get("paper") is not None]
-        paper_trades = [
-            trade
-            for item in paper_items
-            for trade in (item.get("closed_trades") or [])
-        ]
-        paper_pnl_values = [
-            float(trade.get("net_pnl", trade.get("pnl_usd", 0.0)) or 0.0)
-            for trade in paper_trades
-        ]
-        paper_losing_trade_reasons = [
-            str(trade.get("exit_reason") or trade.get("reason") or "UNKNOWN")
-            for trade in paper_trades
-            if float(trade.get("net_pnl", trade.get("pnl_usd", 0.0)) or 0.0) < 0
-        ]
-        paper_wins = sum(1 for value in paper_pnl_values if value > 0)
-        paper_gross_wins = sum(max(0.0, value) for value in paper_pnl_values)
-        paper_gross_losses = abs(sum(min(0.0, value) for value in paper_pnl_values))
-        paper_initial = sum(float(item.get("initial_capital", 0.0) or 0.0) for item in paper_items)
-        paper_equity = sum(float(item.get("current_equity", 0.0) or 0.0) for item in paper_items)
-        paper_net = sum(float(item.get("realized_pnl", 0.0) or 0.0) for item in paper_items) if paper_items else None
-        paper_unrealized = sum(float(item.get("unrealized_pnl", 0.0) or 0.0) for item in paper_items) if paper_items else None
-        paper_closed_trades = sum(int(item.get("closed_trades_count", 0) or 0) for item in paper_items)
+        if shared_session is not None:
+            shared = shared_session
+            st = shared.get_state()
+            paper_initial = shared.initial_balance
+            paper_equity = st.balance
+            paper_net = shared.realized_pnl
+            paper_unrealized = shared.total_unrealized_pnl()
+            paper_trades = list(shared.closed_trades)
+            paper_closed_trades = len(paper_trades)
+            paper_pnl_values = [float(t.get("net_pnl", 0.0) or 0.0) for t in paper_trades]
+            paper_wins = sum(1 for v in paper_pnl_values if v > 0)
+            paper_gross_wins = sum(max(0.0, v) for v in paper_pnl_values)
+            paper_gross_losses = abs(sum(min(0.0, v) for v in paper_pnl_values))
+            paper_losing_trade_reasons = [
+                str(t.get("exit_reason") or t.get("reason") or "UNKNOWN")
+                for t in paper_trades if float(t.get("net_pnl", 0.0) or 0.0) < 0
+            ]
+        else:
+            paper_trades = [
+                trade
+                for item in paper_items
+                for trade in (item.get("closed_trades") or [])
+            ]
+            paper_pnl_values = [
+                float(trade.get("net_pnl", trade.get("pnl_usd", 0.0)) or 0.0)
+                for trade in paper_trades
+            ]
+            paper_losing_trade_reasons = [
+                str(trade.get("exit_reason") or trade.get("reason") or "UNKNOWN")
+                for trade in paper_trades
+                if float(trade.get("net_pnl", trade.get("pnl_usd", 0.0)) or 0.0) < 0
+            ]
+            paper_wins = sum(1 for value in paper_pnl_values if value > 0)
+            paper_gross_wins = sum(max(0.0, value) for value in paper_pnl_values)
+            paper_gross_losses = abs(sum(min(0.0, value) for value in paper_pnl_values))
+            paper_initial = sum(float(item.get("initial_capital", 0.0) or 0.0) for item in paper_items)
+            paper_equity = sum(float(item.get("current_equity", 0.0) or 0.0) for item in paper_items)
+            paper_net = sum(float(item.get("realized_pnl", 0.0) or 0.0) for item in paper_items) if paper_items else None
+            paper_unrealized = sum(float(item.get("unrealized_pnl", 0.0) or 0.0) for item in paper_items) if paper_items else None
+            paper_closed_trades = sum(int(item.get("closed_trades_count", 0) or 0) for item in paper_items)
         paper_drawdown = max(
             (abs(float(item.get("max_drawdown_pct", 0.0) or 0.0)) for item in paper_items),
             default=None,
@@ -919,9 +948,9 @@ class OvernightPilotManager:
                 },
             },
             "paper": {
-                "available": bool(paper_items),
-                "starting_balance": round(paper_initial, 2) if paper_items else None,
-                "equity": round(paper_equity, 2) if paper_items else None,
+                "available": bool(paper_items or shared_session is not None),
+                "starting_balance": round(paper_initial, 2) if (paper_items or shared_session is not None) else None,
+                "equity": round(paper_equity, 2) if (paper_items or shared_session is not None) else None,
                 "net_pnl_usd": round(paper_net, 2) if paper_net is not None else None,
                 "unrealized_pnl_usd": round(paper_unrealized, 2) if paper_unrealized is not None else None,
                 "roi_pct": round(paper_net / paper_initial * 100.0, 4) if paper_net is not None and paper_initial else None,

@@ -335,11 +335,12 @@ def run_blocking_part(console_errors: list, page_errors: list) -> bool:
             failures.append(f"page did not open: {exc}")
 
         log("[2/4] Waiting for chart and order-book canvases ...")
-        try:
-            page.wait_for_selector('[data-testid="orderbook-canvas-ladder"]',
-                                   timeout=UI_RENDER_TIMEOUT_MS)
-        except Exception as exc:
-            failures.append(f"order-book canvas not found: {exc}")
+        ladder_rect = _ensure_orderbook_visible(page)
+        log(f"      order-book canvas rect: {ladder_rect}")
+        if not ladder_rect:
+            failures.append("order-book ladder canvas is missing after opening the DOM widget")
+        elif ladder_rect["w"] < 100 or ladder_rect["h"] < 40:
+            failures.append(f"order-book ladder canvas is not really rendered: {ladder_rect}")
 
         try:
             page.wait_for_function(
@@ -403,14 +404,6 @@ def run_blocking_part(console_errors: list, page_errors: list) -> bool:
             failures.append(f"chart canvas is not really rendered: {chart_rect}")
         if not canvas_report["ladder_present"]:
             failures.append("order-book ladder canvas element is missing")
-
-        log("[2b/4] Ensuring the order-book widget is actually visible ...")
-        ladder_rect = _ensure_orderbook_visible(page)
-        log(f"      order-book canvas rect: {ladder_rect}")
-        if not ladder_rect:
-            failures.append("order-book ladder canvas is missing after opening the DOM widget")
-        elif ladder_rect["w"] < 100 or ladder_rect["h"] < 40:
-            failures.append(f"order-book ladder canvas is not really rendered: {ladder_rect}")
 
         log("[3/4] Switching symbol (ArrowDown) ...")
         symbol_before = _collect_header_symbol(page)

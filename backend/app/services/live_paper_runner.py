@@ -166,6 +166,7 @@ class LivePaperRunner:
         *,
         run_id: Optional[str] = None,
         config_fingerprint: Optional[str] = None,
+        reset_wallet: bool = True,
     ) -> Dict[str, Any]:
         """Starts live paper trading runner with user configuration."""
         if self.is_running:
@@ -255,8 +256,11 @@ class LivePaperRunner:
         self._last_rejection_count_key = None
         self.rejection_counts = {}
 
-        # Reset wallet to initial capital
-        self.session.reset_wallet(initial_balance=self.initial_capital)
+        # Reset wallet to initial capital (only if not sharing an existing wallet)
+        if reset_wallet:
+            self.session.reset_wallet(initial_balance=self.initial_capital)
+        else:
+            self.initial_capital = self.session.initial_balance
         # UI/config values are percentages (1.0 = 1%); PaperTradingSession
         # stores the fraction used by its position-size formula.
         self.session.risk_per_trade_pct = self.risk_per_trade_pct / 100.0
@@ -546,10 +550,20 @@ class LivePaperRunner:
             peak_equity = max(peak_equity, value)
             if peak_equity > 0:
                 max_drawdown_pct = max(max_drawdown_pct, (peak_equity - value) / peak_equity * 100.0)
-        closed_trades = state_dict.get("closed_trades", [])
+        raw_positions = state_dict.get("positions", [])
+        symbol_positions = [p for p in raw_positions if p.get("symbol") == self.symbol]
+        all_closed = state_dict.get("closed_trades", [])
+        symbol_closed = [t for t in all_closed if t.get("symbol") == self.symbol]
+        if hasattr(self.session, "unrealized_pnl_for"):
+            symbol_unrealized = self.session.unrealized_pnl_for(self.symbol)
+        elif hasattr(self.session, "total_unrealized_pnl"):
+            symbol_unrealized = self.session.total_unrealized_pnl()
+        else:
+            symbol_unrealized = float(state_dict.get("unrealized_pnl", 0.0) or 0.0)
+        symbol_realized = sum(float(t.get("net_pnl", 0.0) or 0.0) for t in symbol_closed)
         losing_trade_reasons = [
             {"exit_reason": trade.get("exit_reason", "UNKNOWN"), "net_pnl": trade.get("net_pnl", 0.0)}
-            for trade in closed_trades
+            for trade in symbol_closed
             if float(trade.get("net_pnl", 0.0) or 0.0) < 0
         ][-10:]
 
@@ -576,8 +590,8 @@ class LivePaperRunner:
             "balance": round(state_dict.get("balance", self.initial_capital), 2),
             "available_margin": round(float(state_dict.get("available_margin", self.initial_capital) or 0.0), 4),
             "used_margin": round(float(state_dict.get("locked_margin", 0.0) or 0.0), 4),
-            "unrealized_pnl": round(state_dict.get("unrealized_pnl", 0.0), 2),
-            "realized_pnl": round(state_dict.get("realized_pnl", 0.0), 2),
+            "unrealized_pnl": round(symbol_unrealized, 2),
+            "realized_pnl": round(symbol_realized, 2),
             "roi_pct": round((total_equity - self.initial_capital) / max(self.initial_capital, 1e-9) * 100.0, 4),
             "max_drawdown_pct": round(max_drawdown_pct, 4),
             "total_fees": round(float(state_dict.get("total_fees_paid", 0.0) or 0.0), 4),
@@ -585,9 +599,9 @@ class LivePaperRunner:
             "funding_rate": round(self._last_funding_rate, 8),
             "average_risk_pct": round(self.risk_per_trade_pct, 4),
             "losing_trade_reasons": losing_trade_reasons,
-            "open_positions": state_dict.get("positions", []),
-            "closed_trades_count": len(state_dict.get("closed_trades", [])),
-            "closed_trades": state_dict.get("closed_trades", [])[-15:],
+            "open_positions": symbol_positions,
+            "closed_trades_count": len(symbol_closed),
+            "closed_trades": symbol_closed[-15:],
             "logs": self.logs[:25],
             "equity_curve": self.equity_curve[-80:],
             "last_tick_time": self._last_tick_time,

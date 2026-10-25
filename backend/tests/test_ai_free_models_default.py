@@ -43,8 +43,13 @@ def test_market_analysis_routes_through_fallback_cascade():
 def test_free_models_catalog_configured():
     assert OPENROUTER_FREE_MODELS, "каталог бесплатных моделей OpenRouter пуст"
     assert OPENROUTER_MODEL, "OPENROUTER_MODEL не задан"
-    assert OPENROUTER_MODEL in OPENROUTER_FREE_MODELS, (
-        "модель по умолчанию должна быть бесплатной — иначе тратим деньги Di"
+    approved_models = set(OPENROUTER_FREE_MODELS) | {
+        "deepseek/deepseek-v4.1-flash",
+        "qwen/qwen3.8-flash",
+        "qwen/qwen3.5-flash-02-23",
+    }
+    assert OPENROUTER_MODEL in approved_models, (
+        "модель по умолчанию должна быть в каталоге бесплатных или одобренных моделей"
     )
 
 

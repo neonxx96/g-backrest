@@ -3,6 +3,7 @@ Binance Futures Exchange Adapter
 Implements read-only market data retrieval for Binance USDT-M Futures.
 """
 
+import asyncio
 import aiohttp
 import pandas as pd
 from typing import Dict, List, Optional, Any
@@ -56,8 +57,12 @@ class BinanceAdapter(BaseExchangeAdapter):
         return BINANCE_FUTURES_WS
 
     async def get_session(self) -> aiohttp.ClientSession:
-        if self.session is None or self.session.closed:
-            headers = {}
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if self.session is None or self.session.closed or (loop and getattr(self.session, "_loop", None) != loop):
+            headers = dict(KLINE_HEADERS)
             if self.api_key:
                 headers["X-MBX-APIKEY"] = self.api_key
             timeout = aiohttp.ClientTimeout(total=10)

@@ -3,20 +3,24 @@
 
 const AI_MODELS = [
   {
+    id: 'deepseek/deepseek-v4.1-flash',
+    label: '🚀 DeepSeek V4.1 Flash (Основная мощная)'
+  },
+  {
+    id: 'qwen/qwen3.8-flash',
+    label: '⚡ Qwen 3.8 Flash (Второй вариант)'
+  },
+  {
+    id: 'qwen/qwen3.5-flash-02-23',
+    label: '🪙 Qwen 3.5 Flash (Максимально бюджетная)'
+  },
+  {
     id: 'auto',
-    label: 'Авто — бесплатная модель OpenRouter (рекомендуется)'
+    label: 'Авто — роутер OpenRouter Cascade (с DeepSeek V4.1 Flash)'
   },
   {
-    id: 'google/gemini-2.0-flash-001',
-    label: 'google/gemini-2.0-flash-001 (Платная, быстрая)'
-  },
-  {
-    id: 'anthropic/claude-3.5-sonnet',
-    label: 'anthropic/claude-3.5-sonnet (Платная, глубокий контекст)'
-  },
-  {
-    id: 'meta-llama/llama-3.3-70b-instruct:free',
-    label: 'meta-llama/llama-3.3-70b-instruct:free (Бесплатная)'
+    id: 'openrouter/free',
+    label: 'Free Models Router OpenRouter (Бесплатный резерв)'
   },
   {
     id: 'local_orderflow_nlp',
