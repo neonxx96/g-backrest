@@ -1,27 +1,22 @@
-# Current Task: Closeout ROADMAP Фазы 1.1–1.2 — production_robust + Night Pilot CLI (2026-10-24)
+# Current Task: Задача 007 — Архитектурный адаптер ChartEngine + Профессиональный Footprint & Liquidity Terminal
 
 ## Status
-- **Priority**: DONE
-- **Agent**: Kimi Work (main)
-- **Branch**: `agent/kimi/phase1-production-robust-closeout`
-- **Task file**: `tasks/003-phase1-production-robust-closeout.md`
+- **Status**: READY_TO_EXECUTE
+- **Task Specification**: `tasks/007-chart-engine-footprint-and-liquidity-terminal.md`
+- **Recommended Model**: `Claude Sonnet 5.5 Medium` (Expert class, Architecture + Canvas 2D/WebGL)
+- **Gate**: `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`
 
-## Completed
-- ✅ Пресет `production_robust` подтверждён кодом и тестами: vol_mult 1.25, RSI-фильтр ON
-  (полоса 42–58 в движке для confluence_ema), SL 0.8 / TP 2.2 (R:R 2.75), BTC/ETH/SOL,
-  ai_control=False (paper/consultative-only)
-- ✅ RSI 42–58 прослежена сквозь цепочку: BacktestParams (preflight `_prepare`) →
-  forecast `strategy_params` → движок бэктеста → LivePaperRunner; полоса уже была в коде,
-  дублирования не внесено; новые точечные тесты `backend/tests/test_phase1_production_robust_closeout.py` (5 passed)
-- ✅ `scripts/night-pilot.ps1`: дефект morning-таблицы закрыт — отсутствующие WinRate/NetPnL/TotalFees
-  показываются как «—», а не 0.0; порт 8000, preflight-гейт, sentinel (NO_ENTRY + FEE DRAG) подтверждены
-- ✅ Gate зелёный перед коммитом
+## Immediate Starting Point for the Agent
+1. **Этап 1**: Создание фасада `ChartEngine` (`frontend/src/components/chart/engine/ChartEngine.js` и `KLineChartsV9Adapter.js`), унификация стилей тёмной темы.
+2. Проверка стабильности существующих функций и прогон `scripts/check.ps1`.
 
-## Notes
-- `context/CURRENT_TASK.md` в рабочем дереве содержал случайно вставленный markmap-SVG
-  (незакоммиченная порча); восстановлен осмысленный формат по правилам проекта.
-- Активный марафон 14/14 и live-раннер НЕ тронуты; backend не перезапускался.
+## Roadmap Checklist (from tasks/007)
+- [x] **Этап 1**: Фундамент адаптера `ChartEngine` + Тёмная тема (KLineCharts v9)
+- [ ] **Этап 2**: On-Chart DOM (у шкалы цен) + `LiquidityWallStore` для алготрейдинга
+- [ ] **Этап 3**: Canvas Footprint & Naked POC (LOD скрытие текста, дельта, честный no-data статус)
+- [ ] **Этап 4**: CScalp-апгрейд скальперского стакана (время плотностей, анти-спуфинг, пузыри сделок)
+- [ ] **Этап 5**: Liquidation Heatmap (Alphfractal/Coinglass стиль, палитры Magma/Sunset)
+- [ ] **Этап 6**: FPS & Memory бенчмарк + итоговый вердикт по графическому движку
 
-## Next
-- Отдельная задача (по команде Di): paper-марафон 3–5 суток на production_robust /
-  продолжение текущего теста; критерии 1.3/1.4 (PF ≥ 1.2, max DD, fee drag) — на утверждении Di.
+## Execution Log
+- 2026-10-25 Этап 1: добавлены engine/ChartEngine.js, engine/KLineChartsV9Adapter.js, engine/chartEngine.test.js; useChartLifecycle.js (init/dispose/history/updateBar/loadMore/resize/zoom-clamp через адаптер, raw остаётся для legacy-индикаторов/оверлеев); Chart.jsx (engineRef, убран неиспользуемый импорт klinecharts); chartStyles.js (separator, tooltip, crosshair в тёмной теме); package.json (+тест в test:pilot, вне whitelist, необходимо для гейта). Исправлен баг: v9 getVisibleRange().from - индекс, а не {timestamp}, из-за чего viewport не восстанавливался после loadMore. check.ps1: ALL QUALITY CHECKS PASSED.

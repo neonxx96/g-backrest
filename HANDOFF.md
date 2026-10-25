@@ -2,6 +2,77 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Antigravity — Завершение функциональных задач: Блоки 1, 2, 3 + оптимизация «По парам», вкладка «Претенденты» и 2-уровневый резерв загрузки свечей 2026-10-25 (вечер)
+
+- **План:** [`docs/superpowers/plans/2026-10-25-positive-trading-roadmap.md`](file:///d:/AI_agent_space/gemini/docs/superpowers/plans/2026-10-25-positive-trading-roadmap.md)
+- **Статус качества:** `🎉 ALL QUALITY CHECKS PASSED. READY TO COMMIT.` (Шлюз `scripts/check.ps1`, 6/6 стадий PASSED).
+- **Выполнено в рамках сессии:**
+  1. **Блок 1 (Кластерные индикаторы & R:R $\ge 1.8$)**:
+     - `backend/app/engine/cluster_filters.py`: реализованы кластерные фильтры (`use_stacked_imbalance_filter`, `use_absorption_filter`, `use_poc_migration_filter`) и формула гарантированного пола $R:R \ge 1.8$ с учетом комиссий биржи и проскальзывания.
+     - Тесты: `backend/tests/test_cluster_filters_and_rr.py` (6 passed).
+  2. **Блок 2 (Селективный динамический SL/TP по волатильности & Liquidity Magnet)**:
+     - `backend/app/engine/dynamic_sl_tp.py`: режимы `fixed`, `atr_cone` (для волатильных альтов), `magnet_hybrid` (для глубоких стаканов BTC, ETH, BNB, XRP с защитой от спуфинга и вето при стенке $< 1.2R$) и `auto_calibrated` (автоподбор режима по train-выборке без Look-Ahead Bias).
+     - Тесты: `backend/tests/test_selective_dynamic_sl_tp.py` (6 passed).
+  3. **Блок 3 (AI Sentinel для удержания прибыли и борьбы с MFE Bleed)**:
+     - `backend/app/services/early_exit_engine.py`: детерминированный Tier-1 (`MOVE_SL_BREAKEVEN` на $+0.8R$, ступенчатый трейлинг `STEP_LOCK_SL` $+0.4R$ на $+1.2R$ и $+0.9R$ на $+1.8R$, `PARTIAL_CLOSE_50` при встречном поглощении, `EARLY_EXIT_MARKET` по Smart Time-Stop) + жесткий предохранитель `clamp_protective_stop`.
+     - `backend/app/services/openrouter_client.py`: асинхронный Tier-2 `evaluate_open_position_sentinel` с надежным детерминированным квант-фоллбэком.
+     - Тесты: `backend/tests/test_ai_sentinel_profit_lock.py` (5 passed).
+  4. **Оптимизация модуля «По парам» в `TradeHistoryWidget.jsx`**:
+     - Сортировка по колонкам (`Пара`, `Стратегия`, `Equity`, `PnL`, `ROI`, `Откр./Закр.`, `WinRate`, `Статус`) с визуальной индикацией направления `▲`/`▼`.
+     - Sticky-колонка «Пара» (`sticky left-0 bg-[#0E1217] z-20 min-w-[105px] border-r border-neutral-800`), устраняющая обрезку тикера при горизонтальном скролле таблицы.
+     - Быстрые фильтры (строка поиска по тикеру/стратегии, чипы «Все», «В работе», «С позициями»).
+     - Раскрывающаяся панель быстрого добавления монеты для теста: чипы популярных монет (`BTC`, `ETH`, `SOL`, `BNB`, `XRP`, `DOGE`, `AVAX`, `SUI`, `NEAR`, `LINK`, `PEPE`), выбор стратегии, таймфрейма, кнопки в 1 клик: «Бэктест», «AI-подбор», «Торговать».
+     - Логика вынесена в чистый модуль `frontend/src/components/docking/paperPairs.js` и покрыта тестами `paperPairs.test.js` (8 passed).
+  5. **Вкладка «Претенденты»**:
+     - Добавлена новая вкладка в `TradeHistoryWidget.jsx` для отображения сетапов, ожидающих входа: ожидающие лимитные ордера в стакане (`active_orders` с ролью `entry`) и кандидаты конуса волатильности стратегий (`distancePct`, расчетные `SL`, `TP`, `R:R`, статус и кнопки быстрого перехода на график/бэктест/торговлю).
+  6. **Отказоустойчивость загрузки свечей (2-уровневый резерв)**:
+     - `frontend/src/services/marketDataFetcher.js`: добавлен CORS-friendly шлюз `https://data-api.binance.vision/api/v3/klines` во главу списка шлюзов (устраняет ошибку браузера `Failed to fetch`), увеличен таймаут до 7500ms, внедрен кэш (память + `localStorage`) с возвратом `source: 'offline-cache'`, предотвращающий падение графика с красным тостом.
+     - `backend/app/adapters/exchange/binance.py`: метод `fetch_order_book` оснащен каскадным перебором 3 зеркал (`fapi.binance.com` $\rightarrow$ `data-api.binance.vision` $\rightarrow$ `api.binance.com`).
+     - `backend/app/db/database.py`: добавлены слушатели SQLite `PRAGMA busy_timeout=15000` и `PRAGMA synchronous=NORMAL`, устраняющие блокировки базы при параллельной работе сканера и журнала.
+- **Результаты проверки `scripts/check.ps1`**:
+  - `pytest backend/tests`: 558 passed, 28 skipped.
+  - `node --test frontend/src/components/docking/layoutRecovery.test.js`: passed.
+  - `npm --prefix frontend run test:pilot`: 53 passed.
+  - `npm --prefix frontend run build`: `✓ built in 622ms`.
+  - `smoke_critical_parts.py`: 8/8 passed.
+  - `smoke_ui_playwright.py`: blocking UI smoke passed, live UI check passed.
+  - **ИТОГ**: `🎉 ALL QUALITY CHECKS PASSED. READY TO COMMIT.` (Exit code 0).
+- **Следующий шаг (Блок 4)**:
+  - Согласно указанию пользователя, **Блок 4 (редизайн интерфейса на shadcn/ui)** будет выполняться в отдельном чате на другой модели. Все функциональные и инфраструктурные доработки полностью завершены, ветка и код стабильны.
+
+---
+
+## Antigravity — Подготовлена Задача 007: ChartEngine + Footprint & Liquidity Terminal 2026-10-25 (вечер)
+
+- **Спецификация задачи:** [`tasks/007-chart-engine-footprint-and-liquidity-terminal.md`](file:///d:/AI_agent_space/gemini/tasks/007-chart-engine-footprint-and-liquidity-terminal.md)
+- **Активный контекст:** [`context/CURRENT_TASK.md`](file:///d:/AI_agent_space/gemini/context/CURRENT_TASK.md)
+- **Рекомендуемая модель для старта:** `Claude Sonnet 5.5 Medium` (Expert class).
+- **План готов к исполнению:** Пользователю достаточно переключить модель в UI и написать «Поехали» / «Го».
+- **Стартовая точка:** Этап 1 (`ChartEngine` интерфейс + `KLineChartsV9Adapter` + унификация тёмной темы графика без изменения внешнего поведения).
+- **Инфраструктура и тесты:** Зелёные (`scripts/check.ps1`), рабочий марафон на фоне не затрагивается.
+
+---
+
+## Antigravity — Реализация Блоков 1, 1.4, 2 и 3 плана выхода на положительную торговлю 2026-10-25
+
+- **План:** [`docs/superpowers/plans/2026-10-25-positive-trading-roadmap.md`](file:///d:/AI_agent_space/gemini/docs/superpowers/plans/2026-10-25-positive-trading-roadmap.md)
+- **Выполнено:**
+  1. **Блок 1 (`tasks/004-block1-footprint-and-cluster-strategies.md`)**:
+     - Кластерный грид (`FootprintPanel.jsx`, `footprintGrid.js`, `recorder.py`, `/api/recorder/clusters`): 4 режима (`Bid×Ask`, `Delta`, `Volume`, `Imbalance`), шаг цены `1x/2x/5x/10x`, пороги имбаланса `200%/300%/400%`, боковой профиль объёма `Session Volume Profile` с выделением `Session POC`.
+     - Подключены кластерные фильтры (`backend/app/engine/cluster_filters.py`: `use_stacked_imbalance_filter`, `use_absorption_filter`, `use_poc_migration_filter`) в `strategies.py`, `orderflow_backtester.py`, `backtest.py`, `live_paper_runner.py`, `overnight_pilot.py`.
+     - Внедрён `compute_fee_aware_rr_bounds` и пол R:R $\ge 1.8$ в генетическом оптимизаторе (`run_genetic_optimization`).
+  2. **Блок 1.4 (Фикс ошибки загрузки истории свечей и обрезки кнопок тулбара)**:
+     - Устранена ложная ошибка `«Ошибка подключения Binance Futures: Не удалось загрузить историю BTCUSDT 5m»`, возникавшая из-за сдвига локальных часов ПК (`2026-10-25`) вперёд относительно времени биржи Binance. Добавлен автоматический clock-skew fallback в `marketDataFetcher.js`, `useChartLifecycle.js`, `binance.py`, `routes.py` и `historical_data_loader.py`.
+     - В `ChartToolbar.jsx` убран горизонтальный скроллбар (`overflow-x-auto` заменён на `flex-wrap shrink-0`), обрезавший нижнюю половину кнопок `Курсор | Линия | Уровень | R:R Box`. В `TerminalDockview.jsx` убрана дублирующаяся молния `⚡ ⚡ Бэктест`.
+  3. **Блок 2 (`tasks/005-block2-selective-dynamic-sl-tp.md`)**:
+     - Создан модуль `backend/app/engine/dynamic_sl_tp.py` (`recommend_pair_sl_tp_mode`, `compute_dynamic_sl_tp_levels`, `calibrate_best_sl_tp_mode_for_df`).
+     - Поддерживаются режимы `fixed`, `atr_cone` (для волатильных альтов), `magnet_hybrid` (для глубоких стаканов `BTCUSDT`, `ETHUSDT`, `BNBUSDT`, `XRPUSDT` с защитой от спуфинга и `magnet_veto` при встречной стенке $< 1.2R$) и `auto_calibrated` (автокалибровка на 70% train-срезе без Look-Ahead Bias). Интегрировано в `execution.py`, `orderflow_backtester.py`, `backtest.py`, `live_paper_runner.py`, `overnight_pilot.py`, `ai_copilot_service.py`.
+  4. **Блок 3 (`tasks/006-block3-ai-sentinel-profit-retention.md`)**:
+     - В `early_exit_engine.py` добавлен предохранитель `clamp_protective_stop` (запрещает расширять стоп или ставить его за текущей ценой) и детерминированный Tier-1 `evaluate_profit_lock_action` (`MOVE_SL_BREAKEVEN` на $+0.8R$, `STEP_LOCK_SL` $+0.4R$ на $+1.2R$ и $+0.9R$ на $+1.8R$, `PARTIAL_CLOSE_50` при встречном поглощении и `EARLY_EXIT_MARKET` по Smart Time-Stop).
+     - В `openrouter_client.py` добавлен Tier-2 `evaluate_open_position_sentinel` (с детерминированным `_sentinel_quant_fallback`), интегрированный в `live_paper_runner.py` с кулдауном 90с.
+- **Проверки:** `pytest` (42 passed), `npm --prefix frontend run test:pilot` (50 passed), `npm --prefix frontend run build` (`✓ built in 3.38s`).
+- **Следующий шаг:** Ожидание инструкций Di по дизайн-библиотеке для старта **Блока 4**.
+
 ## Kimi — марафон v4: подбор под пару + максимум сделок для анализа 2026-10-25 (день, HEAD 7caf6c9)
 
 - **Задача Di:** «я выбрал много пар чтобы было много сделок и много теста, что потом анализировать». Поправка к v3: на 11 парах строгий ema_trend даёт 1-2 сделки в сутки суммарно — данных для анализа не накопится. v4: плюсовые пары оставлены на доказанных конфигах, остальные 8 переведены на самую частотную ema_pullback 0.8/2.2 (54-135 сделок/7д на пару в бэктесте против 14-24 у trend). Ожидание — сотни сделок за сутки суммарно.

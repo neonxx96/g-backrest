@@ -4,32 +4,47 @@ This is the shared queue for LibreChat, Cline, and Antigravity.
 
 ## Statuses
 
-- `DRAFT` — task is being prepared by LibreChat.
+- `DRAFT` — task is being prepared.
+- `IN_PROGRESS` — currently being implemented by the active agent.
 - `READY_FOR_CLINE` — Cline may claim the task.
 - `READY_FOR_ANTIGRAVITY` — Antigravity reviews or implements the explicitly assigned part.
-- `WAITING_FOR_LIBRECHAT` — an agent has reported and is waiting for the coordinator.
-- `NEEDS_USER_DECISION` — work pauses for a product or architecture decision.
+- `NEEDS_USER_DECISION` — work pauses for a product, design, or architecture decision.
 - `DONE` — acceptance criteria and checks passed.
 
-## Active task
+## Master Plan Reference
 
-- `DONE` — **003-phase1-production-robust-closeout** (`tasks/003-phase1-production-robust-closeout.md`):
-  closeout ROADMAP 1.1–1.2, ветка `agent/kimi/phase1-production-robust-closeout`, агент Kimi Work.
-  Ожидает решения Di: запуск paper-марафона 3–5 суток (вне рамок задачи).
+- Полный план по блокам: [`docs/superpowers/plans/2026-10-25-positive-trading-roadmap.md`](file:///d:/AI_agent_space/gemini/docs/superpowers/plans/2026-10-25-positive-trading-roadmap.md)
 
-## Backlog (приоритет сверху, добавлено Di / Kimi 2026-10-24)
+## Active & Prioritized Queue (по блокам, утверждено Di 2026-10-25)
 
-1. `READY_FOR_CLINE` — **Кластерные индикаторы в торговых стратегиях** (запрос Di, аннотация к панели
-   Футпринт): спец-индикаторы поверх footprint (stacked imbalance, absorption, POC-migration,
-   дельта-дивергенции) должны стать сигнальными фильтрами в `orderflow_backtester` и live-раннерах.
-   Источник данных готов: `/api/recorder/clusters` + `annotate_cluster_metrics` (poc_price уже есть).
-2. `DRAFT` — **Единый paper-модуль, этап 2**: из вкладки «По парам» (TradeHistoryWidget) —
-   запуск/остановка торговли по паре прямо из таблицы (сейчас — переход в мастер paper-торговли),
-   применение AI-рекомендаций оптимизатора в один клик (продолжение ROADMAP 6.2 «Apply Strategy #X»).
+1. `DONE` — **БЛОК 1 (`tasks/004-block1-footprint-and-cluster-strategies.md`)**:
+   - **1.1. Удобные и настраиваемые Кластера (`FootprintPanel` + `/api/recorder/clusters`)**: режимы отображения (`Bid×Ask`, `Delta`, `Volume`, `Imbalance`), шаг агрегации цены (`1x/2x/5x/10x`), настройка порогов имбаланса/stacked/absorption, подсветка POC внутри каждой свечи, боковой профиль объёма.
+   - **1.2. Подключение кластерных индикаторов к стратегиям (`cluster_filters.py`)**: фильтры `use_stacked_imbalance_filter`, `use_absorption_filter`, `use_poc_migration_filter` в `OrderFlowBacktester`, `strategies.py`, `LivePaperRunner` и `OvernightPilot`.
+   - **1.3. Оптимизация базового R:R в стратегиях (Fee-Aware R:R Engine)**: параметризация оптимизатора через `(stop_loss_pct, rr_ratio)`, защита от Fee Drag и автоматический подбор R:R `2.0..3.5` с Multi-TP.
+   - **1.4. Фикс загрузки истории свечей при сдвиге часов ПК и обрезки кнопок тулбара (`ChartToolbar.jsx`, `marketDataFetcher.js`, `binance.py`, `routes.py`, `historical_data_loader.py`)**.
+
+2. `DONE` — **БЛОК 2 (`tasks/005-block2-selective-dynamic-sl-tp.md`)**:
+   - Селективный динамический расчет SL/TP (`sl_tp_mode`: `fixed` | `atr_cone` | `magnet_hybrid` | `auto_calibrated`).
+   - Применение `magnet_hybrid` (ATR + Liquidity Magnet из стакана) для глубоких стаканов (`BTC`, `ETH`, `BNB`, `XRP`), `atr_cone` — для волатильных альткоинов, `auto_calibrated` — автовыбор по результатам бэктест-калибровки на конкретной паре (70% train-срез, Zero Look-Ahead).
+
+3. `DONE` — **БЛОК 3 (`tasks/006-block3-ai-sentinel-profit-retention.md`)**:
+   - Двухуровневое удержание прибыли (борьба с MFE Bleed):
+     - Уровень 1 (Quant 0ms): Fee-Adjusted Breakeven, Step-Lock MFE Trailing, Smart Time-Stop + реакция на встречную кластерную Absorption (`evaluate_profit_lock_action`).
+     - Уровень 2 (Event-Driven OpenRouter AI Sentinel): вызов по триггерам `EarlyExitEngine` с безопасным контрактом (`HOLD`, `TIGHTEN_SL`, `PARTIAL_CLOSE_50`, `EARLY_EXIT_MARKET`) и жестким запретом на расширение риска (`clamp_protective_stop`).
+
+4. `READY_FOR_CLINE` — **БЛОК 4 (Редизайн UI на shadcn/ui и темная тема)**:
+   - ✅ **Функционал модуля «По парам» и «Претенденты» готов**: сортировка, sticky-колонка, фильтры, быстрый выбор популярных монет, сетапы конуса и стакана.
+   - ⏸ **Оформление и дизайн**: запланировано для выполнения в отдельной сессии/чате с подключением библиотеки дизайна shadcn/ui (Vite Dark Mode) согласно документации пользователя.
+
+## Completed Tasks
+
+- `DONE` — **003-phase1-production-robust-closeout** (`tasks/003-phase1-production-robust-closeout.md`)
+- `DONE` — **004-block1-footprint-and-cluster-strategies** (`tasks/004-block1-footprint-and-cluster-strategies.md`)
+- `DONE` — **005-block2-selective-dynamic-sl-tp** (`tasks/005-block2-selective-dynamic-sl-tp.md`)
+- `DONE` — **006-block3-ai-sentinel-profit-retention** (`tasks/006-block3-ai-sentinel-profit-retention.md`)
 
 ## Rules
 
 1. Only one agent may have an active task at a time.
 2. The task file is the authority for scope, allowed files, acceptance criteria, and tests.
-3. Agents must append their report to `context/AGENT_MESSAGES.md` and update `context/COORDINATION_STATE.json`.
-4. Do not treat a changed file as a message until the report and status are written.
+3. Agents must append their report to `HANDOFF.md` and run `scripts/check.ps1` before committing.
