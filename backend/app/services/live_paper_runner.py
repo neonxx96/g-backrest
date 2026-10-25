@@ -33,6 +33,7 @@ PAPER_HISTORICAL_STRATEGIES = frozenset({
     "cvd_absorption",
     "cluster_volume_bounce",
     "diagnostics_lenient",
+    "ema_pullback",
     "ema_trend",
     "naked_test",
 })
@@ -45,6 +46,7 @@ MARKET_ENTRY_STRATEGIES = frozenset({
     "confluence_ema",
     "cvd_absorption",
     "diagnostics_lenient",
+    "ema_pullback",
     "ema_trend",
     "naked_test",
 })

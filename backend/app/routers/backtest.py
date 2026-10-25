@@ -69,6 +69,14 @@ STRATEGIES_CATALOG = [
         "badge": "Реальная история"
     },
     {
+        "id": "ema_pullback",
+        "name": "Отскок к EMA20 в тренде (Pullback)",
+        "engine_domain": "historical_flow",
+        "is_historical_ready": True,
+        "description": "Касание EMA20 и закрытие обратно по тренду (EMA20/50). Вход в тренде, а не на пересечении — существенно больше сигналов, чем у EMA Trend Momentum.",
+        "badge": "Реальная история"
+    },
+    {
         "id": "live_density_bounce",
         "name": "Отскок от плотности стакана L2",
         "engine_domain": "live_orderbook",
@@ -94,6 +102,7 @@ STRATEGIES = {
     "breakout",
     "delta_absorption",
     "cvd_absorption",
+    "ema_pullback",
     "ema_trend",
     "confluence_ema",
     "diagnostics_lenient",

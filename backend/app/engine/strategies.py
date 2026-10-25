@@ -56,6 +56,19 @@ def compute_raw_signal(i: int, ctx: SimpleNamespace, eff_strategy: str) -> int:
         elif passes_wall and passes_lifetime and cross_dn and v_rat >= volume_multiplier and delta < 0:
             raw_signal = -1
 
+    elif eff_strategy == "ema_pullback":
+        # Отскок к EMA20 внутри тренда: касание EMA20 и закрытие обратно по направлению
+        # тренда (EMA20 выше/ниже EMA50). Существенно чаще пересечения EMA20/50 —
+        # основной вход в тренде, а не разворотный сигнал.
+        trend_up = ema20_vals[i] > ema50_vals[i]
+        trend_dn = ema20_vals[i] < ema50_vals[i]
+        touch_reject_up = low_vals[i] <= ema20_vals[i] and c > ema20_vals[i]
+        touch_reject_dn = high_vals[i] >= ema20_vals[i] and c < ema20_vals[i]
+        if passes_wall and passes_lifetime and trend_up and touch_reject_up and v_rat >= volume_multiplier and delta > 0:
+            raw_signal = 1
+        elif passes_wall and passes_lifetime and trend_dn and touch_reject_dn and v_rat >= volume_multiplier and delta < 0:
+            raw_signal = -1
+
     elif eff_strategy in ("delta_absorption", "cvd_absorption"):
         if passes_wall and passes_lifetime and low_vals[i] <= low_min10_vals[i] and cvd_vals[i] > cvd_min10_vals[i] and delta > 0 and rsi < 42 and v_rat >= volume_multiplier:
             raw_signal = 1

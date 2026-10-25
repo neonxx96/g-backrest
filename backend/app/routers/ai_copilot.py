@@ -494,7 +494,7 @@ async def get_market_analysis(payload: MarketAnalysisRequest):
 
         fast_bt = bt_engine.run_backtest(
             df=ev_df,
-            strategy_type=recommended_strategy if recommended_strategy in ("confluence_ema", "cvd_absorption", "ema_trend") else "confluence_ema",
+            strategy_type=recommended_strategy if recommended_strategy in ("confluence_ema", "cvd_absorption", "ema_pullback", "ema_trend") else "confluence_ema",
             take_profit_pct=tp1_pct,
             stop_loss_pct=sl_pct,
             use_trailing=True,

@@ -222,6 +222,20 @@ class OrderFlowBacktester:
             elif passes_wall and cross_down and volume_ok and delta < 0:
                 direction = -1
                 reasons = [f"EMA cross down ({float(cur.get('ema20', 0.0)):.2f} < {float(cur.get('ema50', 0.0)):.2f})", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
+        elif profile == "ema_pullback":
+            # Отскок к EMA20 внутри тренда — 1:1 с engine/strategies.py (ema_pullback).
+            cur_ema20 = float(cur.get("ema20", 0.0))
+            cur_ema50 = float(cur.get("ema50", 0.0))
+            trend_up = cur_ema20 > cur_ema50
+            trend_down = cur_ema20 < cur_ema50
+            touch_reject_up = float(cur.get("low", 0.0)) <= cur_ema20 and close > cur_ema20
+            touch_reject_down = float(cur.get("high", 0.0)) >= cur_ema20 and close < cur_ema20
+            if passes_wall and trend_up and touch_reject_up and volume_ok and delta > 0:
+                direction = 1
+                reasons = [f"EMA20 touch-reject in uptrend (low {float(cur.get('low', 0.0)):.4f} <= EMA20 {cur_ema20:.4f}, close {close:.4f} > EMA20)", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
+            elif passes_wall and trend_down and touch_reject_down and volume_ok and delta < 0:
+                direction = -1
+                reasons = [f"EMA20 touch-reject in downtrend (high {float(cur.get('high', 0.0)):.4f} >= EMA20 {cur_ema20:.4f}, close {close:.4f} < EMA20)", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
         elif profile == "diagnostics_lenient":
             # Diagnostic-only profile: keeps real OHLCV/EMA/delta inputs but
             # intentionally drops production-only confirmation gates so the
@@ -350,6 +364,24 @@ class OrderFlowBacktester:
                     [round(float(prev.get("ema20", 0.0)), 8), round(float(cur.get("ema20", 0.0)), 8)],
                     "crosses",
                     [round(float(prev.get("ema50", 0.0)), 8), round(float(cur.get("ema50", 0.0)), 8)],
+                )
+            if delta == 0:
+                reject("delta_direction", round(delta, 4), "!=", 0.0)
+        elif profile == "ema_pullback":
+            cur_ema20 = float(cur.get("ema20", 0.0))
+            cur_ema50 = float(cur.get("ema50", 0.0))
+            trend_up = cur_ema20 > cur_ema50
+            trend_down = cur_ema20 < cur_ema50
+            touch_reject_up = float(cur.get("low", 0.0)) <= cur_ema20 and close > cur_ema20
+            touch_reject_down = float(cur.get("high", 0.0)) >= cur_ema20 and close < cur_ema20
+            if not (trend_up or trend_down):
+                reject("trend_structure", round(cur_ema20 - cur_ema50, 8), "requires", "EMA20 != EMA50 (тренд отсутствует, флэт)")
+            elif not (touch_reject_up or touch_reject_down):
+                reject(
+                    "ema20_touch_reject",
+                    {"low": round(float(cur.get("low", 0.0)), 8), "high": round(float(cur.get("high", 0.0)), 8), "close": round(close, 8), "ema20": round(cur_ema20, 8)},
+                    "requires",
+                    "касание EMA20 (low<=EMA20 для лонга / high>=EMA20 для шорта) и закрытие обратно",
                 )
             if delta == 0:
                 reject("delta_direction", round(delta, 4), "!=", 0.0)
