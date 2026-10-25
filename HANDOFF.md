@@ -2,6 +2,33 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Antigravity — Ночной запуск марафона Paper Trading на 18 парах c DeepSeek V4.1 Flash и единым балансом $1,000 (2026-10-26, 01:00 Киев)
+
+- **Ветка:** `agent/antigravity/chart-engine-footprint` (коммит `b7802bc`)
+- **Статус качества:** `🎉 ALL QUALITY CHECKS PASSED. READY TO COMMIT.` (Шлюз `scripts/check.ps1`, 6/6 стадий PASSED, 587 pytest, node --test, npm build, critical smoke, Playwright blocking + live).
+- **Сделано по запросу пользователя**:
+  1. **Интеграция DeepSeek V4.1 Flash (`deepseek/deepseek-v4.1-flash`) через OpenRouter**:
+     - Обновлен API-ключ OpenRouter (`sk-or-v1-51cdb...`) в `.env`.
+     - Первичная модель и фоллбэки переведены на DeepSeek V4.1 Flash, добавлены быстрые чипы выбора `DeepSeek V4.1 Flash`, `Qwen 3.8 Flash` и `Qwen 3.5 Flash` в UI (`AIEngineSettings.jsx`, `constants.js`).
+     - Тест `backend/tests/test_ai_free_models_default.py` успешно валидирован.
+  2. **Единый общий баланс $1,000 на весь пул позиций**:
+     - В `backend/app/services/overnight_pilot.py` и `live_paper_runner.py` внедрен единый экземпляр `PaperTradingSession(initial_balance=1000.0)`, общий для всех параллельных монет пула.
+     - Риск на сделку строго 1.0% ($10) от общего счета (вместо прежних изолированных $10,000 на каждую монету).
+     - Добавлен юнит-тест `backend/tests/test_shared_paper_account.py` (зеленый).
+  3. **Устранение ошибки парсинга в BacktestPanel.jsx**:
+     - Внедрен безопасный хелпер `safeParseResponse(res)`, обрабатывающий пустые и не-JSON ответы прокси (502/504) без выброса исключения `Unexpected end of JSON input`.
+  4. **Сохранение конфигураций, воркспейсов и истории (Zero Data Loss)**:
+     - SQLite база `data/signals.db` переведена в `PRAGMA journal_mode=WAL` (защита от database lock).
+     - Раскладки dockview сохраняются в таблицу `workspaces`, параметры сканера и пресеты — в `user_settings` и `strategy_presets`, состояния ночных сессий — в `overnight_pilot_runs`. Старые исторические логи не удаляются.
+  5. **Конфигурация и запуск ночного марафона на 18 ликвидных парах**:
+     - Сформирован и запущен скрипт `scripts/launch_overnight_18pairs.py` на 18 топ-парах Binance Futures: `BTCUSDT`, `ETHUSDT`, `SOLUSDT`, `BNBUSDT`, `XRPUSDT`, `DOGEUSDT`, `AVAXUSDT`, `SUIUSDT`, `NEARUSDT`, `LINKUSDT`, `ZECUSDT`, `ENAUSDT`, `WLDUSDT`, `UNIUSDT`, `ADAUSDT`, `DOTUSDT`, `OPUSDT`, `ARBUSDT`.
+     - Префлайт успешно пройден: `18/18 valid`.
+     - Все 18 раннеров переведены в состояние `is_running: True` с активным `ai_control: True` (OpenRouter DeepSeek V4.1 Flash Sentinel для вето на входы и удержания позиций).
+  6. **Плановый ночной чекап**:
+     - Запланирован таймер на ~03:40 Киев через инструмент `schedule` (10,000 секунд) для снятия промежуточных метрик, PnL и логов.
+
+---
+
 ## Antigravity — UX & Графика: Единый центр управления слоями графика («Слои» Hub) и синхронизация оверлеев 2026-10-25 (ночь)
 
 - **Ветка:** `agent/antigravity/chart-engine-footprint` (синхронизирована с `origin`)
