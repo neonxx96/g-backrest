@@ -63,9 +63,14 @@ Write-Host "==========================================================" -Foregro
 #    append to the same legacy Parquet recorder files. A .venv shim launches
 #    the real interpreter as a child, so count only instance roots (a matched
 #    process whose parent is not itself a matched backend process).
-$matched = @(Get-CimInstance Win32_Process -Filter "Name LIKE 'python%'" -ErrorAction SilentlyContinue | Where-Object {
-    $_.CommandLine -match 'backend[/\\]main\.py'
-})
+$matched = @()
+try {
+    $matched = @(Get-CimInstance Win32_Process -Filter "Name LIKE 'python%'" -ErrorAction Stop | Where-Object {
+        $_.CommandLine -match 'backend[/\\]main\.py'
+    })
+} catch {
+    $matched = @()
+}
 $matchedPids = @{}
 foreach ($p in $matched) { $matchedPids[[int]$p.ProcessId] = $true }
 $backendInstances = @($matched | Where-Object { -not $matchedPids.ContainsKey([int]$_.ParentProcessId) })

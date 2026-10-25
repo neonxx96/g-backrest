@@ -188,32 +188,58 @@ async def get_klines(
     start_time: Optional[int] = Query(None, description="UTC ms — start of deep history window (enables server-side pagination)"),
     end_time: Optional[int] = Query(None, description="UTC ms — end of deep history window"),
 ):
+    sym = symbol.upper()
+    cap_limit = min(int(limit), 1500)
+    df = None
+    last_err = None
     try:
         df = await binance_service.fetch_klines(
-            symbol=symbol.upper(),
+            symbol=sym,
             timeframe=timeframe,
-            limit=min(int(limit), 1500),
+            limit=cap_limit,
             start_time=start_time,
             end_time=end_time,
         )
-        if df.empty:
-            return []
-        
-        # Format for KLineChart: [{ timestamp, open, high, low, close, volume, turnover }]
-        klines = []
-        for _, row in df.iterrows():
-            klines.append({
-                "timestamp": int(row['timestamp']),
-                "open": float(row['open']),
-                "high": float(row['high']),
-                "low": float(row['low']),
-                "close": float(row['close']),
-                "volume": float(row['volume']),
-                "turnover": float(row['close'] * row['volume'])
-            })
-        return klines
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        last_err = e
+
+    # Fallback to local Parquet historical cache if Binance REST failed or returned empty
+    if df is None or df.empty:
+        try:
+            from backend.app.services.historical_data_loader import historical_loader
+
+            cached = historical_loader.read_cache(sym, timeframe)
+            if cached is not None and not cached.empty:
+                cached = cached.sort_values("timestamp").reset_index(drop=True)
+                if start_time is not None:
+                    sliced = cached[cached["timestamp"] >= int(start_time)]
+                    if end_time is not None:
+                        sliced = sliced[sliced["timestamp"] <= int(end_time)]
+                    # Clock-skew guard: if initial load (end_time is None) had start_time > cache max, return tail
+                    df = sliced.tail(cap_limit) if (not sliced.empty or end_time is not None) else cached.tail(cap_limit)
+                else:
+                    df = cached.tail(cap_limit)
+        except Exception:
+            pass
+
+    if df is None:
+        raise HTTPException(status_code=400, detail=str(last_err or f"Failed to load klines for {sym}"))
+    if df.empty:
+        return []
+
+    # Format for KLineChart: [{ timestamp, open, high, low, close, volume, turnover }]
+    klines = []
+    for _, row in df.iterrows():
+        klines.append({
+            "timestamp": int(row['timestamp']),
+            "open": float(row['open']),
+            "high": float(row['high']),
+            "low": float(row['low']),
+            "close": float(row['close']),
+            "volume": float(row['volume']),
+            "turnover": float(row['close'] * row['volume'])
+        })
+    return klines
 
 @router.get("/depth")
 async def get_depth(symbol: str = Query("BTCUSDT"), limit: int = Query(20)):

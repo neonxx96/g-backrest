@@ -93,13 +93,21 @@ class LivePaperRunner:
         self.use_cvd_filter: bool = False
         self.use_oi_filter: bool = False
         self.use_rsi_filter: bool = False
+        self.use_stacked_imbalance_filter: bool = False
+        self.use_absorption_filter: bool = False
+        self.use_poc_migration_filter: bool = False
         self.use_multi_tp: bool = True
         self.use_trailing: bool = True
         self.trailing_pct: float = 0.5
         self.trailing_activation_pct: float = 0.0
         self.tp1_rr_ratio: float = 1.5
         self.tp2_rr_ratio: float = 2.8
+        self.sl_tp_mode: str = "fixed"
+        self.atr_multiplier: float = 1.35
         self.max_entry_slippage_pct: float = 0.5
+        from backend.app.services.early_exit_engine import EarlyExitEngine
+        self.early_exit_engine = EarlyExitEngine()
+        self.last_sentinel_action: Optional[Dict[str, Any]] = None
         self._last_funding_timestamp: int = 0
         self._last_funding_rate: float = 0.0
         self.started_at: float = 0.0
@@ -190,12 +198,17 @@ class LivePaperRunner:
         self.use_cvd_filter = bool(config.get("use_cvd_filter", False))
         self.use_oi_filter = bool(config.get("use_oi_filter", False))
         self.use_rsi_filter = bool(config.get("use_rsi_filter", False))
+        self.use_stacked_imbalance_filter = bool(config.get("use_stacked_imbalance_filter", False))
+        self.use_absorption_filter = bool(config.get("use_absorption_filter", False))
+        self.use_poc_migration_filter = bool(config.get("use_poc_migration_filter", False))
         self.use_multi_tp = bool(config.get("use_multi_tp", True))
         self.use_trailing = bool(config.get("use_trailing", True))
         self.trailing_pct = float(config.get("trailing_pct", 0.5))
         self.trailing_activation_pct = float(config.get("trailing_activation_pct", 0.0))
         self.tp1_rr_ratio = float(config.get("tp1_rr_ratio", 1.5))
         self.tp2_rr_ratio = float(config.get("tp2_rr_ratio", 2.8))
+        self.sl_tp_mode = str(config.get("sl_tp_mode", "fixed")).lower()
+        self.atr_multiplier = float(config.get("atr_multiplier", 1.35))
         # Guard отклонения fill'а входа от цены сигнала (%). Защищает от протухших
         # снапшотов: SL/TP сетапа считаются от цены сигнала, и вход «по протухшей
         # цене» (напр. на +0.6% при TP1 0.6%) заранее обречён.
@@ -669,8 +682,19 @@ class LivePaperRunner:
             self._last_funding_timestamp = now_ms
         self._last_funding_rate = float(data.snapshot.funding_rate)
 
-        # 2. Update existing positions against current market price (SL / TP / Breakeven check)
-        self._update_open_positions(current_price)
+        # 2. Update existing positions against current market price (SL / TP / Breakeven / Profit-Lock Sentinel)
+        depth_deltas = getattr(getattr(data, "orderbook_depth", None), "depth_deltas", None) or {}
+        dd_2_5_obj = depth_deltas.get("2.5%") if isinstance(depth_deltas, dict) else None
+        live_flow_snapshot = {
+            "price": current_price,
+            "depth_delta_pct": float(dd_2_5_obj.delta_pct) if dd_2_5_obj and hasattr(dd_2_5_obj, "delta_pct") else 0.0,
+        }
+        try:
+            self._update_open_positions(current_price, orderflow_snapshot=live_flow_snapshot)
+        except TypeError:
+            self._update_open_positions(current_price)
+        if self.ai_control:
+            await self._maybe_run_ai_position_sentinel(current_price, live_flow_snapshot)
 
         # 3. Record equity curve point
         state = self.session.get_state().to_dict()
@@ -731,6 +755,10 @@ class LivePaperRunner:
                     use_cvd_filter=self.use_cvd_filter,
                     use_oi_filter=self.use_oi_filter,
                     use_rsi_filter=self.use_rsi_filter,
+                    use_stacked_imbalance_filter=self.use_stacked_imbalance_filter,
+                    use_absorption_filter=self.use_absorption_filter,
+                    use_poc_migration_filter=self.use_poc_migration_filter,
+                    live_cluster_candle=self._get_latest_live_cluster(),
                 )
                 failed_checks = list(diagnostic.get("failed_checks") or [])
                 if self.strategy_type == "cluster_volume_bounce" and diagnostic.get("status") == "SIGNAL":
@@ -1023,9 +1051,69 @@ class LivePaperRunner:
             return rsi >= 58 or (previous_rsi >= 64 and rsi <= 70)
         return True
 
-    def _historical_signal(self, current_price: float, direction: int, reason: List[str]) -> Dict[str, Any]:
+    def _historical_signal(
+        self,
+        current_price: float,
+        direction: int,
+        reason: List[str],
+        *,
+        atr: float = 0.0,
+        walls: Optional[List[Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
         sign = 1 if direction > 0 else -1
         entry = float(current_price)
+        if self.sl_tp_mode and self.sl_tp_mode != "fixed":
+            from backend.app.engine.dynamic_sl_tp import compute_dynamic_sl_tp_levels
+
+            support_wall_price = None
+            support_wall_usd = 0.0
+            resistance_wall_price = None
+            resistance_wall_usd = 0.0
+            if walls:
+                below = [w for w in walls if getattr(w, "price", 0) > 0 and w.price < entry]
+                above = [w for w in walls if getattr(w, "price", 0) > 0 and w.price > entry]
+                if below:
+                    nearest_sup = min(below, key=lambda w: abs(entry - w.price))
+                    support_wall_price = float(nearest_sup.price)
+                    support_wall_usd = float(nearest_sup.price * nearest_sup.size)
+                if above:
+                    nearest_res = min(above, key=lambda w: abs(w.price - entry))
+                    resistance_wall_price = float(nearest_res.price)
+                    resistance_wall_usd = float(nearest_res.price * nearest_res.size)
+
+            dyn = compute_dynamic_sl_tp_levels(
+                symbol=self.symbol,
+                side="LONG" if direction > 0 else "SHORT",
+                entry_price=entry,
+                sl_pct=self.stop_loss_pct,
+                tp_pct=self.take_profit_pct,
+                atr=atr,
+                sl_tp_mode=self.sl_tp_mode,
+                atr_multiplier=self.atr_multiplier,
+                tp1_rr_ratio=self.tp1_rr_ratio,
+                tp2_rr_ratio=self.tp2_rr_ratio,
+                use_multi_tp=self.use_multi_tp,
+                nearest_support_wall_price=support_wall_price,
+                nearest_support_wall_usd=support_wall_usd,
+                nearest_resistance_wall_price=resistance_wall_price,
+                nearest_resistance_wall_usd=resistance_wall_usd,
+                min_density_usd=self.min_density_usd,
+                taker_fee_pct=self.taker_fee_pct,
+                slippage_bps=float(self.slippage_ticks),
+            )
+            if dyn.get("magnet_veto"):
+                return None
+            return {
+                "direction": "LONG" if direction > 0 else "SHORT",
+                "entry_price": entry,
+                "sl": round(float(dyn["sl_price"]), 8),
+                "tp1": round(float(dyn["tp1_price"]), 8),
+                "tp2": round(float(dyn["tp2_price"]), 8) if self.use_multi_tp else None,
+                "expected_rr": float(dyn["expected_rr"]),
+                "sl_tp_mode_applied": str(dyn.get("applied_mode", self.sl_tp_mode)),
+                "reason": list(reason) + [f"SL/TP mode: {dyn.get('applied_mode', self.sl_tp_mode)}"],
+            }
+
         sl = round(entry * (1 - sign * self.stop_loss_pct / 100.0), 8)
         sl_distance = abs(entry - sl)
         configured_tp_distance = entry * self.take_profit_pct / 100.0
@@ -1042,6 +1130,18 @@ class LivePaperRunner:
             "expected_rr": max(1.0, self.take_profit_pct / max(self.stop_loss_pct, 1e-9)),
             "reason": reason,
         }
+
+    def _get_latest_live_cluster(self) -> Optional[Dict[str, Any]]:
+        """Возвращает последнюю кластерную свечу из OrderFlowRecorder, если включён хотя бы один кластерный фильтр."""
+        if not (self.use_stacked_imbalance_filter or self.use_absorption_filter or self.use_poc_migration_filter):
+            return None
+        try:
+            from backend.app.services.recorder import recorder
+
+            clusters = recorder.get_clusters_for_chart(self.symbol, limit_candles=2)
+            return clusters[-1] if clusters else None
+        except Exception:
+            return None
 
     async def _detect_setup(self, data, indicator_context: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """
@@ -1069,6 +1169,10 @@ class LivePaperRunner:
                 use_cvd_filter=self.use_cvd_filter,
                 use_oi_filter=self.use_oi_filter,
                 use_rsi_filter=self.use_rsi_filter,
+                use_stacked_imbalance_filter=self.use_stacked_imbalance_filter,
+                use_absorption_filter=self.use_absorption_filter,
+                use_poc_migration_filter=self.use_poc_migration_filter,
+                live_cluster_candle=self._get_latest_live_cluster(),
             )
             if historical_signal is None:
                 return None
@@ -1082,7 +1186,15 @@ class LivePaperRunner:
                     return None
                 historical_signal["reasons"].append(f"Live density wall ${wall.size * wall.price:,.0f}")
             direction = 1 if historical_signal["direction"] == "LONG" else -1
-            return self._historical_signal(current_price, direction, historical_signal["reasons"])
+            latest_bar = indicator_context.get("latest") or {}
+            live_atr = float(latest_bar.get("atr", 0.0) or 0.0)
+            return self._historical_signal(
+                current_price,
+                direction,
+                historical_signal["reasons"],
+                atr=live_atr,
+                walls=walls,
+            )
 
         # Historical strategy profiles reuse the same live data contract but keep
         # distinct entry logic so the overnight pilot compares real alternatives.
@@ -1212,8 +1324,10 @@ class LivePaperRunner:
         volatility_bps = min(25.0, max(2.0, atr_bps * 0.05))
         return round(max(tick_bps, volatility_bps), 6)
 
-    def _update_open_positions(self, current_price: float):
-        """Simulates price ticks against open positions: triggers Stop Loss / Take Profit / Trailing."""
+    def _update_open_positions(self, current_price: float, orderflow_snapshot: Optional[Dict[str, Any]] = None):
+        """Simulates price ticks against open positions: triggers Stop Loss / Take Profit / Trailing / Tier-1 Profit-Lock Sentinel."""
+        from backend.app.services.early_exit_engine import clamp_protective_stop
+
         closed_before = len(self.session.closed_trades)
         if self.session.check_dynamic_breakeven(self.symbol, current_price):
             pos = self.session.positions.get(self.symbol)
@@ -1227,11 +1341,84 @@ class LivePaperRunner:
             if symbol != self.symbol:
                 continue
             if pos.closed:
+                self.early_exit_engine.remove_position(symbol)
                 continue
 
             entry = pos.avg_entry_price
             if entry <= 0:
                 continue
+
+            # Register or update MFE/MAE tracker in EarlyExitEngine (Tier-1 Sentinel)
+            now_ts = int(self._last_tick_time or int(time.time() * 1000))
+            if symbol not in self.early_exit_engine.tracks:
+                init_sl = pos.initial_stop_price or pos.stop_price
+                risk_usd = abs(entry - init_sl) * pos.qty if init_sl > 0 else max(entry * 0.008 * pos.qty, 1.0)
+                self.early_exit_engine.register_position(
+                    symbol=symbol,
+                    side=pos.side,
+                    entry_price=entry,
+                    entry_ts=int(getattr(pos, "opened_at", now_ts) or now_ts),
+                    qty=pos.qty,
+                    risk_amount=risk_usd,
+                )
+            track = self.early_exit_engine.on_price_update(symbol, current_price, now_ts)
+            if track is not None:
+                track.qty = pos.qty
+                self.early_exit_engine.evaluate_position(track, orderflow_snapshot)
+                lock_decision = self.early_exit_engine.evaluate_profit_lock_action(
+                    track,
+                    pos.stop_price,
+                    taker_fee_pct=self.taker_fee_pct,
+                    tick_size=self.session.estimate_tick_size(current_price),
+                    latest_orderflow_data=orderflow_snapshot,
+                )
+                self.last_sentinel_action = lock_decision
+                act = lock_decision.get("action", "HOLD")
+                new_sl = float(lock_decision.get("new_stop_price", pos.stop_price) or pos.stop_price)
+                if act in ("MOVE_SL_BREAKEVEN", "STEP_LOCK_SL") and new_sl != pos.stop_price:
+                    prev_sl = pos.stop_price
+                    pos.stop_price = clamp_protective_stop(pos.side, prev_sl, new_sl, current_price)
+                    if pos.stop_price != prev_sl:
+                        self._record_management_intent(
+                            act,
+                            str(lock_decision.get("reason", act)),
+                            {"price": current_price, "old_stop_price": prev_sl, "new_stop_price": pos.stop_price, "mfe_r": lock_decision.get("mfe_r")},
+                        )
+                elif act == "PARTIAL_CLOSE_50" and pos.qty > 0:
+                    partial_qty = max(pos.qty * 0.5, 1e-12)
+                    self.session.close_position(
+                        symbol,
+                        current_price,
+                        order_type="MARKET",
+                        reason="SENTINEL_PARTIAL_50",
+                        signal_ts=now_ts,
+                        quantity=partial_qty,
+                    )
+                    prev_sl = pos.stop_price
+                    pos.stop_price = clamp_protective_stop(pos.side, prev_sl, new_sl, current_price)
+                    self._record_management_intent(
+                        "PARTIAL_CLOSE_50",
+                        str(lock_decision.get("reason", "Sentinel 50% profit lock")),
+                        {"price": current_price, "closed_qty": partial_qty, "new_stop_price": pos.stop_price},
+                    )
+                    if pos.closed:
+                        self.early_exit_engine.remove_position(symbol)
+                        continue
+                elif act == "EARLY_EXIT_MARKET":
+                    self.session.close_position(
+                        symbol,
+                        current_price,
+                        order_type="MARKET",
+                        reason="SENTINEL_TIME_STOP",
+                        signal_ts=now_ts,
+                    )
+                    self.early_exit_engine.remove_position(symbol)
+                    self._record_management_intent(
+                        "EARLY_EXIT_MARKET",
+                        str(lock_decision.get("reason", "Sentinel early exit")),
+                        {"price": current_price},
+                    )
+                    continue
 
             if self.use_trailing and self.trailing_pct > 0:
                 trail_fraction = self.trailing_pct / 100.0
@@ -1285,6 +1472,77 @@ class LivePaperRunner:
                         self.session.close_position(symbol, current_price, order_type="LIMIT", reason="TAKE_PROFIT", signal_ts=self._last_tick_time)
 
         self._record_new_closed_intents(closed_before)
+
+    async def _maybe_run_ai_position_sentinel(
+        self,
+        current_price: float,
+        orderflow_snapshot: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Tier-2 Event-Driven OpenRouter Position Sentinel (90s cooldown per position).
+        Triggered only when an open position has `should_trigger_ai_sentinel` or MFE >= 0.8R.
+        """
+        from backend.app.services.early_exit_engine import clamp_protective_stop
+
+        pos = self.session.positions.get(self.symbol)
+        if pos is None or pos.closed or pos.avg_entry_price <= 0:
+            return None
+
+        track = self.early_exit_engine.tracks.get(self.symbol)
+        if track is None:
+            return None
+
+        now_ms = int(self._last_tick_time or int(time.time() * 1000))
+        if now_ms - track.last_ai_sentinel_ts < 90_000:
+            return None
+
+        should_call = bool((self.last_sentinel_action or {}).get("should_trigger_ai_sentinel")) or track.mfe_r >= 0.8
+        if not should_call:
+            return None
+
+        track.last_ai_sentinel_ts = now_ms
+        pos_info = {
+            "side": pos.side,
+            "entry_price": pos.avg_entry_price,
+            "current_price": current_price,
+            "stop_price": pos.stop_price,
+            "initial_stop_price": pos.initial_stop_price or pos.stop_price,
+            "target_price": pos.target_price,
+            "mfe_r": track.mfe_r,
+            "current_pnl_r": track.current_pnl_r,
+            "time_in_trade_sec": track.time_in_trade_sec,
+        }
+        snap = {
+            **(orderflow_snapshot or {}),
+            "price": current_price,
+            "active_alerts": [a.get("alert_type") for a in track.active_alerts],
+        }
+        ai_res = await openrouter_client.evaluate_open_position_sentinel(
+            symbol=self.symbol,
+            position_info=pos_info,
+            market_snapshot=snap,
+        )
+        act = str(ai_res.get("action", "HOLD")).upper()
+        suggested_sl = float(ai_res.get("suggested_sl", pos.stop_price) or pos.stop_price)
+        safe_sl = clamp_protective_stop(pos.side, pos.stop_price, suggested_sl, current_price)
+
+        if act == "TIGHTEN_SL" and safe_sl != pos.stop_price:
+            old_sl = pos.stop_price
+            pos.stop_price = safe_sl
+            self._add_log("AI_SENTINEL", f"🛡️ AI Sentinel подтянул SL: ${old_sl:,.4f} -> ${safe_sl:,.4f} ({ai_res.get('reason')})", meta=ai_res)
+            self._record_management_intent("AI_TIGHTEN_SL", str(ai_res.get("reason", "AI tightened SL")), {"old_stop_price": old_sl, "new_stop_price": safe_sl})
+        elif act == "PARTIAL_CLOSE_50" and not track.partial_profit_taken and pos.qty > 0:
+            track.partial_profit_taken = True
+            partial_qty = max(pos.qty * 0.5, 1e-12)
+            self.session.close_position(self.symbol, current_price, order_type="MARKET", reason="AI_SENTINEL_PARTIAL_50", signal_ts=now_ms, quantity=partial_qty)
+            pos.stop_price = safe_sl
+            self._add_log("AI_SENTINEL", f"🛡️ AI Sentinel зафиксировал 50% прибыли: {ai_res.get('reason')}", meta=ai_res)
+        elif act == "EARLY_EXIT_MARKET":
+            self.session.close_position(self.symbol, current_price, order_type="MARKET", reason="AI_SENTINEL_EARLY_EXIT", signal_ts=now_ms)
+            self.early_exit_engine.remove_position(self.symbol)
+            self._add_log("AI_SENTINEL", f"🛡️ AI Sentinel закрыл позицию по рынку: {ai_res.get('reason')}", meta=ai_res)
+
+        return ai_res
 
     def _record_management_intent(self, action: str, reason: str, context: Dict[str, Any]) -> None:
         self._record_event(

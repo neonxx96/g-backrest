@@ -85,10 +85,13 @@ def simulate_execution(
     take_profit_pct = cfg.take_profit_pct
     tp2_mode = cfg.tp2_mode
     tp1_rr_ratio = cfg.tp1_rr_ratio
+    tp2_rr_ratio = getattr(cfg, "tp2_rr_ratio", 2.8) or 2.8
     tp1_pct = cfg.tp1_pct
     tp1_atr_mult = cfg.tp1_atr_mult
     risk_per_trade_pct = cfg.risk_per_trade_pct
     fast_eval = cfg.fast_eval
+    sl_tp_mode = str(getattr(cfg, "sl_tp_mode", "fixed") or "fixed").strip().lower()
+    symbol_hint = str(getattr(cfg, "symbol", "BTCUSDT") or "BTCUSDT")
     trades: List[Dict[str, Any]] = []
     capital = float(initial_capital)
     gross_capital = float(initial_capital)
@@ -408,49 +411,87 @@ def simulate_execution(
             cur_atr = float(atr_vals[i]) if not np.isnan(atr_vals[i]) else 0.0
             tick_unit_entry = _estimate_tick_size(entry_price)
 
-            # Dynamic Stop-Loss Mode: 'fixed_pct' | 'behind_wall' | 'atr_volatility'
-            if (sl_mode == "atr_volatility" or use_atr_sl) and cur_atr > 0 and entry_price > 0:
-                sl_dist = cur_atr * max(0.5, min(5.0, float(atr_multiplier)))
-            elif sl_mode == "behind_wall" and entry_price > 0:
-                offset_abs = max(1, int(wall_sl_offset_ticks or 3)) * tick_unit_entry
-                if pos_dir == 1:
-                    wall_anchor = min(low_p, float(low_min6_vals[i]))
-                    sl_dist = max(entry_price * 0.0015, (entry_price - wall_anchor) + offset_abs)
-                else:
-                    wall_anchor = max(high_p, float(high_max6_vals[i]))
-                    sl_dist = max(entry_price * 0.0015, (wall_anchor - entry_price) + offset_abs)
-                sl_dist = min(sl_dist, entry_price * 0.025)
-            else:
-                sl_dist = entry_price * (max(0.05, float(stop_loss_pct)) / 100.0)
+            if sl_tp_mode in ("atr_cone", "magnet_hybrid") and cur_atr > 0 and entry_price > 0:
+                from backend.app.engine.dynamic_sl_tp import compute_dynamic_sl_tp_levels
 
-            if risk_per_trade_pct is not None:
-                risk_budget = capital * (float(risk_per_trade_pct) / 100.0)
-                # `initial_pos_size` is quote-currency notional throughout
-                # the execution engine. Convert the absolute stop distance
-                # to a price fraction before sizing; dividing by the raw
-                # price distance would size in base units and make PnL
-                # artificially tiny for high-priced instruments.
-                stop_fraction = max(sl_dist / max(entry_price, 1e-9), 1e-9)
-                initial_pos_size = min(
-                    capital * safe_lev,
-                    risk_budget / stop_fraction,
+                sup_wall = float(low_min10_vals[i]) if i >= 6 and np.isfinite(low_min10_vals[i]) else None
+                res_wall = float(high_max10_vals[i]) if i >= 6 and np.isfinite(high_max10_vals[i]) else None
+                dyn_levels = compute_dynamic_sl_tp_levels(
+                    symbol=symbol_hint,
+                    direction=pos_dir,
+                    entry_price=entry_price,
+                    atr=cur_atr,
+                    sl_tp_mode=sl_tp_mode,
+                    stop_loss_pct=stop_loss_pct,
+                    take_profit_pct=take_profit_pct,
+                    atr_multiplier=atr_multiplier,
+                    tp1_rr_ratio=tp1_rr_ratio,
+                    tp2_rr_ratio=tp2_rr_ratio,
+                    nearest_support_wall_price=sup_wall,
+                    nearest_resistance_wall_price=res_wall,
+                    front_run_ticks=int(wall_sl_offset_ticks or 3),
+                    maker_fee_pct=maker_rate * 100.0,
+                    taker_fee_pct=taker_rate * 100.0,
                 )
-                entry_fee_usd = initial_pos_size * maker_rate
-
-            # TP2 distance: either explicit take_profit_pct or opposite_wall / R:R target
-            base_tp2_dist = entry_price * (max(0.1, float(take_profit_pct)) / 100.0)
-            if tp2_mode == "opposite_wall" and i >= 6:
-                opp_wall = float(high_max10_vals[i]) if pos_dir == 1 else float(low_min10_vals[i])
-                wall_dist = abs(opp_wall - entry_price) * 0.96
-                tp2_dist = max(sl_dist * 1.6, wall_dist if wall_dist > sl_dist * 1.2 else base_tp2_dist)
+                if dyn_levels.get("magnet_veto"):
+                    in_pos = False
+                    entry_context_snapshot = None
+                    continue
+                sl_dist = float(dyn_levels["sl_dist"])
+                tp1_dist = float(dyn_levels["tp1_dist"])
+                tp2_dist = float(dyn_levels["tp2_dist"])
+                if risk_per_trade_pct is not None:
+                    risk_budget = capital * (float(risk_per_trade_pct) / 100.0)
+                    stop_fraction = max(sl_dist / max(entry_price, 1e-9), 1e-9)
+                    initial_pos_size = min(
+                        capital * safe_lev,
+                        risk_budget / stop_fraction,
+                    )
+                    entry_fee_usd = initial_pos_size * maker_rate
             else:
-                tp2_dist = base_tp2_dist
+                # Dynamic Stop-Loss Mode: 'fixed_pct' | 'behind_wall' | 'atr_volatility'
+                if (sl_mode == "atr_volatility" or use_atr_sl) and cur_atr > 0 and entry_price > 0:
+                    sl_dist = cur_atr * max(0.5, min(5.0, float(atr_multiplier)))
+                elif sl_mode == "behind_wall" and entry_price > 0:
+                    offset_abs = max(1, int(wall_sl_offset_ticks or 3)) * tick_unit_entry
+                    if pos_dir == 1:
+                        wall_anchor = min(low_p, float(low_min6_vals[i]))
+                        sl_dist = max(entry_price * 0.0015, (entry_price - wall_anchor) + offset_abs)
+                    else:
+                        wall_anchor = max(high_p, float(high_max6_vals[i]))
+                        sl_dist = max(entry_price * 0.0015, (wall_anchor - entry_price) + offset_abs)
+                    sl_dist = min(sl_dist, entry_price * 0.025)
+                else:
+                    sl_dist = entry_price * (max(0.05, float(stop_loss_pct)) / 100.0)
 
-            # TP1 distance: R:R based (e.g. 1:1.5) or +0.6% / 1.5 ATR, capped at 70% of TP2
-            rr_tp1_dist = sl_dist * max(0.8, float(tp1_rr_ratio or 1.5))
-            atr_tp1_dist = (cur_atr * float(tp1_atr_mult)) if cur_atr > 0 else (entry_price * (float(tp1_pct) / 100.0))
-            pct_tp1_dist = entry_price * (max(0.15, float(tp1_pct)) / 100.0)
-            tp1_dist = min(tp2_dist * 0.70, max(pct_tp1_dist, min(rr_tp1_dist, max(pct_tp1_dist, atr_tp1_dist))))
+                if risk_per_trade_pct is not None:
+                    risk_budget = capital * (float(risk_per_trade_pct) / 100.0)
+                    # `initial_pos_size` is quote-currency notional throughout
+                    # the execution engine. Convert the absolute stop distance
+                    # to a price fraction before sizing; dividing by the raw
+                    # price distance would size in base units and make PnL
+                    # artificially tiny for high-priced instruments.
+                    stop_fraction = max(sl_dist / max(entry_price, 1e-9), 1e-9)
+                    initial_pos_size = min(
+                        capital * safe_lev,
+                        risk_budget / stop_fraction,
+                    )
+                    entry_fee_usd = initial_pos_size * maker_rate
+
+                # TP2 distance: either explicit take_profit_pct or opposite_wall / R:R target
+                base_tp2_dist = entry_price * (max(0.1, float(take_profit_pct)) / 100.0)
+                if tp2_mode == "opposite_wall" and i >= 6:
+                    opp_wall = float(high_max10_vals[i]) if pos_dir == 1 else float(low_min10_vals[i])
+                    wall_dist = abs(opp_wall - entry_price) * 0.96
+                    tp2_dist = max(sl_dist * 1.6, wall_dist if wall_dist > sl_dist * 1.2 else base_tp2_dist)
+                else:
+                    tp2_dist = base_tp2_dist
+
+                # TP1 distance: R:R based (e.g. 1:1.5) or +0.6% / 1.5 ATR, capped at 70% of TP2
+                rr_tp1_dist = sl_dist * max(0.8, float(tp1_rr_ratio or 1.5))
+                atr_tp1_dist = (cur_atr * float(tp1_atr_mult)) if cur_atr > 0 else (entry_price * (float(tp1_pct) / 100.0))
+                pct_tp1_dist = entry_price * (max(0.15, float(tp1_pct)) / 100.0)
+                tp1_dist = min(tp2_dist * 0.70, max(pct_tp1_dist, min(rr_tp1_dist, max(pct_tp1_dist, atr_tp1_dist))))
 
             if pos_dir == 1:
                 tp1_price = entry_price + tp1_dist

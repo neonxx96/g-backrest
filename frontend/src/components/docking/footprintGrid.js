@@ -20,22 +20,23 @@ export function fmtTime(ts) {
   return new Date(ts).toISOString().slice(11, 16);
 }
 
-/** Сторона перекоса уровня: ratio >= 3 и объём значим (внешний min_significant). */
-export function detectImbalance(buy, sell, minSignificant) {
+/** Сторона перекоса уровня: ratio >= imbalanceRatio и объём значим (внешний min_significant). */
+export function detectImbalance(buy, sell, minSignificant, imbalanceRatio = IMBALANCE_RATIO) {
   const b = buy || 0;
   const s = sell || 0;
   const max = Math.max(b, s);
+  const ratio = Number(imbalanceRatio) > 1 ? Number(imbalanceRatio) : IMBALANCE_RATIO;
   if (max < (minSignificant || 0)) return null;
   if (s === 0 && b > 0) return 'buy';
   if (b === 0 && s > 0) return 'sell';
-  if (b / s >= IMBALANCE_RATIO) return 'buy';
-  if (s / b >= IMBALANCE_RATIO) return 'sell';
+  if (b / s >= ratio) return 'buy';
+  if (s / b >= ratio) return 'sell';
   return null;
 }
 
 /**
  * Сборка грида: строки = объединение ценовых уровней (по убыванию),
- * столбцы = свечи (старые -> новые). Каждая ячейка: {buy, sell, delta, vol, imbalance} | null.
+ * столбцы = свечи (старые -> новые). Каждая ячейка: {buy, sell, delta, vol, imbalance, isCandlePoc, inValueArea} | null.
  */
 export function buildFootprintGrid(candles, maxBars = 14) {
   const bars = Array.isArray(candles) ? candles.slice(-maxBars) : [];
@@ -56,12 +57,20 @@ export function buildFootprintGrid(candles, maxBars = 14) {
       if (!lvl) return null;
       const buy = Number(lvl.buy_vol) || 0;
       const sell = Number(lvl.sell_vol) || 0;
+      const isCandlePoc = c.poc_price != null && Number(c.poc_price) === price;
+      const inValueArea =
+        c.vah_price != null &&
+        c.val_price != null &&
+        price <= Number(c.vah_price) &&
+        price >= Number(c.val_price);
       return {
         buy,
         sell,
         delta: Number(lvl.delta) || buy - sell,
         vol: buy + sell,
-        imbalance: lvl.imbalance ?? null
+        imbalance: lvl.imbalance ?? null,
+        isCandlePoc,
+        inValueArea
       };
     })
   }));
@@ -69,6 +78,40 @@ export function buildFootprintGrid(candles, maxBars = 14) {
   const cvd = bars.reduce((acc, c) => acc + (Number(c?.total_delta) || 0), 0);
   const totalVolume = bars.reduce((acc, c) => acc + (Number(c?.total_volume) || 0), 0);
   return { bars, rows, cvd, totalVolume };
+}
+
+/**
+ * Горизонтальный профиль объёма и дельты по строкам видимого окна (Session Volume Profile).
+ */
+export function buildSessionProfile(grid) {
+  if (!grid || !Array.isArray(grid.rows) || grid.rows.length === 0) {
+    return { levels: [], maxVol: 0, sessionPocPrice: null };
+  }
+  const raw = grid.rows.map((row) => {
+    let buy = 0;
+    let sell = 0;
+    for (const cell of row.cells) {
+      if (cell) {
+        buy += cell.buy || 0;
+        sell += cell.sell || 0;
+      }
+    }
+    const vol = buy + sell;
+    const delta = buy - sell;
+    return { price: row.price, buy, sell, vol, delta };
+  });
+  const maxVol = Math.max(...raw.map((r) => r.vol), 0);
+  let sessionPocPrice = null;
+  if (maxVol > 0) {
+    const pocRow = raw.reduce((best, cur) => (cur.vol > best.vol ? cur : best), raw[0]);
+    sessionPocPrice = pocRow.price;
+  }
+  const levels = raw.map((r) => ({
+    ...r,
+    volShare: maxVol > 0 ? Math.min(1, r.vol / maxVol) : 0,
+    isSessionPoc: sessionPocPrice !== null && r.price === sessionPocPrice
+  }));
+  return { levels, maxVol, sessionPocPrice };
 }
 
 /** Цветовая доминанта ячейки: 'buy' | 'sell' | null (по знаку дельты уровня). */

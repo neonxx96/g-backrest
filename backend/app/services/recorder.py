@@ -30,14 +30,19 @@ ABSORPTION_VOL_MULT = 1.5   # объём свечи >= 1.5x медианы ок�
 ABSORPTION_DELTA_SHARE = 0.2  # |delta| <= 20% объёма при большом объёме
 
 
-def _imbalance_side(buy_vol: float, sell_vol: float, min_significant: float) -> Optional[str]:
-    """Сторона имбаланса уровня: 'buy'/'sell' при ratio >= 3 и значимом объёме."""
+def _imbalance_side(
+    buy_vol: float,
+    sell_vol: float,
+    min_significant: float,
+    imbalance_ratio: float = IMBALANCE_RATIO,
+) -> Optional[str]:
+    """Сторона имбаланса уровня: 'buy'/'sell' при ratio >= imbalance_ratio и значимом объёме."""
     big, small = max(buy_vol, sell_vol), min(buy_vol, sell_vol)
     if big < min_significant:
         return None
     if small <= 0:
         return "buy" if buy_vol > 0 else ("sell" if sell_vol > 0 else None)
-    if big / small < IMBALANCE_RATIO:
+    if big / small < float(imbalance_ratio):
         return None
     return "buy" if buy_vol >= sell_vol else "sell"
 
@@ -50,13 +55,48 @@ def _longest_run(sides: List[Optional[str]], target: str) -> int:
     return best
 
 
-def annotate_cluster_metrics(candles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _compute_candle_value_area(levels: List[Dict[str, Any]], poc_price: Optional[float], fraction: float = 0.70) -> tuple[Optional[float], Optional[float]]:
+    """Вычисляет границы Value Area (VAH, VAL) внутри одной кластерной свечи (70% объёма вокруг POC)."""
+    if not levels or poc_price is None:
+        return None, None
+    ordered = sorted(levels, key=lambda l: float(l.get("price", 0.0)))
+    vols = [float(l.get("buy_vol", 0.0)) + float(l.get("sell_vol", 0.0)) for l in ordered]
+    total = sum(vols)
+    if total <= 0:
+        return poc_price, poc_price
+    target = total * fraction
+    selected_prices = {float(poc_price)}
+    covered = sum(v for l, v in zip(ordered, vols) if float(l.get("price", 0.0)) == float(poc_price))
+    while covered < target and len(selected_prices) < len(ordered):
+        candidates = [(l, v) for l, v in zip(ordered, vols) if float(l.get("price", 0.0)) not in selected_prices]
+        if not candidates:
+            break
+        best_lvl, best_vol = max(candidates, key=lambda item: (item[1], -abs(float(item[0].get("price", 0.0)) - float(poc_price))))
+        selected_prices.add(float(best_lvl.get("price", 0.0)))
+        covered += best_vol
+    return max(selected_prices), min(selected_prices)
+
+
+def annotate_cluster_metrics(
+    candles: List[Dict[str, Any]],
+    imbalance_ratio: float = IMBALANCE_RATIO,
+    stacked_min_run: int = STACKED_MIN_RUN,
+    absorption_vol_mult: float = ABSORPTION_VOL_MULT,
+    absorption_delta_share: float = ABSORPTION_DELTA_SHARE,
+) -> List[Dict[str, Any]]:
     """Обогащает кластерные свечи метриками (in-place по словарям, возвращает список):
-    - `levels[].imbalance`: 'buy'/'sell'/None (ratio >= 3, объём >= 5% макс. уровня);
-    - `stacked_imbalance`: {'buy': int, 'sell': int} — длины наибольших серий >= 3;
-    - `absorption`: True, если объём >= 1.5x медианы окна, а |delta| <= 20% объёма;
-    - `poc_price`: цена уровня с максимальным суммарным объёмом (None при пустой свече).
+    - `levels[].imbalance`: 'buy'/'sell'/None (ratio >= imbalance_ratio, объём >= 5% макс. уровня);
+    - `stacked_imbalance`: {'buy': int, 'sell': int} — длины наибольших серий >= stacked_min_run;
+    - `absorption`: True, если объём >= absorption_vol_mult * медианы окна, а |delta| <= absorption_delta_share * объёма;
+    - `poc_price`: цена уровня с максимальным суммарным объёмом (None при пустой свече);
+    - `vah_price` / `val_price`: верхняя и нижняя границы 70% объёма свечи;
+    - `poc_migration`: +1 (POC вырос к пред. свече), -1 (POC снизился), 0 (без изменений / первая свеча).
     """
+    eff_ratio = max(1.1, float(imbalance_ratio or IMBALANCE_RATIO))
+    eff_stacked = max(2, int(stacked_min_run or STACKED_MIN_RUN))
+    eff_abs_mult = max(1.0, float(absorption_vol_mult or ABSORPTION_VOL_MULT))
+    eff_abs_share = max(0.01, min(1.0, float(absorption_delta_share or ABSORPTION_DELTA_SHARE)))
+
     volumes = [float(c.get("total_volume", 0.0)) for c in candles]
     positive = sorted(v for v in volumes if v > 0)
     if positive:
@@ -65,6 +105,7 @@ def annotate_cluster_metrics(candles: List[Dict[str, Any]]) -> List[Dict[str, An
     else:
         median_vol = 0.0
 
+    prev_poc: Optional[float] = None
     for candle in candles:
         levels = candle.get("levels") or []
         max_level_vol = max((float(l.get("buy_vol", 0.0)) + float(l.get("sell_vol", 0.0)) for l in levels), default=0.0)
@@ -72,29 +113,51 @@ def annotate_cluster_metrics(candles: List[Dict[str, Any]]) -> List[Dict[str, An
 
         sides: List[Optional[str]] = []
         for level in levels:
-            side = _imbalance_side(float(level.get("buy_vol", 0.0)), float(level.get("sell_vol", 0.0)), min_significant)
+            side = _imbalance_side(
+                float(level.get("buy_vol", 0.0)),
+                float(level.get("sell_vol", 0.0)),
+                min_significant,
+                imbalance_ratio=eff_ratio,
+            )
             level["imbalance"] = side
             sides.append(side)
 
         buy_run = _longest_run(sides, "buy")
         sell_run = _longest_run(sides, "sell")
         candle["stacked_imbalance"] = {
-            "buy": buy_run if buy_run >= STACKED_MIN_RUN else 0,
-            "sell": sell_run if sell_run >= STACKED_MIN_RUN else 0,
+            "buy": buy_run if buy_run >= eff_stacked else 0,
+            "sell": sell_run if sell_run >= eff_stacked else 0,
         }
 
         # POC (Point of Control): уровень с максимальным суммарным объёмом в свече
-        candle["poc_price"] = max(
+        poc_price = max(
             levels,
             key=lambda l: float(l.get("buy_vol", 0.0)) + float(l.get("sell_vol", 0.0)),
         )["price"] if levels else None
+        candle["poc_price"] = poc_price
+
+        vah_price, val_price = _compute_candle_value_area(levels, poc_price)
+        candle["vah_price"] = vah_price
+        candle["val_price"] = val_price
+
+        if poc_price is not None and prev_poc is not None:
+            if float(poc_price) > float(prev_poc):
+                candle["poc_migration"] = 1
+            elif float(poc_price) < float(prev_poc):
+                candle["poc_migration"] = -1
+            else:
+                candle["poc_migration"] = 0
+        else:
+            candle["poc_migration"] = 0
+        if poc_price is not None:
+            prev_poc = float(poc_price)
 
         total_vol = float(candle.get("total_volume", 0.0))
         total_delta = abs(float(candle.get("total_delta", 0.0)))
         candle["absorption"] = bool(
             median_vol > 0
-            and total_vol >= ABSORPTION_VOL_MULT * median_vol
-            and total_delta <= ABSORPTION_DELTA_SHARE * total_vol
+            and total_vol >= eff_abs_mult * median_vol
+            and total_delta <= eff_abs_share * total_vol
         )
     return candles
 
@@ -126,18 +189,24 @@ class OrderFlowRecorder:
         self.last_flush_time: float = time.time()
         self.flush_interval_sec: int = 45  # Flush to parquet every 45 seconds
 
-    def get_price_bucket(self, price: float, symbol: str) -> float:
-        """Rounds price to appropriate tick cluster bucket based on coin magnitude."""
+    @staticmethod
+    def get_base_price_step(price: float) -> float:
+        """Returns the base price bucket step for a given coin magnitude."""
         if price > 5000:
-            return round(price / 10.0) * 10.0  # BTC: $10 buckets
+            return 10.0
         elif price > 500:
-            return round(price / 1.0) * 1.0    # ETH, BNB: $1 buckets
+            return 1.0
         elif price > 50:
-            return round(price / 0.1) * 0.1    # SOL: $0.1 buckets
+            return 0.1
         elif price > 1:
-            return round(price / 0.01) * 0.01  # NEAR, SUI: $0.01 buckets
-        else:
-            return round(price / 0.0001) * 0.0001 # DOGE, XRP: $0.0001 buckets
+            return 0.01
+        return 0.0001
+
+    def get_price_bucket(self, price: float, symbol: str, scale: float = 1.0) -> float:
+        """Rounds price to appropriate tick cluster bucket based on coin magnitude and optional scale multiplier."""
+        step = self.get_base_price_step(price) * max(0.1, float(scale or 1.0))
+        decimals = max(0, min(8, int(round(-1 * (0 if step >= 1 else __import__("math").floor(__import__("math").log10(step)))))))
+        return round(round(price / step) * step, decimals)
 
     def record_agg_trade(self, symbol: str, price: float, qty: float, is_buyer_maker: bool, ts: int):
         """Processes a single aggregated trade."""
@@ -418,20 +487,41 @@ class OrderFlowRecorder:
 
         return zip_path
 
-    def get_clusters_for_chart(self, symbol: str, limit_candles: int = 20) -> List[Dict[str, Any]]:
-        """Returns formatted cluster/footprint data for web chart."""
+    def get_clusters_for_chart(
+        self,
+        symbol: str,
+        limit_candles: int = 20,
+        scale: float = 1.0,
+        imbalance_ratio: float = IMBALANCE_RATIO,
+        stacked_min: int = STACKED_MIN_RUN,
+    ) -> List[Dict[str, Any]]:
+        """Returns formatted cluster/footprint data for web chart with optional price step scaling and custom thresholds."""
         sym_cache = self.footprint_cache.get(symbol.upper(), {})
         if not sym_cache:
             return []
 
+        eff_scale = max(1.0, float(scale or 1.0))
         sorted_candles = sorted(sym_cache.keys())[-limit_candles:]
         result = []
 
         for c_ts in sorted_candles:
-            levels = []
             levels_dict = sym_cache[c_ts]
-            for p_bucket in sorted(levels_dict.keys(), reverse=True):
-                info = levels_dict[p_bucket]
+            if eff_scale > 1.0:
+                aggregated: Dict[float, Dict[str, Any]] = {}
+                for raw_price, info in levels_dict.items():
+                    agg_bucket = self.get_price_bucket(float(raw_price), symbol, scale=eff_scale)
+                    slot = aggregated.setdefault(agg_bucket, {"buy_vol": 0.0, "sell_vol": 0.0, "delta": 0.0, "trades": 0})
+                    slot["buy_vol"] += float(info.get("buy_vol", 0.0))
+                    slot["sell_vol"] += float(info.get("sell_vol", 0.0))
+                    slot["delta"] += float(info.get("delta", 0.0))
+                    slot["trades"] += int(info.get("trades", 0))
+                source_levels = aggregated
+            else:
+                source_levels = levels_dict
+
+            levels = []
+            for p_bucket in sorted(source_levels.keys(), reverse=True):
+                info = source_levels[p_bucket]
                 levels.append({
                     "price": p_bucket,
                     "buy_vol": round(info['buy_vol'], 4),
@@ -450,7 +540,11 @@ class OrderFlowRecorder:
                 "levels": levels
             })
 
-        return annotate_cluster_metrics(result)
+        return annotate_cluster_metrics(
+            result,
+            imbalance_ratio=imbalance_ratio,
+            stacked_min_run=stacked_min,
+        )
 
     async def start(self):
         """Starts WebSocket multi-stream recording task."""

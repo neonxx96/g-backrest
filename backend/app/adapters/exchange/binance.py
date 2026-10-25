@@ -100,14 +100,22 @@ class BinanceAdapter(BaseExchangeAdapter):
 
     async def fetch_order_book(self, symbol: str, limit: int = 20) -> Dict[str, Any]:
         session = await self.get_session()
-        url = f"{BINANCE_FUTURES_REST}/fapi/v1/depth"
-        params = {'symbol': symbol.upper(), 'limit': limit}
-        try:
-            async with session.get(url, params=params) as resp:
-                if resp.status == 200:
-                    return await resp.json()
-        except Exception:
-            pass
+        sym = symbol.upper()
+        endpoints = [
+            f"{BINANCE_FUTURES_REST}/fapi/v1/depth",
+            "https://data-api.binance.vision/api/v3/depth",
+            "https://api.binance.com/api/v3/depth",
+        ]
+        params = {'symbol': sym, 'limit': limit}
+        for url in endpoints:
+            try:
+                async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=4)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data and "bids" in data and len(data["bids"]) > 0:
+                            return data
+            except Exception:
+                continue
         return {'bids': [], 'asks': []}
 
     async def fetch_klines(self, symbol: str, timeframe: str = "15m", limit: int = 100,
@@ -132,6 +140,14 @@ class BinanceAdapter(BaseExchangeAdapter):
         rows, ok = await self._fetch_klines_rows(
             session, symbol, fetch_tf, limit, start_time, end_time
         )
+        # Clock-skew resilience: if initial window (start_time set, end_time None) returned empty
+        # because client clock is ahead of exchange server time, retry in latest-batch mode.
+        used_latest_fallback = False
+        if not rows and start_time is not None and end_time is None:
+            rows, ok = await self._fetch_klines_rows(
+                session, symbol, fetch_tf, max(int(limit), 1000), None, None
+            )
+            used_latest_fallback = True
         if not ok:
             raise ValueError(f"Binance klines error across all endpoints for {symbol}")
 
@@ -139,12 +155,13 @@ class BinanceAdapter(BaseExchangeAdapter):
         if df.empty:
             return df
 
-        if start_time is not None:
+        if start_time is not None and not used_latest_fallback:
             # Deep mode: exact [start_time, end_time] window (resample-aligned).
-            df = df[df["timestamp"] >= int(start_time)]
+            filtered = df[df["timestamp"] >= int(start_time)]
             if end_time is not None:
-                df = df[df["timestamp"] <= int(end_time)]
-            return df.reset_index(drop=True)
+                filtered = filtered[filtered["timestamp"] <= int(end_time)]
+            if not filtered.empty or end_time is not None:
+                return filtered.reset_index(drop=True)
 
         # Latest-batch mode: trim to the requested count (backwards compatible).
         return df.tail(limit).reset_index(drop=True)

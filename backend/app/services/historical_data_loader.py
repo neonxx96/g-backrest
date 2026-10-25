@@ -370,6 +370,7 @@ class HistoricalDataLoader:
         """
         now_ms = int(time.time() * 1000)
         tf_ms = self.timeframe_to_ms(timeframe)
+        caller_pinned_start = start_time_ms is not None
 
         if end_time_ms is None:
             end_time_ms = now_ms
@@ -384,11 +385,18 @@ class HistoricalDataLoader:
         if cached_df is None or cached_df.empty:
             # Fetch entire range from scratch
             fetched_df = self.fetch_range_sync(symbol, timeframe, start_time_ms, end_time_ms)
+            if fetched_df.empty and not caller_pinned_start:
+                raw_latest = self._fetch_klines_chunk_sync(symbol.upper(), timeframe, start_time=None, end_time=None, limit=1500)
+                fetched_df = self._raw_klines_to_df(raw_latest)
             if not fetched_df.empty:
                 self.save_cache(symbol, timeframe, fetched_df)
-                return fetched_df[
+                sliced = fetched_df[
                     (fetched_df["timestamp"] >= start_time_ms) & (fetched_df["timestamp"] <= end_time_ms)
-                ].reset_index(drop=True)
+                ]
+                if sliced.empty and not caller_pinned_start:
+                    max_ts = int(fetched_df["timestamp"].max())
+                    sliced = fetched_df[fetched_df["timestamp"] >= max_ts - int((days or 30) * 86_400_000)]
+                return sliced.reset_index(drop=True)
             return fetched_df
 
         # 2. Check for missing head or tail in cache
@@ -417,9 +425,13 @@ class HistoricalDataLoader:
         else:
             full_df = cached_df
 
-        # Return exact requested slice
+        # Return exact requested slice (with clock-skew guard when caller passed `days` instead of explicit start_time_ms)
         mask = (full_df["timestamp"] >= start_time_ms) & (full_df["timestamp"] <= end_time_ms)
-        return full_df[mask].reset_index(drop=True)
+        sliced = full_df[mask]
+        if sliced.empty and not caller_pinned_start and not full_df.empty:
+            max_ts = int(full_df["timestamp"].max())
+            sliced = full_df[full_df["timestamp"] >= max_ts - int((days or 30) * 86_400_000)]
+        return sliced.reset_index(drop=True)
 
     async def load_dataset_async(
         self,
@@ -435,6 +447,7 @@ class HistoricalDataLoader:
         """
         now_ms = int(time.time() * 1000)
         tf_ms = self.timeframe_to_ms(timeframe)
+        caller_pinned_start = start_time_ms is not None
 
         if end_time_ms is None:
             end_time_ms = now_ms
@@ -447,11 +460,21 @@ class HistoricalDataLoader:
 
         if cached_df is None or cached_df.empty:
             fetched_df = await self.fetch_range_async(symbol, timeframe, start_time_ms, end_time_ms)
+            if fetched_df.empty and not caller_pinned_start:
+                async with aiohttp.ClientSession() as session:
+                    raw_latest = await self._fetch_klines_chunk_async(
+                        session, symbol.upper(), timeframe, start_time=None, end_time=None, limit=1500
+                    )
+                fetched_df = self._raw_klines_to_df(raw_latest)
             if not fetched_df.empty:
                 self.save_cache(symbol, timeframe, fetched_df)
-                return fetched_df[
+                sliced = fetched_df[
                     (fetched_df["timestamp"] >= start_time_ms) & (fetched_df["timestamp"] <= end_time_ms)
-                ].reset_index(drop=True)
+                ]
+                if sliced.empty and not caller_pinned_start:
+                    max_ts = int(fetched_df["timestamp"].max())
+                    sliced = fetched_df[fetched_df["timestamp"] >= max_ts - int((days or 30) * 86_400_000)]
+                return sliced.reset_index(drop=True)
             return fetched_df
 
         cached_min = int(cached_df["timestamp"].min())
@@ -477,7 +500,11 @@ class HistoricalDataLoader:
             full_df = cached_df
 
         mask = (full_df["timestamp"] >= start_time_ms) & (full_df["timestamp"] <= end_time_ms)
-        return full_df[mask].reset_index(drop=True)
+        sliced = full_df[mask]
+        if sliced.empty and not caller_pinned_start and not full_df.empty:
+            max_ts = int(full_df["timestamp"].max())
+            sliced = full_df[full_df["timestamp"] >= max_ts - int((days or 30) * 86_400_000)]
+        return sliced.reset_index(drop=True)
 
 
 # Singleton instance for quick module access

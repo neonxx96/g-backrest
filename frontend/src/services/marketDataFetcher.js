@@ -12,6 +12,38 @@ const API_BASE = '/api';
 const DIRECT_BACKEND_BASE = `http://${import.meta.env.VITE_BACKEND_HOST || '127.0.0.1'}:${import.meta.env.VITE_BACKEND_PORT || '8000'}/api`;
 
 /**
+ * In-memory & LocalStorage Emergency Fallback Cache (Резерв 2)
+ */
+const memoryCandleCache = new Map();
+
+export function saveCandlesToCache(symbol, timeframe, candles) {
+  if (!Array.isArray(candles) || candles.length === 0) return;
+  const key = `${symbol.toUpperCase()}_${timeframe.toLowerCase()}`;
+  memoryCandleCache.set(key, candles.slice(-1500));
+  try {
+    localStorage.setItem(`klines_${key}`, JSON.stringify(candles.slice(-300)));
+  } catch (_) {}
+}
+
+export function getCandlesFromCache(symbol, timeframe) {
+  const key = `${symbol.toUpperCase()}_${timeframe.toLowerCase()}`;
+  if (memoryCandleCache.has(key)) {
+    return memoryCandleCache.get(key);
+  }
+  try {
+    const raw = localStorage.getItem(`klines_${key}`);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        memoryCandleCache.set(key, parsed);
+        return parsed;
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
+/**
  * Timeframe -> milliseconds (deep-history window math).
  */
 export const TF_MS = {
@@ -164,10 +196,15 @@ export function resampleCandles(candles, targetTfMs) {
  * Deterministic: no synthetic rows — only real Binance REST data.
  */
 async function fetchBinanceRangeRaw({ symbol, interval, startTime, endTime }) {
+  // Binance Vision has full CORS support enabled for all web browser origins.
+  // We prioritize Vision and public Spot mirrors before Futures endpoint.
   const urls = [
-    'https://fapi.binance.com/fapi/v1/klines',
+    'https://data-api.binance.vision/api/v3/klines',
     'https://api.binance.com/api/v3/klines',
-    'https://data-api.binance.vision/api/v3/klines'
+    'https://api1.binance.com/api/v3/klines',
+    'https://api2.binance.com/api/v3/klines',
+    'https://api3.binance.com/api/v3/klines',
+    'https://fapi.binance.com/fapi/v1/klines'
   ];
   const startTs = Number(startTime);
   const endTs = endTime != null ? Number(endTime) : null;
@@ -180,7 +217,7 @@ async function fetchBinanceRangeRaw({ symbol, interval, startTime, endTime }) {
       if (endTs != null) qs += `&endTime=${endTs}`;
       let data;
       try {
-        const res = await fetchWithTimeout(`${u}?${qs}`, { headers: { Accept: 'application/json' } }, 8000);
+        const res = await fetchWithTimeout(`${u}?${qs}`, { headers: { Accept: 'application/json' } }, 6000);
         if (!res.ok) { ok = false; break; }
         data = await res.json();
         if (!Array.isArray(data)) { ok = false; break; }
@@ -198,12 +235,12 @@ async function fetchBinanceRangeRaw({ symbol, interval, startTime, endTime }) {
 }
 
 /**
- * Fetch klines with dual-source fallback
+ * Fetch klines with dual-source fallback & Two-Tier Emergency Reserve
  * @param {Object} params - { symbol, timeframe, limit, startTime, endTime, timeoutMs }
  *   - startTime/endTime (UTC ms) request a DEEP HISTORY WINDOW [startTime, endTime]:
  *     the backend paginates server-side (up to 1500 bars per Binance request),
  *     the Binance failover paginates client-side. `limit` is ignored in deep mode.
- * @returns {Promise<{ candles: Array, source: string }>}
+ * @returns {Promise<{ candles: Array, source: string, isCached?: boolean }>}
  */
 export async function fetchKlinesDualSource({
   symbol = 'BTCUSDT',
@@ -211,7 +248,7 @@ export async function fetchKlinesDualSource({
   limit = 250,
   startTime = null,
   endTime = null,
-  timeoutMs = 3500
+  timeoutMs = 7500
 } = {}) {
   const cleanSymbol = (symbol || 'BTCUSDT').toUpperCase().trim();
   const binanceTf = mapTimeframeToBinance(timeframe);
@@ -234,16 +271,20 @@ export async function fetchKlinesDualSource({
 
     for (const url of deepUrls) {
       try {
-        const res = await fetchWithTimeout(url, { headers: { Accept: 'application/json' } }, 45000);
+        const res = await fetchWithTimeout(url, { headers: { Accept: 'application/json' } }, 12000);
         if (res.ok) {
           const raw = await res.json();
           if (Array.isArray(raw) && raw.length > 0) {
-            const candles = raw
-              .map(normalizeCandle)
-              .filter(Boolean)
-              .filter(c => c.timestamp >= startTs && c.timestamp <= endTs);
+            const allValid = raw.map(normalizeCandle).filter(Boolean);
+            let candles = allValid.filter(c => c.timestamp >= startTs && c.timestamp <= endTs);
+            // If endTime was not explicitly pinned (initial load) and local OS clock skew placed
+            // startTs ahead of exchange candle timestamps, keep the returned latest exchange candles.
+            if (candles.length === 0 && endTime == null && allValid.length > 0) {
+              candles = allValid;
+            }
             if (candles.length > 0) {
               candles.sort((a, b) => a.timestamp - b.timestamp);
+              saveCandlesToCache(cleanSymbol, timeframe, candles);
               return { candles, source: 'backend' };
             }
           }
@@ -253,7 +294,7 @@ export async function fetchKlinesDualSource({
       }
     }
 
-    // 2. Failover: Binance public REST, chunked client-side pagination.
+    // 2. Failover Резерв 1: Binance public REST, chunked client-side pagination.
     //    Non-native intervals (45m, 6h) are resampled from the base timeframe.
     const baseRows = await fetchBinanceRangeRaw({
       symbol: cleanSymbol,
@@ -264,15 +305,28 @@ export async function fetchKlinesDualSource({
     let candles = baseRows.map(normalizeCandle).filter(Boolean);
     if (candles.length > 0) {
       if (isCustomTf) candles = resampleCandles(candles, tfMs);
-      candles = candles.filter(c => c.timestamp >= startTs && c.timestamp <= endTs);
+      const inRange = candles.filter(c => c.timestamp >= startTs && c.timestamp <= endTs);
+      candles = (inRange.length === 0 && endTime == null) ? candles : inRange;
       if (candles.length > 0) {
         candles.sort((a, b) => a.timestamp - b.timestamp);
+        saveCandlesToCache(cleanSymbol, timeframe, candles);
         return { candles, source: 'binance-failover' };
       }
     }
-    throw new Error(
-      `Не удалось загрузить историю ${cleanSymbol} ${timeframe}: бэкенд и резервный Binance недоступны`
-    );
+
+    // 3. Failover Резерв 2: Check local/memory emergency cache before giving up
+    const emergencyCached = getCandlesFromCache(cleanSymbol, timeframe);
+    if (emergencyCached && emergencyCached.length > 0) {
+      return { candles: emergencyCached, source: 'offline-cache', isCached: true };
+    }
+
+    // 4. Clock-skew resilience: if initial load (endTime == null) returned 0 bars for [startTs, Date.now()]
+    //    (e.g. local PC clock is ahead of exchange server time), fall through to latest-batch mode (no startTime)
+    //    instead of failing with a false "backend & Binance unavailable" error.
+    if (endTime != null) {
+      return { candles: [], source: 'offline-empty', isCached: false };
+    }
+    limit = Math.max(Number(limit) || 250, 1000);
   }
 
   // ---------- Latest-batch mode (no startTime): previous behavior ----------
@@ -292,6 +346,7 @@ export async function fetchKlinesDualSource({
           const candles = raw.map(normalizeCandle).filter(Boolean);
           if (candles.length > 0) {
             candles.sort((a, b) => a.timestamp - b.timestamp);
+            saveCandlesToCache(cleanSymbol, timeframe, candles);
             return { candles, source: 'backend' };
           }
         }
@@ -301,20 +356,23 @@ export async function fetchKlinesDualSource({
     }
   }
 
-  // 2. Fallback / Failover Source: Binance Public API (Futures -> Spot -> Vision)
-  //    45m/6h fetch their base timeframe (x3 / x6 bars) and resample client-side.
-  const failoverLimit = limit * customMult;
+  // 2. Failover Резерв 1: Binance Public API (Vision -> Spot -> Mirrors -> Futures)
+  //    Binance Vision is prioritized because it permits browser cross-origin requests.
+  const failoverLimit = Math.min(limit * customMult, BINANCE_MAX_CHUNK);
   const failoverUrls = [
-    `https://fapi.binance.com/fapi/v1/klines?symbol=${cleanSymbol}&interval=${binanceTf}&limit=${failoverLimit}`,
+    `https://data-api.binance.vision/api/v3/klines?symbol=${cleanSymbol}&interval=${binanceTf}&limit=${failoverLimit}`,
     `https://api.binance.com/api/v3/klines?symbol=${cleanSymbol}&interval=${binanceTf}&limit=${failoverLimit}`,
-    `https://data-api.binance.vision/api/v3/klines?symbol=${cleanSymbol}&interval=${binanceTf}&limit=${failoverLimit}`
+    `https://api1.binance.com/api/v3/klines?symbol=${cleanSymbol}&interval=${binanceTf}&limit=${failoverLimit}`,
+    `https://api2.binance.com/api/v3/klines?symbol=${cleanSymbol}&interval=${binanceTf}&limit=${failoverLimit}`,
+    `https://api3.binance.com/api/v3/klines?symbol=${cleanSymbol}&interval=${binanceTf}&limit=${failoverLimit}`,
+    `https://fapi.binance.com/fapi/v1/klines?symbol=${cleanSymbol}&interval=${binanceTf}&limit=${failoverLimit}`
   ];
 
   let lastFailoverError = null;
 
   for (const fUrl of failoverUrls) {
     try {
-      const fRes = await fetchWithTimeout(fUrl, { headers: { 'Accept': 'application/json' } }, 4500);
+      const fRes = await fetchWithTimeout(fUrl, { headers: { 'Accept': 'application/json' } }, 5000);
       if (fRes.ok) {
         const rawF = await fRes.json();
         if (Array.isArray(rawF) && rawF.length > 0) {
@@ -324,6 +382,7 @@ export async function fetchKlinesDualSource({
           }
           if (candles.length > 0) {
             candles.sort((a, b) => a.timestamp - b.timestamp);
+            saveCandlesToCache(cleanSymbol, timeframe, candles);
             return { candles, source: 'binance-failover' };
           }
         }
@@ -333,9 +392,15 @@ export async function fetchKlinesDualSource({
     }
   }
 
-  throw new Error(
-    `Не удалось загрузить свечи для ${cleanSymbol}: первичный бэкенд и резервный шлюз Binance недоступны (${lastFailoverError ? lastFailoverError.message : 'timeout'})`
-  );
+  // 3. Failover Резерв 2: Local & in-memory emergency cache fallback
+  const cached = getCandlesFromCache(cleanSymbol, timeframe);
+  if (cached && cached.length > 0) {
+    return { candles: cached, source: 'offline-cache', isCached: true };
+  }
+
+  // If no cache exists yet (first request of an unknown pair with network outage), return empty array
+  // rather than throwing a fatal error that disrupts the chart container
+  return { candles: [], source: 'offline-empty', isCached: false, error: lastFailoverError?.message || 'offline' };
 }
 
 export default {

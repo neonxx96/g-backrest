@@ -134,6 +134,10 @@ class BacktestParams(BaseModel):
     use_cvd_filter: bool = False
     use_oi_filter: bool = False
     use_rsi_filter: bool = False
+    # Блок 1.2: Кластерные фильтры
+    use_stacked_imbalance_filter: bool = False
+    use_absorption_filter: bool = False
+    use_poc_migration_filter: bool = False
     # ТАКТ 1: Realistic Execution Engine & Multi-TP Scaling Out
     maker_fee_pct: float = Field(0.02, ge=0.0, le=2.0)
     taker_fee_pct: float = Field(0.05, ge=0.0, le=2.0)
@@ -152,6 +156,7 @@ class BacktestParams(BaseModel):
     tp2_mode: str = "trend_rr"
     tp2_rr_ratio: float = Field(2.8, ge=1.0, le=15.0)
     min_wall_lifetime_sec: int = Field(30, ge=10, le=60)
+    sl_tp_mode: str = "fixed"
     # Unified Indicators Configuration { "indicator_id": { "params": {...} } }
     indicators: Optional[Dict[str, Dict[str, Any]]] = None
     # M5.2: EMA Trend periods (Quant Sweep apply); 20/50 = legacy behavior
@@ -188,6 +193,9 @@ class BacktestRequest(BaseModel):
     use_cvd_filter: Optional[bool] = None
     use_oi_filter: Optional[bool] = None
     use_rsi_filter: Optional[bool] = None
+    use_stacked_imbalance_filter: Optional[bool] = None
+    use_absorption_filter: Optional[bool] = None
+    use_poc_migration_filter: Optional[bool] = None
     maker_fee_pct: Optional[float] = None
     taker_fee_pct: Optional[float] = None
     slippage_ticks: Optional[int] = None
@@ -199,6 +207,7 @@ class BacktestRequest(BaseModel):
     tp2_mode: Optional[str] = None
     tp2_rr_ratio: Optional[float] = None
     min_wall_lifetime_sec: Optional[int] = None
+    sl_tp_mode: Optional[str] = None
     source_setup: Optional[Dict[str, Any]] = None
 
     model_config = {"extra": "ignore"}
@@ -778,6 +787,15 @@ async def run_backtest(req: BacktestRequest):
     use_cvd_filter = req.use_cvd_filter if req.use_cvd_filter is not None else p.use_cvd_filter
     use_oi_filter = req.use_oi_filter if req.use_oi_filter is not None else p.use_oi_filter
     use_rsi_filter = req.use_rsi_filter if req.use_rsi_filter is not None else p.use_rsi_filter
+    use_stacked_imbalance_filter = (
+        req.use_stacked_imbalance_filter if req.use_stacked_imbalance_filter is not None else p.use_stacked_imbalance_filter
+    )
+    use_absorption_filter = (
+        req.use_absorption_filter if req.use_absorption_filter is not None else p.use_absorption_filter
+    )
+    use_poc_migration_filter = (
+        req.use_poc_migration_filter if req.use_poc_migration_filter is not None else p.use_poc_migration_filter
+    )
 
     maker_fee_pct = req.maker_fee_pct if req.maker_fee_pct is not None else p.maker_fee_pct
     taker_fee_pct = req.taker_fee_pct if req.taker_fee_pct is not None else p.taker_fee_pct
@@ -791,6 +809,7 @@ async def run_backtest(req: BacktestRequest):
     tp2_mode = req.tp2_mode if req.tp2_mode is not None else p.tp2_mode
     tp2_rr_ratio = req.tp2_rr_ratio if req.tp2_rr_ratio is not None else p.tp2_rr_ratio
     min_wall_lifetime_sec = req.min_wall_lifetime_sec if req.min_wall_lifetime_sec is not None else p.min_wall_lifetime_sec
+    sl_tp_mode = req.sl_tp_mode if req.sl_tp_mode is not None else p.sl_tp_mode
 
     try:
         df = await fetch_history(symbol, req.timeframe, req.days)
@@ -861,6 +880,11 @@ async def run_backtest(req: BacktestRequest):
         risk_per_trade_pct=risk_per_trade_pct,
         fast_period=p.fast_period,
         slow_period=p.slow_period,
+        use_stacked_imbalance_filter=use_stacked_imbalance_filter,
+        use_absorption_filter=use_absorption_filter,
+        use_poc_migration_filter=use_poc_migration_filter,
+        sl_tp_mode=sl_tp_mode,
+        symbol=symbol,
     )
     if "error" in raw:
         raise HTTPException(status_code=400, detail=raw["error"])
@@ -936,6 +960,10 @@ class OptimizeRequest(BaseModel):
     use_cvd_filter: bool = False
     use_oi_filter: bool = False
     use_rsi_filter: bool = False
+    # Блок 1.2: Кластерные фильтры
+    use_stacked_imbalance_filter: bool = False
+    use_absorption_filter: bool = False
+    use_poc_migration_filter: bool = False
     risk_per_trade_pct: Optional[float] = Field(default=None, gt=0, le=10)
     use_trailing: bool = True
     trailing_pct: float = Field(0.5, ge=0.0, le=20.0)

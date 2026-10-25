@@ -80,10 +80,10 @@ export default function ChartToolbar({
   return (
       <div
         style={{ backgroundColor: 'var(--bg-panel-header)', borderColor: 'var(--border-subtle)' }}
-        className="flex items-center justify-between px-2 py-1 border-b text-xs gap-1 overflow-x-auto"
+        className="flex items-center justify-between flex-wrap px-2 py-1 border-b text-xs gap-1 shrink-0"
       >
         {/* Drawing Tools */}
-        <div className="flex items-center space-x-0.5 shrink-0">
+        <div className="flex items-center flex-wrap gap-0.5 shrink-0">
           {titlePrefix && (
             <div className="flex items-center space-x-1 mr-1 shrink-0 font-mono">
               <span className="px-1.5 py-0.2 rounded bg-[#182030] text-[#38bdf8] font-bold text-[10px] border border-[#2b3955]">
@@ -326,7 +326,7 @@ export default function ChartToolbar({
         </div>
 
         {/* Indicators, Overlays and Storage Status */}
-        <div className="flex items-center space-x-1 font-mono-numbers shrink-0">
+        <div className="flex items-center flex-wrap gap-1 font-mono-numbers shrink-0">
           {statusMsg && (
             <span className="text-[#f59e0b] text-[10px] font-mono animate-pulse mr-1">{statusMsg}</span>
           )}

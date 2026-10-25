@@ -62,9 +62,21 @@ async def update_recorder_config(payload: RecorderConfigSchema):
     return recorder.get_storage_stats()
 
 @data_router.get("/recorder/clusters")
-async def get_clusters(symbol: str = Query("BTCUSDT"), limit: int = Query(30)):
-    """Returns footprint clusters (price buckets with buy/sell volume and delta)."""
-    return recorder.get_clusters_for_chart(symbol=symbol.upper(), limit_candles=limit)
+async def get_clusters(
+    symbol: str = Query("BTCUSDT"),
+    limit: int = Query(30, ge=1, le=100),
+    scale: float = Query(1.0, ge=1.0, le=50.0, description="Price bucket multiplier (1x, 2x, 5x, 10x)"),
+    imbalance_ratio: float = Query(3.0, ge=1.2, le=10.0, description="Imbalance threshold ratio (e.g. 3.0 = 300%)"),
+    stacked_min: int = Query(3, ge=2, le=10, description="Minimum consecutive levels for stacked imbalance"),
+):
+    """Returns footprint clusters (price buckets with buy/sell volume, delta, POC, Value Area and imbalance)."""
+    return recorder.get_clusters_for_chart(
+        symbol=symbol.upper(),
+        limit_candles=limit,
+        scale=scale,
+        imbalance_ratio=imbalance_ratio,
+        stacked_min=stacked_min,
+    )
 
 @data_router.get("/profile/tpo")
 async def get_tpo_profile(

@@ -4,6 +4,7 @@ Database Engine & Session Management (Async SQLite)
 
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy import event
 from backend.app.config import DATABASE_URL
 from backend.app.db.models import Base, UserSetting
 
@@ -12,6 +13,16 @@ engine = create_async_engine(
     echo=False,
     future=True
 )
+
+@event.listens_for(engine.sync_engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    try:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA busy_timeout=15000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.close()
+    except Exception:
+        pass
 
 AsyncSessionLocal = sessionmaker(
     bind=engine,

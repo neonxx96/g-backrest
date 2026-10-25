@@ -147,8 +147,8 @@ function ChartDockPanel(props) {
                 {isBacktesting
                   ? 'Счет...'
                   : activeSetup?.entry_price > 0
-                  ? `⚡ Бэктест R:R (1:${activeSetup.rr_ratio || '?'})`
-                  : '⚡ Бэктест'}
+                  ? `Бэктест R:R (1:${activeSetup.rr_ratio || '?'})`
+                  : 'Бэктест'}
               </span>
             </button>
 

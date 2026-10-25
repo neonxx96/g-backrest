@@ -914,8 +914,50 @@ def synthesize_sl_tp_prices(
     tp_pct: float,
     tp1_rr: float,
     price_dec: int,
+    symbol: str = "BTCUSDT",
+    sl_tp_mode: str = "fixed",
+    atr_multiplier: float = 1.35,
+    nearest_support_wall_price: Optional[float] = None,
+    nearest_support_wall_usd: float = 0.0,
+    nearest_resistance_wall_price: Optional[float] = None,
+    nearest_resistance_wall_usd: float = 0.0,
 ) -> Dict[str, float]:
-    """Цены SL/TP1/TP2/безубытка по явным % либо ATR-дефолтам (1:1 с оригиналом)."""
+    """Цены SL/TP1/TP2/безубытка по явным %, ATR-дефолтам или селективному dynamic_sl_tp."""
+    if sl_tp_mode and str(sl_tp_mode).lower() != "fixed" and direction in ("LONG", "SHORT"):
+        from backend.app.engine.dynamic_sl_tp import compute_dynamic_sl_tp_levels
+
+        dyn = compute_dynamic_sl_tp_levels(
+            symbol=symbol,
+            side=direction,
+            entry_price=current_price,
+            sl_pct=sl_pct if sl_pct > 0 else 0.8,
+            tp_pct=tp_pct if tp_pct > 0 else 2.0,
+            atr=atr,
+            sl_tp_mode=sl_tp_mode,
+            atr_multiplier=atr_multiplier,
+            tp1_rr_ratio=max(1.0, tp1_rr),
+            nearest_support_wall_price=nearest_support_wall_price,
+            nearest_support_wall_usd=nearest_support_wall_usd,
+            nearest_resistance_wall_price=nearest_resistance_wall_price,
+            nearest_resistance_wall_usd=nearest_resistance_wall_usd,
+        )
+        sl_price = round(float(dyn["sl_price"]), price_dec)
+        tp1_price = round(float(dyn["tp1_price"]), price_dec)
+        tp2_price = round(float(dyn["tp2_price"]), price_dec)
+        breakeven_price = (
+            round(current_price + current_price * 0.001, price_dec)
+            if direction == "LONG"
+            else round(current_price - current_price * 0.001, price_dec)
+        )
+        return {
+            "sl_dist": abs(current_price - sl_price),
+            "tp2_dist": abs(tp2_price - current_price),
+            "sl_price": sl_price,
+            "tp1_price": tp1_price,
+            "tp2_price": tp2_price,
+            "breakeven_price": breakeven_price,
+        }
+
     sl_dist = current_price * sl_pct / 100.0 if sl_pct > 0 else 1.2 * atr
     tp2_dist = current_price * tp_pct / 100.0 if tp_pct > 0 else 2.8 * atr
     tp1_dist = min(tp2_dist, sl_dist * max(1.0, tp1_rr))
@@ -1068,6 +1110,8 @@ async def compute_probabilistic_forecast(
     sl_pct = float(params.get("stop_loss_pct", 0.0) or 0.0)
     tp_pct = float(params.get("take_profit_pct", 0.0) or 0.0)
     tp1_rr = float(params.get("tp1_rr_ratio", 1.5) or 1.5)
+    sl_tp_mode = str(params.get("sl_tp_mode", "fixed") or "fixed")
+    atr_multiplier = float(params.get("atr_multiplier", 1.35) or 1.35)
     levels = synthesize_sl_tp_prices(
         direction=direction,
         current_price=current_price,
@@ -1076,6 +1120,9 @@ async def compute_probabilistic_forecast(
         tp_pct=tp_pct,
         tp1_rr=tp1_rr,
         price_dec=price_dec,
+        symbol=sym,
+        sl_tp_mode=sl_tp_mode,
+        atr_multiplier=atr_multiplier,
     )
     sl_dist = levels["sl_dist"]
     tp2_dist = levels["tp2_dist"]

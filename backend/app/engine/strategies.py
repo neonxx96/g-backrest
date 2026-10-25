@@ -100,7 +100,7 @@ def compute_raw_signal(i: int, ctx: SimpleNamespace, eff_strategy: str) -> int:
         elif passes_wall and passes_lifetime and high_vals[i] >= high_max10_vals[i] and cvd_vals[i] < cvd_max10_vals[i] and delta < 0 and rsi > 58 and v_rat >= volume_multiplier:
             raw_signal = -1
 
-    elif eff_strategy in ("density_bounce", "limit_bounce"):
+    elif eff_strategy in ("density_bounce", "limit_bounce", "cluster_volume_bounce"):
         if passes_wall and passes_lifetime:
             is_pinbar_bull = (c - low_vals[i]) > 1.8 * (high_vals[i] - c) and delta > 0
             is_pinbar_bear = (high_vals[i] - c) > 1.8 * (c - low_vals[i]) and delta < 0

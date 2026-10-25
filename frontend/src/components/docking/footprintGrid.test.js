@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildFootprintGrid,
+  buildSessionProfile,
   detectImbalance,
   fmtVol,
   fmtTime,
@@ -110,4 +111,34 @@ test('fmtTime: HH:MM UTC из epoch-ms', () => {
   assert.equal(fmtTime(null), '—');
   // 2026-10-24 21:55 UTC
   assert.equal(fmtTime(Date.UTC(2026, 9, 24, 21, 55)), '21:55');
+});
+
+test('buildSessionProfile: считает суммарный объём по уровням и выделяет Session POC', () => {
+  const candles = [
+    candle(1000, [lvl(100, 10, 5), lvl(101, 20, 10)], { poc_price: 101 }),
+    candle(2000, [lvl(100, 30, 20), lvl(101, 5, 5)], { poc_price: 100 })
+  ];
+  const grid = buildFootprintGrid(candles, 14);
+  const prof = buildSessionProfile(grid);
+
+  // На уровне 100 суммарно 15 + 50 = 65; на 101 суммарно 30 + 10 = 40
+  assert.equal(prof.sessionPocPrice, 100);
+  assert.equal(prof.maxVol, 65);
+  const row100 = prof.levels.find((l) => l.price === 100);
+  const row101 = prof.levels.find((l) => l.price === 101);
+  assert.equal(row100.isSessionPoc, true);
+  assert.equal(row100.vol, 65);
+  assert.equal(row101.isSessionPoc, false);
+  assert.equal(row101.vol, 40);
+
+  // isCandlePoc маркирует POC конкретной свечи
+  assert.equal(grid.rows.find((r) => r.price === 101).cells[0].isCandlePoc, true);
+  assert.equal(grid.rows.find((r) => r.price === 101).cells[1].isCandlePoc, false);
+  assert.equal(grid.rows.find((r) => r.price === 100).cells[1].isCandlePoc, true);
+});
+
+test('detectImbalance: поддерживает кастомный порог imbalanceRatio (200% / 400%)', () => {
+  assert.equal(detectImbalance(50, 25, 1, 2.0), 'buy');   // 2.0x при пороге 2.0 -> buy
+  assert.equal(detectImbalance(50, 25, 1, 3.0), null);    // 2.0x при пороге 3.0 -> null
+  assert.equal(detectImbalance(35, 100, 1, 2.5), 'sell'); // 2.85x при пороге 2.5 -> sell
 });

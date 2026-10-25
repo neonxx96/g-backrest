@@ -51,12 +51,17 @@ class OvernightPilotConfig(BaseModel):
     use_cvd_filter: bool = True
     use_oi_filter: bool = False
     use_rsi_filter: bool = True
+    use_stacked_imbalance_filter: bool = False
+    use_absorption_filter: bool = False
+    use_poc_migration_filter: bool = False
     use_multi_tp: bool = True
     use_trailing: bool = True
     trailing_pct: float = Field(0.5, gt=0, le=20)
     trailing_activation_pct: float = Field(0.0, ge=0, le=20)
     tp1_rr_ratio: float = Field(1.5, ge=0.5, le=10)
     tp2_rr_ratio: float = Field(2.8, ge=1, le=15)
+    sl_tp_mode: str = Field("fixed")
+    atr_multiplier: float = Field(1.35, ge=0.3, le=10.0)
     ai_control: bool = False
     # M4 Risk Manager (SRS M4) — default OFF; сравнение sizing-режимов (Фаза 5.6)
     use_m4_risk_gates: bool = False
@@ -358,11 +363,16 @@ class OvernightPilotManager:
                         use_cvd_filter=session.config.use_cvd_filter,
                         use_oi_filter=session.config.use_oi_filter,
                         use_rsi_filter=session.config.use_rsi_filter,
+                        use_stacked_imbalance_filter=session.config.use_stacked_imbalance_filter,
+                        use_absorption_filter=session.config.use_absorption_filter,
+                        use_poc_migration_filter=session.config.use_poc_migration_filter,
                         use_multi_tp=session.config.use_multi_tp,
                         use_trailing=session.config.use_trailing,
                         trailing_pct=session.config.trailing_pct,
                         tp1_rr_ratio=session.config.tp1_rr_ratio,
                         tp2_rr_ratio=session.config.tp2_rr_ratio,
+                        sl_tp_mode=session.config.sl_tp_mode,
+                        atr_multiplier=session.config.atr_multiplier,
                     ),
                 )
                 session.backtest = await run_backtest(req)

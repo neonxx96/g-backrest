@@ -25,6 +25,11 @@ from types import SimpleNamespace
 from backend.app.engine.execution import simulate_execution
 from backend.app.engine.monte_carlo import run_monte_carlo_simulation
 from backend.app.engine.strategies import compute_raw_signal
+from backend.app.engine.cluster_filters import (
+    compute_bar_cluster_arrays,
+    check_cluster_filters_at_bar,
+    compute_fee_aware_rr_bounds,
+)
 
 
 class OrderFlowBacktester:
@@ -174,6 +179,10 @@ class OrderFlowBacktester:
         use_cvd_filter: bool = False,
         use_oi_filter: bool = False,
         use_rsi_filter: bool = False,
+        use_stacked_imbalance_filter: bool = False,
+        use_absorption_filter: bool = False,
+        use_poc_migration_filter: bool = False,
+        live_cluster_candle: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
         """Evaluate the latest fully formed candle with the backtest signal rules.
 
@@ -330,6 +339,19 @@ class OrderFlowBacktester:
                     return None
                 if direction < 0 and not (rsi >= 58 or (previous_rsi >= 64 and rsi <= 70)):
                     return None
+        if use_stacked_imbalance_filter or use_absorption_filter or use_poc_migration_filter:
+            cluster_arrays = compute_bar_cluster_arrays(frame)
+            cluster_ok, _ = check_cluster_filters_at_bar(
+                len(frame) - 1,
+                direction,
+                cluster_arrays,
+                use_stacked_imbalance_filter=use_stacked_imbalance_filter,
+                use_absorption_filter=use_absorption_filter,
+                use_poc_migration_filter=use_poc_migration_filter,
+                live_cluster_candle=live_cluster_candle,
+            )
+            if not cluster_ok:
+                return None
         return {"direction": "LONG" if direction > 0 else "SHORT", "reasons": reasons, "timestamp": int(cur.get("timestamp", 0))}
 
     def explain_latest_signal(
@@ -342,6 +364,10 @@ class OrderFlowBacktester:
         use_cvd_filter: bool = False,
         use_oi_filter: bool = False,
         use_rsi_filter: bool = False,
+        use_stacked_imbalance_filter: bool = False,
+        use_absorption_filter: bool = False,
+        use_poc_migration_filter: bool = False,
+        live_cluster_candle: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Explain the latest decision without changing signal semantics.
 
@@ -503,6 +529,22 @@ class OrderFlowBacktester:
             elif profile not in {"confluence_ema", "naked_test"} and not (rsi <= 42 or rsi >= 58):
                 reject("rsi_filter", round(rsi, 4), "outside", [42.0, 58.0])
 
+        if use_stacked_imbalance_filter or use_absorption_filter or use_poc_migration_filter:
+            cluster_arrays = compute_bar_cluster_arrays(frame)
+            probe_dir = 1 if delta >= 0 else -1
+            cluster_ok, failed_clusters = check_cluster_filters_at_bar(
+                len(frame) - 1,
+                probe_dir,
+                cluster_arrays,
+                use_stacked_imbalance_filter=use_stacked_imbalance_filter,
+                use_absorption_filter=use_absorption_filter,
+                use_poc_migration_filter=use_poc_migration_filter,
+                live_cluster_candle=live_cluster_candle,
+            )
+            if not cluster_ok:
+                for fc in failed_clusters:
+                    reject(fc, False, "==", True)
+
         signal = self.evaluate_latest_signal(
             frame,
             strategy_type=strategy_type,
@@ -512,6 +554,10 @@ class OrderFlowBacktester:
             use_cvd_filter=use_cvd_filter,
             use_oi_filter=use_oi_filter,
             use_rsi_filter=use_rsi_filter,
+            use_stacked_imbalance_filter=use_stacked_imbalance_filter,
+            use_absorption_filter=use_absorption_filter,
+            use_poc_migration_filter=use_poc_migration_filter,
+            live_cluster_candle=live_cluster_candle,
         )
         observed = {"close": close, "volume_ratio": round(volume_ratio, 4), "delta": round(delta, 4), "rsi": round(rsi, 4), "turnover": round(turnover, 2)}
         if signal:
@@ -577,6 +623,13 @@ class OrderFlowBacktester:
         # EMA Trend periods (M5.2 sweep apply): defaults 20/50 keep legacy behavior
         fast_period: int = 20,                     # EMA fast span used by ema_trend/confluence baseline
         slow_period: int = 50,                     # EMA slow span; must be strictly greater than fast_period
+        # Блок 1.2: Кластерные фильтры потока ордеров (default-off для сохранения обратной совместимости)
+        use_stacked_imbalance_filter: bool = False,
+        use_absorption_filter: bool = False,
+        use_poc_migration_filter: bool = False,
+        # Блок 2: Селективный динамический расчёт SL/TP ('fixed' | 'atr_cone' | 'magnet_hybrid' | 'auto_calibrated')
+        sl_tp_mode: str = "fixed",
+        symbol: str = "BTCUSDT",
     ) -> Dict[str, Any]:
         """
         Executes realistic institutional order-flow backtest with:
@@ -611,6 +664,49 @@ class OrderFlowBacktester:
 
         if use_atr_sl and sl_mode == "fixed_pct":
             sl_mode = "atr_volatility"
+
+        eff_sl_tp_mode = str(sl_tp_mode or "fixed").strip().lower()
+        sl_tp_calibration = None
+        if eff_sl_tp_mode == "auto_calibrated":
+            from backend.app.engine.dynamic_sl_tp import calibrate_best_sl_tp_mode_for_df
+
+            sl_tp_calibration = calibrate_best_sl_tp_mode_for_df(
+                self,
+                df,
+                symbol=symbol,
+                strategy_type=eff_strategy,
+                backtest_kwargs={
+                    "take_profit_pct": take_profit_pct,
+                    "stop_loss_pct": stop_loss_pct,
+                    "use_trailing": use_trailing,
+                    "trailing_pct": trailing_pct,
+                    "leverage": leverage,
+                    "volume_multiplier": volume_multiplier,
+                    "min_density_usd": min_density_usd,
+                    "use_atr_filter": use_atr_filter,
+                    "use_atr_sl": use_atr_sl,
+                    "atr_multiplier": atr_multiplier,
+                    "use_cvd_filter": use_cvd_filter,
+                    "use_oi_filter": use_oi_filter,
+                    "use_rsi_filter": use_rsi_filter,
+                    "maker_fee_pct": maker_fee_pct,
+                    "taker_fee_pct": taker_fee_pct,
+                    "slippage_ticks": slippage_ticks,
+                    "use_multi_tp": use_multi_tp,
+                    "tp1_pct": tp1_pct,
+                    "tp1_atr_mult": tp1_atr_mult,
+                    "atr_period": atr_period,
+                    "cvd_ema_period": cvd_ema_period,
+                    "tp1_rr_ratio": tp1_rr_ratio,
+                    "tp2_rr_ratio": tp2_rr_ratio,
+                    "risk_per_trade_pct": risk_per_trade_pct,
+                    "use_stacked_imbalance_filter": use_stacked_imbalance_filter,
+                    "use_absorption_filter": use_absorption_filter,
+                    "use_poc_migration_filter": use_poc_migration_filter,
+                    "symbol": symbol,
+                },
+            )
+            eff_sl_tp_mode = str(sl_tp_calibration.get("selected_mode", "fixed"))
 
         maker_rate = (float(maker_fee_pct) / 100.0) if maker_fee_pct is not None else self.maker_fee_rate
         taker_rate = (float(taker_fee_pct) / 100.0) if taker_fee_pct is not None else self.taker_fee_rate
@@ -680,6 +776,12 @@ class OrderFlowBacktester:
 
         # Spoofing & Wall Lifetime filter: higher min_wall_lifetime_sec (e.g. 45-60s) requires sustained multi-bar volume
         lifetime_factor = 1.0 + max(0.0, (wall_life_sec - 30.0) / 150.0)
+
+        cluster_arrays = (
+            compute_bar_cluster_arrays(data)
+            if (use_stacked_imbalance_filter or use_absorption_filter or use_poc_migration_filter)
+            else None
+        )
 
         signal_ctx = SimpleNamespace(
             ema20_vals=ema20_vals, ema50_vals=ema50_vals,
@@ -759,6 +861,18 @@ class OrderFlowBacktester:
                             if not (rsi >= 58 or (prev_rsi >= 64 and rsi <= 70)):
                                 allowed = False
 
+                if allowed and cluster_arrays is not None:
+                    cluster_ok, _ = check_cluster_filters_at_bar(
+                        i,
+                        raw_signal,
+                        cluster_arrays,
+                        use_stacked_imbalance_filter=use_stacked_imbalance_filter,
+                        use_absorption_filter=use_absorption_filter,
+                        use_poc_migration_filter=use_poc_migration_filter,
+                    )
+                    if not cluster_ok:
+                        allowed = False
+
                 if allowed:
                     signals[i] = raw_signal
 
@@ -785,9 +899,9 @@ class OrderFlowBacktester:
                 use_maker_exits=use_maker_exits, sl_mode=sl_mode,
                 wall_sl_offset_ticks=wall_sl_offset_ticks, atr_multiplier=atr_multiplier,
                 stop_loss_pct=stop_loss_pct, take_profit_pct=take_profit_pct,
-                tp2_mode=tp2_mode, tp1_rr_ratio=tp1_rr_ratio, tp1_pct=tp1_pct,
-                tp1_atr_mult=tp1_atr_mult, risk_per_trade_pct=risk_per_trade_pct,
-                fast_eval=fast_eval,
+                tp2_mode=tp2_mode, tp1_rr_ratio=tp1_rr_ratio, tp2_rr_ratio=tp2_rr_ratio,
+                tp1_pct=tp1_pct, tp1_atr_mult=tp1_atr_mult, risk_per_trade_pct=risk_per_trade_pct,
+                fast_eval=fast_eval, sl_tp_mode=eff_sl_tp_mode, symbol=symbol,
             ),
         )
         trades = exec_result.trades
@@ -1013,8 +1127,11 @@ class OrderFlowBacktester:
                 "wall_sl_offset_ticks": int(wall_sl_offset_ticks or 3),
                 "tp1_rr_ratio": float(tp1_rr_ratio or 1.5),
                 "tp2_mode": tp2_mode,
+                "sl_tp_mode": eff_sl_tp_mode,
                 "min_wall_lifetime_sec": wall_life_sec,
             },
+            "sl_tp_mode": eff_sl_tp_mode,
+            "sl_tp_calibration": sl_tp_calibration,
             "data_feed_context": data_feed_context,
             "active_position_setup": active_position_setup,
             "equity_curve": equity_curve,
@@ -1199,11 +1316,18 @@ class OrderFlowBacktester:
         best_fitness = -1e18
 
         def random_genome() -> Dict[str, Any]:
-            sl = round(rng.uniform(sl_lo, sl_hi) / 0.05) * 0.05
-            tp = round(rng.uniform(tp_lo, tp_hi) / 0.1) * 0.1
+            sl = round(max(0.15, min(2.5, round(rng.uniform(sl_lo, sl_hi) / 0.05) * 0.05)), 2)
+            rr_bounds = compute_fee_aware_rr_bounds(
+                sl,
+                maker_fee_pct=maker_fee_pct if maker_fee_pct is not None else 0.02,
+                taker_fee_pct=taker_fee_pct if taker_fee_pct is not None else 0.05,
+            )
+            min_tp = max(tp_lo, rr_bounds["min_viable_tp_pct"])
+            eff_tp_hi = max(min_tp + 0.2, tp_hi)
+            tp = round(rng.uniform(min_tp, eff_tp_hi) / 0.1) * 0.1
             wall = round(rng.uniform(w_lo, w_hi) / 50000.0) * 50000.0
             return {
-                "stop_loss_pct": round(max(0.15, min(2.5, sl)), 2),
+                "stop_loss_pct": sl,
                 "take_profit_pct": round(max(0.4, min(5.0, tp)), 2),
                 "min_density_usd": round(max(0.0, wall), 0),
                 "use_cvd_filter": rng.choice([True, False]),
@@ -1292,17 +1416,34 @@ class OrderFlowBacktester:
                 "losses_count": sum(int(item.get("losses_count", 0)) for item in fold_results),
             }
 
-            # Fitness Function: Maximize Sharpe & Sortino with strict penalty if Max Drawdown > 5%
+            # Fitness Function: Maximize Sharpe & Sortino with strict penalty if Max Drawdown > 5% and Fee-Drag awareness
+            rr_ratio = round(float(g["take_profit_pct"]) / max(0.05, float(g["stop_loss_pct"])), 2)
             if total_trades == 0:
                 fitness = -500.0
             else:
                 dd_penalty = max(0.0, max_dd - 5.0) * 3.5
                 trade_bonus = min(1.5, total_trades * 0.15)
-                fitness = (0.55 * sharpe) + (0.45 * sortino) + (0.35 * pf) + (0.08 * pnl_pct) + trade_bonus - dd_penalty
+                gross_val = float(raw.get("gross_pnl", 0.0))
+                costs_val = float(raw.get("total_fees_usd", 0.0)) + float(raw.get("total_slippage_usd", 0.0))
+                fee_drag_penalty = 0.0
+                if gross_val > 0 and costs_val > 0.35 * gross_val:
+                    fee_drag_penalty = min(3.0, ((costs_val / gross_val) - 0.35) * 2.5)
+                rr_bonus = min(0.6, max(-1.5, (rr_ratio - 1.8) * 0.35))
+                fitness = (
+                    (0.55 * sharpe)
+                    + (0.45 * sortino)
+                    + (0.35 * pf)
+                    + (0.08 * pnl_pct)
+                    + trade_bonus
+                    + rr_bonus
+                    - dd_penalty
+                    - fee_drag_penalty
+                )
 
             row = {
                 "stop_loss_pct": g["stop_loss_pct"],
                 "take_profit_pct": g["take_profit_pct"],
+                "rr_ratio": rr_ratio,
                 "min_density_usd": g["min_density_usd"],
                 "use_cvd_filter": g["use_cvd_filter"],
                 "atr_period": g["atr_period"],
@@ -1354,31 +1495,22 @@ class OrderFlowBacktester:
             return row
 
         # Seed initial population (include smart anchors + random genomes)
+        def _seed_anchor(sl_target: float, tp_target: float, wall_target: float, cvd_flag: bool, atr_p: int, cvd_p: int) -> Dict[str, Any]:
+            sl_v = round(max(sl_lo, min(sl_hi, sl_target)), 2)
+            tp_v = round(max(tp_lo, min(tp_hi, max(tp_target, sl_v * 1.8))), 2)
+            return {
+                "stop_loss_pct": sl_v,
+                "take_profit_pct": tp_v,
+                "min_density_usd": round(wall_target, 0),
+                "use_cvd_filter": cvd_flag,
+                "atr_period": atr_p,
+                "cvd_ema_period": cvd_p,
+            }
+
         population: List[Dict[str, Any]] = [
-            {
-                "stop_loss_pct": round(max(sl_lo, min(sl_hi, 0.4)), 2),
-                "take_profit_pct": round(max(tp_lo, min(tp_hi, 1.5)), 2),
-                "min_density_usd": round(w_lo, 0),
-                "use_cvd_filter": True,
-                "atr_period": 14,
-                "cvd_ema_period": 14,
-            },
-            {
-                "stop_loss_pct": round(max(sl_lo, min(sl_hi, 0.6)), 2),
-                "take_profit_pct": round(max(tp_lo, min(tp_hi, 1.8)), 2),
-                "min_density_usd": round((w_lo + w_hi) * 0.35, 0),
-                "use_cvd_filter": False,
-                "atr_period": 10,
-                "cvd_ema_period": 14,
-            },
-            {
-                "stop_loss_pct": round(max(sl_lo, min(sl_hi, 0.3)), 2),
-                "take_profit_pct": round(max(tp_lo, min(tp_hi, 1.2)), 2),
-                "min_density_usd": round(w_lo, 0),
-                "use_cvd_filter": False,
-                "atr_period": 14,
-                "cvd_ema_period": 10,
-            },
+            _seed_anchor(0.4, 1.5, w_lo, True, 14, 14),
+            _seed_anchor(0.6, 1.8, (w_lo + w_hi) * 0.35, False, 10, 14),
+            _seed_anchor(0.3, 1.2, w_lo, False, 14, 10),
         ]
         while len(population) < population_size:
             population.append(random_genome())
@@ -1426,6 +1558,10 @@ class OrderFlowBacktester:
                         max(tp_lo, min(tp_hi, child["take_profit_pct"] + rng.choice([-0.4, -0.2, 0.2, 0.4, 0.6]))),
                         2,
                     )
+                # Fee-aware R:R floor: prevent mutated TP from falling below 1.8x SL
+                min_mut_tp = round(min(tp_hi, max(tp_lo, child["stop_loss_pct"] * 1.8)), 2)
+                if child["take_profit_pct"] < min_mut_tp:
+                    child["take_profit_pct"] = min_mut_tp
                 if rng.random() < 0.55:
                     child["min_density_usd"] = round(
                         max(w_lo, min(w_hi, child["min_density_usd"] + rng.choice([-250000, -100000, 100000, 250000, 500000]))),
