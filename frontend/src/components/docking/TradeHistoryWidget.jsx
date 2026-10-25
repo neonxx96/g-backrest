@@ -555,8 +555,13 @@ export default function TradeHistoryWidget(props) {
                         <td className="py-2 px-3 text-right text-neutral-300 tabular-nums">
                           <span className="text-emerald-300">+{Number(trade.mfe ?? 0).toFixed(2)}</span> / <span className="text-rose-300">-{Number(trade.mae ?? 0).toFixed(2)}</span>
                         </td>
-                        <td className="py-2 px-3 text-neutral-400 max-w-[280px] truncate" title={trade.reason || trade.exit_reason || 'Signal'}>
-                          {trade.reason || trade.exit_reason || 'Confluence Signal'}
+                        <td className="py-2 px-3 text-neutral-400 max-w-[280px]">
+                          <div className="truncate text-emerald-200/70" title={trade.entry_reason || trade.reason || 'Signal'}>
+                            Вход: {trade.entry_reason || trade.reason || 'Signal'}
+                          </div>
+                          <div className="truncate text-rose-200/70" title={trade.reason || trade.exit_reason || ''}>
+                            Выход: {trade.reason || trade.exit_reason || '—'}
+                          </div>
                         </td>
                       </tr>
                     );

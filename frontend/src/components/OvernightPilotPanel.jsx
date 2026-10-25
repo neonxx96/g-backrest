@@ -6,6 +6,8 @@ const STRATEGY_OPTIONS = [
   { value: 'confluence_ema', label: 'Confluence EMA · CVD/RSI/ATR' },
   { value: 'cvd_absorption', label: 'CVD Absorption' },
   { value: 'cluster_volume_bounce', label: 'Cluster Volume Bounce' },
+  { value: 'ema_pullback', label: 'EMA Pullback · отскок к EMA20 в тренде' },
+  { value: 'ema_trend', label: 'EMA Trend · пересечение 20/50' },
 ];
 
 function formatPct(value, digits = 3) {

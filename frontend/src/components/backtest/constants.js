@@ -32,6 +32,13 @@ export const STRATEGIES = [
     badge: 'Реальная история',
     description: 'Пересечение EMA(20/50) с подтверждением покупок по дельте'
   },
+  {
+    id: 'ema_pullback',
+    label: '🟢 EMA Pullback (отскок в тренде)',
+    group: 'historical',
+    badge: 'Реальная история',
+    description: 'Касание EMA20 и возврат по тренду — больше сигналов, чем у пересечения EMA(20/50)'
+  },
   // Live Order Book Sentinel (Только Real-time L2)
   {
     id: 'live_density_bounce',
