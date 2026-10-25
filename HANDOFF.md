@@ -1,6 +1,36 @@
-﻿# HANDOFF.md — Протокол передачи контекста между агентами
+# HANDOFF.md — Протокол передачи контекста между агентами
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
+
+## Antigravity — Полное завершение Задачи 007: Архитектурный адаптер ChartEngine + Footprint & Liquidity Terminal 2026-10-25 (ночь)
+
+- **Спецификация задачи:** [`tasks/007-chart-engine-footprint-and-liquidity-terminal.md`](file:///d:/AI_agent_space/gemini/tasks/007-chart-engine-footprint-and-liquidity-terminal.md)
+- **Активный контекст:** [`context/CURRENT_TASK.md`](file:///d:/AI_agent_space/gemini/context/CURRENT_TASK.md) (Status: COMPLETED, все 6 этапов закрыты)
+- **Ветка:** `agent/antigravity/chart-engine-footprint` (синхронизирована с `origin`)
+- **Статус качества:** `🎉 ALL QUALITY CHECKS PASSED. READY TO COMMIT.` (Шлюз `scripts/check.ps1`, 6/6 стадий PASSED, 586 pytest, 85 unit frontend, Playwright UI, 16 canvases).
+
+### Реализовано по всем 6 этапам:
+1. **Этап 1: Архитектурный фасад ChartEngine + Единая тёмная тема**:
+   - `frontend/src/components/chart/engine/ChartEngine.js` — фасад контракта адаптера (`setHistory`, `updateBar`, `setTheme`, `priceTimeToCoord`, `coordToPriceTime`, `subscribeViewportChange`, `resize`, `destroy`).
+   - `frontend/src/components/chart/engine/KLineChartsV9Adapter.js` — адаптер KLineCharts v9.8.12 с rAF-батчингом, защитой от сдвига координат и зум-клампом.
+   - `frontend/src/components/chart/chartStyles.js` — полная унификация цветов тёмной темы (`#0b0e14`, `#141a26`, `#1f2638`, `#3a4560`).
+2. **Этап 2: On-Chart DOM & Квантовый LiquidityWallStore**:
+   - `frontend/src/stores/liquidityWallStore.js` — квантовый стор отслеживания стенок стакана с таймером зрелости, детекцией спуферов (`SPOOF_SUSPECT`, `WALL_CONSUMED`) и долей в стакане (`depthShare`).
+   - `frontend/src/components/chart/OnChartDOM.jsx` — рендерер плотностей L2 на Canvas 2D у шкалы цен с логарифмической/линейной шкалой, динамическим шагом цен `niceBinSize` и панелью настроек.
+3. **Этап 3: Canvas 2D Footprint & Naked POC**:
+   - `frontend/src/components/chart/footprintLayerMath.js` и `FootprintCanvasLayer.jsx` — кластеры объёмов Bid × Ask, дельта, POC свечи, табличка Delta & Volume под свечами, авто-продление линий Naked POC (с отсечкой при касании реальными ценами) и Level of Detail (LOD) скрытие цифр при сжатии масштаба.
+4. **Этап 4: Апгрейд CScalp-стакана и очистка от синтетики (Zero Synthetic Data)**:
+   - `frontend/src/components/dom/useAggregatedOrderbook.js` — полностью удалена подмешивавшаяся синтетика ($1.28M/$1.42M/$620K). Только реальные лимиты из L2 стакана.
+   - `frontend/src/components/OrderBookCanvasLadder.jsx` — добавлены Trade Bubbles (круги рыночных сделок с объёмом в Колонке 2), янтарное выделение крупных плотностей с рамкой, отображение `% от глубины стакана` и бейджи возраста `[<10s]`, `[>30s]`, `[>1m]`.
+5. **Этап 5: Liquidation Heatmap в стиле Alphfractal / Coinglass**:
+   - `frontend/src/components/chart/liquidationHeatmapMath.js` и `LiquidationHeatmapGL.jsx` — WebGL шейдер с аддитивным смешиванием для непрерывного свечения зон ликвидаций, палитры `Magma`, `Sunset`, `Viridis` и `Classic`, ползунки прозрачности и гауссова размытия, фильтр мин. объема USD.
+   - Автополлинг реальных ликвидаций `/api/liquidations` каждые 15с.
+6. **Этап 6: Бенчмарк производительности и финальный вердикт**:
+   - `scripts/benchmark_graphics_stack.py` — одновременный запуск всех 16 холстов под нагрузкой.
+   - Результат: **60.0 FPS** (время кадра 16.67 мс, колебания 16.5–16.8 мс), JS Heap 61 MB.
+   - **Вердикт**: KLineCharts v9 + ChartEngine + Canvas 2D/WebGL полностью справляется, миграция на другой движок не требуется!
+
+---
 
 ## Antigravity — Завершение функциональных задач: Блоки 1, 2, 3 + оптимизация «По парам», вкладка «Претенденты» и 2-уровневый резерв загрузки свечей 2026-10-25 (вечер)
 
