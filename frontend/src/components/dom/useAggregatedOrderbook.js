@@ -73,54 +73,8 @@ export default function useAggregatedOrderbook({
     const bestBidSnap = b0 > 0 ? snapToStep(b0, 'floor') : anchorPrice > 0 ? Number((anchorPrice - stepSize).toFixed(priceDecimals)) : 0;
     const bestAskSnap = a0 > 0 ? snapToStep(a0, 'ceil') : anchorPrice > 0 ? Number((anchorPrice + stepSize).toFixed(priceDecimals)) : 0;
 
-    // Ensure institutional reference walls exist around static anchorPrice so DOM always shows:
-    // 1) Mature resting walls (> $1M, held > 30s -> [>30s] amber badge) for bounce trading & SL calculation
-    // 2) Fresh density levels (> $500k, held < 10s -> [<10s] muted badge)
-    if (anchorPrice > 0) {
-      const refBidWallPrice = Number((anchorPrice - stepSize * 5).toFixed(priceDecimals));
-      const refBidWallKey = refBidWallPrice.toFixed(priceDecimals);
-      if (!bidBuckets.has(refBidWallKey) || bidBuckets.get(refBidWallKey).usd < 1_200_000) {
-        const usd = 1_280_000;
-        bidBuckets.set(refBidWallKey, {
-          price: refBidWallPrice,
-          qty: usd / refBidWallPrice,
-          usd
-        });
-      }
-      if (!levelLifetimes.current.has(refBidWallKey)) {
-        levelLifetimes.current.set(refBidWallKey, now - 42000); // >30s mature wall
-      }
-
-      const refAskWallPrice = Number((anchorPrice + stepSize * 5).toFixed(priceDecimals));
-      const refAskWallKey = refAskWallPrice.toFixed(priceDecimals);
-      if (!askBuckets.has(refAskWallKey) || askBuckets.get(refAskWallKey).usd < 1_350_000) {
-        const usd = 1_420_000;
-        askBuckets.set(refAskWallKey, {
-          price: refAskWallPrice,
-          qty: usd / refAskWallPrice,
-          usd
-        });
-      }
-      if (!levelLifetimes.current.has(refAskWallKey)) {
-        levelLifetimes.current.set(refAskWallKey, now - 38000); // >30s mature wall
-      }
-
-      // Fresh density level (<10s) near anchor
-      const freshBidPrice = Number((anchorPrice - stepSize * 3).toFixed(priceDecimals));
-      const freshBidKey = freshBidPrice.toFixed(priceDecimals);
-      if (!bidBuckets.has(freshBidKey) || bidBuckets.get(freshBidKey).usd < 550_000) {
-        const usd = 620_000;
-        bidBuckets.set(freshBidKey, {
-          price: freshBidPrice,
-          qty: usd / freshBidPrice,
-          usd
-        });
-      }
-      const existingFreshTs = levelLifetimes.current.get(freshBidKey);
-      if (!existingFreshTs || now - existingFreshTs >= 9000) {
-        levelLifetimes.current.set(freshBidKey, now - 3000); // <10s fresh order
-      }
-    }
+    // Truth-First (AGENTS.md §5.2): Никаких выдуманных референс-стенок!
+    // В стакане отображаются строго реальные лимитные заявки из L2 WebSocket / REST глубины.
 
     // Apply any externally injected walls (e.g. live spoof test wall)
     for (const [injKey, inj] of injectedWallsRef.current.entries()) {
@@ -327,6 +281,10 @@ export default function useAggregatedOrderbook({
       tickBubbles.set(key, prev);
     });
 
+    let totalBookUsd = 0;
+    bidBuckets.forEach((b) => { totalBookUsd += b.usd; });
+    askBuckets.forEach((a) => { totalBookUsd += a.usd; });
+
     const lastPriceSnap = lastTradePriceRef.current > 0 ? snapToStep(lastTradePriceRef.current, 'round') : bestBidSnap;
     const spreadAbs = b0 > 0 && a0 > 0 ? Math.max(0, a0 - b0) : stepSize;
 
@@ -337,6 +295,7 @@ export default function useAggregatedOrderbook({
       tickBubbles,
       maxDomVal,
       maxClusterUsd,
+      totalBookUsd,
       pocKey,
       bestBidSnap,
       bestAskSnap,

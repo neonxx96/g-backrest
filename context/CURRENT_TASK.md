@@ -14,7 +14,7 @@
 - [x] **Этап 1**: Фундамент адаптера `ChartEngine` + Тёмная тема (KLineCharts v9)
 - [x] **Этап 2**: On-Chart DOM (у шкалы цен) + `LiquidityWallStore` для алготрейдинга
 - [x] **Этап 3**: Canvas Footprint & Naked POC (LOD скрытие текста, дельта, честный no-data статус)
-- [ ] **Этап 4**: CScalp-апгрейд скальперского стакана (время плотностей, анти-спуфинг, пузыри сделок)
+- [x] **Этап 4**: CScalp-апгрейд скальперского стакана (время плотностей, анти-спуфинг, пузыри сделок)
 - [ ] **Этап 5**: Liquidation Heatmap (Alphfractal/Coinglass стиль, палитры Magma/Sunset)
 - [ ] **Этап 6**: FPS & Memory бенчмарк + итоговый вердикт по графическому движку
 
@@ -25,3 +25,5 @@
 - ⚠️ НАЙДЕНО: dom/useAggregatedOrderbook.js стр.76-123 подмешивает выдуманные «референсные стенки» (~$1.28M/$1.42M/$620K) с поддельным возрастом (now-42000) в живой стакан скальперского DOM — нарушение AGENTS.md §5.2. Исправить в Этапе 4 (OrderBookCanvasLadder/DOM), в LiquidityWallStore эти данные НЕ используются.
 
 - 2026-10-25 Этап 3: chart/footprintLayerMath.js (+test, 9), chart/FootprintCanvasLayer.jsx (Canvas 2D слой футпринта через ChartEngine: Bid x Ask / Delta / Volume, авто-продление линий Naked POC, табличка Delta & Vol под баром, Level of Detail (LOD) скрытие чисел при сжатии масштаба, замер FPS и времени отрисовки кадра в HUD, честные статусы 'no_data' и 'unsupported_tf' без синтетики); подключено в Chart.jsx; тесты в test:pilot (81 тест passed). check.ps1: ALL QUALITY CHECKS PASSED (exit 0).
+
+- 2026-10-25 Этап 4: dom/useAggregatedOrderbook.js (полностью удалена генерация синтетических reference walls $1.28M/$1.42M/$620K, строгий Zero Synthetic Data; добавлен подсчет totalBookUsd); OrderBookCanvasLadder.jsx (отрисовка Trade Bubbles / Time&Sales кругов в колонке 2 с объемом сделок; яркая янтарная заливка и рамка для крупных стенок CScalp-стиль; отображение % глубины от стакана и бейджи времени жизни плотностей [<10s], [>30s], [>1m]); тесты 81/81 passed, check.ps1: ALL QUALITY CHECKS PASSED (exit 0).
