@@ -17,13 +17,17 @@ export default function DOMControlsHeader({
   densityThresholdUsd,
   megaWallUsd,
   clusterMode,
+  rowHeight = 20,
+  volumePalette = 'classic',
   onTickMult,
   onRecenter,
   onToggleSettings,
   onClose,
   onDensityThreshold,
   onMegaWall,
-  onClusterMode
+  onClusterMode,
+  onRowHeight,
+  onVolumePalette,
 }) {
   return (
     <>
@@ -116,6 +120,43 @@ export default function DOMControlsHeader({
               onChange={(e) => onMegaWall(Math.max(50000, Number(e.target.value)))}
               className="w-24 bg-[#08090c] border border-[#1f2430] rounded px-1.5 py-0.5 text-right text-[#ffb300] font-bold"
             />
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-[#787f91]">Масштаб строки:</span>
+            <div className="flex space-x-1">
+              {[16, 20, 24].map((h) => (
+                <button
+                  key={h}
+                  onClick={() => onRowHeight && onRowHeight(h)}
+                  className={`px-1.5 py-0.5 rounded text-[9.5px] ${
+                    rowHeight === h ? 'bg-[#2563eb] text-white font-bold' : 'bg-[#08090c] text-[#787f91] hover:text-white'
+                  }`}
+                  title={`${h}px высота строки`}
+                >
+                  {h}px
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-[#787f91]">Палитра объема:</span>
+            <div className="flex space-x-1">
+              {[
+                { id: 'classic', label: 'Классик' },
+                { id: 'heat', label: 'Тепловая' },
+                { id: 'monochrome', label: 'Моно' },
+              ].map((pal) => (
+                <button
+                  key={pal.id}
+                  onClick={() => onVolumePalette && onVolumePalette(pal.id)}
+                  className={`px-1.5 py-0.5 rounded text-[9.5px] ${
+                    volumePalette === pal.id ? 'bg-[#2563eb] text-white font-bold' : 'bg-[#08090c] text-[#787f91] hover:text-white'
+                  }`}
+                >
+                  {pal.label}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-[#787f91]">Формат кластеров:</span>

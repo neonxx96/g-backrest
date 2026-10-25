@@ -36,6 +36,8 @@ export default function OrderBookDOM({
   const [megaWallUsd, setMegaWallUsd] = useState(1000000); // $1M+ bright amber wall highlight
   const [showSettings, setShowSettings] = useState(false);
   const [clusterMode, setClusterMode] = useState('bid_ask'); // 'bid_ask' | 'delta'
+  const [rowHeight, setRowHeight] = useState(() => Number(localStorage.getItem('dom_row_height')) || 20);
+  const [volumePalette, setVolumePalette] = useState(() => localStorage.getItem('dom_volume_palette') || 'classic');
   const [fps, setFps] = useState(60);
 
   // Sync with global SettingsModal uiConfig
@@ -332,8 +334,8 @@ export default function OrderBookDOM({
 
   // Virtualized window math (±BUFFER_ROWS) — strictly static price scale!
   const centerIdx = Math.floor(TOTAL_ROWS / 2);
-  const firstVisibleIdx = Math.floor(scrollTop / ROW_HEIGHT);
-  const visibleCount = Math.ceil(viewportHeight / ROW_HEIGHT);
+  const firstVisibleIdx = Math.floor(scrollTop / rowHeight);
+  const visibleCount = Math.ceil(viewportHeight / rowHeight);
   const startIdx = Math.max(0, firstVisibleIdx - BUFFER_ROWS);
   const endIdx = Math.min(TOTAL_ROWS - 1, firstVisibleIdx + visibleCount + BUFFER_ROWS);
 
@@ -439,6 +441,16 @@ export default function OrderBookDOM({
         onDensityThreshold={setDensityThresholdUsd}
         onMegaWall={setMegaWallUsd}
         onClusterMode={setClusterMode}
+        rowHeight={rowHeight}
+        volumePalette={volumePalette}
+        onRowHeight={(h) => {
+          setRowHeight(h);
+          localStorage.setItem('dom_row_height', String(h));
+        }}
+        onVolumePalette={(p) => {
+          setVolumePalette(p);
+          localStorage.setItem('dom_volume_palette', p);
+        }}
       />
 
       {/* 4-Column CScalp / Tiger Trade Header (Left to Right: Clusters | Ticks | DOM Size | Price) */}
@@ -537,14 +549,14 @@ export default function OrderBookDOM({
         style={{ fontVariantNumeric: 'tabular-nums' }}
         className="flex-1 overflow-y-auto relative font-mono font-mono-numbers"
       >
-        <div style={{ height: `${TOTAL_ROWS * ROW_HEIGHT}px`, position: 'relative' }}>
+        <div style={{ height: `${TOTAL_ROWS * rowHeight}px`, position: 'relative' }}>
           <div
             style={{
               position: 'absolute',
               top: 0,
               left: 0,
               right: 0,
-              transform: `translateY(${startIdx * ROW_HEIGHT}px)`
+              transform: `translateY(${startIdx * rowHeight}px)`
             }}
           >
             <OrderBookCanvasLadder
@@ -555,13 +567,15 @@ export default function OrderBookDOM({
               stepSize={stepSize}
               priceDecimals={priceDecimals}
               volumeMode={volumeMode}
+              rowHeight={rowHeight}
+              volumePalette={volumePalette}
               megaWallUsd={megaWallUsd}
               densityThresholdUsd={densityThresholdUsd}
               strategyLevels={strategyLevels}
               userLimitOrders={userLimitOrders}
               activePositionSetup={activePositionSetup}
               width={scrollContainerRef.current?.clientWidth || 320}
-              height={Math.max(ROW_HEIGHT, visibleRows.length * ROW_HEIGHT)}
+              height={Math.max(rowHeight, visibleRows.length * rowHeight)}
             />
 
             {/* Hidden semantic metadata elements for accessibility and E2E automation */}

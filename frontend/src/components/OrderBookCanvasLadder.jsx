@@ -15,8 +15,6 @@ import { useTradeOverlayStore } from '../stores/tradeOverlayStore';
  * 8. Позиции и уровни: Синхронизированные плашки ENTRY (синяя), SL (красная), TP1/TP2 (зеленые).
  */
 
-const ROW_HEIGHT = 20;
-
 export default function OrderBookCanvasLadder({
   visibleRows = [],
   aggregatedData = {},
@@ -25,6 +23,8 @@ export default function OrderBookCanvasLadder({
   stepSize = 1,
   priceDecimals = 1,
   volumeMode = 'USDT',
+  rowHeight = 20,
+  volumePalette = 'classic',
   megaWallUsd = 1000000,
   densityThresholdUsd = 250000,
   strategyLevels = [],
@@ -35,6 +35,7 @@ export default function OrderBookCanvasLadder({
   onRowClick = null,
   onHoverRow = null
 }) {
+  const ROW_HEIGHT = Math.max(14, Math.min(32, Number(rowHeight) || 20));
   const canvasRef = useRef(null);
   const hoverIdxRef = useRef(-1);
 
@@ -201,6 +202,31 @@ export default function OrderBookCanvasLadder({
         const totalBook = aggregatedData.totalBookUsd || 1;
         const depthPct = totalBook > 0 ? `${((usdVal / totalBook) * 100).toFixed(1)}%` : '';
 
+        let normFill = side === 'bid' ? 'rgba(38, 166, 154, 0.22)' : 'rgba(239, 83, 80, 0.22)';
+        let largeFill = side === 'bid' ? 'rgba(38, 166, 154, 0.55)' : 'rgba(239, 83, 80, 0.55)';
+        let largeStroke = side === 'bid' ? '#26a69a' : '#ef5350';
+
+        if (volumePalette === 'heat') {
+          const intensity = Math.min(1.0, (rawVal / maxDomVal) * 1.4);
+          if (intensity > 0.7) {
+            normFill = 'rgba(249, 115, 22, 0.35)';
+            largeFill = 'rgba(249, 115, 22, 0.65)';
+            largeStroke = '#f97316';
+          } else if (intensity > 0.35) {
+            normFill = 'rgba(234, 179, 8, 0.28)';
+            largeFill = 'rgba(234, 179, 8, 0.55)';
+            largeStroke = '#eab308';
+          } else {
+            normFill = 'rgba(34, 197, 94, 0.22)';
+            largeFill = 'rgba(34, 197, 94, 0.45)';
+            largeStroke = '#22c55e';
+          }
+        } else if (volumePalette === 'monochrome') {
+          normFill = side === 'bid' ? 'rgba(56, 189, 248, 0.20)' : 'rgba(148, 163, 184, 0.20)';
+          largeFill = side === 'bid' ? 'rgba(56, 189, 248, 0.50)' : 'rgba(148, 163, 184, 0.50)';
+          largeStroke = side === 'bid' ? '#38bdf8' : '#94a3b8';
+        }
+
         if (isMegaWall) {
           // Mega wall highlight: яркий янтарный фон с рамкой (CScalp-референс 5: крупный сайз)
           ctx.fillStyle = 'rgba(245, 158, 11, 0.78)';
@@ -209,13 +235,13 @@ export default function OrderBookCanvasLadder({
           ctx.lineWidth = 1.2;
           ctx.strokeRect(colDepthX + 2, y + 1.5, barWidth, ROW_HEIGHT - 3);
         } else if (isLargeWall) {
-          ctx.fillStyle = side === 'bid' ? 'rgba(38, 166, 154, 0.55)' : 'rgba(239, 83, 80, 0.55)';
+          ctx.fillStyle = largeFill;
           ctx.fillRect(colDepthX + 2, y + 2, barWidth, ROW_HEIGHT - 4);
-          ctx.strokeStyle = side === 'bid' ? '#26a69a' : '#ef5350';
+          ctx.strokeStyle = largeStroke;
           ctx.lineWidth = 0.8;
           ctx.strokeRect(colDepthX + 2, y + 2, barWidth, ROW_HEIGHT - 4);
         } else {
-          ctx.fillStyle = side === 'bid' ? 'rgba(38, 166, 154, 0.22)' : 'rgba(239, 83, 80, 0.22)';
+          ctx.fillStyle = normFill;
           ctx.fillRect(colDepthX + 2, y + 2, barWidth, ROW_HEIGHT - 4);
         }
 
