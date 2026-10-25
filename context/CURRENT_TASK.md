@@ -1,4 +1,4 @@
-# Current Task: Задача 007 — Архитектурный адаптер ChartEngine + Профессиональный Footprint & Liquidity Terminal
+﻿# Current Task: Задача 007 — Архитектурный адаптер ChartEngine + Профессиональный Footprint & Liquidity Terminal
 
 ## Status
 - **Status**: READY_TO_EXECUTE
@@ -12,7 +12,7 @@
 
 ## Roadmap Checklist (from tasks/007)
 - [x] **Этап 1**: Фундамент адаптера `ChartEngine` + Тёмная тема (KLineCharts v9)
-- [ ] **Этап 2**: On-Chart DOM (у шкалы цен) + `LiquidityWallStore` для алготрейдинга
+- [x] **Этап 2**: On-Chart DOM (у шкалы цен) + `LiquidityWallStore` для алготрейдинга
 - [ ] **Этап 3**: Canvas Footprint & Naked POC (LOD скрытие текста, дельта, честный no-data статус)
 - [ ] **Этап 4**: CScalp-апгрейд скальперского стакана (время плотностей, анти-спуфинг, пузыри сделок)
 - [ ] **Этап 5**: Liquidation Heatmap (Alphfractal/Coinglass стиль, палитры Magma/Sunset)
@@ -20,3 +20,6 @@
 
 ## Execution Log
 - 2026-10-25 Этап 1: добавлены engine/ChartEngine.js, engine/KLineChartsV9Adapter.js, engine/chartEngine.test.js; useChartLifecycle.js (init/dispose/history/updateBar/loadMore/resize/zoom-clamp через адаптер, raw остаётся для legacy-индикаторов/оверлеев); Chart.jsx (engineRef, убран неиспользуемый импорт klinecharts); chartStyles.js (separator, tooltip, crosshair в тёмной теме); package.json (+тест в test:pilot, вне whitelist, необходимо для гейта). Исправлен баг: v9 getVisibleRange().from - индекс, а не {timestamp}, из-за чего viewport не восстанавливался после loadMore. check.ps1: ALL QUALITY CHECKS PASSED.
+
+- 2026-10-25 Этап 2: stores/liquidityWallStore.js (+test, 9), chart/onChartDomMath.js (+test, 5), chart/OnChartDOM.jsx (Canvas 2D через ChartEngine, настройки: длина/прозрачность/палитра/лог-шкала/порог стенки/зрелость; статусы loading/stale/error без синтетики; замер времени кадра в HUD); подключено в Chart.jsx; тесты в test:pilot. check.ps1: ALL QUALITY CHECKS PASSED (exit 0).
+- ⚠️ НАЙДЕНО: dom/useAggregatedOrderbook.js стр.76-123 подмешивает выдуманные «референсные стенки» (~$1.28M/$1.42M/$620K) с поддельным возрастом (now-42000) в живой стакан скальперского DOM — нарушение AGENTS.md §5.2. Исправить в Этапе 4 (OrderBookCanvasLadder/DOM), в LiquidityWallStore эти данные НЕ используются.
