@@ -59,10 +59,30 @@ export default function ChartToolbar({
   // Основные настройки TPO/стенок (запрос Di): период TPO, Value Area,
   // привязка к правому краю; порог/бюджет стенок. Хранятся в localStorage,
   // оверлеи перечитывают их через событие signalscript:chart-settings-changed.
+  const [layersHubOpen, setLayersHubOpen] = useState(false);
   const [tpoSettingsOpen, setTpoSettingsOpen] = useState(false);
   const [wallSettingsOpen, setWallSettingsOpen] = useState(false);
   const [tpoSettings, setTpoSettings] = useState(() => readSettings('chart_tpo_settings', TPO_SETTINGS_DEFAULTS));
   const [wallSettings, setWallSettings] = useState(() => readSettings('chart_walls_settings', WALL_SETTINGS_DEFAULTS));
+  const [liqPalette, setLiqPalette] = useState(() => localStorage.getItem('chart_liq_palette') || 'magma');
+  const [liqOpacity, setLiqOpacity] = useState(() => Number(localStorage.getItem('chart_liq_opacity')) || 0.85);
+  const [liqBlur, setLiqBlur] = useState(() => Number(localStorage.getItem('chart_liq_blur')) || 1.3);
+  const [liqMinUsd, setLiqMinUsd] = useState(() => Number(localStorage.getItem('chart_liq_min_usd')) || 25000);
+
+  const updateLiqSetting = (key, val, setter) => {
+    setter(val);
+    localStorage.setItem(key, String(val));
+    window.dispatchEvent(new CustomEvent('signalscript:chart-settings-changed'));
+  };
+
+  const activeLayersCount = [
+    showHeatmap,
+    showFootprint,
+    showTpo,
+    showLiquidations,
+    showWalls,
+    isConeActive,
+  ].filter(Boolean).length;
   const updateTpoSettings = (patch) => {
     const next = { ...tpoSettings, ...patch };
     setTpoSettings(next);
@@ -369,6 +389,273 @@ export default function ChartToolbar({
             <Eye size={11} className={showLiveSignals ? 'text-[#10b981]' : 'text-[#60697b]'} />
             <span>Сигналы</span>
           </button>
+
+          {/* Unified Layers Hub Popover (alphfractal/coinglass style centralized layer hub) */}
+          <div className="relative inline-block mr-0.5">
+            <button
+              type="button"
+              data-testid="btn-toolbar-layers-hub"
+              onClick={() => {
+                setLayersHubOpen(v => !v);
+                setTpoSettingsOpen(false);
+                setWallSettingsOpen(false);
+                setIsTemplateMenuOpen(false);
+              }}
+              title="Центр управления слоями графика: Ликвидации, Футпринт, TPO, Стенки, Конус"
+              className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition flex items-center space-x-1 cursor-pointer ${
+                layersHubOpen
+                  ? 'bg-[#38bdf825] text-[#38bdf8] border border-[#38bdf8]'
+                  : activeLayersCount > 0
+                    ? 'bg-[#182030] text-[#38bdf8] border border-[#2b3955] hover:bg-[#1f2b42]'
+                    : 'text-[#60697b] hover:text-white border border-transparent'
+              }`}
+            >
+              <Layers size={11} />
+              <span className="font-semibold">Слои</span>
+              {activeLayersCount > 0 && (
+                <span className="px-1 py-0.1 text-[8.5px] rounded-full bg-[#2563eb] text-white font-bold">
+                  {activeLayersCount}
+                </span>
+              )}
+              <ChevronDown size={10} className={`transition-transform duration-150 ${layersHubOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {layersHubOpen && (
+              <div
+                data-testid="layers-hub-dropdown"
+                className="absolute top-full right-0 mt-1 w-72 bg-[#0c1017] border border-[#1f293d] rounded-lg shadow-2xl z-50 p-2.5 flex flex-col gap-2.5 backdrop-blur-md text-slate-200"
+              >
+                {/* Header */}
+                <div className="flex items-center justify-between pb-1.5 border-b border-[#1b2333]">
+                  <div className="flex items-center gap-1.5">
+                    <Layers size={12} className="text-[#38bdf8]" />
+                    <span className="text-[11px] font-bold text-white tracking-wide">Слои & Order Flow</span>
+                  </div>
+                  <span className="text-[9.5px] text-[#64748b] font-mono">
+                    Активно: {activeLayersCount}/6
+                  </span>
+                </div>
+
+                {/* Layer 1: Heatmap (Alphfractal / Coinglass) */}
+                <div className="p-1.5 rounded bg-[#101420] border border-[#1b2333] flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={showHeatmap}
+                        onChange={() => {
+                          const next = !showHeatmap;
+                          setShowHeatmap(next);
+                          localStorage.setItem('chart_heatmap', next ? 'true' : 'false');
+                          if (next && loadHeatmap) loadHeatmap(true);
+                        }}
+                        className="rounded accent-amber-500"
+                      />
+                      <span className="text-[10.5px] font-bold text-amber-400">🔥 Карта ликвидаций (WebGL)</span>
+                    </label>
+                  </div>
+                  {showHeatmap && (
+                    <div className="flex flex-col gap-1 pl-4 pt-1 border-t border-[#1b2333]/60 text-[9.5px]">
+                      <div className="flex items-center justify-between text-slate-400">
+                        <span>Палитра:</span>
+                        <div className="flex gap-1">
+                          {['magma', 'sunset', 'viridis'].map((p) => (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() => updateLiqSetting('chart_liq_palette', p, setLiqPalette)}
+                              className={`px-1 py-0.2 rounded text-[8.5px] uppercase transition cursor-pointer ${
+                                liqPalette === p
+                                  ? 'bg-amber-500/25 text-amber-300 border border-amber-500/60 font-bold'
+                                  : 'bg-[#151a26] text-slate-400 border border-[#232a3b]'
+                              }`}
+                            >
+                              {p}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-400">
+                        <span>Непрозрачность: {Math.round(liqOpacity * 100)}%</span>
+                        <input
+                          type="range"
+                          min="0.2"
+                          max="1.0"
+                          step="0.05"
+                          value={liqOpacity}
+                          onChange={(e) => updateLiqSetting('chart_liq_opacity', Number(e.target.value), setLiqOpacity)}
+                          className="w-24 accent-amber-500 h-1 bg-[#1b2333] rounded cursor-pointer"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between text-slate-400">
+                        <span>Мин. порог:</span>
+                        <div className="flex gap-1">
+                          {[10000, 25000, 50000, 100000].map((v) => (
+                            <button
+                              key={v}
+                              type="button"
+                              onClick={() => updateLiqSetting('chart_liq_min_usd', v, setLiqMinUsd)}
+                              className={`px-1 py-0.2 rounded text-[8.5px] transition cursor-pointer ${
+                                liqMinUsd === v
+                                  ? 'bg-amber-500/25 text-amber-300 border border-amber-500/60 font-bold'
+                                  : 'bg-[#151a26] text-slate-400 border border-[#232a3b]'
+                              }`}
+                            >
+                              ${v / 1000}k
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Layer 2: Footprint (Canvas 2D) */}
+                <div className="p-1.5 rounded bg-[#101420] border border-[#1b2333] flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={showFootprint}
+                        onChange={() => {
+                          const next = !showFootprint;
+                          setShowFootprint(next);
+                          localStorage.setItem('chart_footprint', next ? 'true' : 'false');
+                        }}
+                        className="rounded accent-emerald-500"
+                      />
+                      <span className="text-[10.5px] font-bold text-emerald-400">👣 Футпринт (Кластеры Bid x Ask)</span>
+                    </label>
+                  </div>
+                  {showFootprint && (
+                    <div className="text-[9px] text-slate-400 pl-4 border-t border-[#1b2333]/60 pt-1">
+                      Отображает дельту, имбалансы (бордер), absorption (▬) и Naked POC уровни.
+                    </div>
+                  )}
+                </div>
+
+                {/* Layer 3: TPO & Volume Profile */}
+                <div className="p-1.5 rounded bg-[#101420] border border-[#1b2333] flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={showTpo}
+                        onChange={() => {
+                          const next = !showTpo;
+                          setShowTpo(next);
+                          localStorage.setItem('chart_tpo', next ? 'true' : 'false');
+                        }}
+                        className="rounded accent-sky-500"
+                      />
+                      <span className="text-[10.5px] font-bold text-sky-400">📊 TPO & Профиль объёма</span>
+                    </label>
+                  </div>
+                  {showTpo && (
+                    <div className="flex flex-col gap-1 pl-4 pt-1 border-t border-[#1b2333]/60 text-[9.5px]">
+                      <div className="flex items-center justify-between text-slate-400">
+                        <span>Период TPO:</span>
+                        <select
+                          className={settingsSelect}
+                          value={tpoSettings.period_minutes}
+                          onChange={(e) => updateTpoSettings({ period_minutes: Number(e.target.value) })}
+                        >
+                          {[5, 15, 30, 60].map(v => <option key={v} value={v}>{v} мин</option>)}
+                        </select>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-400">
+                        <span>Value Area:</span>
+                        <select
+                          className={settingsSelect}
+                          value={tpoSettings.value_area}
+                          onChange={(e) => updateTpoSettings({ value_area: Number(e.target.value) })}
+                        >
+                          {[0.5, 0.6, 0.7, 0.8].map(v => <option key={v} value={v}>{Math.round(v * 100)}%</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Layer 4: Liquidity Walls */}
+                <div className="p-1.5 rounded bg-[#101420] border border-[#1b2333] flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={showWalls}
+                        onChange={() => {
+                          const next = !showWalls;
+                          setShowWalls(next);
+                          localStorage.setItem('chart_walls', next ? 'true' : 'false');
+                        }}
+                        className="rounded accent-emerald-500"
+                      />
+                      <span className="text-[10.5px] font-bold text-emerald-300">🧲 Стенки стакана (Depth20)</span>
+                    </label>
+                  </div>
+                  {showWalls && (
+                    <div className="flex flex-col gap-1 pl-4 pt-1 border-t border-[#1b2333]/60 text-[9.5px]">
+                      <div className="flex items-center justify-between text-slate-400">
+                        <span>Мин. стенка:</span>
+                        <select
+                          className={settingsSelect}
+                          value={wallSettings.min_usd}
+                          onChange={(e) => updateWallSettings({ min_usd: Number(e.target.value) })}
+                        >
+                          <option value={100000}>$100k</option>
+                          <option value={250000}>$250k</option>
+                          <option value={400000}>$400k</option>
+                          <option value={1000000}>$1M</option>
+                        </select>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-400">
+                        <span>Макс. уровней:</span>
+                        <select
+                          className={settingsSelect}
+                          value={wallSettings.max_walls}
+                          onChange={(e) => updateWallSettings({ max_walls: Number(e.target.value) })}
+                        >
+                          {[2, 3, 4, 6].map(v => <option key={v} value={v}>{v}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Layer 5: Volatility Cone */}
+                <div className="p-1.5 rounded bg-[#101420] border border-[#1b2333] flex items-center justify-between">
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isConeActive}
+                      onChange={toggleVolatilityCone}
+                      className="rounded accent-sky-500"
+                    />
+                    <span className="text-[10.5px] font-bold text-sky-300">📐 Конус волатильности (±1σ/±2σ)</span>
+                  </label>
+                </div>
+
+                {/* Layer 6: Density Mode */}
+                <div className="flex items-center justify-between pt-1 border-t border-[#1b2333] text-[9.5px] text-slate-400">
+                  <span>Режим плотности свечей:</span>
+                  <select
+                    value={densityMode}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setDensityMode(next);
+                      localStorage.setItem('chart_density_mode', next);
+                    }}
+                    className={settingsSelect}
+                  >
+                    <option value="auto">Auto</option>
+                    <option value="compact">Compact</option>
+                    <option value="full">Full</option>
+                  </select>
+                </div>
+              </div>
+            )}
+          </div>
           
           <button
             data-testid="btn-toolbar-toggle-heatmap"

@@ -113,6 +113,7 @@ export default function LiquidationHeatmapGL({
   const [blur, setBlur] = useState(() => propBlur !== undefined ? propBlur : (Number(localStorage.getItem('chart_liq_blur')) || 1.3));
   const [minUsd, setMinUsd] = useState(() => propMinUsd !== undefined ? propMinUsd : (Number(localStorage.getItem('chart_liq_min_usd')) || 25000));
   const [showSettings, setShowSettings] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(() => localStorage.getItem('chart_liq_minimized') === 'true');
 
   // Синхронизация внешних пропсов
   useEffect(() => {
@@ -127,6 +128,22 @@ export default function LiquidationHeatmapGL({
   useEffect(() => {
     if (propMinUsd !== undefined) setMinUsd(propMinUsd);
   }, [propMinUsd]);
+
+  // Синхронизация с глобальными настройками (Layers Hub в Toolbar)
+  useEffect(() => {
+    const handleSettingsChanged = () => {
+      const p = localStorage.getItem('chart_liq_palette');
+      if (p) setPalette(p);
+      const o = localStorage.getItem('chart_liq_opacity');
+      if (o !== null) setOpacity(Number(o));
+      const b = localStorage.getItem('chart_liq_blur');
+      if (b !== null) setBlur(Number(b));
+      const m = localStorage.getItem('chart_liq_min_usd');
+      if (m !== null) setMinUsd(Number(m));
+    };
+    window.addEventListener('signalscript:chart-settings-changed', handleSettingsChanged);
+    return () => window.removeEventListener('signalscript:chart-settings-changed', handleSettingsChanged);
+  }, []);
 
   const rawPoints = liquidationsToHeatmapPoints(liquidations, minUsd);
   const pointsRef = useRef(rawPoints);
@@ -359,17 +376,45 @@ export default function LiquidationHeatmapGL({
       />
 
       {/* Интерактивная плашка настроек Liquidation Heatmap в правом верхнем углу */}
-      <div className="absolute top-2 right-2 z-20 flex items-center gap-1.5 font-mono text-[10px]">
-        <button
-          type="button"
-          onClick={() => setShowSettings(!showSettings)}
-          className="px-2 py-0.5 rounded bg-[#10141e]/90 text-amber-400 hover:text-amber-300 border border-amber-500/30 backdrop-blur shadow"
-          title="Настройки карты ликвидаций (палитра, прозрачность, размытие)"
-        >
-          🔥 Liq: {PALETTES[palette]?.name || 'Magma'} ({rawPoints.length} pts) ⚙
-        </button>
+      <div className="absolute top-2 right-2 z-20 flex items-center gap-1 font-mono text-[10px]">
+        {isMinimized ? (
+          <button
+            type="button"
+            onClick={() => {
+              setIsMinimized(false);
+              localStorage.setItem('chart_liq_minimized', 'false');
+            }}
+            className="w-6 h-6 rounded-full bg-[#10141e]/85 text-amber-400 hover:text-amber-300 border border-amber-500/30 backdrop-blur shadow flex items-center justify-center transition cursor-pointer"
+            title={`Развернуть статус ликвидаций (${PALETTES[palette]?.name || 'Magma'}, ${rawPoints.length} pts)`}
+          >
+            🔥
+          </button>
+        ) : (
+          <div className="flex items-center gap-0.5 bg-[#10141e]/90 border border-amber-500/30 rounded px-1.5 py-0.5 backdrop-blur shadow">
+            <button
+              type="button"
+              onClick={() => setShowSettings(!showSettings)}
+              className="text-amber-400 hover:text-amber-300 font-semibold cursor-pointer"
+              title="Настройки карты ликвидаций (палитра, прозрачность, размытие)"
+            >
+              🔥 Liq: {PALETTES[palette]?.name || 'Magma'} ({rawPoints.length} pts) ⚙
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setIsMinimized(true);
+                setShowSettings(false);
+                localStorage.setItem('chart_liq_minimized', 'true');
+              }}
+              className="text-slate-500 hover:text-slate-300 px-0.5 text-[9px] transition cursor-pointer"
+              title="Свернуть индикатор ликвидаций"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
-        {showSettings && (
+        {showSettings && !isMinimized && (
           <div className="absolute top-7 right-0 p-2.5 rounded bg-[#0d111a] border border-[#1f2638] shadow-2xl text-slate-200 w-56 flex flex-col gap-2">
             <div className="flex justify-between items-center text-[10px] font-bold text-slate-300 border-b border-[#1f2638] pb-1">
               <span>Ликвидации (Alphfractal)</span>
@@ -392,6 +437,7 @@ export default function LiquidationHeatmapGL({
                     onClick={() => {
                       setPalette(p);
                       localStorage.setItem('chart_liq_palette', p);
+                      window.dispatchEvent(new CustomEvent('signalscript:chart-settings-changed'));
                     }}
                     className={`px-1.5 py-0.5 rounded text-[9.5px] uppercase transition ${
                       palette === p
@@ -420,6 +466,7 @@ export default function LiquidationHeatmapGL({
                   const val = Number(e.target.value);
                   setOpacity(val);
                   localStorage.setItem('chart_liq_opacity', String(val));
+                  window.dispatchEvent(new CustomEvent('signalscript:chart-settings-changed'));
                 }}
                 className="w-full accent-amber-500 h-1 bg-[#151a26] rounded cursor-pointer"
               />
@@ -440,6 +487,7 @@ export default function LiquidationHeatmapGL({
                   const val = Number(e.target.value);
                   setBlur(val);
                   localStorage.setItem('chart_liq_blur', String(val));
+                  window.dispatchEvent(new CustomEvent('signalscript:chart-settings-changed'));
                 }}
                 className="w-full accent-amber-500 h-1 bg-[#151a26] rounded cursor-pointer"
               />
@@ -458,6 +506,7 @@ export default function LiquidationHeatmapGL({
                     onClick={() => {
                       setMinUsd(v);
                       localStorage.setItem('chart_liq_min_usd', String(v));
+                      window.dispatchEvent(new CustomEvent('signalscript:chart-settings-changed'));
                     }}
                     className={`py-0.5 rounded text-[8.5px] ${
                       minUsd === v

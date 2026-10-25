@@ -1,4 +1,4 @@
-﻿# Current Task: Задача 007 — Архитектурный адаптер ChartEngine + Профессиональный Footprint & Liquidity Terminal
+# Current Task: Задача 007 — Архитектурный адаптер ChartEngine + Профессиональный Footprint & Liquidity Terminal
 
 ## Status
 - **Status**: COMPLETED
@@ -31,3 +31,4 @@
 - 2026-10-25 Этап 5: chart/liquidationHeatmapMath.js (+test, 4; палитры Magma, Sunset, Viridis, Classic; расчет интенсивности ликвидаций и геометрии сплата), chart/LiquidationHeatmapGL.jsx (WebGL шейдер с аддитивным накоплением свечения ликвидаций Alphfractal/Coinglass стиль, переключение палитр, слайдеры прозрачности и размытия, фильтр мин. USD, 2D fallback); подключение в Chart.jsx и useChartOverlays.js с автополлингом /api/liquidations каждые 15с; тесты в test:pilot (85 тестов passed). check.ps1: ALL QUALITY CHECKS PASSED (exit 0).
 
 - 2026-10-25 Этап 6: scripts/benchmark_graphics_stack.py (бенчмарк под полной нагрузкой 16 холстов: KLineCharts v9 + Footprint + DOM + Liquidation Heatmap WebGL + OrderBook Ladder; замер FPS=60.0, avgFrame=16.67ms, JS Heap=61MB; вердикт: KLineCharts v9 + ChartEngine гибридный стек полностью справляется, миграция не требуется); tasks/007 acceptance criteria все [x]. check.ps1: ALL QUALITY CHECKS PASSED (exit 0).
+- 2026-10-25 UX Polish: Единый центр управления слоями графика («Слои» Hub) в тулбаре ChartToolbar.jsx с группировкой всех квант/orderflow-слоев, настроек палитр/прозрачности/периодов; сворачиваемый статус-бейдж ликвидаций с сохранением в localStorage; двусторонняя синхронизация через CustomEvent. check.ps1: ALL QUALITY CHECKS PASSED (exit 0).
