@@ -519,7 +519,9 @@ class LivePaperRunner:
                 int(self.duration_hours * 3600 - (time.time() - self.started_at)),
             )
 
-        total_equity = state_dict.get("balance", self.initial_capital) + state_dict.get("unrealized_pnl", 0.0)
+        # paper_trading.get_state() уже возвращает balance = initial + realized + unrealized
+        # (equity); unrealized НЕ прибавляем повторно — иначе открытая позиция считается дважды.
+        total_equity = state_dict.get("balance", self.initial_capital)
         equity_values = [float(point.get("equity", self.initial_capital)) for point in self.equity_curve]
         peak_equity = self.initial_capital
         max_drawdown_pct = 0.0
