@@ -30,6 +30,7 @@ export function useChartOverlays({
   chartRef, chartContainerRef, currentKlines, symbol,
   showVwap, showLiquidations, minLiqUsd,
   showHeatmap, heatmapMinUsd, setDensityPoints,
+  setLiquidationEvents,
   showFootprint, showTpo, showWalls, densityMode,
 }) {
   const depthWsRef = useRef(null);
@@ -93,13 +94,18 @@ export function useChartOverlays({
         try { chartRef.current.removeOverlay({ id }); } catch (_) {}
       });
       activeLiqOverlays.current = [];
+      if (typeof setLiquidationEvents === 'function') setLiquidationEvents([]);
       return;
     }
 
     try {
-      const res = await fetch(`${API_BASE}/liquidations?symbol=${symbol}&min_usd=${minLiqUsd}&limit=50`);
+      const res = await fetch(`${API_BASE}/liquidations?symbol=${symbol}&min_usd=${minLiqUsd}&limit=300`);
       if (!res.ok) return;
       const data = await res.json();
+
+      if (typeof setLiquidationEvents === 'function' && Array.isArray(data)) {
+        setLiquidationEvents(data);
+      }
 
       activeLiqOverlays.current.forEach(id => {
         try { chartRef.current.removeOverlay({ id }); } catch (_) {}
@@ -117,7 +123,15 @@ export function useChartOverlays({
         });
       }
     } catch (_) {}
-  }, [symbol, showLiquidations, minLiqUsd]);
+  }, [symbol, showLiquidations, minLiqUsd, setLiquidationEvents]);
+
+  // Периодическое обновление ликвидаций и мгновенная реакция на переключение
+  useEffect(() => {
+    loadLiquidations();
+    if (!showLiquidations) return undefined;
+    const interval = setInterval(loadLiquidations, 15000);
+    return () => clearInterval(interval);
+  }, [loadLiquidations, showLiquidations]);
 
   // Load Density Heatmap points (задача 4.5): точки отдаются в WebGL-heatmap поверх графика
   // force=true — вызов из тумблера: состояние showHeatmap ещё старое, чистим/грузим явно

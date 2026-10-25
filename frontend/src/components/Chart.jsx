@@ -23,6 +23,7 @@ import { useTradesStore } from '../stores/tradesStore';
 import { renderBacktestTrades, clearBacktestTrades, renderLiveSignals, clearLiveSignals, renderWhaleTrades, clearWhaleTrades } from '../utils/chartAnnotations';
 import AssistantHUD from './AssistantHUD';
 import DepthHeatmapGL from './DepthHeatmapGL';
+import LiquidationHeatmapGL from './chart/LiquidationHeatmapGL';
 import ChartToolbar from './chart/ChartToolbar.jsx';
 import ChartContextMenu, { useChartContextMenu } from './chart/ChartContextMenu.jsx';
 import { useChartDrawings } from './chart/useChartDrawings.js';
@@ -130,6 +131,8 @@ export default function Chart({
 
   // Точки плотностей для WebGL-heatmap (задача 4.5); бюджетирование — densityHeatmapMath.selectDensityPoints
   const [densityPoints, setDensityPoints] = useState([]);
+  // События ликвидаций для Alphfractal WebGL-heatmap
+  const [liquidationEvents, setLiquidationEvents] = useState([]);
 
   // Context Menu & Level Inspector State (ТАКТ 3) — логика в chart/ChartContextMenu.jsx
   const {
@@ -164,6 +167,7 @@ export default function Chart({
     chartRef, chartContainerRef, currentKlines, symbol,
     showVwap, showLiquidations, minLiqUsd,
     showHeatmap, heatmapMinUsd, setDensityPoints,
+    setLiquidationEvents,
     showFootprint, showTpo, showWalls, densityMode,
   });
 
@@ -435,6 +439,14 @@ export default function Chart({
 
         {/* Непрерывная WebGL-heatmap плотностей стакана (задача 4.5) */}
         <DepthHeatmapGL chart={chartInstance} points={densityPoints} active={showHeatmap && Boolean(chartInstance)} />
+
+        {/* Liquidation Heatmap (Alphfractal style): непрерывное WebGL свечение зон ликвидаций (Magma / Sunset / Viridis) */}
+        <LiquidationHeatmapGL
+          chart={chartInstance}
+          engine={chartEngine}
+          liquidations={liquidationEvents}
+          active={showLiquidations && Boolean(chartInstance || chartEngine)}
+        />
 
         {/* On-Chart DOM: плотности L2 у шкалы цен (Canvas, через ChartEngine) + LiquidityWallStore */}
         {chartEngine && <OnChartDOM engine={chartEngine} symbol={symbol} />}
