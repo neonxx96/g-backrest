@@ -22,6 +22,7 @@
 4. **Этап 4: Апгрейд CScalp-стакана и очистка от синтетики (Zero Synthetic Data)**:
    - `frontend/src/components/dom/useAggregatedOrderbook.js` — полностью удалена подмешивавшаяся синтетика ($1.28M/$1.42M/$620K). Только реальные лимиты из L2 стакана.
    - `frontend/src/components/OrderBookCanvasLadder.jsx` — добавлены Trade Bubbles (круги рыночных сделок с объёмом в Колонке 2), янтарное выделение крупных плотностей с рамкой, отображение `% от глубины стакана` и бейджи возраста `[<10s]`, `[>30s]`, `[>1m]`.
+   - Добавлено вертикальное масштабирование высоты строки стакана (`16px`, `20px`, `24px`) и настраиваемая палитра объёма (`Классик`, `Тепловая`, `Моно`) в `DOMControlsHeader.jsx` и `OrderBookDOM.jsx`.
 5. **Этап 5: Liquidation Heatmap в стиле Alphfractal / Coinglass**:
    - `frontend/src/components/chart/liquidationHeatmapMath.js` и `LiquidationHeatmapGL.jsx` — WebGL шейдер с аддитивным смешиванием для непрерывного свечения зон ликвидаций, палитры `Magma`, `Sunset`, `Viridis` и `Classic`, ползунки прозрачности и гауссова размытия, фильтр мин. объема USD.
    - Автополлинг реальных ликвидаций `/api/liquidations` каждые 15с.
