@@ -5,6 +5,7 @@ import ScalperTradeDesk from './components/ScalperTradeDesk';
 import Tape from './components/Tape';
 import SignalsFeed from './components/SignalsFeed';
 import TerminalDockview from './components/docking/TerminalDockview';
+import UiKitShowcase from './components/UiKitShowcase';
 import { loadLocalUiConfig, applyUiConfigToDOM } from './components/SettingsModal';
 import BacktestPanel from './components/BacktestPanel';
 import { loadChartIndicators, saveChartIndicators } from './components/IndicatorsModal';
@@ -741,6 +742,11 @@ export default function App() {
       setShowSignals(true);
     }
   };
+
+  const isUiKit = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('ui-kit') === '1';
+  if (isUiKit) {
+    return <UiKitShowcase />;
+  }
 
   return (
     <div
