@@ -982,8 +982,8 @@ class LivePaperRunner:
         enriched_frame = indicator_context.get("frame") if indicator_context else None
         book_dict = None
         if hasattr(data, "orderbook_depth") and data.orderbook_depth:
-            bids = [(float(b.price), float(b.qty)) for b in getattr(data.orderbook_depth, "bids", [])]
-            asks = [(float(a.price), float(a.qty)) for a in getattr(data.orderbook_depth, "asks", [])]
+            bids = [(float(b.price), float(getattr(b, "qty", getattr(b, "size", 0.0)))) for b in getattr(data.orderbook_depth, "bids", [])]
+            asks = [(float(a.price), float(getattr(a, "qty", getattr(a, "size", 0.0)))) for a in getattr(data.orderbook_depth, "asks", [])]
             book_dict = {
                 "bids": bids,
                 "asks": asks,
