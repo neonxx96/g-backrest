@@ -1,4 +1,4 @@
-﻿# run_app.ps1 — запуск SignalScript: backend (:8000) + frontend (:5173).
+﻿# run_app.ps1 — запуск SignalScript: backend (:8000) + frontend (:7100).
 # Безопасен к повторному запуску: компонент пропускается, если его порт уже занят.
 # Требование кодировки (AGENTS.md): файл сохранён как UTF-8 with BOM — не менять!
 
@@ -54,13 +54,13 @@ if (Test-PortListening -Port 8000) {
 
 # --- Frontend ---
 if (-not $SkipFrontend) {
-    if (Test-PortListening -Port 5173) {
-        Write-Host '[run_app] Frontend уже работает на :5173 — пропуск запуска.'
+    if (Test-PortListening -Port 7100) {
+        Write-Host '[run_app] Frontend уже работает на :7100 — пропуск запуска.'
     } else {
         Write-Host '[run_app] Старт frontend (npm run dev) ...'
-        Start-Process -FilePath 'npm' -ArgumentList 'run dev -- --host 127.0.0.1 --port 5173' `
+        Start-Process -FilePath 'npm' -ArgumentList 'run dev -- --host 127.0.0.1 --port 7100' `
             -WorkingDirectory "$ProjectRoot\frontend" -WindowStyle Minimized
     }
 }
 
-Write-Host '[run_app] Готово. Терминал: http://127.0.0.1:5173'
+Write-Host '[run_app] Готово. Терминал: http://127.0.0.1:7100 (http://localhost:7100)'

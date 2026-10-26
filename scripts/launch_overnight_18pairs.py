@@ -40,13 +40,13 @@ PAIRS_CONFIG = [
     },
     {
         "symbol": "ETHUSDT",
-        "strategy_type": "cvd_absorption",
+        "strategy_type": "confluence_ema",
         "timeframe": "15m",
         "days": 14,
         "initial_capital": 1000.0,
         "risk_per_trade_pct": 1.0,
         "stop_loss_pct": 0.7,
-        "take_profit_pct": 1.6,
+        "take_profit_pct": 1.8,
         "leverage": 2.0,
         "duration_hours": 24.0,
         "min_density_usd": 350000.0,
@@ -391,7 +391,7 @@ PAIRS_CONFIG = [
     },
     {
         "symbol": "ADAUSDT",
-        "strategy_type": "cvd_absorption",
+        "strategy_type": "confluence_ema",
         "timeframe": "15m",
         "days": 14,
         "initial_capital": 1000.0,
@@ -445,7 +445,7 @@ PAIRS_CONFIG = [
     },
     {
         "symbol": "OPUSDT",
-        "strategy_type": "cvd_absorption",
+        "strategy_type": "confluence_ema",
         "timeframe": "15m",
         "days": 14,
         "initial_capital": 1000.0,
@@ -509,6 +509,12 @@ def post_json(endpoint: str, data: dict):
         return json.loads(resp.read().decode("utf-8"))
 
 def main():
+    print("[*] Stopping any previous pilot sessions...")
+    try:
+        post_json("stop", {})
+    except Exception as e:
+        print(f"    (no active sessions to stop: {e})")
+
     print(f"[*] Step 1: Sending Preflight for {len(PAIRS_CONFIG)} pairs...")
     t0 = time.time()
     preflight_res = post_json("preflight", PAIRS_CONFIG)

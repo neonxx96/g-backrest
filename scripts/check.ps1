@@ -44,7 +44,7 @@ function Get-UiSmokeArgs {
 
     $args = @("--part", $Part)
     $backendReady = Test-LocalHttp -Url "http://127.0.0.1:8000/api/health"
-    $frontendReady = Test-LocalHttp -Url "http://127.0.0.1:5173/"
+    $frontendReady = (Test-LocalHttp -Url "http://localhost:7100/") -or (Test-LocalHttp -Url "http://127.0.0.1:7100/") -or (Test-LocalHttp -Url "http://127.0.0.1:5173/")
     if ($backendReady -and $frontendReady) {
         Write-Host "        (reusing healthy local servers; autostart disabled)" -ForegroundColor DarkGray
         $args += "--no-autostart"
