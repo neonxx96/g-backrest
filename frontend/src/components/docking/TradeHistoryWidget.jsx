@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { useBacktestStore } from '../../stores/backtestStore';
 import { useColorLinksStore } from '../../stores/colorLinksStore';
+import PostMortemAnalyticsTab from './PostMortemAnalyticsTab';
 import { collectMarathonPositions, collectMarathonTrades, mergePaperLists, hasMarathonData } from './marathonFeed';
 import {
   collectPaperPairs,
@@ -767,6 +768,17 @@ export default function TradeHistoryWidget(props) {
           >
             <Zap size={12} />
             <span>Квант-режимы & Прогнозы</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('analytics')}
+            className={`px-2.5 py-1 rounded text-xs font-mono transition cursor-pointer flex items-center space-x-1.5 ${
+              activeTab === 'analytics'
+                ? 'bg-neutral-800 text-white font-medium border border-neutral-700'
+                : 'text-neutral-400 hover:text-white hover:bg-neutral-800/50'
+            }`}
+          >
+            <span>Аналитика & Винрейт</span>
           </button>
         </div>
       </div>
@@ -1688,6 +1700,8 @@ export default function TradeHistoryWidget(props) {
             </div>
           </div>
         )}
+
+        {activeTab === 'analytics' && <PostMortemAnalyticsTab />}
 
         {activeTab === 'regimes' && (
           <div className="p-3">
