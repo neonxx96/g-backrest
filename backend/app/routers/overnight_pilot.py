@@ -1,9 +1,11 @@
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 from backend.app.services.deep_intent_logger import DeepIntentLogger
 from backend.app.services.overnight_pilot import OvernightPilotConfig, overnight_pilot_manager
+from backend.app.services.pair_selector import build_pilot_configs, load_last_selection, run_selection
 
 router = APIRouter(prefix="/api/overnight-pilot", tags=["overnight-pilot"])
 
@@ -184,3 +186,43 @@ async def stop_overnight_pilot():
     result = await overnight_pilot_manager.stop()
     await overnight_pilot_manager.persist()
     return result
+
+
+class AutoSelectRequest(BaseModel):
+    """Параметры авто-настройки: подбор стратегий под монеты и запуск paper-марафона."""
+    symbols: Optional[List[str]] = None
+    days: int = Field(14, ge=3, le=30)
+    include_explore: bool = True
+    duration_hours: float = Field(24.0, gt=0, le=168)
+    rerun: bool = True
+    start: bool = True
+
+
+@router.get("/auto-select/last")
+async def get_last_auto_selection():
+    """Последний результат подбора стратегий (data/pair_selection.json)."""
+    return load_last_selection() or {"results": [], "counts": {}}
+
+
+@router.post("/auto-select")
+async def auto_select_and_start(req: AutoSelectRequest = AutoSelectRequest()):
+    """Один вызов: подобрать оптимальные стратегии/ТФ по терминальным данным (TRAIN/OOS)
+    и запустить paper-марафон только на подтверждённых парах. Реальные ордера не отправляются."""
+    selection = None if req.rerun else load_last_selection()
+    if selection is None:
+        selection = await run_selection(req.symbols, req.days)
+    raw = build_pilot_configs(selection, include_explore=req.include_explore, duration_hours=req.duration_hours)
+    if not raw:
+        return {"started": False, "reason": "ни одна пара не прошла отбор - торговля не запущена (кэш)",
+                "counts": selection.get("counts", {}), "results": selection.get("results", [])}
+    if not req.start:
+        return {"started": False, "preview": raw, "counts": selection.get("counts", {})}
+    try:
+        configs = [OvernightPilotConfig(**c) for c in raw]
+        await overnight_pilot_manager.stop()
+        result = await overnight_pilot_manager.start(configs)
+        await overnight_pilot_manager.persist()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"started": True, "pairs": [(c["symbol"], c["strategy_type"], c["timeframe"], c["risk_per_trade_pct"]) for c in raw],
+            "counts": selection.get("counts", {}), "result": result}

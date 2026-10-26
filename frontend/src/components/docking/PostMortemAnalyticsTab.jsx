@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import AutoSelectPanel from './AutoSelectPanel';
 
 const CAUSE_LABELS = {
   STOP_OUT: 'Выбит стоп',
@@ -72,6 +73,8 @@ export default function PostMortemAnalyticsTab() {
           ))}
         </div>
       </div>
+
+      <AutoSelectPanel />
 
       {loading && !data && <div className="text-neutral-500">Загрузка…</div>}
       {error && <div className="text-rose-400">Ошибка: {error}</div>}

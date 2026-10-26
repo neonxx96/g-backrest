@@ -206,3 +206,13 @@ powershell -ExecutionPolicy Bypass -File scripts/cline-auto.ps1 -TaskFile tasks/
 ```
 
 Модель фиксируется на время одной задачи. Если сложность выросла, агент обязан остановиться с маркером `ESCALATE_MODEL`, а не переключаться посреди работы.
+
+## 10. Команды-намерения пользователя (готовые сценарии)
+
+- **«Настрой оптимальные стратегии / запусти тест на ночь»** -> один вызов:
+  `POST http://127.0.0.1:8000/api/overnight-pilot/auto-select` (тело необязательно; поля: `symbols`, `days`, `include_explore`, `duration_hours`, `start`).
+  Подбирает стратегию/ТФ/SL/TP под каждую монету (TRAIN 70% / OOS 30%), берёт только `SELECT` (риск 0.35%) и `EXPLORE` (риск 0.15%), `SKIP` не торгуется, и запускает paper-марафон. Результат: `data/pair_selection.json`, UI: вкладка «Аналитика & Винрейт».
+  Только подбор без запуска: `"start": false`. CLI-аналог: `.\.venv\Scripts\python.exe scripts/select_pair_strategies.py`.
+- **«Покажи статистику / что пошло не так»** -> `GET /api/paper-trading/analytics/post-mortem?period=24h` (причины потерь, Fee Burden, рекомендации).
+- **Запуск проекта в Docker:** `docker compose up -d --build` (backend :8000, frontend :7100, данные в `./data`).
+- **Правило «не регрессировать»:** любое изменение сначала проходит `scripts/check.ps1`; изменения стратегий принимаются только при подтверждении на OOS/A-B, а не по обучающей выборке.
