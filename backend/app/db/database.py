@@ -4,6 +4,7 @@ Database Engine & Session Management (Async SQLite)
 
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 from sqlalchemy import event
 from backend.app.config import DATABASE_URL
 from backend.app.db.models import Base, UserSetting
@@ -11,15 +12,15 @@ from backend.app.db.models import Base, UserSetting
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
-    future=True
+    future=True,
+    poolclass=NullPool,
 )
 
 @event.listens_for(engine.sync_engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
     try:
         cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute("PRAGMA busy_timeout=15000")
+        cursor.execute("PRAGMA busy_timeout=5000")
         cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.close()
     except Exception:
@@ -33,7 +34,9 @@ AsyncSessionLocal = sessionmaker(
 
 async def init_db():
     """Initializes tables, migrates missing columns, and seeds default user_id='0' settings."""
+    from sqlalchemy import text
     async with engine.begin() as conn:
+        await conn.execute(text("PRAGMA journal_mode=WAL"))
         await conn.run_sync(Base.metadata.create_all)
         
         # Check and migrate columns in user_settings table

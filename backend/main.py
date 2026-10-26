@@ -175,11 +175,18 @@ from backend.app.routers.quant_router import router as quant_router
 app.include_router(quant_router)
 
 if __name__ == "__main__":
-    active_port = find_available_port(BACKEND_HOST, BACKEND_PORT)
-    if active_port != BACKEND_PORT:
+    import time
+    preferred_port = 8000
+    active_port = find_available_port(BACKEND_HOST, preferred_port)
+    for _ in range(5):
+        if active_port == preferred_port:
+            break
+        time.sleep(1.0)
+        active_port = find_available_port(BACKEND_HOST, preferred_port)
+    if active_port != preferred_port:
         logger.warning(
             "Configured backend port %s is busy; selecting the next free port %s.",
-            BACKEND_PORT,
+            preferred_port,
             active_port,
         )
     persist_runtime_port_guarded(
@@ -187,7 +194,7 @@ if __name__ == "__main__":
         DATA_DIR / "backend_runtime.json",
         BACKEND_HOST,
         active_port,
-        BACKEND_PORT,
+        preferred_port,
     )
     logger.info("SignalScript backend listening on http://%s:%s", BACKEND_HOST, active_port)
     uvicorn.run("backend.main:app", host=BACKEND_HOST, port=active_port, reload=False)

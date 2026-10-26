@@ -5,6 +5,7 @@ Handles 24h tickers, Open Interest, Liquidations stream, and OHLCV klines with C
 
 import asyncio
 import json
+import time
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
@@ -128,29 +129,41 @@ class BinanceService:
                 async with websockets.connect(ws_url, ping_interval=20, ping_timeout=10) as ws:
                     logger.info("Connected to Binance Liquidation WebSocket.")
                     reconnect_attempts = 0  # Reset on successful connection
+                    liq_buffer = []
+                    last_flush = time.time()
                     while self.is_ws_running:
-                        msg = await ws.recv()
-                        data = json.loads(msg)
-                        order = data.get('o', {})
-                        if order:
-                            sym = order.get('s')
-                            side = order.get('S')
-                            p = float(order.get('p', 0))
-                            q = float(order.get('q', 0))
-                            usd = p * q
-                            
-                            # Write to DB
-                            async with AsyncSessionLocal() as db:
-                                evt = LiquidationEvent(
+                        try:
+                            msg = await asyncio.wait_for(ws.recv(), timeout=2.0)
+                            data = json.loads(msg)
+                            order = data.get('o', {})
+                            if order:
+                                sym = order.get('s')
+                                side = order.get('S')
+                                p = float(order.get('p', 0))
+                                q = float(order.get('q', 0))
+                                usd = p * q
+                                liq_buffer.append(LiquidationEvent(
                                     symbol=sym,
                                     side=side,
                                     price=p,
                                     quantity=q,
                                     usd_amount=usd,
                                     timestamp=datetime.utcnow()
-                                )
-                                db.add(evt)
-                                await db.commit()
+                                ))
+                        except asyncio.TimeoutError:
+                            pass
+
+                        now = time.time()
+                        if liq_buffer and (len(liq_buffer) >= 50 or (now - last_flush) >= 3.0):
+                            to_write = liq_buffer
+                            liq_buffer = []
+                            last_flush = now
+                            try:
+                                async with AsyncSessionLocal() as db:
+                                    db.add_all(to_write)
+                                    await db.commit()
+                            except Exception as db_err:
+                                logger.warning(f"Failed to batch commit liquidations: {db_err}")
             except asyncio.CancelledError:
                 break
             except Exception as e:

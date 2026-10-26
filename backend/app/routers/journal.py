@@ -36,6 +36,8 @@ logger = logging.getLogger("SignalScript.Journal")
 
 journal_router = APIRouter(prefix="/api/journal", tags=["journal"])
 
+ALLOWED_JOURNAL_TYPES = ["SIGNAL", "MANUAL_ENTRY", "AI_OPINION", "ORDER", "MANUAL_EXIT", "MANUAL_SKIP"]
+
 
 # ============================================================================
 # Pydantic Schemas
@@ -193,12 +195,17 @@ DEFAULT_PRESETS = [
 ]
 
 
+_seed_data_ensured = False
+
 async def ensure_seed_data(db):
     """
     If decision_logs is empty, backfill recent SignalHistory items so existing scanner signals
     appear immediately in the trader's journal.
     Also seeds 3 default strategy presets if strategy_presets is empty.
     """
+    global _seed_data_ensured
+    if _seed_data_ensured:
+        return
     count_res = await db.execute(select(DecisionLog).limit(1))
     if count_res.scalar_one_or_none() is None:
         sig_res = await db.execute(select(SignalHistory).order_by(desc(SignalHistory.created_at)).limit(15))
@@ -237,6 +244,7 @@ async def ensure_seed_data(db):
                 params_json=json.dumps(p["params"], ensure_ascii=False)
             ))
         await db.commit()
+    _seed_data_ensured = True
 
 
 # ============================================================================
@@ -257,6 +265,8 @@ async def get_decision_logs(
             stmt = stmt.where(DecisionLog.symbol == clean_sym)
         if event_type and event_type.upper() != "ALL":
             stmt = stmt.where(DecisionLog.event_type == event_type.upper())
+        else:
+            stmt = stmt.where(DecisionLog.event_type.in_(ALLOWED_JOURNAL_TYPES))
         stmt = stmt.limit(limit)
         res = await db.execute(stmt)
         rows = res.scalars().all()
@@ -295,8 +305,12 @@ async def get_session_review(
     async with AsyncSessionLocal() as db:
         stmt = (
             select(DecisionLog)
-            .where(DecisionLog.timestamp >= since_naive)
+            .where(
+                DecisionLog.timestamp >= since_naive,
+                DecisionLog.event_type.in_(["SIGNAL", "MANUAL_ENTRY", "AI_OPINION", "ORDER"]),
+            )
             .order_by(asc(DecisionLog.timestamp), asc(DecisionLog.id))
+            .limit(2000)
         )
         rows = (await db.execute(stmt)).scalars().all()
         decisions = [
@@ -383,6 +397,8 @@ async def export_decision_logs_csv(
             stmt = stmt.where(DecisionLog.symbol == clean_sym)
         if event_type and event_type.upper() != "ALL":
             stmt = stmt.where(DecisionLog.event_type == event_type.upper())
+        else:
+            stmt = stmt.where(DecisionLog.event_type.in_(ALLOWED_JOURNAL_TYPES))
         res = await db.execute(stmt)
         rows = res.scalars().all()
 

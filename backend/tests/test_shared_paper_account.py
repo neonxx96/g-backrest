@@ -56,3 +56,62 @@ def test_shared_paper_session_aggregates_total_capital_1000():
     report = manager._aggregate_report({}, [], shared_session=shared)
     assert report["paper"]["starting_balance"] == 1000.0
     assert report["paper"]["equity"] >= 1000.0
+
+
+def test_shared_paper_session_isolates_cross_symbol_ticks():
+    """Ensure OPUSDT ticks ($0.11) do NOT corrupt or reject BTCUSDT ($50,000) working orders."""
+    from backend.app.services.execution_simulator import OrderStatus
+
+    session = PaperTradingSession(initial_balance=1000.0, session_id="test_cross_symbol_isolation")
+    # Place a LIMIT BUY order on BTCUSDT at 50,000
+    res = session.execute_trade_signal(
+        symbol="BTCUSDT",
+        side="BUY",
+        price=50000.0,
+        stop_price=49000.0,
+        target_price=52000.0,
+        order_type="LIMIT",
+        signal_ts=1000,
+    )
+    assert res.get("status") in (OrderStatus.PENDING.value, OrderStatus.ACTIVE.value)
+    order_id = res["order_id"]
+    po = session.orders[order_id]
+
+    # Advance time and send ticks for OPUSDT (price $0.11)
+    session.process_market_tick(
+        symbol="OPUSDT",
+        price=0.11,
+        bids=[(0.110, 1000.0), (0.109, 2000.0)],
+        asks=[(0.111, 1000.0), (0.112, 2000.0)],
+        timestamp=2000,
+    )
+
+    # BTCUSDT order MUST NOT be affected (not rejected, not filled with 0.11 price)
+    assert po.sim.state.status in (OrderStatus.PENDING, OrderStatus.ACTIVE)
+    assert po.sim.state.filled_qty == 0.0
+
+    from types import SimpleNamespace
+
+    # Book init with passive non-crossable spread (best ask > limit price 50000)
+    session.process_market_tick(
+        symbol="BTCUSDT",
+        price=50005.0,
+        bids=[(50000.0, 1.0)],
+        asks=[(50005.0, 1.0)],
+        timestamp=3000,
+    )
+    assert po.sim.state.status == OrderStatus.ACTIVE
+
+    # Now trade arrives at 50000 (filling our limit order)
+    session.process_event(SimpleNamespace(
+        timestamp=4000,
+        kind="trade",
+        symbol="BTCUSDT",
+        payload={"price": 50000.0, "quantity": 2.0, "side": "SELL"},
+    ))
+
+    # Order should now be filled correctly for BTCUSDT without slippage rejection
+    assert po.sim.state.status == OrderStatus.FILLED
+    assert "BTCUSDT" in session.positions
+    assert session.positions["BTCUSDT"].qty > 0
+    assert abs(session.positions["BTCUSDT"].avg_entry_price - 50000.0) < 1e-6

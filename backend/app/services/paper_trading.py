@@ -350,6 +350,7 @@ class PaperTradingSession:
             order_rtt_ms=self.order_rtt_ms,
             maker_fee=self.maker_fee,
             taker_fee=self.taker_fee,
+            symbol=symbol,
         )
         # Deterministic id: seq counter + ts (no uuid/random).
         seq = len(self.orders) + 1
@@ -534,8 +535,12 @@ class PaperTradingSession:
                 # --------------------------------------------------------
 
 
-        # Forward to all working orders (snapshot — orders may complete mid-loop)
+        ev_symbol = getattr(event, "symbol", None) or (getattr(event, "payload", {}) or {}).get("symbol")
+
+        # Forward to all working orders matching this event's symbol (snapshot — orders may complete mid-loop)
         for po in list(self.orders.values()):
+            if ev_symbol and po.symbol and str(ev_symbol).upper() != str(po.symbol).upper():
+                continue
             if po.sim.state.status in (OrderStatus.FILLED, OrderStatus.REJECTED, OrderStatus.CANCELLED):
                 if po.sim.state.status in (OrderStatus.REJECTED, OrderStatus.CANCELLED):
                     self._release_entry_reservation(po)

@@ -345,106 +345,123 @@ class OvernightPilotManager:
             )
             for config in selected
         }
-        for session in self.sessions.values():
-            try:
-                req = BacktestRequest(
-                    symbol=session.config.symbol,
-                    timeframe=session.config.timeframe,
-                    days=session.config.days,
-                    strategy_type=session.config.strategy_type,
-                    initial_capital=session.config.initial_capital,
-                    params=BacktestParams(
-                        risk_per_trade_pct=session.config.risk_per_trade_pct,
-                        stop_loss_pct=session.config.stop_loss_pct,
-                        take_profit_pct=session.config.take_profit_pct,
-                        leverage=session.config.leverage,
-                        min_density_usd=session.config.min_density_usd,
-                        volume_multiplier=session.config.volume_multiplier,
-                        use_atr_filter=session.config.use_atr_filter,
-                        use_cvd_filter=session.config.use_cvd_filter,
-                        use_oi_filter=session.config.use_oi_filter,
-                        use_rsi_filter=session.config.use_rsi_filter,
-                        use_stacked_imbalance_filter=session.config.use_stacked_imbalance_filter,
-                        use_absorption_filter=session.config.use_absorption_filter,
-                        use_poc_migration_filter=session.config.use_poc_migration_filter,
-                        use_multi_tp=session.config.use_multi_tp,
-                        use_trailing=session.config.use_trailing,
-                        trailing_pct=session.config.trailing_pct,
-                        tp1_rr_ratio=session.config.tp1_rr_ratio,
-                        tp2_rr_ratio=session.config.tp2_rr_ratio,
-                        sl_tp_mode=session.config.sl_tp_mode,
-                        atr_multiplier=session.config.atr_multiplier,
-                    ),
+        sem = asyncio.Semaphore(4)
+
+        async def _prepare_single(session: PilotSession) -> None:
+            async with sem:
+                last_exc = None
+                for attempt in range(2):
+                    try:
+                        req = BacktestRequest(
+                            symbol=session.config.symbol,
+                            timeframe=session.config.timeframe,
+                            days=session.config.days,
+                            strategy_type=session.config.strategy_type,
+                            initial_capital=session.config.initial_capital,
+                            params=BacktestParams(
+                                risk_per_trade_pct=session.config.risk_per_trade_pct,
+                                stop_loss_pct=session.config.stop_loss_pct,
+                                take_profit_pct=session.config.take_profit_pct,
+                                leverage=session.config.leverage,
+                                min_density_usd=session.config.min_density_usd,
+                                volume_multiplier=session.config.volume_multiplier,
+                                use_atr_filter=session.config.use_atr_filter,
+                                use_cvd_filter=session.config.use_cvd_filter,
+                                use_oi_filter=session.config.use_oi_filter,
+                                use_rsi_filter=session.config.use_rsi_filter,
+                                use_stacked_imbalance_filter=session.config.use_stacked_imbalance_filter,
+                                use_absorption_filter=session.config.use_absorption_filter,
+                                use_poc_migration_filter=session.config.use_poc_migration_filter,
+                                use_multi_tp=session.config.use_multi_tp,
+                                use_trailing=session.config.use_trailing,
+                                trailing_pct=session.config.trailing_pct,
+                                tp1_rr_ratio=session.config.tp1_rr_ratio,
+                                tp2_rr_ratio=session.config.tp2_rr_ratio,
+                                sl_tp_mode=session.config.sl_tp_mode,
+                                atr_multiplier=session.config.atr_multiplier,
+                            ),
+                        )
+                        session.backtest = await run_backtest(req)
+                        session.backtest["run_context"] = {
+                            "run_id": preflight_id,
+                            "config_fingerprint": session.config_fingerprint,
+                            "symbol": session.config.symbol.upper(),
+                            "timeframe": session.config.timeframe,
+                            "requested_days": session.config.days,
+                            "initial_capital": session.config.initial_capital,
+                            "risk_per_trade_pct": session.config.risk_per_trade_pct,
+                            "data_source": (session.backtest.get("data_engine") or {}).get("historical_sources"),
+                            "data_range": {
+                                "from": (session.backtest.get("meta") or {}).get("from_time"),
+                                "to": (session.backtest.get("meta") or {}).get("to_time"),
+                            },
+                        }
+                        self._record_run_event(
+                            session,
+                            event_type="BACKTEST_COMPLETED",
+                            source="backtest",
+                            reason_code="BACKTEST_COMPLETED",
+                            reason="Historical backtest completed",
+                            payload={"summary": session.backtest.get("summary") or {}, "data_engine": session.backtest.get("data_engine") or {}},
+                        )
+                        session.forecast = await compute_probabilistic_forecast(
+                            session.config.symbol,
+                            session.config.timeframe,
+                            strategy_type=session.config.strategy_type,
+                            strategy_params=session.config.model_dump(),
+                        )
+                        session.forecast["run_context"] = {
+                            "run_id": preflight_id,
+                            "config_fingerprint": session.config_fingerprint,
+                            "symbol": session.config.symbol.upper(),
+                            "timeframe": session.config.timeframe,
+                            "initial_capital": session.config.initial_capital,
+                            "risk_per_trade_pct": session.config.risk_per_trade_pct,
+                            "data_timestamp": session.forecast.get("anchor_timestamp"),
+                            "data_source": session.forecast.get("data_source"),
+                        }
+                        self._record_run_event(
+                            session,
+                            event_type="FORECAST_UPDATED",
+                            source="forecast",
+                            reason_code="FORECAST_UPDATED",
+                            reason="Preflight forecast generated",
+                            payload={
+                                "data_status": session.forecast.get("data_status"),
+                                "direction": (session.forecast.get("base_scenario") or {}).get("direction") or (session.forecast.get("unified_signal") or {}).get("direction"),
+                                "updated_at": session.forecast.get("updated_at") or session.forecast.get("anchor_timestamp"),
+                            },
+                        )
+                        await self._run_session_optimizer(session, mode="pre_run")
+                        session.error = None
+                        last_exc = None
+                        break
+                    except Exception as exc:
+                        last_exc = exc
+                        session.error = str(exc)
+                        if attempt < 1:
+                            await asyncio.sleep(0.5)
+
+                if last_exc is not None and session.error is None:
+                    session.error = str(last_exc)
+
+                session.preflight_valid = bool(
+                    session.error is None
+                    and self._backtest_matches_config(session)
+                    and session.forecast is not None
+                    and session.forecast.get("data_status") == "connected"
                 )
-                session.backtest = await run_backtest(req)
-                session.backtest["run_context"] = {
-                    "run_id": preflight_id,
-                    "config_fingerprint": session.config_fingerprint,
-                    "symbol": session.config.symbol.upper(),
-                    "timeframe": session.config.timeframe,
-                    "requested_days": session.config.days,
-                    "initial_capital": session.config.initial_capital,
-                    "risk_per_trade_pct": session.config.risk_per_trade_pct,
-                    "data_source": (session.backtest.get("data_engine") or {}).get("historical_sources"),
-                    "data_range": {
-                        "from": (session.backtest.get("meta") or {}).get("from_time"),
-                        "to": (session.backtest.get("meta") or {}).get("to_time"),
-                    },
-                }
+                session.preflight_passed = session.preflight_valid
                 self._record_run_event(
                     session,
-                    event_type="BACKTEST_COMPLETED",
-                    source="backtest",
-                    reason_code="BACKTEST_COMPLETED",
-                    reason="Historical backtest completed",
-                    payload={"summary": session.backtest.get("summary") or {}, "data_engine": session.backtest.get("data_engine") or {}},
+                    event_type="PREFLIGHT_COMPLETED" if session.preflight_valid else "PREFLIGHT_REJECTED",
+                    source="system",
+                    reason_code="PREFLIGHT_VALID" if session.preflight_valid else "PREFLIGHT_INVALID",
+                    reason="Preflight is valid" if session.preflight_valid else (session.error or "Backtest or forecast data is incomplete"),
+                    payload={"preflight_valid": session.preflight_valid},
                 )
-                session.forecast = await compute_probabilistic_forecast(
-                    session.config.symbol,
-                    session.config.timeframe,
-                    strategy_type=session.config.strategy_type,
-                    strategy_params=session.config.model_dump(),
-                )
-                session.forecast["run_context"] = {
-                    "run_id": preflight_id,
-                    "config_fingerprint": session.config_fingerprint,
-                    "symbol": session.config.symbol.upper(),
-                    "timeframe": session.config.timeframe,
-                    "initial_capital": session.config.initial_capital,
-                    "risk_per_trade_pct": session.config.risk_per_trade_pct,
-                    "data_timestamp": session.forecast.get("anchor_timestamp"),
-                    "data_source": session.forecast.get("data_source"),
-                }
-                self._record_run_event(
-                    session,
-                    event_type="FORECAST_UPDATED",
-                    source="forecast",
-                    reason_code="FORECAST_UPDATED",
-                    reason="Preflight forecast generated",
-                    payload={
-                        "data_status": session.forecast.get("data_status"),
-                        "direction": (session.forecast.get("base_scenario") or {}).get("direction") or (session.forecast.get("unified_signal") or {}).get("direction"),
-                        "updated_at": session.forecast.get("updated_at") or session.forecast.get("anchor_timestamp"),
-                    },
-                )
-                await self._run_session_optimizer(session, mode="pre_run")
-            except Exception as exc:
-                session.error = str(exc)
-            session.preflight_valid = bool(
-                session.error is None
-                and self._backtest_matches_config(session)
-                and session.forecast is not None
-                and session.forecast.get("data_status") == "connected"
-            )
-            session.preflight_passed = session.preflight_valid
-            self._record_run_event(
-                session,
-                event_type="PREFLIGHT_COMPLETED" if session.preflight_valid else "PREFLIGHT_REJECTED",
-                source="system",
-                reason_code="PREFLIGHT_VALID" if session.preflight_valid else "PREFLIGHT_INVALID",
-                reason="Preflight is valid" if session.preflight_valid else (session.error or "Backtest or forecast data is incomplete"),
-                payload={"preflight_valid": session.preflight_valid},
-            )
+
+        await asyncio.gather(*[_prepare_single(session) for session in self.sessions.values()])
 
     async def _run_session_optimizer(self, session: "PilotSession", mode: str) -> None:
         """Run the genetic optimizer for one session and store the recommendation.
@@ -485,8 +502,8 @@ class OvernightPilotManager:
                 use_cvd_filter=config.use_cvd_filter,
                 use_oi_filter=config.use_oi_filter,
                 use_rsi_filter=config.use_rsi_filter,
-                population_size=10,
-                generations=3,
+                population_size=6 if mode == "pre_run" else 10,
+                generations=2 if mode == "pre_run" else 3,
             )
             try:
                 result = await optimize_backtest(optimizer_request)
@@ -808,6 +825,7 @@ class OvernightPilotManager:
             })
         return {
             "status": "ok",
+            "pilot_running": self._has_running_sessions(),
             "preflight_id": self._current_preflight_id(sessions),
             "sessions": sessions,
             "summary": rows,
@@ -816,10 +834,13 @@ class OvernightPilotManager:
 
     @staticmethod
     def _current_preflight_id(sessions: Dict[str, Dict[str, Any]]) -> Optional[str]:
-        if not sessions or any(not session.get("preflight_valid") for session in sessions.values()):
+        if not sessions:
             return None
-        run_ids = {session.get("run_id") for session in sessions.values()}
-        return next(iter(run_ids)) if len(run_ids) == 1 and None not in run_ids else None
+        valid_sessions = [s for s in sessions.values() if s.get("preflight_valid")]
+        if not valid_sessions:
+            return None
+        run_ids = {s.get("run_id") for s in valid_sessions if s.get("run_id")}
+        return next(iter(run_ids)) if len(run_ids) == 1 else None
 
     @staticmethod
     def _aggregate_report(
@@ -979,8 +1000,12 @@ class OvernightPilotManager:
 
     async def persist(self) -> None:
         """Persist configs and latest snapshots without storing market data."""
+        sessions_snapshot = list(self.status()["sessions"].values())
+        if not sessions_snapshot:
+            return
+
         async with AsyncSessionLocal() as db:
-            for item in self.status()["sessions"].values():
+            for item in sessions_snapshot:
                 paper = item.get("paper") or {}
                 session_id = item.get("session_id") or paper.get("session_id")
                 if not session_id:

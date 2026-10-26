@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   History,
+  Play,
+  Square,
   TrendingUp,
   TrendingDown,
   RefreshCw,
@@ -126,6 +128,40 @@ export default function TradeHistoryWidget(props) {
     }, 3000);
     return () => clearInterval(interval);
   }, [fetchStatus, fetchMonitoring, fetchLiveStatus, fetchPilotStatus]);
+
+  const [marathonBusy, setMarathonBusy] = useState(false);
+
+  const handleStartMarathon = async () => {
+    setMarathonBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/overnight-pilot/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(null)
+      });
+      if (!res.ok) {
+        await fetch(`${API_BASE}/overnight-pilot/preflight`, { method: 'POST' });
+        await fetch(`${API_BASE}/overnight-pilot/start`, { method: 'POST' });
+      }
+      await fetchPilotStatus();
+    } catch (err) {
+      console.error('Failed to start marathon:', err);
+    } finally {
+      setMarathonBusy(false);
+    }
+  };
+
+  const handleStopMarathon = async () => {
+    setMarathonBusy(true);
+    try {
+      await fetch(`${API_BASE}/overnight-pilot/stop`, { method: 'POST' });
+      await fetchPilotStatus();
+    } catch (err) {
+      console.error('Failed to stop marathon:', err);
+    } finally {
+      setMarathonBusy(false);
+    }
+  };
 
   // Handle Wallet Reset
   const handleResetWallet = async () => {
@@ -261,21 +297,24 @@ export default function TradeHistoryWidget(props) {
     const secs = uptimeSec % 60;
     const uptimeStr = `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 
-    // Профиль = live-раннер + все сессии марафона (общий тестовый баланс).
+    // Профиль = live-раннер + все сессии марафона (единый кошелек $1,000.00).
     const marathonSessions = Object.values(pilotStatus?.sessions || {});
-    const marathonBalance = marathonSessions.reduce((sum, s) => sum + Number(s?.paper?.balance ?? 0), 0);
-    const marathonRealized = marathonSessions.reduce((sum, s) => sum + Number(s?.paper?.realized_pnl ?? 0), 0);
+    const isMarathonRunning = Boolean(pilotStatus?.pilot_running || marathonSessions.some((s) => s?.paper?.is_running));
+    const marathonPaperAgg = pilotStatus?.aggregate?.paper;
+    const marathonBalance = Number(marathonPaperAgg?.equity ?? marathonPaperAgg?.starting_balance ?? 1000.0);
+    const marathonRealized = Number(marathonPaperAgg?.net_pnl_usd ?? marathonSessions.reduce((sum, s) => sum + Number(s?.paper?.realized_pnl ?? 0), 0));
     const marathonUnrealized = openPositions
       .filter((p) => p._source === 'marathon')
       .reduce((sum, p) => sum + Number(p.unrealized_pnl ?? 0), 0);
-    const hasMarathon = marathonSessions.some((s) => s?.paper?.balance != null);
+    const hasMarathon = isMarathonRunning || Boolean(marathonPaperAgg?.available) || marathonSessions.some((s) => s?.paper?.balance != null);
     const liveBalance = Number(sessionData?.balance ?? 0);
-    const profileBalance = (hasMarathon ? marathonBalance : 0) + (sessionData ? liveBalance : 0);
+    const isLiveRunning = Boolean(liveStatus?.is_running);
+    const profileBalance = hasMarathon ? marathonBalance : (isLiveRunning ? liveBalance : (sessionData ? liveBalance : 1000.0));
 
     return {
       balance: profileBalance,
-      realizedPnl: marathonRealized + Number(sessionData?.realized_pnl ?? 0),
-      unrealizedPnl: marathonUnrealized + Number(sessionData?.unrealized_pnl ?? 0),
+      realizedPnl: (hasMarathon ? marathonRealized : 0) + (isLiveRunning ? Number(sessionData?.realized_pnl ?? 0) : 0),
+      unrealizedPnl: (hasMarathon ? marathonUnrealized : 0) + (isLiveRunning ? Number(sessionData?.unrealized_pnl ?? 0) : 0),
       totalFees: sessionData?.total_fees_paid ?? 0.0,
       activePositions: openPositions.length,
       totalTrades: closed.length,
@@ -300,7 +339,7 @@ export default function TradeHistoryWidget(props) {
             </div>
             <div>
               <span className="font-semibold text-xs tracking-wide text-white">Trade History & Forecasts</span>
-              <span className="ml-2 text-[10px] text-neutral-500 font-mono">Paper Trading $100.00</span>
+              <span className="ml-2 text-[10px] text-neutral-500 font-mono">Paper Trading ${metrics.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               {hasPilotData && (
                 <span
                   data-testid="marathon-summary-chip"
@@ -374,7 +413,26 @@ export default function TradeHistoryWidget(props) {
         >
           <div className="flex items-center space-x-1.5 text-[10px] font-mono min-w-0">
             <Zap size={11} className="text-cyan-400 shrink-0" />
-            {liveStatus ? (
+            {hasPilotData || Boolean(pilotStatus?.sessions && Object.keys(pilotStatus.sessions).length > 0) ? (
+              <>
+                <span className="text-neutral-500 shrink-0">Марафон (20 пар):</span>
+                <span className="text-cyan-200 font-bold truncate">Мульти-стратегия (Shared $1,000)</span>
+                <span className="text-neutral-600 shrink-0">•</span>
+                <span className="text-white font-bold shrink-0">{marathonSessions.filter(s => s?.paper?.is_running).length}/{marathonSessions.length || 20} пар</span>
+                <span className="text-neutral-600 shrink-0">•</span>
+                <span className="text-neutral-300 shrink-0">Плечо 1x-25x</span>
+                <span className="text-violet-300 shrink-0">• AI DeepSeek V4.1 Flash</span>
+                <span
+                  className={`px-1 rounded text-[9px] font-bold border shrink-0 ${
+                    isMarathonRunning
+                      ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
+                      : 'bg-neutral-800 text-neutral-400 border-neutral-700'
+                  }`}
+                >
+                  {isMarathonRunning ? 'RUNNING' : 'STOPPED'}
+                </span>
+              </>
+            ) : liveStatus ? (
               <>
                 <span className="text-neutral-500 shrink-0">Стратегия:</span>
                 <span className="text-cyan-200 font-bold truncate" title={liveStatus.strategy_type}>{liveStatus.strategy_type}</span>
@@ -972,10 +1030,34 @@ export default function TradeHistoryWidget(props) {
                 </div>
               </div>
 
-              <button
-                type="button"
-                data-testid="btn-toggle-add-pair"
-                onClick={() => setShowAddPair((prev) => !prev)}
+              <div className="flex items-center space-x-1.5">
+                {isMarathonRunning ? (
+                  <button
+                    type="button"
+                    disabled={marathonBusy}
+                    onClick={handleStopMarathon}
+                    className="flex items-center space-x-1 px-2.5 py-1 rounded text-[10px] font-mono font-bold bg-rose-950 hover:bg-rose-900 text-rose-200 border border-rose-700 cursor-pointer transition disabled:opacity-50"
+                    title="Остановить марафон по всем 20 парам"
+                  >
+                    <Square size={10} fill="currentColor" />
+                    <span>{marathonBusy ? 'Остановка…' : '⏹ Стоп марафон'}</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={marathonBusy}
+                    onClick={handleStartMarathon}
+                    className="flex items-center space-x-1 px-2.5 py-1 rounded text-[10px] font-mono font-bold bg-emerald-950 hover:bg-emerald-900 text-emerald-200 border border-emerald-700 cursor-pointer transition disabled:opacity-50"
+                    title="Запустить марафон по всем 20 парам ($1,000 shared wallet, AI DeepSeek V4.1 Flash)"
+                  >
+                    <Play size={10} fill="currentColor" />
+                    <span>{marathonBusy ? 'Запуск…' : '▶ Запустить марафон (20 пар)'}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  data-testid="btn-toggle-add-pair"
+                  onClick={() => setShowAddPair((prev) => !prev)}
                 className={`flex items-center space-x-1 px-2.5 py-1 rounded text-[10px] font-mono font-bold transition cursor-pointer border ${
                   showAddPair
                     ? 'bg-cyan-900 text-white border-cyan-600'
@@ -985,6 +1067,7 @@ export default function TradeHistoryWidget(props) {
                 <Plus size={11} />
                 <span>+ Добавить пару для теста</span>
               </button>
+              </div>
             </div>
 
             {/* Раскрывающаяся форма добавления монеты */}
