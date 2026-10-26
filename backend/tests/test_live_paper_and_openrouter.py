@@ -9,6 +9,7 @@ from backend.app.services.deep_intent_logger import DeepIntentLogger
 async def test_openrouter_client_fallback_logic(monkeypatch):
     # This contract test must remain offline even when a developer .env has a key.
     monkeypatch.setattr(openrouter_client, "api_key", "")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "")
     # Setup with good R:R and favorable depth delta -> CONFIRM
     setup = {
         "direction": "LONG",
