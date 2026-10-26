@@ -18,6 +18,9 @@
 | **Circuit Breakers** | `ACTIVE` | Защитное отключение при дневной просадке >= 3.0% или 4 убыточных сделках подряд. |
 | **Position Sentinel** | `ACTIVE` | Dynamic Breakeven (+1.0R с учетом издержек), Step-Lock уровни (1.2R / 1.8R), сброс 50% при неблагоприятном ордерфлоу от +0.7R. |
 | **Pyramiding (Доборы)** | `DISABLED` | `ENABLE_PYRAMIDING = False` строго соблюдается до этапа сравнительного бэктестирования. |
+| **Trade Post-Mortem & Analytics** | `ACTIVE` | Авто-анализ MFE/MAE, Fee Burden Index, классификация причин потерь, вкладка UI «Аналитика & Винрейт». |
+| **Strategy & TF Pair Selector** | `ACTIVE` | Автоподбор стратегий/ТФ под монеты с OOS-валидацией (TRAIN 70% / OOS 30%). 1-клик API и UI запуск. |
+| **Overnight Paper Marathon** | `RUNNING` | 7 валидированных пар в Docker (ZECUSDT SELECT, BNB/ENA/WLD/UNI/TIA/TRX EXPLORE) на $1000. |
 
 ---
 

@@ -33,6 +33,16 @@ This is the shared queue for LibreChat, Cline, and Antigravity.
      - Уровень 1 (Quant 0ms): Fee-Adjusted Breakeven, Step-Lock MFE Trailing, Smart Time-Stop + реакция на встречную кластерную Absorption (`evaluate_profit_lock_action`).
      - Уровень 2 (Event-Driven OpenRouter AI Sentinel): вызов по триггерам `EarlyExitEngine` с безопасным контрактом (`HOLD`, `TIGHTEN_SL`, `PARTIAL_CLOSE_50`, `EARLY_EXIT_MARKET`) и жестким запретом на расширение риска (`clamp_protective_stop`).
 
+
+5. `IN_PROGRESS` — **БЛОК 5 (Задача 008: Expectancy, Regime Classifier, Post-Mortem & Pair Selector)**:
+   - ✅ Квантовый риск-движок (`risk_engine.py`): сайзинг от Stop Loss, Portfolio Heat 1.25%, потолок плеча 5.0x.
+   - ✅ Двухтаймфреймовый классификатор рыночных фаз (`regime_classifier.py`) и микроструктурный фильтр стакана.
+   - ✅ Долговечное хранение метрик качества исполнения ($MFE_R$, $MAE_R$, $E_R$) в `signals.db`.
+   - ✅ Сервис пост-мортем анализа закрытых сделок (`trade_postmortem_service.py`) и эндпоинт `/api/paper-trading/analytics/post-mortem`.
+   - ✅ Вкладка «Аналитика & Винрейт» (`PostMortemAnalyticsTab.jsx`) с визуализацией причин потерь и рекомендаций.
+   - ✅ Селектор стратегий под монеты с OOS-валидацией (`pair_selector.py`) и 1-клик запуск марафона (`/api/overnight-pilot/auto-select`).
+   - 🔄 **Текущий этап**: Ночной марафон на 7 отобранных парах (ZEC, BNB, ENA, WLD, UNI, TIA, TRX) в Docker.
+
 4. `READY_FOR_CLINE` — **БЛОК 4 (Редизайн UI на shadcn/ui и темная тема)**:
    - ✅ **Функционал модуля «По парам» и «Претенденты» готов**: сортировка, sticky-колонка, фильтры, быстрый выбор популярных монет, сетапы конуса и стакана.
    - ⏸ **Оформление и дизайн**: запланировано для выполнения в отдельной сессии/чате с подключением библиотеки дизайна shadcn/ui (Vite Dark Mode) согласно документации пользователя.
