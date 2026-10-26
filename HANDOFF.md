@@ -2,6 +2,34 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Antigravity — Устранение черного экрана при открытии терминала, фикс видимости marathonSessions и ErrorBoundary (2026-10-26, 12:35 Киев)
+
+- **Ветка:** `agent/antigravity/chart-engine-footprint` (коммит `9b232f0`)
+- **Статус качества:** `🎉 ALL QUALITY CHECKS PASSED. READY TO COMMIT.` (Шлюз `scripts/check.ps1`, 6/6 стадий PASSED: 588 pytest passed, 85 node tests passed, npm build, critical smoke, Playwright blocking + live на порту 7100).
+- **Сделано по прямому указанию пользователя**:
+  1. **Диагностика и устранение корневой причины черного экрана («открывается терминал, а потом черный экран»)**:
+     - *Корневая причина*: В `frontend/src/components/docking/TradeHistoryWidget.jsx` переменные `marathonSessions`, `isMarathonRunning`, `marathonPaperAgg`, `marathonBalance`, `marathonRealized`, `marathonUnrealized` были локально объявлены внутри `const metrics = useMemo(() => { ... })`. При первоначальном рендере `pilotStatus` был `null`, поэтому ветка марафона пропускалась. Спустя ~1 секунду опрос возвращал данные 20 сессий, компонент перерендеривался, вычислял JSX со строками `{marathonSessions.filter(...).length}` и `${isMarathonRunning ? ... : ...}`, выбрасывал `ReferenceError: marathonSessions is not defined`. Ввиду отсутствия `ErrorBoundary` в React 19 вся страница падала в черный экран.
+     - *Решение*: Вынесли `marathonSessions`, `isMarathonRunning`, `marathonPaperAgg`, `marathonBalance`, `marathonRealized`, `marathonUnrealized`, `hasMarathon` на уровень компонента в `useMemo`, передав их в `metrics` и JSX.
+  2. **Внедрение глобального React `ErrorBoundary`**:
+     - Создан компонент `frontend/src/components/ErrorBoundary.jsx` в темной институциональной теме терминала с кнопками «Попробовать снова» и «Перезагрузить страницу».
+     - Корневой компонент `<App />` в `frontend/src/main.jsx` обёрнут в `ErrorBoundary`. Любой непредвиденный сбой теперь изолируется без размонтирования страницы.
+  3. **Мгновенная инициализация раскладки Dockview (0мс задержки, исключение пустого экрана)**:
+     - В `frontend/src/components/docking/TerminalDockview.jsx` при `onReady` сначала синхронно применяется кэшированная либо дефолтная раскладка (`buildDefaultLayout`), поэтому графики, стакан DOM, лента и скринер появляются сразу (<50мс) без ожидания ответа сети.
+     - В `frontend/src/stores/layoutStore.js` запросы `loadPresets()` и `loadWorkspaceDetail()` защищены `AbortController` с таймаутом 2500мс и дефолтными пресетами, что предотвращает зависание при медленном ответе сети.
+  4. **Устранение блокировок логирования на Windows**:
+     - В `backend/main.py` и `backend/app/logging_setup.py` добавлена авто-реконфигурация `sys.stdout` и `sys.stderr` в кодировку UTF-8 с `errors="replace"`. Устранены цикличные `UnicodeEncodeError` при выводе русскоязычных сообщений диагностики фильтров стратегий.
+  5. **Верификация**:
+     - Запущен полный шлюз `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`:
+       - [1/6] Python unit tests (pytest): 588 passed (19.16s).
+       - [2/6] Layout recovery (node --test): 6/6 passed.
+       - [3/6] Frontend production build: build succeeded.
+       - [4/6] Critical parts smoke: DOM, Chart, Scanner, Recorder, Journal, Presets, Settings, Quarantine — ALL PASSED.
+       - [5/6] Blocking UI smoke (Playwright): 15 canvases, 0 console errors, symbol switch works.
+       - [6/6] Live UI check: Binance WebSocket connected, prints arriving.
+     - Проверены скриншоты в headless Chromium: терминал стабильно рендерится без черного экрана.
+
+---
+
 ## Antigravity — Оптимизация стратегий 20 пар, автозапись в DecisionLog SQLite и активная торговля с DeepSeek V4.1 Flash (2026-10-26, 12:00 Киев)
 
 - **Ветка:** `agent/antigravity/chart-engine-footprint`
