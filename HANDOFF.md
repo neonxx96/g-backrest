@@ -6,6 +6,15 @@
 
 ---
 
+## Antigravity — Post-mortem аналитика и селектор стратегий по парам (2026-10-27, 01:10 Киев)
+
+- **Ветка:** `agent/antigravity/postmortem-analyzer` (коммиты b2842fa, 596edb6, 2f0f2b7 + docs)
+- **Сделано:** `trade_postmortem_service.py` + `GET /api/paper-trading/analytics/post-mortem`; вкладка «Аналитика & Винрейт»; `scripts/select_pair_strategies.py` (TRAIN/OOS). Тесты: test_trade_postmortem.py, test_select_pair_strategies.py.
+- **Факты:** 82 старые сделки: WR 36.6%, PF 0.52, FBI 0.87, основная причина потерь STOP_OUT. Селектор: подтверждена OOS только ZECUSDT.
+- **Риски / следующему агенту:** (1) Docker-контейнеры нужно пересобрать, чтобы увидеть новый API/UI (не перезапускал — compose в main расходится с работающим). (2) Пилот сейчас 14 пар на ema_trend, 13 из них verdict BLOCK — рекомендовано оставить только SELECT-пары. (3) Этап 6 (A/B старой/новой версии) ждёт >= 30 закрытых сделок новой версии.
+
+---
+
 ## Antigravity — Целевой аудит и квантовая верификация риск-ядра (2026-10-26, 23:25 Киев)
 
 - **Ветка:** `agent/antigravity/chart-engine-footprint` (коммит `777f498`)
