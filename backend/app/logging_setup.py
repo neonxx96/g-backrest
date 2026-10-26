@@ -85,6 +85,12 @@ def setup_stress_logging(log_file: Path = STRESS_LOG_FILE) -> logging.Logger:
     root_logger.addHandler(fh)
 
     # Stream Handler (console) if not already present
+    if sys.platform == "win32":
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
     has_stream = any(isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler) for h in root_logger.handlers)
     if not has_stream:
         ch = logging.StreamHandler(sys.stdout)

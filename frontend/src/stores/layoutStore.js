@@ -18,11 +18,16 @@ const API_BASE = '/api/workspaces';
 
 const savedPresetId = typeof localStorage !== 'undefined' ? localStorage.getItem('signalscript_active_preset') : null;
 
+const DEFAULT_PRESETS = [
+  { id: 'default_classic', name: 'Классический трейдер', is_default: true },
+  { id: 'default_orderflow', name: 'Скальпер Order Flow', is_default: false }
+];
+
 export const useLayoutStore = create((set, get) => {
   let autosaveTimer = null;
 
   return {
-    presets: [],
+    presets: DEFAULT_PRESETS,
     activePresetId: savedPresetId || 'default_classic',
     currentLayoutData: null,
     isLayoutLoaded: false,
@@ -73,26 +78,35 @@ export const useLayoutStore = create((set, get) => {
       }, 50);
     },
 
-    // Fetch all presets from backend
+    // Fetch all presets from backend with timeout protection
     loadPresets: async () => {
       try {
-        const res = await fetch(API_BASE);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
+        const res = await fetch(API_BASE, { signal: controller.signal });
+        clearTimeout(timeoutId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        set({ presets: data });
-        return data;
+        if (Array.isArray(data) && data.length > 0) {
+          set({ presets: data });
+          return data;
+        }
+        return get().presets;
       } catch (err) {
-        console.warn('Failed to load presets from SQLite:', err);
-        return [];
+        console.warn('Failed to load presets from SQLite, keeping current presets:', err);
+        return get().presets;
       }
     },
 
-    // Load single workspace detail by ID
+    // Load single workspace detail by ID with timeout protection
     loadWorkspaceDetail: async (id) => {
       // Temporarily lock autosave while new layout initializes
       set({ isLayoutLoaded: false, saveStatus: 'idle' });
       try {
-        const res = await fetch(`${API_BASE}/${id}`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
+        const res = await fetch(`${API_BASE}/${id}`, { signal: controller.signal });
+        clearTimeout(timeoutId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
 

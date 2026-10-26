@@ -588,6 +588,7 @@ export default function TerminalDockview({
   // Initialize Dockview API
   const onReady = useCallback(
     async (event) => {
+      console.log('[DEBUG] Dockview onReady CALLED! event.api:', Boolean(event?.api));
       dockviewApiRef.current = event.api;
 
       // Provide shared props to panels via containerApi
@@ -595,10 +596,33 @@ export default function TerminalDockview({
       event.api.domSharedProps = domSharedProps;
       event.api.signalsSharedProps = signalsSharedProps;
 
-      // Load presets and active workspace
-      await loadPresets();
-      const currentDetail = await loadWorkspaceDetail(activePresetId);
-      hydrateLayout(event.api, currentDetail);
+      // 1. Мгновенная инициализация раскладки (кэш либо дефолт) — 0мс задержки, исключает пустой экран
+      const cached = readCachedDockviewLayout();
+      if (cached) {
+        const sanitized = sanitizeDockviewLayout(cached);
+        if (sanitized) {
+          try {
+            event.api.fromJSON(sanitized);
+          } catch (_) {
+            buildDefaultLayout(event.api, activePresetId);
+          }
+        } else {
+          buildDefaultLayout(event.api, activePresetId);
+        }
+      } else {
+        buildDefaultLayout(event.api, activePresetId);
+      }
+
+      // 2. Фоновая загрузка пресетов и синхронизация сохранённой в SQLite раскладки
+      try {
+        await loadPresets();
+        const currentDetail = await loadWorkspaceDetail(activePresetId);
+        if (currentDetail?.layout_data?.dockview) {
+          hydrateLayout(event.api, currentDetail);
+        }
+      } catch (err) {
+        console.debug('Background workspace sync:', err);
+      }
 
       // Listen to layout changes for debounced SQLite autosave
       event.api.onDidLayoutChange(() => {

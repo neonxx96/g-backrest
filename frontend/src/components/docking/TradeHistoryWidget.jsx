@@ -234,6 +234,23 @@ export default function TradeHistoryWidget(props) {
     [sessionData, pilotOpen]
   );
 
+  // Марафон-сессии и статус (вынесены на уровень компонента для доступа в шапке и кнопках)
+  const marathonSessions = useMemo(() => Object.values(pilotStatus?.sessions || {}), [pilotStatus]);
+  const isMarathonRunning = useMemo(
+    () => Boolean(pilotStatus?.pilot_running || marathonSessions.some((s) => s?.paper?.is_running)),
+    [pilotStatus, marathonSessions]
+  );
+  const marathonPaperAgg = pilotStatus?.aggregate?.paper;
+  const marathonBalance = Number(marathonPaperAgg?.equity ?? marathonPaperAgg?.starting_balance ?? 1000.0);
+  const marathonRealized = Number(
+    marathonPaperAgg?.net_pnl_usd ?? marathonSessions.reduce((sum, s) => sum + Number(s?.paper?.realized_pnl ?? 0), 0)
+  );
+  const marathonUnrealized = useMemo(
+    () => openPositions.filter((p) => p._source === 'marathon').reduce((sum, p) => sum + Number(p.unrealized_pnl ?? 0), 0),
+    [openPositions]
+  );
+  const hasMarathon = isMarathonRunning || Boolean(marathonPaperAgg?.available) || marathonSessions.some((s) => s?.paper?.balance != null);
+
   // Единая сводка «по парам»: марафон + live-раннер (источник торговли, стратегия, PnL, статус)
   const paperPairs = useMemo(() => collectPaperPairs(pilotStatus, liveStatus), [pilotStatus, liveStatus]);
 
@@ -298,15 +315,6 @@ export default function TradeHistoryWidget(props) {
     const uptimeStr = `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 
     // Профиль = live-раннер + все сессии марафона (единый кошелек $1,000.00).
-    const marathonSessions = Object.values(pilotStatus?.sessions || {});
-    const isMarathonRunning = Boolean(pilotStatus?.pilot_running || marathonSessions.some((s) => s?.paper?.is_running));
-    const marathonPaperAgg = pilotStatus?.aggregate?.paper;
-    const marathonBalance = Number(marathonPaperAgg?.equity ?? marathonPaperAgg?.starting_balance ?? 1000.0);
-    const marathonRealized = Number(marathonPaperAgg?.net_pnl_usd ?? marathonSessions.reduce((sum, s) => sum + Number(s?.paper?.realized_pnl ?? 0), 0));
-    const marathonUnrealized = openPositions
-      .filter((p) => p._source === 'marathon')
-      .reduce((sum, p) => sum + Number(p.unrealized_pnl ?? 0), 0);
-    const hasMarathon = isMarathonRunning || Boolean(marathonPaperAgg?.available) || marathonSessions.some((s) => s?.paper?.balance != null);
     const liveBalance = Number(sessionData?.balance ?? 0);
     const isLiveRunning = Boolean(liveStatus?.is_running);
     const profileBalance = hasMarathon ? marathonBalance : (isLiveRunning ? liveBalance : (sessionData ? liveBalance : 1000.0));
@@ -323,7 +331,7 @@ export default function TradeHistoryWidget(props) {
       profitBleedPct: closed.length > 0 ? (bleedCount / closed.length) * 100 : 0,
       uptimeStr
     };
-  }, [sessionData, closedTrades, openPositions, pilotStatus]);
+  }, [sessionData, closedTrades, openPositions, hasMarathon, marathonBalance, marathonRealized, marathonUnrealized, liveStatus]);
 
   return (
     <div
