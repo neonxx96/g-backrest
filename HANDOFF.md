@@ -6,6 +6,22 @@
 
 ---
 
+## Antigravity — Упаковка SignalScript в Docker-контейнеры и One-Click PWA Launcher (2026-10-27, 00:15 Киев)
+
+- **Ветка:** \gent/antigravity/docker- **Статус качества:** \🎉 ALL QUALITY CHECKS PASSED. READY TO COMMIT.\ (Шлюз \scripts/check.ps1\ зелёный: 573 pytest passed, 85 layout tests, production build OK, 8/8 critical components smoke OK, Playwright blocking + live UI OK). Внутри Linux-контейнера \check.sh --backend-only\: 601 passed, 0 failed.
+- **Сделано**:
+  1. **Инвентаризация и аудит**: сформирован [docs/DOCKER_AUDIT.md](docs/DOCKER_AUDIT.md) с полным списком PowerShell/Windows-зависимостей, портов (:8000, :7100), томов (\data/\), и обоснованием архитектуры Nginx.
+  2. **Dockerfile бэкенда**: \python:3.11-slim\, non-root пользователь \ppuser\ (UID 1000), зависимости из equirements.txt\, healthcheck \/api/health\.
+  3. **Dockerfile фронтенда & Nginx**: multi-stage сборка Vite, легковесная раздача через Nginx Alpine на порту 7100 с обратным проксированием \/api/\ и \/ws/\ на бэкенд.
+  4. **docker-compose.yml**: 2 сервиса (\signalscript_backend\, \signalscript_frontend\), bridge-сеть \signalscript_net\, том \./data:/app/data\, estart: unless-stopped\, \env_file: .env.example\.
+  5. **.dockerignore**: строго исключены \.env\, \data/\, \.venv\, ode_modules\, \.git\, кэши. Секреты и база не запекаются в образ.
+  6. **PWA & Service Worker**: \manifest.json\ в режиме standalone, \sw.js\ кеширует только UI-оболочку и строго обходит real-time рыночные данные, стакан, сделки и WebSocket Binance.
+  7. **One-Click Launcher & ярлык**: \start_terminal.bat\ (проверка/старт Docker Desktop, \docker compose up -d\, опрос :7100, запуск окна \msedge --app=http://localhost:7100\). Создан ярлык на рабочем столе \SignalScript Terminal.lnk\ с иконкой \ssets/terminal.ico\.
+  8. **check.sh**: Linux/контейнерный аналог \scripts/check.ps1\.
+  9. **Документация**: [docs/DOCKER.md](docs/DOCKER.md) с командами запуска, логов, остановки, обновления и бэкапа.
+
+---
+
 ## Antigravity — Целевой аудит и квантовая верификация риск-ядра (2026-10-26, 23:25 Киев)
 
 - **Ветка:** `agent/antigravity/chart-engine-footprint` (коммит `777f498`)
