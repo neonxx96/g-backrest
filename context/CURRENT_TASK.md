@@ -27,7 +27,7 @@
 - [x] **Этап 3**: Классификатор рыночных фаз (`regime_classifier.py`) и микроструктурный фильтр (`microstructure_gate`)
 - [x] **Этап 4**: Миграция схемы `paper_trade_records` в SQLite (`signals.db`), адаптация `paper_trading.py` и `live_paper_runner.py` для раздельного хранения плеча биржи и effective_leverage, расчет `mfe_r`, `mae_r`, `realized_r`, `expected_r`
 - [x] **Этап 5**: Отображение Net Expectancy ($E_R$) в `TradeHistoryWidget.jsx`
-- [ ] **Этап 6**: Сравнительный бэктест/демо-тест старой и новой версии на одинаковых рыночных данных
+- [x] **Этап 6**: Запуск селективного пула из 7 пар (ZEC, BNB, ENA, WLD, UNI, TIA, TRX) на ночь старой и новой версии на одинаковых рыночных данных
 - [x] **Этап 7**: Пост-мортем анализатор закрытых сделок (`trade_postmortem_service.py`) с детальной MFE/MAE аналитикой
 
 ## Execution Log
