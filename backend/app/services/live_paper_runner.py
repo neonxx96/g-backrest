@@ -54,6 +54,52 @@ MARKET_ENTRY_STRATEGIES = frozenset({
 })
 
 
+
+async def _async_record_decision_journal_entry(
+    symbol: str,
+    event_type: str,
+    timeframe: str,
+    direction: str,
+    price: float,
+    strategy: str,
+    user_decision: str,
+    notes: str,
+    context: Optional[Dict[str, Any]] = None,
+    sl_price: Optional[float] = None,
+    tp_price: Optional[float] = None,
+    entry_price: Optional[float] = None,
+    ai_verdict: Optional[str] = None,
+    ai_reason: Optional[str] = None,
+) -> None:
+    try:
+        from datetime import datetime
+        import json
+        from backend.app.db.database import AsyncSessionLocal
+        from backend.app.db.models import DecisionLog
+        clean_sym = str(symbol).upper().replace(".P", "").replace("-PERP", "")
+        async with AsyncSessionLocal() as db:
+            row = DecisionLog(
+                timestamp=datetime.utcnow(),
+                event_type=event_type,
+                symbol=clean_sym,
+                timeframe=timeframe,
+                direction=direction,
+                price=float(price or 0.0),
+                entry_price=float(entry_price) if entry_price is not None else float(price or 0.0),
+                sl_price=float(sl_price) if sl_price is not None else None,
+                tp_price=float(tp_price) if tp_price is not None else None,
+                strategy_or_condition=strategy,
+                user_decision=user_decision,
+                notes=notes,
+                ai_verdict=ai_verdict,
+                ai_reason=ai_reason,
+                context_json=json.dumps(context, ensure_ascii=False) if context else "{}",
+            )
+            db.add(row)
+            await db.commit()
+    except Exception as exc:
+        logger.debug("Failed to record decision journal entry: %s", exc)
+
 class LivePaperRunner:
     """
     Manages live paper trading execution loop over FreeBinanceCollector.
@@ -964,6 +1010,34 @@ class LivePaperRunner:
                 f"(SL: ${candidate_signal['sl']:,.2f}, TP: ${candidate_signal['tp1']:,.2f}, R:R 1:{candidate_signal['expected_rr']:.1f})",
                 meta=order_res,
             )
+            try:
+                ai_v = ai_eval.get('verdict') if ('ai_eval' in locals() and isinstance(ai_eval, dict)) else None
+                ai_r = ai_eval.get('reason') if ('ai_eval' in locals() and isinstance(ai_eval, dict)) else None
+                asyncio.create_task(
+                    _async_record_decision_journal_entry(
+                        symbol=self.symbol,
+                        event_type="ORDER",
+                        timeframe=self.timeframe,
+                        direction=candidate_signal["direction"],
+                        price=float(candidate_signal["entry_price"]),
+                        entry_price=float(candidate_signal["entry_price"]),
+                        sl_price=float(candidate_signal["sl"]),
+                        tp_price=float(candidate_signal["tp1"]),
+                        strategy=self.strategy_type,
+                        user_decision="ENTERED",
+                        notes="; ".join(candidate_signal["reason"]),
+                        ai_verdict=ai_v,
+                        ai_reason=ai_r,
+                        context={
+                            "leverage": effective_leverage,
+                            "risk_pct": effective_risk_pct,
+                            "risk_budget": risk_budget,
+                            "expected_rr": candidate_signal.get("expected_rr"),
+                        },
+                    )
+                )
+            except Exception as _e:
+                logger.debug("Could not schedule decision log for open: %s", _e)
         except Exception as e:
             logger.error(f"Paper order execution error: {e}")
             self._add_log("ERROR", f"Ошибка открытия сделки: {e}")
@@ -1661,6 +1735,31 @@ class LivePaperRunner:
                 "is_final_exit": is_final_exit,
             },
         )
+        try:
+            asyncio.create_task(
+                _async_record_decision_journal_entry(
+                    symbol=trade_symbol,
+                    event_type="ORDER",
+                    timeframe=self.timeframe,
+                    direction=str(trade.get("side", "")).upper(),
+                    price=float(trade.get("exit_price") or 0.0),
+                    entry_price=float(trade.get("entry_price") or 0.0),
+                    sl_price=float(trade.get("stop_price")) if trade.get("stop_price") is not None else None,
+                    tp_price=float(trade.get("target_price")) if trade.get("target_price") is not None else None,
+                    strategy=self.strategy_type,
+                    user_decision="EXITED",
+                    notes=f"Закрытие {exit_reason}: PnL ${float(trade.get('net_pnl') or 0.0):+.2f} ({raw_reason})",
+                    context={
+                        "closure_id": closure_id,
+                        "gross_pnl": trade.get("gross_pnl"),
+                        "net_pnl": trade.get("net_pnl"),
+                        "fee_drag": trade.get("fee_drag"),
+                        "exit_reason": exit_reason,
+                    },
+                )
+            )
+        except Exception as _e:
+            logger.debug("Could not schedule decision log for close: %s", _e)
 
 # Global singleton runner
 live_paper_runner = LivePaperRunner()

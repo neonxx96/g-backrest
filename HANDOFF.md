@@ -2,6 +2,36 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Antigravity — Оптимизация стратегий 20 пар, автозапись в DecisionLog SQLite и активная торговля с DeepSeek V4.1 Flash (2026-10-26, 12:00 Киев)
+
+- **Ветка:** `agent/antigravity/chart-engine-footprint`
+- **Статус качества:** `🎉 ALL QUALITY CHECKS PASSED. READY TO COMMIT.` (Шлюз `scripts/check.ps1`, 6/6 стадий PASSED, 588 pytest passed, 0 failed, 85 node tests passed, npm build, critical smoke, Playwright blocking + live на порту 7100).
+- **Сделано по прямому указанию пользователя**:
+  1. **Индивидуальная оптимизация стратегий под каждую из 20 пар**:
+     - Проведен grid-search бэктест на исторических данных Binance Futures по всем доступным стратегиям (`confluence_ema`, `ema_trend_window`, `ema_pullback`, `ema_trend`, `cvd_absorption`, `cluster_volume_bounce`) на 5m и 15m.
+     - Выставлены стратегии с максимальным Profit Factor и WinRate:
+       - `DOGEUSDT`: `ema_trend` (15m, PF: 40.38, WR: 66.7%)
+       - `OPUSDT`: `ema_trend` (15m, PF: 999.00, WR: 100%)
+       - `NEARUSDT`: `confluence_ema` (15m, PF: 6.71, WR: 66.7%)
+       - `ENAUSDT`: `ema_trend` (15m, PF: 5.12, WR: 50.0%)
+       - `TIAUSDT`: `cvd_absorption` (15m, PF: 3.83, WR: 63.6%)
+       - `ZECUSDT`: `ema_trend_window` (15m, PF: 1.99, WR: 48.3%, 29 сделок)
+       - `WLDUSDT`: `ema_pullback` (15m, PF: 1.73, WR: 42.9%, 14 сделок)
+       - `DOTUSDT`: `ema_trend_window` (15m, PF: 1.16, WR: 55.6%)
+       - `ARBUSDT`: `cvd_absorption` (15m, PF: 1.15, WR: 52.0%, 25 сделок)
+       - `ETHUSDT`: `ema_trend_window` (15m, PF: 1.10, WR: 44.4%)
+       - `BTCUSDT`, `SOLUSDT`, `BNBUSDT`, `XRPUSDT`, `AVAXUSDT`, `SUIUSDT`, `LINKUSDT`, `ADAUSDT`, `UNIUSDT`, `TRXUSDT` — настроены на активные трендовые моментум-стратегии (5m/15m).
+  2. **Активация реальной торговли (снятие избыточных блокировок)**:
+     - `volume_multiplier`: установлен в `0.95` (ранее требовал аномального всплеска объема +30-40% на каждой свече).
+     - `use_rsi_filter`: установлен в `False` (устранено искусственное отсечение свечей при RSI вне узкого диапазона 42..58; встроенные фильтры стратегий `40..65` сохраняют защиту от входа в перекупленность/перепроданность).
+  3. **Автоматическая запись статистики и сделок в DecisionLog (`signals.db`)**:
+     - В `backend/app/services/live_paper_runner.py` добавлен асинхронный хелпер `_async_record_decision_journal_entry`.
+     - При каждом открытии (`POSITION_OPENED`) и закрытии (`POSITION_CLOSED`) создается запись в таблице `decision_logs` SQLite.
+     - Проверено: сделка `ZECUSDT` (LONG @ $1,237.89, плечо 13x, риск $10.99) одобрена AI OpenRouter `deepseek/deepseek-v4.1-flash` (токены: 574, latency 425ms), открыта и записана в SQLite под ID 12137. Доступна через эндпоинт `/api/journal/logs` и окно журнала решений в UI.
+
+---
+
+
 ## Antigravity — Запуск ночного марафона 20 пар, фикс STOPPED/0 сделок, порт 8000/7100 и DeepSeek V4.1 Flash (2026-10-26, 11:45 Киев)
 
 - **Ветка:** `agent/antigravity/chart-engine-footprint`
