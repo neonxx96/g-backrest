@@ -9,6 +9,7 @@ Implements rolling In-Sample (72h) regime-segmented walk-forward adaptation:
 4. Caches adapted parameters per (symbol, regime) for real-time execution in BackgroundWorker.
 """
 
+import asyncio
 import time
 import logging
 from typing import Dict, Any, List, Optional, Tuple
@@ -232,7 +233,8 @@ class WalkForwardEngine:
             for cand in candidates:
                 kw = {k: v for k, v in cand.items() if k not in ("name",)}
                 try:
-                    bt_res = backtester.run_backtest(
+                    bt_res = await asyncio.to_thread(
+                        backtester.run_backtest,
                         df=test_df,
                         compute_monte_carlo=False,
                         fast_eval=True,

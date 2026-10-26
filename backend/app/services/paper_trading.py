@@ -67,6 +67,9 @@ class PaperPosition:
     reason: str = "Technical Signal"
     context_snapshot: Optional[Dict[str, Any]] = None
     leverage: float = 1.0
+    effective_leverage: float = 1.0
+    regime: str = "NO_TRADE"
+    expected_rr: float = 1.5
     margin_used: float = 0.0
 
     @property
@@ -447,7 +450,7 @@ class PaperTradingSession:
         else:
             return 0.00001
 
-    def check_dynamic_breakeven(self, symbol: str, current_price: float) -> bool:
+    def check_dynamic_breakeven(self, symbol: str, current_price: float, be_r_trigger: float = 0.5) -> bool:
         """
         Dynamic Breakeven (MFE Bleed Protection):
         When floating profit reaches +0.5R (where R = abs(entry - initial_sl)),
@@ -473,10 +476,11 @@ class PaperTradingSession:
         fee_rate = self.taker_fee * 2.0
         fee_offset = entry * fee_rate
         tick = self.estimate_tick_size(entry)
+        trigger_dist = float(be_r_trigger) * r_dist
 
         if pos.side == "LONG":
             floating_pnl_dist = current_price - entry
-            if floating_pnl_dist >= 0.5 * r_dist:
+            if floating_pnl_dist >= trigger_dist:
                 new_sl = entry + fee_offset + tick
                 pos.breakeven_triggered = True
                 if new_sl > pos.stop_price:
@@ -484,13 +488,13 @@ class PaperTradingSession:
                     pos.stop_price = new_sl
                     logger.info(
                         f"[TRADE] DYNAMIC BREAKEVEN [{self.session_id}] {symbol} LONG: "
-                        f"MFE reached +0.5R (+{floating_pnl_dist:.4f} >= {0.5 * r_dist:.4f}). "
+                        f"MFE reached +{be_r_trigger:.2f}R (+{floating_pnl_dist:.4f} >= {trigger_dist:.4f}). "
                         f"SL moved {old_sl:.4f} -> {new_sl:.4f} (+2*Fee+1tick) | reason='Dynamic Breakeven (MFE Bleed Protection)'"
                     )
                     return True
         elif pos.side == "SHORT":
             floating_pnl_dist = entry - current_price
-            if floating_pnl_dist >= 0.5 * r_dist:
+            if floating_pnl_dist >= trigger_dist:
                 new_sl = entry - fee_offset - tick
                 pos.breakeven_triggered = True
                 if pos.stop_price <= 0 or new_sl < pos.stop_price:
@@ -498,7 +502,7 @@ class PaperTradingSession:
                     pos.stop_price = new_sl
                     logger.info(
                         f"[TRADE] DYNAMIC BREAKEVEN [{self.session_id}] {symbol} SHORT: "
-                        f"MFE reached +0.5R (+{floating_pnl_dist:.4f} >= {0.5 * r_dist:.4f}). "
+                        f"MFE reached +{be_r_trigger:.2f}R (+{floating_pnl_dist:.4f} >= {trigger_dist:.4f}). "
                         f"SL moved {old_sl:.4f} -> {new_sl:.4f} (-2*Fee-1tick) | reason='Dynamic Breakeven (MFE Bleed Protection)'"
                     )
                     return True
@@ -640,6 +644,10 @@ class PaperTradingSession:
 
         if pos is None or pos.closed or pos.qty <= 0:
             stop_px = float(getattr(po, "stop_price", 0.0))
+            snap = getattr(po, "context_snapshot", {}) or {}
+            pos_regime = snap.get("regime") or "NO_TRADE"
+            pos_eff_lev = float(snap.get("effective_leverage") or 0.0)
+            pos_expected_rr = float(snap.get("expected_rr") or 1.5)
             pos = PaperPosition(
                 symbol=symbol,
                 side=pos_side,
@@ -653,6 +661,10 @@ class PaperTradingSession:
                 reason=getattr(po, "reason", "Technical Signal"),
                 breakeven_triggered=False,
                 leverage=max(1.0, float(getattr(po, "leverage", 1.0))),
+                effective_leverage=pos_eff_lev,
+                regime=pos_regime,
+                expected_rr=pos_expected_rr,
+                context_snapshot=po.context_snapshot,
             )
             self.positions[symbol] = pos
         else:
@@ -666,6 +678,13 @@ class PaperTradingSession:
                 pos.tp2_price = float(po.tp2_price)
             if getattr(po, "context_snapshot", None):
                 pos.context_snapshot = po.context_snapshot
+                snap = po.context_snapshot
+                if "regime" in snap:
+                    pos.regime = str(snap["regime"])
+                if "effective_leverage" in snap:
+                    pos.effective_leverage = float(snap["effective_leverage"])
+                if "expected_rr" in snap:
+                    pos.expected_rr = float(snap["expected_rr"])
 
         if pos.side != pos_side:
             logger.warning(f"[PaperSession] conflicting side for {symbol}: {pos.side} vs {pos_side}")
@@ -745,6 +764,18 @@ class PaperTradingSession:
         fee_drag = entry_fee_share + fee
         # Record closed trade with the completed Reality Mirror metrics.
         is_final_exit = pos.qty - close_qty <= 1e-9
+
+        initial_sl = pos.initial_stop_price if pos.initial_stop_price > 0 else pos.stop_price
+        r_dist = abs(pos.avg_entry_price - initial_sl) if initial_sl > 0 else (pos.avg_entry_price * 0.015)
+        risk_usd_initial = max(1e-6, r_dist * close_qty)
+        realized_r = net / risk_usd_initial
+        mfe_r = round(track.mfe_r, 4) if (track and track.risk_amount > 0) else round((track.mfe / risk_usd_initial), 4) if track else 0.0
+        mae_r = round(track.mae_r, 4) if (track and track.risk_amount > 0) else round((track.mae / risk_usd_initial), 4) if track else 0.0
+        expected_r = float(getattr(pos, "expected_rr", 1.5))
+        regime_val = getattr(pos, "regime", "NO_TRADE")
+        exchange_leverage = float(getattr(pos, "leverage", 1.0))
+        effective_lev = float(getattr(pos, "effective_leverage", (close_qty * pos.avg_entry_price) / max(1.0, self.available_margin)))
+
         self._append_closed_trade({
             "symbol": symbol,
             "side": pos.side,
@@ -761,7 +792,14 @@ class PaperTradingSession:
             "slippage_cost": entry_slippage_share + slippage_cost,
             "mfe": track.mfe if track else 0.0,
             "mae": track.mae if track else 0.0,
-            "mfe_r": round(track.mfe_r, 4) if track else 0.0,
+            "mfe_r": mfe_r,
+            "mae_r": mae_r,
+            "expected_r": expected_r,
+            "realized_r": round(realized_r, 4),
+            "regime": regime_val,
+            "leverage": exchange_leverage,
+            "effective_leverage": round(effective_lev, 2),
+            "risk_usd": round(risk_usd_initial, 2),
             "profit_bleed": bool(track and track.mfe_r >= 0.5 and net <= 0.0),
             "reason": exit_reason,
             "entry_reason": getattr(pos, "reason", "Technical Signal"),
@@ -960,6 +998,18 @@ class PaperTradingSession:
                 pos.qty = 0.0
                 pos.closed = True
 
+                initial_sl = pos.initial_stop_price if pos.initial_stop_price > 0 else pos.stop_price
+                r_dist = abs(pos.avg_entry_price - initial_sl) if initial_sl > 0 else (pos.avg_entry_price * 0.015)
+                risk_usd_initial = max(1e-6, r_dist * close_qty)
+                realized_r = net / risk_usd_initial
+                track = self.early_exit_engine.tracks.get(sym)
+                mfe_r = round(track.mfe_r, 4) if (track and track.risk_amount > 0) else round((track.mfe / risk_usd_initial), 4) if track else 0.0
+                mae_r = round(track.mae_r, 4) if (track and track.risk_amount > 0) else round((track.mae / risk_usd_initial), 4) if track else 0.0
+                expected_r = float(getattr(pos, "expected_rr", 1.5))
+                regime_val = getattr(pos, "regime", "NO_TRADE")
+                exchange_leverage = float(getattr(pos, "leverage", 1.0))
+                effective_lev = float(getattr(pos, "effective_leverage", (close_qty * pos.avg_entry_price) / max(1.0, self.available_margin)))
+
                 self._append_closed_trade({
                     "symbol": sym,
                     "side": pos.side,
@@ -974,9 +1024,16 @@ class PaperTradingSession:
                     "fee": fee,
                     "fee_drag": entry_fee + fee,
                     "slippage_cost": entry_slippage + slippage_cost,
-                    "mfe": track.mfe if (track := self.early_exit_engine.tracks.get(sym)) else 0.0,
+                    "mfe": track.mfe if track else 0.0,
                     "mae": track.mae if track else 0.0,
-                    "mfe_r": round(track.mfe_r, 4) if track else 0.0,
+                    "mfe_r": mfe_r,
+                    "mae_r": mae_r,
+                    "expected_r": expected_r,
+                    "realized_r": round(realized_r, 4),
+                    "regime": regime_val,
+                    "leverage": exchange_leverage,
+                    "effective_leverage": round(effective_lev, 2),
+                    "risk_usd": round(risk_usd_initial, 2),
                     "profit_bleed": bool(track and track.mfe_r >= 0.5 and net <= 0.0),
                     "reason": f"KILL_SWITCH: {reason}",
                     "entry_reason": getattr(pos, "reason", "Technical Signal"),

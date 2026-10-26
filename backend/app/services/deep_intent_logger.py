@@ -19,6 +19,7 @@ class DeepIntentLogger:
     """Store machine-readable events as append-only JSON Lines."""
 
     _write_lock = threading.Lock()
+    _counts_cache: Dict[Path, Dict[str, Any]] = {}
 
     def __init__(self, path: Optional[Path] = None) -> None:
         self.path = path or BASE_DIR / "backend" / "data" / "deep_intent_log.jsonl"
@@ -165,14 +166,39 @@ class DeepIntentLogger:
         counts: Dict[str, int] = {"backtest": 0, "forecast": 0, "paper": 0, "system": 0}
         if not run_id or not self.path.exists():
             return counts
-        with self.path.open("r", encoding="utf-8") as stream:
-            for line in stream:
+        try:
+            file_size = self.path.stat().st_size
+        except OSError:
+            return counts
+        with self._write_lock:
+            cache = self._counts_cache.get(self.path)
+            if cache is None or file_size < cache.get("offset", 0):
+                cache = {"offset": 0, "by_run": {}}
+                self._counts_cache[self.path] = cache
+            if file_size > cache["offset"]:
                 try:
-                    event = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if not isinstance(event, dict) or event.get("run_id") != run_id:
-                    continue
-                source = str(event.get("source") or "legacy")
-                counts[source] = counts.get(source, 0) + 1
-        return counts
+                    with self.path.open("rb") as stream:
+                        stream.seek(cache["offset"])
+                        for raw_line in stream:
+                            try:
+                                event = json.loads(raw_line.decode("utf-8", errors="replace"))
+                            except json.JSONDecodeError:
+                                continue
+                            if not isinstance(event, dict):
+                                continue
+                            ev_run_id = event.get("run_id")
+                            if not ev_run_id:
+                                continue
+                            run_counts = cache["by_run"].get(ev_run_id)
+                            if run_counts is None:
+                                run_counts = {"backtest": 0, "forecast": 0, "paper": 0, "system": 0}
+                                cache["by_run"][ev_run_id] = run_counts
+                            source = str(event.get("source") or "legacy")
+                            run_counts[source] = run_counts.get(source, 0) + 1
+                        cache["offset"] = stream.tell()
+                except OSError:
+                    return counts
+            cached_run = cache["by_run"].get(run_id)
+            if cached_run is not None:
+                return dict(cached_run)
+            return counts

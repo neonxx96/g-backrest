@@ -24,7 +24,7 @@ from backend.app.services.orderflow_backtester import OrderFlowBacktester, order
 
 backtest_router = APIRouter(prefix="/api/backtest", tags=["backtest"])
 
-TF_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240}
+TF_MINUTES = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240}
 MAX_CANDLES = 45000  # 30 days of 1m
 
 # Non-native intervals (45m, 6h) are assembled from a Binance-native base
@@ -356,6 +356,15 @@ async def fetch_history(symbol: str, timeframe: str, days: int, require_fresh: b
         if not require_fresh or _frame_is_fresh(cached[1]):
             return cached[1].copy()
 
+    # Smart fallback: reuse any fresh cached entry for this (symbol, timeframe) with sufficient candles
+    needed_candles = min(max(100, int(days * 1440 / tf_min)), MAX_CANDLES)
+    for (c_sym, c_tf, c_days, c_fresh), cached_entry in list(_HISTORY_CACHE.items()):
+        if c_sym == symbol.upper() and c_tf == timeframe:
+            if (now_ts - cached_entry[0]) < _HISTORY_CACHE_TTL_SEC:
+                cached_df = cached_entry[1]
+                if len(cached_df) >= needed_candles and (not require_fresh or _frame_is_fresh(cached_df)):
+                    return cached_df.tail(needed_candles).copy().reset_index(drop=True)
+
     # Non-native intervals (45m, 6h) fetch a native base timeframe and resample.
     custom_tf = CUSTOM_TF_MAP_BT.get(timeframe)
     fetch_interval = custom_tf["base"] if custom_tf else timeframe
@@ -404,7 +413,7 @@ async def fetch_history(symbol: str, timeframe: str, days: int, require_fresh: b
             limit = min(max_chunk, need_base - len(rows))
             params = {"symbol": symbol, "interval": fetch_interval, "limit": limit, "endTime": end_ms}
             try:
-                async with session.get(ep["url"], params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                async with session.get(ep["url"], params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                     if resp.status == 200:
                         chunk = await resp.json()
                         if not chunk or not isinstance(chunk, list):
@@ -420,7 +429,7 @@ async def fetch_history(symbol: str, timeframe: str, days: int, require_fresh: b
                 endpoint_ok = False
                 break
 
-        if endpoint_ok and rows:
+        if (endpoint_ok and rows) or len(rows) >= 60:
             break
 
     if not rows:

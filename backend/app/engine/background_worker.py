@@ -355,7 +355,8 @@ class BackgroundWorker:
 
                 for cand in CANDIDATE_STRATEGIES:
                     kw = {k: v for k, v in cand.items() if k != "name"}
-                    bt_res = backtester.run_backtest(
+                    bt_res = await asyncio.to_thread(
+                        backtester.run_backtest,
                         df=df,
                         compute_monte_carlo=False,
                         fast_eval=True,
@@ -507,7 +508,8 @@ class BackgroundWorker:
                 if k in valid_bt_keys and k not in ("df", "compute_monte_carlo", "fast_eval")
             }
 
-            bt_res = backtester.run_backtest(
+            bt_res = await asyncio.to_thread(
+                backtester.run_backtest,
                 df=df,
                 compute_monte_carlo=False,
                 fast_eval=True,
@@ -693,7 +695,7 @@ class BackgroundWorker:
     async def _run_periodic_loop(self):
         """Master background loop running every cycle_interval_sec with exponential backoff resilience."""
         logger.info(f"Parallel Background Worker running (interval={self.cycle_interval_sec}s, max_concurrency={self.max_concurrency}).")
-        await asyncio.sleep(2)  # Initial grace period after server boot
+        await asyncio.sleep(45)  # Initial grace period after server boot
 
         # Run Pre-Flight Auto-Optimization across monitored coins before entering loop
         try:

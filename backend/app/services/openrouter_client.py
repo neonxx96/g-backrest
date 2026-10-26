@@ -70,6 +70,9 @@ class OpenRouterClient:
         # Telemetry call history ring buffer (last 100 calls)
         self.call_history: List[Dict[str, Any]] = []
 
+        # Model failure cooldown tracker (TTL: 60s per failed model)
+        self._model_cooldowns: Dict[str, float] = {}
+
     def _get_current_utc_date(self) -> str:
         return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
@@ -200,12 +203,17 @@ class OpenRouterClient:
         chain: List[Tuple[str, bool, Optional[str]]] = []
         avail = available_models if available_models is not None else self._models_cache
 
+        now_t = time.time()
         for model in candidates:
             is_paid = self.is_paid_model(model)
             skip_reason = None
 
+            # Check 0: Temporary cooldown for recently failed/timed out models
+            if self._model_cooldowns.get(model, 0.0) > now_t:
+                skip_reason = f"Model '{model}' is in cooldown ({int(self._model_cooldowns[model] - now_t)}s remaining)"
+
             # Check 1: Daily budget ceiling for paid models
-            if is_paid and not self.can_use_paid_models():
+            elif is_paid and not self.can_use_paid_models():
                 skip_reason = f"Daily budget ceiling reached (${self.daily_spent_usd:.4f} >= ${self.daily_budget_usd:.2f})"
 
             # Check 2: Model availability in OpenRouter models catalog (1-hr cache)
@@ -581,6 +589,7 @@ class OpenRouterClient:
 
                     except asyncio.TimeoutError:
                         elapsed_ms = int((time.time() - start_t) * 1000)
+                        self._model_cooldowns[model] = time.time() + 60.0
                         logger.warning(f"OpenRouter request timed out ({eff_timeout}s) for model '{model}'")
                         self._record_call(
                             model=model,
@@ -599,6 +608,7 @@ class OpenRouterClient:
 
                     except Exception as e:
                         elapsed_ms = int((time.time() - start_t) * 1000)
+                        self._model_cooldowns[model] = time.time() + 60.0
                         logger.warning(f"OpenRouter exception on model '{model}': {e}")
                         self._record_call(
                             model=model,
@@ -747,9 +757,9 @@ REASON: [1-2 concise sentences in Russian explaining the liquidity mechanics]
         suggested_sl = cur_sl
         reason = "Cold Quant Sentinel: импульс сохраняется, позиция удерживается по плану."
 
-        if mfe_r >= 0.8 and pnl_r <= mfe_r * 0.5 and adverse_flow:
+        if mfe_r >= 0.5 and pnl_r <= mfe_r * 0.5 and adverse_flow:
             action = "PARTIAL_CLOSE_50"
-            raw_sl = entry + sign * (r_dist * max(0.25, pnl_r * 0.5))
+            raw_sl = entry + sign * (r_dist * max(0.2, pnl_r * 0.5))
             suggested_sl = clamp_protective_stop(side, cur_sl, raw_sl, price)
             reason = (
                 f"Cold Quant Sentinel: MFE Bleed с +{mfe_r:.2f}R до +{pnl_r:.2f}R при встречном дисбалансе "
@@ -761,7 +771,7 @@ REASON: [1-2 concise sentences in Russian explaining the liquidity mechanics]
             raw_sl = entry + sign * (r_dist * lock_r)
             suggested_sl = clamp_protective_stop(side, cur_sl, raw_sl, price)
             reason = f"Cold Quant Sentinel: MFE достиг +{mfe_r:.2f}R — защита +{lock_r:.1f}R прибыли."
-        elif mfe_r >= 0.8:
+        elif mfe_r >= 0.5:
             action = "TIGHTEN_SL"
             raw_sl = entry * (1.0 + sign * 0.0012)
             suggested_sl = clamp_protective_stop(side, cur_sl, raw_sl, price)

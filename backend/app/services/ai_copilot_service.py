@@ -677,7 +677,7 @@ def build_expected_move_cone(
     price_dec: int,
 ) -> Dict[str, Any]:
     """Expected Move Cone (Volatility Fan ±1σ / ±2σ на 16 баров вперёд) — вариант market-analysis."""
-    tf_minutes = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240}.get(tf, 15)
+    tf_minutes = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240}.get(tf, 15)
     time_step_ms = tf_minutes * 60 * 1000
 
     # 1-sigma per single bar based on ATR(14)
@@ -995,11 +995,12 @@ async def compute_probabilistic_forecast(
 
     sym = symbol.strip().upper()
     tf = timeframe.strip().lower()
-    tf_minutes = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240}.get(tf, 15)
+    tf_minutes = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240}.get(tf, 15)
     time_step_ms = tf_minutes * 60 * 1000
 
+    forecast_days = int(strategy_params.get("days", 3)) if isinstance(strategy_params, dict) and strategy_params.get("days") else 3
     try:
-        df = await fetch_history(sym, tf, days=3)
+        df = await fetch_history(sym, tf, days=forecast_days)
     except Exception as e:
         logger.error(f"Failed to fetch klines for forecast: {e}")
         raise HTTPException(status_code=502, detail=f"Ошибка загрузки истории Binance для {sym}: {e}")

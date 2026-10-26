@@ -202,7 +202,7 @@ async def get_live_paper_status():
     """Returns live execution state, equity curve, open positions and AI decision logs."""
     return {
         "status": "ok",
-        "runner": live_paper_runner.get_status()
+        "runner": live_paper_runner.get_status() if live_paper_runner.is_running else (getattr(__import__("backend.app.services.overnight_pilot", fromlist=["overnight_pilot_manager"]).overnight_pilot_manager, "get_unified_live_runner_status", lambda: None)() or live_paper_runner.get_status())
     }
 
 
@@ -236,3 +236,207 @@ async def get_ai_model_chain_status():
         "spending": openrouter_client.get_spending_status(),
         "recent_calls": openrouter_client.call_history[-15:],
     }
+
+
+@router.get("/closed-trades")
+@router.get("/history")
+async def get_paper_closed_trades(
+    period: str = "all",
+    symbol: Optional[str] = None,
+    source: Optional[str] = "all",
+    sort_by: str = "date",
+    sort_order: str = "desc",
+    limit: int = 1000,
+):
+    """
+    Returns durable closed paper trades from SQLite (persisted across restarts)
+    merged with active runner memory, filtered by time period and symbol,
+    with comprehensive summary statistics.
+    """
+    from datetime import datetime
+    from sqlalchemy import select
+    from backend.app.db.database import AsyncSessionLocal
+    from backend.app.db.models import PaperTradeRecord
+    import logging
+    import time
+    logger = logging.getLogger("SignalScript.PaperTrading")
+
+    now_ms = int(time.time() * 1000)
+    period_lower = str(period).lower().strip()
+    
+    if period_lower == "24h":
+        start_ts = now_ms - (24 * 3600 * 1000)
+    elif period_lower == "today":
+        now_dt = datetime.now()
+        midnight_dt = datetime(now_dt.year, now_dt.month, now_dt.day)
+        start_ts = int(midnight_dt.timestamp() * 1000)
+    elif period_lower == "7d":
+        start_ts = now_ms - (7 * 86400 * 1000)
+    elif period_lower == "30d":
+        start_ts = now_ms - (30 * 86400 * 1000)
+    else:
+        start_ts = 0
+
+    norm_symbol = symbol.strip().upper() if symbol and symbol.strip().upper() != "ALL" else None
+
+    trades_map = {}
+
+    # 1. Fetch persistent trades from SQLite
+    try:
+        async with AsyncSessionLocal() as db:
+            query = select(PaperTradeRecord)
+            if start_ts > 0:
+                query = query.where(PaperTradeRecord.exit_ts >= start_ts)
+            if norm_symbol:
+                query = query.where(PaperTradeRecord.symbol == norm_symbol)
+            if source and source != "all":
+                query = query.where(PaperTradeRecord.source == source)
+
+            res = await db.execute(query)
+            records = res.scalars().all()
+            for r in records:
+                t_dict = {
+                    "id": r.id,
+                    "trade_id": r.trade_id,
+                    "session_id": r.session_id,
+                    "symbol": r.symbol,
+                    "side": r.side,
+                    "qty": r.qty,
+                    "entry_price": r.entry_price,
+                    "exit_price": r.exit_price,
+                    "target_price": r.target_price,
+                    "stop_price": r.stop_price,
+                    "gross_pnl": r.gross_pnl,
+                    "net_pnl": r.net_pnl,
+                    "pnl_percent": r.pnl_percent,
+                    "fee": r.fee,
+                    "fee_drag": r.fee_drag,
+                    "slippage_cost": r.slippage_cost,
+                    "mfe": r.mfe,
+                    "mae": r.mae,
+                    "mfe_r": r.mfe_r,
+                    "mae_r": getattr(r, "mae_r", 0.0),
+                    "expected_r": getattr(r, "expected_r", 1.5),
+                    "realized_r": getattr(r, "realized_r", 0.0),
+                    "regime": getattr(r, "regime", "NO_TRADE"),
+                    "leverage": getattr(r, "leverage", 1.0),
+                    "risk_usd": getattr(r, "risk_usd", 0.0),
+                    "profit_bleed": bool(r.profit_bleed),
+                    "reason": r.reason,
+                    "entry_reason": r.entry_reason,
+                    "source": r.source,
+                    "_source": r.source,
+                    "strategy": r.strategy,
+                    "timeframe": r.timeframe,
+                    "entry_ts": r.entry_ts,
+                    "exit_ts": r.exit_ts,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                }
+                key = r.trade_id or f"{r.symbol}:{r.entry_ts}:{r.exit_ts}"
+                trades_map[key] = t_dict
+    except Exception as e:
+        logger.warning("Failed querying paper_trade_records: %s", e)
+
+    # 2. Merge in-memory overnight pilot closed trades directly without full status() serialization
+    try:
+        from backend.app.services.overnight_pilot import overnight_pilot_manager
+        sessions = getattr(overnight_pilot_manager, "sessions", {})
+        for sym_key, sess in sessions.items():
+            runner = getattr(sess, "runner", None)
+            runner_sess = getattr(runner, "session", None)
+            if not runner_sess:
+                continue
+            for t in (getattr(runner_sess, "closed_trades", []) or []):
+                t_sym = str(t.get("symbol") or sym_key).upper()
+                if norm_symbol and t_sym != norm_symbol:
+                    continue
+                t_exit = int(t.get("exit_ts") or now_ms)
+                if start_ts > 0 and t_exit < start_ts:
+                    continue
+                cid = t.get("closure_id") or f"pilot:{t_sym}:{t.get('entry_ts')}:{t_exit}"
+                if cid not in trades_map:
+                    trades_map[cid] = {
+                        **t,
+                        "trade_id": cid,
+                        "source": "marathon",
+                        "_source": "marathon",
+                        "symbol": t_sym,
+                        "exit_ts": t_exit,
+                    }
+    except Exception as e:
+        logger.debug("Failed merging pilot in-memory trades: %s", e)
+
+    # 3. Merge live runner closed trades
+    try:
+        if live_paper_runner.is_running:
+            for t in (live_paper_runner.session.closed_trades or []):
+                t_sym = str(t.get("symbol") or live_paper_runner.symbol).upper()
+                if norm_symbol and t_sym != norm_symbol:
+                    continue
+                t_exit = int(t.get("exit_ts") or now_ms)
+                if start_ts > 0 and t_exit < start_ts:
+                    continue
+                cid = t.get("closure_id") or f"live:{t_sym}:{t.get('entry_ts')}:{t_exit}"
+                if cid not in trades_map:
+                    trades_map[cid] = {
+                        **t,
+                        "trade_id": cid,
+                        "source": "live",
+                        "_source": "live",
+                        "symbol": t_sym,
+                        "exit_ts": t_exit,
+                    }
+    except Exception as e:
+        logger.debug("Failed merging live runner in-memory trades: %s", e)
+
+    trade_list = list(trades_map.values())
+
+    # 4. Sort trades
+    is_desc = str(sort_order).lower() != "asc"
+    if sort_by == "pnl":
+        trade_list.sort(key=lambda x: float(x.get("net_pnl") or 0.0), reverse=is_desc)
+    elif sort_by == "symbol":
+        trade_list.sort(key=lambda x: str(x.get("symbol") or ""), reverse=is_desc)
+    else:  # date / exit_ts
+        trade_list.sort(key=lambda x: int(x.get("exit_ts") or 0), reverse=is_desc)
+
+    # 5. Summary metrics
+    total_trades = len(trade_list)
+    net_pnl = round(sum(float(t.get("net_pnl") or 0.0) for t in trade_list), 2)
+    gross_pnl = round(sum(float(t.get("gross_pnl") or 0.0) for t in trade_list), 2)
+    total_fees = round(sum(float(t.get("fee_drag") or t.get("fee") or 0.0) for t in trade_list), 2)
+    wins = sum(1 for t in trade_list if float(t.get("net_pnl") or 0.0) > 0)
+    losses = sum(1 for t in trade_list if float(t.get("net_pnl") or 0.0) <= 0)
+    win_rate = round((wins / total_trades * 100.0) if total_trades > 0 else 0.0, 1)
+    bleed_count = sum(1 for t in trade_list if t.get("profit_bleed"))
+    gross_wins = sum(max(0.0, float(t.get("net_pnl") or 0.0)) for t in trade_list)
+    gross_losses = sum(abs(min(0.0, float(t.get("net_pnl") or 0.0))) for t in trade_list)
+    profit_factor = round(gross_wins / gross_losses, 2) if gross_losses > 0 else (999.0 if gross_wins > 0 else 0.0)
+    realized_r_vals = [float(t.get("realized_r") or 0.0) for t in trade_list]
+    avg_realized_r = round(sum(realized_r_vals) / len(realized_r_vals), 3) if realized_r_vals else 0.0
+    avg_mfe_r = round(sum(float(t.get("mfe_r") or 0.0) for t in trade_list) / total_trades, 2) if total_trades > 0 else 0.0
+    avg_mae_r = round(sum(float(t.get("mae_r") or 0.0) for t in trade_list) / total_trades, 2) if total_trades > 0 else 0.0
+
+    return {
+        "status": "ok",
+        "period": period,
+        "symbol": norm_symbol or "ALL",
+        "total_count": total_trades,
+        "summary": {
+            "total_trades": total_trades,
+            "net_pnl": net_pnl,
+            "gross_pnl": gross_pnl,
+            "total_fees": total_fees,
+            "wins": wins,
+            "losses": losses,
+            "win_rate": win_rate,
+            "profit_factor": profit_factor,
+            "expectancy_r": avg_realized_r,
+            "avg_mfe_r": avg_mfe_r,
+            "avg_mae_r": avg_mae_r,
+            "profit_bleed_count": bleed_count,
+            "avg_trade_pnl": round(net_pnl / total_trades, 2) if total_trades > 0 else 0.0,
+        },
+        "trades": trade_list[:limit],
+    }
+

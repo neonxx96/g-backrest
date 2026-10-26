@@ -122,6 +122,12 @@ class PositionTrackState:
         return self.mfe / self.risk_amount
 
     @property
+    def mae_r(self) -> float:
+        if self.risk_amount <= 0:
+            return 0.0
+        return self.mae / self.risk_amount
+
+    @property
     def r_price_distance(self) -> float:
         """Price distance corresponding to 1.0R."""
         if self.qty <= 0 or self.risk_amount <= 0:

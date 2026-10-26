@@ -14,13 +14,15 @@ engine = create_async_engine(
     echo=False,
     future=True,
     poolclass=NullPool,
+    connect_args={"timeout": 30},
 )
 
 @event.listens_for(engine.sync_engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
     try:
         cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.close()
     except Exception:
@@ -66,6 +68,21 @@ async def init_db():
             sh_cols = [c["name"] for c in inspector.get_columns("signal_history")]
             if "normalized_metric" not in sh_cols:
                 sync_conn.execute(text("ALTER TABLE signal_history ADD COLUMN normalized_metric VARCHAR DEFAULT NULL"))
+
+            # Check paper_trade_records table
+            if "paper_trade_records" in inspector.get_table_names():
+                ptr_cols = [c["name"] for c in inspector.get_columns("paper_trade_records")]
+                new_ptr_cols = {
+                    "mae_r": "FLOAT DEFAULT 0.0",
+                    "expected_r": "FLOAT DEFAULT 0.0",
+                    "realized_r": "FLOAT DEFAULT 0.0",
+                    "regime": "VARCHAR DEFAULT 'NO_TRADE'",
+                    "leverage": "FLOAT DEFAULT 1.0",
+                    "risk_usd": "FLOAT DEFAULT 0.0",
+                }
+                for col_name, col_type in new_ptr_cols.items():
+                    if col_name not in ptr_cols:
+                        sync_conn.execute(text(f"ALTER TABLE paper_trade_records ADD COLUMN {col_name} {col_type}"))
 
         await conn.run_sync(migrate_columns)
         
