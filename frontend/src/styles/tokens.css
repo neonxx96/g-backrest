@@ -1,0 +1,434 @@
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+
+/* =========================================================================
+   SignalScript Terminal Design Tokens & 4 Base Presets
+   Presets: night (default), neon, mono, day + legacy aliases (tealstreet, tiger, bloomberg, graphite, signal, cyan_night)
+   ========================================================================= */
+
+:root {
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Typography scale */
+  --font-size-label: 11px;
+  --font-size-body: 12px;
+  --font-size-num: 12px;
+  --font-size-title: 13px;
+
+  /* Density & Dimensions */
+  --row-h-table: 26px;
+  --control-h-sm: 24px;
+  --control-h-md: 28px;
+  --radius: 0.25rem;
+
+  /* Global layer opacity */
+  --layer-opacity: 1;
+}
+
+/* =========================================================================
+   1. NIGHT (Default Dark: Blue-Graphite, calm contrast, cyan/teal accent)
+   ========================================================================= */
+:root,
+[data-theme="night"],
+[data-theme="tealstreet"],
+[data-theme="graphite"],
+[data-theme="cyan_night"] {
+  --background: #090b0e;
+  --foreground: #d1d5db;
+  --card: #0d1015;
+  --card-foreground: #d1d5db;
+  --popover: #11141a;
+  --popover-foreground: #e5e7eb;
+  --primary: #06b6d4;
+  --primary-foreground: #041014;
+  --secondary: #161b22;
+  --secondary-foreground: #9ca3af;
+  --muted: #13171f;
+  --muted-foreground: #717b8c;
+  --accent: #192230;
+  --accent-foreground: #38bdf8;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #1e2430;
+  --input: #1e2430;
+  --ring: #06b6d4;
+
+  /* Market & Trading Tokens */
+  --bull: #10b981;
+  --bull-soft: rgba(16, 185, 129, 0.14);
+  --bear: #f43f5e;
+  --bear-soft: rgba(244, 63, 94, 0.14);
+  --density-wall: #eab308;
+  --liq-long: #3b82f6;
+  --liq-short: #f97316;
+  --poc: #eab308;
+  --vwap: #a855f7;
+  --ema-1: #38bdf8;
+  --ema-2: #f59e0b;
+  --ema-3: #a855f7;
+  --grid-line: rgba(30, 36, 48, 0.45);
+  --crosshair: #475569;
+
+  /* State Alerts */
+  --success: #10b981;
+  --warning: #f59e0b;
+  --info: #06b6d4;
+
+  /* Legacy Bridge variables */
+  --bg-root: var(--background);
+  --bg-panel: var(--card);
+  --bg-panel-header: #101319;
+  --bg-subtle: var(--muted);
+  --bg-hover: var(--accent);
+  --border-subtle: var(--border);
+  --border-active: #334155;
+  --text-main: var(--foreground);
+  --text-muted: var(--muted-foreground);
+  --text-dim: #4b5563;
+  --color-bull: var(--bull);
+  --color-bull-soft: var(--bull-soft);
+  --color-bear: var(--bear);
+  --color-bear-soft: var(--bear-soft);
+  --color-accent: var(--primary);
+  --color-density-gold: var(--density-wall);
+  --color-spoof: var(--destructive);
+  --grid-rgb: 30, 36, 48;
+  --grid-opacity: 0.35;
+  --candle-opacity: 1;
+
+  /* Slab Presets Bridge */
+  --bg: var(--background);
+  --panel: var(--card);
+  --raised: var(--popover);
+  --grid: #161b22;
+  --text-1: var(--foreground);
+  --text-2: var(--muted-foreground);
+  --text-3: var(--text-dim);
+  --up: var(--bull);
+  --down: var(--bear);
+  --warn: var(--warning);
+  --blocked: var(--destructive);
+  --ok: var(--success);
+  --candle-up: var(--bull);
+  --candle-down: var(--bear);
+  --candle-up-border: var(--bull);
+  --candle-wick: var(--muted-foreground);
+  --zone-demand: var(--bull-soft);
+  --zone-supply: var(--bear-soft);
+}
+
+/* =========================================================================
+   2. NEON (Vivid Scalper Dark: Deep Black, Acid Accents, Max Contrast)
+   ========================================================================= */
+[data-theme="neon"],
+[data-theme="tiger"],
+[data-theme="signal"] {
+  --background: #040507;
+  --foreground: #f1f5f9;
+  --card: #080a0f;
+  --card-foreground: #f1f5f9;
+  --popover: #0e121a;
+  --popover-foreground: #f8fafc;
+  --primary: #00f0ff;
+  --primary-foreground: #01080d;
+  --secondary: #131924;
+  --secondary-foreground: #94a3b8;
+  --muted: #0f141f;
+  --muted-foreground: #64748b;
+  --accent: #172233;
+  --accent-foreground: #00f0ff;
+  --destructive: #ff2a6d;
+  --destructive-foreground: #ffffff;
+  --border: #1a2333;
+  --input: #1a2333;
+  --ring: #00f0ff;
+
+  /* Market & Trading Tokens */
+  --bull: #00f5d4;
+  --bull-soft: rgba(0, 245, 212, 0.18);
+  --bear: #ff2a6d;
+  --bear-soft: rgba(255, 42, 109, 0.18);
+  --density-wall: #00e5ff;
+  --liq-long: #3b82f6;
+  --liq-short: #ff007f;
+  --poc: #00e5ff;
+  --vwap: #d946ef;
+  --ema-1: #00f0ff;
+  --ema-2: #ffe600;
+  --ema-3: #ff007f;
+  --grid-line: rgba(0, 229, 255, 0.2);
+  --crosshair: #00e5ff;
+
+  /* State Alerts */
+  --success: #00f5d4;
+  --warning: #ffd600;
+  --info: #00f0ff;
+
+  /* Legacy Bridge variables */
+  --bg-root: var(--background);
+  --bg-panel: var(--card);
+  --bg-panel-header: #0c1017;
+  --bg-subtle: var(--muted);
+  --bg-hover: var(--accent);
+  --border-subtle: var(--border);
+  --border-active: #00e5ff;
+  --text-main: var(--foreground);
+  --text-muted: var(--muted-foreground);
+  --text-dim: #475569;
+  --color-bull: var(--bull);
+  --color-bull-soft: var(--bull-soft);
+  --color-bear: var(--bear);
+  --color-bear-soft: var(--bear-soft);
+  --color-accent: var(--primary);
+  --color-density-gold: var(--density-wall);
+  --color-spoof: var(--destructive);
+  --grid-rgb: 0, 229, 255;
+  --grid-opacity: 0.18;
+  --candle-opacity: 1;
+
+  --bg: var(--background);
+  --panel: var(--card);
+  --raised: var(--popover);
+  --grid: #131924;
+  --text-1: var(--foreground);
+  --text-2: var(--muted-foreground);
+  --text-3: var(--text-dim);
+  --up: var(--bull);
+  --down: var(--bear);
+  --warn: var(--warning);
+  --blocked: var(--destructive);
+  --ok: var(--success);
+  --candle-up: var(--bull);
+  --candle-down: var(--bear);
+  --candle-up-border: var(--bull);
+  --candle-wick: var(--muted-foreground);
+  --zone-demand: var(--bull-soft);
+  --zone-supply: var(--bear-soft);
+}
+
+/* =========================================================================
+   3. MONO (Monochrome Minimalist: Grey scales, brightness & fills, gold accent)
+   ========================================================================= */
+[data-theme="mono"],
+[data-theme="bloomberg"] {
+  --background: #0b0c0e;
+  --foreground: #e4e4e7;
+  --card: #111215;
+  --card-foreground: #e4e4e7;
+  --popover: #18191d;
+  --popover-foreground: #f4f4f5;
+  --primary: #f59e0b;
+  --primary-foreground: #1c1303;
+  --secondary: #1f2025;
+  --secondary-foreground: #a1a1aa;
+  --muted: #16171b;
+  --muted-foreground: #71717a;
+  --accent: #24262c;
+  --accent-foreground: #f59e0b;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #27272a;
+  --input: #27272a;
+  --ring: #f59e0b;
+
+  /* Market & Trading Tokens */
+  --bull: #10b981;
+  --bull-soft: rgba(16, 185, 129, 0.12);
+  --bear: #f43f5e;
+  --bear-soft: rgba(244, 63, 94, 0.12);
+  --density-wall: #f59e0b;
+  --liq-long: #71717a;
+  --liq-short: #d4d4d8;
+  --poc: #f59e0b;
+  --vwap: #a1a1aa;
+  --ema-1: #d4d4d8;
+  --ema-2: #f59e0b;
+  --ema-3: #71717a;
+  --grid-line: rgba(39, 39, 42, 0.4);
+  --crosshair: #71717a;
+
+  /* State Alerts */
+  --success: #10b981;
+  --warning: #f59e0b;
+  --info: #a1a1aa;
+
+  /* Legacy Bridge variables */
+  --bg-root: var(--background);
+  --bg-panel: var(--card);
+  --bg-panel-header: #141519;
+  --bg-subtle: var(--muted);
+  --bg-hover: var(--accent);
+  --border-subtle: var(--border);
+  --border-active: #f59e0b;
+  --text-main: var(--foreground);
+  --text-muted: var(--muted-foreground);
+  --text-dim: #52525b;
+  --color-bull: var(--bull);
+  --color-bull-soft: var(--bull-soft);
+  --color-bear: var(--bear);
+  --color-bear-soft: var(--bear-soft);
+  --color-accent: var(--primary);
+  --color-density-gold: var(--density-wall);
+  --color-spoof: var(--destructive);
+  --grid-rgb: 39, 39, 42;
+  --grid-opacity: 0.3;
+  --candle-opacity: 1;
+
+  --bg: var(--background);
+  --panel: var(--card);
+  --raised: var(--popover);
+  --grid: #18191d;
+  --text-1: var(--foreground);
+  --text-2: var(--muted-foreground);
+  --text-3: var(--text-dim);
+  --up: var(--bull);
+  --down: var(--bear);
+  --warn: var(--warning);
+  --blocked: var(--destructive);
+  --ok: var(--success);
+  --candle-up: var(--bull);
+  --candle-down: var(--bear);
+  --candle-up-border: var(--bull);
+  --candle-wick: var(--muted-foreground);
+  --zone-demand: var(--bull-soft);
+  --zone-supply: var(--bear-soft);
+}
+
+/* =========================================================================
+   4. DAY (Light Theme: Clean Warm White/Grey, non-glare, crisp contrast)
+   ========================================================================= */
+[data-theme="day"] {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+  --primary: #0284c7;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #475569;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --accent: #e2e8f0;
+  --accent-foreground: #0284c7;
+  --destructive: #e11d48;
+  --destructive-foreground: #ffffff;
+  --border: #e2e8f0;
+  --input: #cbd5e1;
+  --ring: #0284c7;
+
+  /* Market & Trading Tokens */
+  --bull: #059669;
+  --bull-soft: rgba(5, 150, 105, 0.12);
+  --bear: #e11d48;
+  --bear-soft: rgba(225, 29, 72, 0.12);
+  --density-wall: #d97706;
+  --liq-long: #2563eb;
+  --liq-short: #ea580c;
+  --poc: #d97706;
+  --vwap: #7c3aed;
+  --ema-1: #0284c7;
+  --ema-2: #d97706;
+  --ema-3: #7c3aed;
+  --grid-line: rgba(226, 232, 240, 0.8);
+  --crosshair: #94a3b8;
+
+  /* State Alerts */
+  --success: #059669;
+  --warning: #d97706;
+  --info: #0284c7;
+
+  /* Legacy Bridge variables */
+  --bg-root: var(--background);
+  --bg-panel: var(--card);
+  --bg-panel-header: #f1f5f9;
+  --bg-subtle: var(--muted);
+  --bg-hover: var(--accent);
+  --border-subtle: var(--border);
+  --border-active: #94a3b8;
+  --text-main: var(--foreground);
+  --text-muted: var(--muted-foreground);
+  --text-dim: #94a3b8;
+  --color-bull: var(--bull);
+  --color-bull-soft: var(--bull-soft);
+  --color-bear: var(--bear);
+  --color-bear-soft: var(--bear-soft);
+  --color-accent: var(--primary);
+  --color-density-gold: var(--density-wall);
+  --color-spoof: var(--destructive);
+  --grid-rgb: 203, 213, 225;
+  --grid-opacity: 0.5;
+  --candle-opacity: 1;
+
+  --bg: var(--background);
+  --panel: var(--card);
+  --raised: var(--popover);
+  --grid: #e2e8f0;
+  --text-1: var(--foreground);
+  --text-2: var(--muted-foreground);
+  --text-3: var(--text-dim);
+  --up: var(--bull);
+  --down: var(--bear);
+  --warn: var(--warning);
+  --blocked: var(--destructive);
+  --ok: var(--success);
+  --candle-up: var(--bull);
+  --candle-down: var(--bear);
+  --candle-up-border: var(--bull);
+  --candle-wick: var(--muted-foreground);
+  --zone-demand: var(--bull-soft);
+  --zone-supply: var(--bear-soft);
+}
+
+/* =========================================================================
+   Liquidation Palettes
+   ========================================================================= */
+:root,
+[data-liq-palette="muted"] {
+  --liq-stop-0: transparent;
+  --liq-stop-1: rgba(120, 130, 150, 0.18);
+  --liq-stop-2: rgba(150, 165, 185, 0.40);
+  --liq-stop-3: rgba(200, 210, 222, 0.70);
+  --liq-primary: rgba(200, 210, 222, 0.85);
+}
+
+[data-liq-palette="vivid"] {
+  --liq-stop-0: transparent;
+  --liq-stop-1: #2b1a5e;
+  --liq-stop-2: #7b2a9c;
+  --liq-stop-3: #d6479a;
+  --liq-stop-4: #f08a3c;
+  --liq-stop-5: #ffd84a;
+  --liq-primary: #ffd84a;
+}
+
+[data-liq-palette="acid"] {
+  --liq-stop-0: transparent;
+  --liq-stop-1: #1e1b4b;
+  --liq-stop-2: #8b2fc9;
+  --liq-stop-3: #ff3fb4;
+  --liq-stop-4: #c6ff3d;
+  --liq-stop-5: #f4ffd0;
+  --liq-primary: #c6ff3d;
+}
+
+/* Candle Render Mode Modifiers */
+[data-candle-mode="hollow"] .candle-up {
+  background: transparent !important;
+  border-color: var(--candle-up-border) !important;
+}
+
+[data-candle-mode="mono"] .candle-up {
+  background: var(--text-2) !important;
+  border-color: var(--text-1) !important;
+}
+[data-candle-mode="mono"] .candle-down {
+  background: var(--text-3) !important;
+  border-color: var(--text-2) !important;
+}
