@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { fetchKlinesDualSource, TF_MS } from '../../services/marketDataFetcher';
 import { createKLineChartsV9Adapter } from './engine/KLineChartsV9Adapter.js';
+import { themeBridge } from '../../theme/themeBridge.js';
 
 const API_BASE = "/api";
 
@@ -91,6 +92,12 @@ const HISTORY_FLOOR_DAYS = {
 
     setChartReady(prev => prev + 1);
 
+    const unsubscribeTheme = themeBridge.subscribe(() => {
+      if (engineRef?.current) {
+        engineRef.current.setTheme(uiConfig || {});
+      }
+    });
+
     let rafId = null;
     const handleResize = () => {
       if (rafId) cancelAnimationFrame(rafId);
@@ -118,6 +125,7 @@ const HISTORY_FLOOR_DAYS = {
       if (rafId) cancelAnimationFrame(rafId);
       window.removeEventListener('resize', handleResize);
       if (ro) ro.disconnect();
+      unsubscribeTheme();
       engine.destroy();
       if (engineRef) engineRef.current = null;
       if (setEngine) setEngine(null);

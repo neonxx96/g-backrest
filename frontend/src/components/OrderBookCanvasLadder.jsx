@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import { useTradeOverlayStore } from '../stores/tradeOverlayStore';
+import { themeBridge } from '../theme/themeBridge';
 
 /**
  * High-Performance Canvas 2D Ladder Renderer for OrderBookDOM
@@ -38,6 +39,14 @@ export default function OrderBookCanvasLadder({
   const ROW_HEIGHT = Math.max(14, Math.min(32, Number(rowHeight) || 20));
   const canvasRef = useRef(null);
   const hoverIdxRef = useRef(-1);
+  const tokensRef = useRef(themeBridge.getTokens());
+
+  useEffect(() => {
+    return themeBridge.subscribe((tokens) => {
+      tokensRef.current = tokens;
+      renderFrame();
+    });
+  }, [renderFrame]);
 
   // Formatting compact dollar strings
   const fmtUsd = useCallback((usd) => {
@@ -147,10 +156,10 @@ export default function OrderBookCanvasLadder({
         ctx.fillStyle = 'rgba(56, 189, 248, 0.15)';
         ctx.fillRect(0, y, w, ROW_HEIGHT);
       } else if (isBestBid) {
-        ctx.fillStyle = 'rgba(38, 166, 154, 0.12)';
+        ctx.fillStyle = tokensRef.current.bullSoft || 'rgba(16, 185, 129, 0.14)';
         ctx.fillRect(0, y, w, ROW_HEIGHT);
       } else if (isBestAsk) {
-        ctx.fillStyle = 'rgba(239, 83, 80, 0.12)';
+        ctx.fillStyle = tokensRef.current.bearSoft || 'rgba(244, 63, 94, 0.14)';
         ctx.fillRect(0, y, w, ROW_HEIGHT);
       } else if (isSpoofActive) {
         ctx.fillStyle = 'rgba(239, 68, 68, 0.35)';

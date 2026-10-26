@@ -5,7 +5,11 @@ export const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1D'];
 export const POPULAR_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'DOGEUSDT', 'XRPUSDT', 'BNBUSDT', 'SUIUSDT', 'NEARUSDT'];
 
 export const THEME_BADGE = {
-  tealstreet: '🌙 TEAL',
-  tiger: '🐯 TIGER',
-  bloomberg: '⚡ BBG'
+  night: '🌙 Ночная',
+  neon: '⚡ Яркая',
+  mono: '⬛ Моно',
+  day: '☀️ Дневная',
+  tealstreet: '🌙 Ночная',
+  tiger: '⚡ Яркая',
+  bloomberg: '⬛ Моно'
 };

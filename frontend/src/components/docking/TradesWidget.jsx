@@ -21,6 +21,7 @@ import { useTradesStore, formatCompact, formatPrice } from '../../stores/tradesS
 import { useColorLinksStore } from '../../stores/colorLinksStore';
 import { useTradeAudioAlerts } from '../../hooks/useTradeAudioAlerts';
 import ChannelSelector from './ChannelSelector';
+import { themeBridge } from '../../theme/themeBridge';
 import TradesSettings, { DEFAULT_TRADES_SETTINGS } from './TradesSettings';
 
 const ROW_HEIGHT = 20;
@@ -48,6 +49,14 @@ export default function TradesWidget(props) {
   // Canvas and scrolling refs
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
+  const tokensRef = useRef(themeBridge.getTokens());
+
+  useEffect(() => {
+    return themeBridge.subscribe((tokens) => {
+      tokensRef.current = tokens;
+      renderCanvas();
+    });
+  }, [renderCanvas]);
   const scrollOffsetRef = useRef(0); // 0 = newest at top
   const [isScrolledDown, setIsScrolledDown] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -216,7 +225,7 @@ export default function TradesWidget(props) {
         ctx.fillStyle = '#f59e0b';
         ctx.fillRect(0, rowY, 3, ROW_HEIGHT);
       } else if (isWhale) {
-        ctx.fillStyle = isBuy ? '#10b981' : '#ef4444';
+        ctx.fillStyle = isBuy ? (tokensRef.current.bull || '#10b981') : (tokensRef.current.bear || '#ef4444');
         ctx.fillRect(0, rowY, 2, ROW_HEIGHT);
       }
 
@@ -250,7 +259,7 @@ export default function TradesWidget(props) {
 
       // 4. Price Text
       const priceStr = formatPrice(trade.price);
-      ctx.fillStyle = isBuy ? '#10b981' : '#ef4444';
+      ctx.fillStyle = isBuy ? (tokensRef.current.bull || '#10b981') : (tokensRef.current.bear || '#ef4444');
       ctx.font = isHighlighted || isWhale || isMegaWhale || isMassiveWhale ? 'bold 10.5px monospace' : '10px monospace';
       ctx.textAlign = 'right';
       ctx.fillText(priceStr, timeColWidth + priceColWidth - 8, rowY + ROW_HEIGHT / 2);

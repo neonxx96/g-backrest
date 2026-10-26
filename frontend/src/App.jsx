@@ -24,7 +24,7 @@ import { useQuantStore } from './stores/quantStore';
 import { getUsableMarketPrice } from './services/marketTruth.js';
 import { deriveBacktestStrategyLevels } from './services/backtestStrategyLevels.js';
 
-const THEME_CYCLE = ['tealstreet', 'tiger', 'bloomberg'];
+const THEME_CYCLE = ['night', 'neon', 'mono', 'day'];
 
 const DEFAULT_LAYOUT = {
   showHtfChart: true,
