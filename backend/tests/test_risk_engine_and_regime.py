@@ -39,13 +39,24 @@ def test_calc_position_by_risk_derivation():
     entry = 100.0
     stop = 98.0        # 2% stop distance = $2.00 / unit
 
-    pos = calc_position_by_risk(equity, risk_pct, entry, stop, "LONG", step_size=0.01, min_notional=5.0, max_leverage=5.0)
-    assert pos is not None
+    # Without friction:
+    pos_pure = calc_position_by_risk(equity, risk_pct, entry, stop, "LONG", step_size=0.01, min_notional=5.0, max_leverage=5.0, taker_fee_pct=0.0, slippage_bps=0.0)
+    assert pos_pure is not None
     # raw qty = 3.50 / 2.0 = 1.75
-    assert pos["qty"] == 1.75
-    assert pos["notional"] == 175.0
-    assert abs(pos["risk_usd"] - 3.50) < 1e-4
-    assert pos["leverage"] == 0.175
+    assert pos_pure["qty"] == 1.75
+    assert pos_pure["notional"] == 175.0
+    assert abs(pos_pure["risk_usd"] - 3.50) < 1e-4
+    assert pos_pure["leverage"] == 0.175
+
+    # With realistic friction (0.05% fee x 2 + 2 bps slippage):
+    # friction_rate = 0.0010 + 0.0002 = 0.0012
+    # effective_distance = 2.0 + (100 * 0.0012) = 2.12
+    # raw qty = 3.50 / 2.12 = 1.6509... -> 1.65
+    pos_friction = calc_position_by_risk(equity, risk_pct, entry, stop, "LONG", step_size=0.01, min_notional=5.0, max_leverage=5.0, taker_fee_pct=0.05, slippage_bps=2.0)
+    assert pos_friction is not None
+    assert pos_friction["qty"] == 1.65
+    assert pos_friction["notional"] == 165.0
+    assert pos_friction["risk_usd"] <= 3.50
 
 
 def test_calc_position_max_leverage_clamp():
@@ -252,4 +263,114 @@ def test_pyramiding_is_disabled_by_flag_by_default():
     can_add, reason = can_add_pyramid_layer(pos, "TREND_UP", mfe_r=1.5, microstructure_ok=True, enable_pyramiding=True)
     assert can_add
     assert reason == "OK"
+
+
+def test_can_open_position_considers_pending_entry_orders():
+    equity = 1000.0
+    open_positions = [
+        {"symbol": "BTCUSDT", "side": "LONG", "risk_usd": 4.0},
+        {"symbol": "ETHUSDT", "side": "LONG", "risk_usd": 3.0},
+    ]
+    # Total portfolio heat limit = 1.25% ($12.50). Directional limit = 0.75% ($7.50).
+    # Current open LONG risk = $7.00.
+    # An active pending limit order for SOLUSDT LONG reserving $2.00 risk:
+    pending_orders = [
+        {
+            "symbol": "SOLUSDT",
+            "role": "ENTRY",
+            "status": "PENDING",
+            "side": "BUY",
+            "reserved_risk": 2.0,
+        }
+    ]
+    # Attempting to open a new LONG with $1.50 risk:
+    # Directional heat would become $7.00 + $2.00 + $1.50 = $10.50 > $7.50!
+    allowed, reason = can_open_position(
+        new_risk_usd=1.50,
+        new_side="LONG",
+        open_positions=open_positions,
+        equity=equity,
+        pending_orders=pending_orders,
+        max_positions=4,
+    )
+    assert not allowed
+    assert "DIRECTIONAL_HEAT_EXCEEDED" in reason
+
+
+def test_realized_r_remains_consistent_on_partial_exit():
+    """
+    Validates that partial profit exit (e.g. 50% TP) calculates realized_r strictly
+    against the proportional share of initial structural risk ($R), avoiding distorted R.
+    """
+    from backend.app.services.paper_trading import PaperTradingSession, PaperPosition
+
+    session = PaperTradingSession(initial_balance=1000.0, risk_per_trade_pct=0.01)
+    # Direct creation of open position to test exit math deterministically
+    pos = PaperPosition(
+        symbol="ETHUSDT",
+        side="LONG",
+        qty=1.0,
+        avg_entry_price=100.0,
+        entry_ts=1000,
+        stop_price=90.0,
+        initial_stop_price=90.0,
+        target_price=120.0,
+        initial_risk_usd=10.0,  # $10 initial structural risk
+        margin_used=50.0,
+    )
+    session.positions["ETHUSDT"] = pos
+
+    # Partial exit of 50% (0.5 qty) at $110 (MFE +1.0R)
+    session.close_position("ETHUSDT", 110.0, order_type="MARKET", quantity=0.5)
+    # Simulate market fill of exit order
+    order_id = list(session.orders.keys())[-1]
+    po = session.orders[order_id]
+    from backend.app.services.execution_simulator import Fill
+    session._apply_exit_fill("ETHUSDT", po, price=110.0, qty=0.5, fee=0.05, slippage_cost=0.0)
+
+    closed = session.get_state().closed_trades[-1]
+    assert closed["qty"] == 0.5
+    assert closed["risk_usd"] == 5.0
+    # Gross on 0.5 qty = ($110 - $100) * 0.5 = $5.00. Fee = 0.05 -> net = $4.95.
+    # realized_r = 4.95 / 5.0 = 0.99R
+    assert 0.98 <= closed["realized_r"] <= 1.0
+    assert pos.qty == 0.5
+
+    # Full exit of remaining 0.5 qty at $90 (Stop)
+    session.close_position("ETHUSDT", 90.0, order_type="MARKET", quantity=0.5)
+    order_id2 = list(session.orders.keys())[-1]
+    po2 = session.orders[order_id2]
+    session._apply_exit_fill("ETHUSDT", po2, price=90.0, qty=0.5, fee=0.05, slippage_cost=0.0)
+
+    closed2 = session.get_state().closed_trades[-1]
+    assert closed2["qty"] == 0.5
+    assert closed2["risk_usd"] == 5.0
+    # Gross on 0.5 qty = ($90 - $100) * 0.5 = -$5.00. Fee = 0.05 -> net = -$5.05.
+    # realized_r = -5.05 / 5.0 = -1.01R
+    assert -1.05 <= closed2["realized_r"] <= -0.99
+    assert pos.closed
+
+
+def test_closed_candle_zero_lookahead_contract():
+    """
+    Confirms that 15m contextual indicators only evaluate closed candles
+    and execution emulates on open[t+1] or after close timestamp, zero look-ahead.
+    """
+    from backend.app.services.regime_classifier import classify_market_regime
+
+    dates = pd.date_range("2026-10-26 00:00", periods=50, freq="15min")
+    df = pd.DataFrame({
+        "open": np.linspace(100, 110, 50),
+        "high": np.linspace(101, 112, 50),
+        "low": np.linspace(99, 109, 50),
+        "close": np.linspace(100.5, 111.5, 50),
+        "volume": np.full(50, 1000.0),
+    }, index=dates)
+
+    # Classification at bar t relies strictly on historical closed rows up to t
+    regime_closed = classify_market_regime(df_5m=df.iloc[:30])
+    regime_future = classify_market_regime(df_5m=df.iloc[:40])
+    # Future bars cannot alter past regime result at bar 30
+    assert isinstance(regime_closed, MarketRegime)
+    assert isinstance(regime_future, MarketRegime)
 

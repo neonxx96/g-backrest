@@ -999,16 +999,28 @@ class LivePaperRunner:
             )
 
         if regime in (MarketRegime.TOXIC_DEADZONE, MarketRegime.NO_TRADE):
-            self._add_log("REGIME_VETO", f"⛔ Режим рынка {regime.value} блокирует вход {self.symbol}")
+            self._add_log(
+                "REGIME_VETO",
+                f"⛔ Режим рынка {regime.value} блокирует вход {self.symbol}",
+                meta={"regime": regime.value, "symbol": self.symbol, "strategy": self.strategy_type},
+            )
             return
 
         if regime == MarketRegime.RANGE_CHOP and self.strategy_type in ("confluence_ema", "ema_trend_window", "ema_pullback", "ema_trend"):
-            self._add_log("REGIME_VETO", f"⛔ Трендовая стратегия {self.strategy_type} запрещена в боковике (RANGE_CHOP)")
+            self._add_log(
+                "REGIME_VETO",
+                f"⛔ Трендовая стратегия {self.strategy_type} запрещена в боковике (RANGE_CHOP)",
+                meta={"regime": regime.value, "strategy": self.strategy_type},
+            )
             return
 
         if regime in (MarketRegime.TREND_UP, MarketRegime.TREND_DOWN) and self.strategy_type in ("cluster_volume_bounce",):
             if (regime == MarketRegime.TREND_UP and candidate_signal["direction"] == "SHORT") or (regime == MarketRegime.TREND_DOWN and candidate_signal["direction"] == "LONG"):
-                self._add_log("REGIME_VETO", f"⛔ Контртрендовый отскок запрещен при сильном {regime.value}")
+                self._add_log(
+                    "REGIME_VETO",
+                    f"⛔ Контртрендовый отскок запрещен при сильном {regime.value}",
+                    meta={"regime": regime.value, "direction": candidate_signal["direction"]},
+                )
                 return
 
         # Microstructure Gate (Imbalance & CVD absorption)
@@ -1021,7 +1033,11 @@ class LivePaperRunner:
             candles_df=enriched_frame if is_df else pd.DataFrame(),
         )
         if not gate_ok:
-            self._add_log("MICROSTRUCTURE_VETO", f"⛔ Microstructure Gate отменил вход {self.symbol}: {gate_reason}")
+            self._add_log(
+                "MICROSTRUCTURE_VETO",
+                f"⛔ Microstructure Gate отменил вход {self.symbol}: {gate_reason}",
+                meta={"gate_reason": gate_reason, "side": candidate_signal["direction"], "orderbook_present": bool(book_dict)},
+            )
             return
         entry_price = float(candidate_signal["entry_price"])
         stop_loss = float(candidate_signal["sl"])
@@ -1061,6 +1077,16 @@ class LivePaperRunner:
             {"symbol": s, "side": p.side, "risk_usd": abs(p.avg_entry_price - (p.initial_stop_price or p.stop_price)) * p.qty}
             for s, p in self.session.positions.items() if not p.closed and p.qty > 0
         ]
+        pending_orders_list = [
+            {
+                "symbol": o.symbol,
+                "role": o.role.value if hasattr(o.role, "value") else str(o.role),
+                "status": o.sim.state.status.value if hasattr(o.sim.state.status, "value") else str(o.sim.state.status),
+                "side": o.sim.cfg.side.value if hasattr(o.sim.cfg.side, "value") else str(o.sim.cfg.side),
+                "reserved_risk": float(getattr(o, "reserved_risk", 0.0) or 0.0),
+            }
+            for o in self.session.orders.values()
+        ]
         effective_risk_pct = adjusted_risk_pct(base_risk_pct, self.symbol, candidate_signal["direction"], open_pos_list)
 
         max_lev = select_max_leverage(regime.value)
@@ -1073,9 +1099,15 @@ class LivePaperRunner:
             step_size=self.session.estimate_tick_size(entry_price),
             min_notional=5.0,
             max_leverage=max_lev,
+            taker_fee_pct=getattr(self, "taker_fee_pct", 0.05),
+            slippage_bps=float(getattr(self, "slippage_ticks", 2.0)),
         )
         if not pos_calc:
-            self._add_log("SIZING_REJECT", f"Размер позиции {self.symbol} не удовлетворяет биржевым фильтрам или лимиту плеча {max_lev}x")
+            self._add_log(
+                "SIZING_REJECT",
+                f"Размер позиции {self.symbol} не удовлетворяет биржевым фильтрам или лимиту плеча {max_lev}x",
+                meta={"entry": entry_price, "stop": stop_loss, "equity": current_equity, "max_leverage": max_lev},
+            )
             return
 
         allowed_heat, heat_reason = can_open_position(
@@ -1083,12 +1115,17 @@ class LivePaperRunner:
             new_side=candidate_signal["direction"],
             open_positions=open_pos_list,
             equity=current_equity,
+            pending_orders=pending_orders_list,
             max_positions=4,
             max_portfolio_heat_pct=0.0125,
             max_directional_heat_pct=0.0075,
         )
         if not allowed_heat:
-            self._add_log("PORTFOLIO_HEAT_VETO", f"⛔ Риск-лимит портфеля: {heat_reason}")
+            self._add_log(
+                "PORTFOLIO_HEAT_VETO",
+                f"⛔ Риск-лимит портфеля: {heat_reason}",
+                meta={"risk_usd": pos_calc["risk_usd"], "reason": heat_reason, "equity": current_equity},
+            )
             return
 
         effective_leverage = float(pos_calc["effective_leverage"])

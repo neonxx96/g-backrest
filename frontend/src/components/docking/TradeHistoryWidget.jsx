@@ -873,7 +873,8 @@ export default function TradeHistoryWidget(props) {
                       Expectancy:{' '}
                       <strong className={periodMetrics.expectancyR >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
                         {periodMetrics.expectancyR >= 0 ? '+' : ''}{periodMetrics.expectancyR.toFixed(2)}R
-                      </strong>
+                      </strong>{' '}
+                      <span className="text-neutral-500 text-[9px]">({periodMetrics.count} сдел., {closedPeriod})</span>
                     </span>
                   </>
                 )}

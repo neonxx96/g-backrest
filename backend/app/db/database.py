@@ -73,12 +73,15 @@ async def init_db():
             if "paper_trade_records" in inspector.get_table_names():
                 ptr_cols = [c["name"] for c in inspector.get_columns("paper_trade_records")]
                 new_ptr_cols = {
-                    "mae_r": "FLOAT DEFAULT 0.0",
-                    "expected_r": "FLOAT DEFAULT 0.0",
-                    "realized_r": "FLOAT DEFAULT 0.0",
+                    "mfe_r": "FLOAT DEFAULT NULL",
+                    "mae_r": "FLOAT DEFAULT NULL",
+                    "expected_r": "FLOAT DEFAULT NULL",
+                    "realized_r": "FLOAT DEFAULT NULL",
                     "regime": "VARCHAR DEFAULT 'NO_TRADE'",
                     "leverage": "FLOAT DEFAULT 1.0",
-                    "risk_usd": "FLOAT DEFAULT 0.0",
+                    "risk_usd": "FLOAT DEFAULT NULL",
+                    "strategy_version": "VARCHAR DEFAULT '2.0-quant'",
+                    "run_id": "VARCHAR DEFAULT NULL",
                 }
                 for col_name, col_type in new_ptr_cols.items():
                     if col_name not in ptr_cols:

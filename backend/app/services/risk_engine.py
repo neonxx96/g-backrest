@@ -37,20 +37,29 @@ def calc_position_by_risk(
     step_size: float = 0.001,
     min_notional: float = 5.0,
     max_leverage: float = 5.0,
+    taker_fee_pct: float = 0.05,
+    slippage_bps: float = 2.0,
 ) -> Optional[Dict[str, Any]]:
     """
-    Fixed-Fractional position sizing strictly derived from structural Stop Loss distance.
+    Fixed-Fractional position sizing strictly derived from structural Stop Loss distance,
+    incorporating round-trip trading commissions and expected slippage friction:
+    Total unit risk distance = |Entry - Stop| + Entry * (2 * taker_fee + slippage_bps/10,000).
     Leverage is an output consequence, NOT a target parameter.
     """
     if equity <= 0 or entry <= 0 or stop <= 0 or risk_pct <= 0:
         return None
 
-    stop_distance = abs(entry - stop)
-    if stop_distance <= 0:
+    structural_distance = abs(entry - stop)
+    if structural_distance <= 0:
         return None
 
+    # Costs per unit: round-trip taker fee + estimated entry/exit slippage
+    fee_rate = 2.0 * (taker_fee_pct / 100.0) if taker_fee_pct > 0.001 else 2.0 * taker_fee_pct
+    friction_rate = fee_rate + (slippage_bps / 10_000.0)
+    effective_stop_distance = structural_distance + (entry * friction_rate)
+
     risk_usd = equity * risk_pct
-    raw_qty = risk_usd / stop_distance
+    raw_qty = risk_usd / effective_stop_distance
     qty = floor_to_step(raw_qty, step_size)
     if qty <= 0:
         return None
@@ -73,18 +82,22 @@ def calc_position_by_risk(
         if notional < min_notional:
             return None
 
+    total_risk_with_costs = qty * effective_stop_distance
+
     return {
         "qty": qty,
         "entry": entry,
         "stop": stop,
         "side": side.upper(),
         "notional": notional,
-        "risk_usd": qty * stop_distance,
-        "risk_pct": (qty * stop_distance) / equity,
+        "risk_usd": total_risk_with_costs,
+        "structural_risk_usd": qty * structural_distance,
+        "risk_pct": total_risk_with_costs / equity,
         "leverage": effective_leverage,
         "effective_leverage": effective_leverage,
-        "stop_distance": stop_distance,
-        "stop_distance_pct": (stop_distance / entry) * 100.0,
+        "stop_distance": structural_distance,
+        "stop_distance_pct": (structural_distance / entry) * 100.0,
+        "effective_stop_distance": effective_stop_distance,
     }
 
 
@@ -128,28 +141,47 @@ def can_open_position(
     new_side: str,
     open_positions: List[Dict[str, Any]],
     equity: float,
+    pending_orders: Optional[List[Dict[str, Any]]] = None,
     max_positions: int = 4,
     max_portfolio_heat_pct: float = 0.0125,     # 1.25% ($12.50 on $1,000)
     max_directional_heat_pct: float = 0.0075,   # 0.75% ($7.50 on $1,000)
 ) -> Tuple[bool, str]:
     """
     Verifies that adding a new position respects concurrent position counts,
-    aggregate Portfolio Heat, and Directional Heat limits.
+    aggregate Portfolio Heat (including active positions + reserved risk in pending entry orders),
+    and Directional Heat limits.
     """
-    if len(open_positions) >= max_positions:
-        return False, f"MAX_CONCURRENT_POSITIONS_REACHED ({len(open_positions)}/{max_positions})"
+    pending_entries = [
+        o for o in (pending_orders or [])
+        if str(o.get("role", "")).upper() in ("ENTRY", "PAPERORDERROLE.ENTRY")
+        and str(o.get("status", "")).upper() in ("PENDING", "ACTIVE", "PARTIALLY_FILLED", "ORDERSTATUS.PENDING", "ORDERSTATUS.ACTIVE")
+    ]
+
+    total_active_count = len(open_positions) + len(pending_entries)
+    if total_active_count >= max_positions:
+        return False, f"MAX_CONCURRENT_POSITIONS_REACHED ({total_active_count}/{max_positions})"
 
     current_portfolio_heat = sum(float(p.get("risk_usd", 0.0)) for p in open_positions)
-    if (current_portfolio_heat + new_risk_usd) > (equity * max_portfolio_heat_pct):
-        return False, f"PORTFOLIO_HEAT_EXCEEDED (Total: ${current_portfolio_heat + new_risk_usd:.2f} > Limit: ${equity * max_portfolio_heat_pct:.2f})"
+    current_portfolio_heat += sum(float(o.get("reserved_risk", 0.0)) for o in pending_entries)
+
+    max_heat_usd = equity * max_portfolio_heat_pct
+    if (current_portfolio_heat + new_risk_usd) > (max_heat_usd + 1e-9):
+        return False, f"PORTFOLIO_HEAT_EXCEEDED (Total: ${current_portfolio_heat + new_risk_usd:.2f} > Limit: ${max_heat_usd:.2f})"
 
     current_side_heat = sum(
         float(p.get("risk_usd", 0.0))
         for p in open_positions
         if str(p.get("side", "")).upper() == new_side.upper()
     )
-    if (current_side_heat + new_risk_usd) > (equity * max_directional_heat_pct):
-        return False, f"DIRECTIONAL_HEAT_EXCEEDED ({new_side}: ${current_side_heat + new_risk_usd:.2f} > Limit: ${equity * max_directional_heat_pct:.2f})"
+    current_side_heat += sum(
+        float(o.get("reserved_risk", 0.0))
+        for o in pending_entries
+        if str(o.get("side", "")).upper() in (new_side.upper(), ("BUY" if new_side.upper() == "LONG" else "SELL"))
+    )
+
+    max_directional_usd = equity * max_directional_heat_pct
+    if (current_side_heat + new_risk_usd) > (max_directional_usd + 1e-9):
+        return False, f"DIRECTIONAL_HEAT_EXCEEDED ({new_side}: ${current_side_heat + new_risk_usd:.2f} > Limit: ${max_directional_usd:.2f})"
 
     return True, "OK"
 

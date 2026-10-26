@@ -412,10 +412,12 @@ async def get_paper_closed_trades(
     gross_wins = sum(max(0.0, float(t.get("net_pnl") or 0.0)) for t in trade_list)
     gross_losses = sum(abs(min(0.0, float(t.get("net_pnl") or 0.0))) for t in trade_list)
     profit_factor = round(gross_wins / gross_losses, 2) if gross_losses > 0 else (999.0 if gross_wins > 0 else 0.0)
-    realized_r_vals = [float(t.get("realized_r") or 0.0) for t in trade_list]
+    realized_r_vals = [float(t["realized_r"]) for t in trade_list if t.get("realized_r") is not None]
     avg_realized_r = round(sum(realized_r_vals) / len(realized_r_vals), 3) if realized_r_vals else 0.0
-    avg_mfe_r = round(sum(float(t.get("mfe_r") or 0.0) for t in trade_list) / total_trades, 2) if total_trades > 0 else 0.0
-    avg_mae_r = round(sum(float(t.get("mae_r") or 0.0) for t in trade_list) / total_trades, 2) if total_trades > 0 else 0.0
+    valid_mfe_r = [float(t["mfe_r"]) for t in trade_list if t.get("mfe_r") is not None]
+    avg_mfe_r = round(sum(valid_mfe_r) / len(valid_mfe_r), 2) if valid_mfe_r else 0.0
+    valid_mae_r = [float(t["mae_r"]) for t in trade_list if t.get("mae_r") is not None]
+    avg_mae_r = round(sum(valid_mae_r) / len(valid_mae_r), 2) if valid_mae_r else 0.0
 
     return {
         "status": "ok",

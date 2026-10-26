@@ -71,6 +71,7 @@ class PaperPosition:
     regime: str = "NO_TRADE"
     expected_rr: float = 1.5
     margin_used: float = 0.0
+    initial_risk_usd: float = 0.0
 
     @property
     def risk_amount(self) -> float:
@@ -712,6 +713,12 @@ class PaperTradingSession:
         self.total_fees_paid += fee
         self.total_slippage_paid += slippage_cost
 
+        # Fixed structural risk dollar amount at entry (locked permanently for R calculations)
+        if pos.initial_risk_usd <= 0.0:
+            init_sl = pos.initial_stop_price if pos.initial_stop_price > 0 else pos.stop_price
+            dist = abs(pos.avg_entry_price - init_sl) if init_sl > 0 else (pos.avg_entry_price * 0.015)
+            pos.initial_risk_usd = max(1e-6, dist * pos.qty)
+
         logger.info(
             f"[TRADE] ENTRY fill [{self.session_id}] {symbol}: "
             f"+{qty:.6f} @ {price:.4f} fee={fee:.6f} -> pos_qty={pos.qty:.6f} avg={pos.avg_entry_price:.4f} | reason='{pos.reason}'"
@@ -767,7 +774,10 @@ class PaperTradingSession:
 
         initial_sl = pos.initial_stop_price if pos.initial_stop_price > 0 else pos.stop_price
         r_dist = abs(pos.avg_entry_price - initial_sl) if initial_sl > 0 else (pos.avg_entry_price * 0.015)
-        risk_usd_initial = max(1e-6, r_dist * close_qty)
+        # Allocate initial risk proportionally to the fraction of position being closed
+        risk_usd_initial = max(1e-6, (pos.initial_risk_usd * (close_qty / open_qty_before_exit)) if (pos.initial_risk_usd > 0 and open_qty_before_exit > 0) else (r_dist * close_qty))
+        if pos.initial_risk_usd > 0:
+            pos.initial_risk_usd = max(0.0, pos.initial_risk_usd - risk_usd_initial)
         realized_r = net / risk_usd_initial
         mfe_r = round(track.mfe_r, 4) if (track and track.risk_amount > 0) else round((track.mfe / risk_usd_initial), 4) if track else 0.0
         mae_r = round(track.mae_r, 4) if (track and track.risk_amount > 0) else round((track.mae / risk_usd_initial), 4) if track else 0.0

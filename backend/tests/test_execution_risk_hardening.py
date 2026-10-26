@@ -285,7 +285,7 @@ def test_runner_does_not_resubmit_signal_from_same_closed_candle(monkeypatch):
     asyncio.run(runner.tick_cycle())
     assert len(session.orders) == 1
     entry_event = next(kwargs for args, kwargs in events if args[0] == "POSITION_OPENED")
-    assert entry_event["payload"]["risk_budget_usdt"] == pytest.approx(5.0)
+    assert entry_event["payload"]["risk_budget_usdt"] == pytest.approx(4.464, abs=0.01)
     first = next(iter(session.orders.values()))
     # A completed/cancelled order does not itself block admission. The
     # closed-candle token must still prevent a second decision on that candle.
