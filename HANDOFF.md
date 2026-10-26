@@ -2,6 +2,30 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Antigravity — Фиксация единого порта Frontend 7100 (http://localhost:7100/) и оптимизация стратегий по винрейту (2026-10-26, 03:50 Киев)
+
+- **Ветка:** `agent/antigravity/chart-engine-footprint` (коммит `db0d8e3`)
+- **Статус качества:** `🎉 ALL QUALITY CHECKS PASSED. READY TO COMMIT.` (Шлюз `scripts/check.ps1`, 6/6 стадий PASSED, 587 pytest, node --test, npm build, critical smoke, Playwright blocking + live на порту 7100).
+- **Сделано по прямому указанию пользователя**:
+  1. **Фиксация порта Frontend строго на 7100 ([Signal Script — Terminal](http://localhost:7100/))**:
+     - В `AGENTS.md` (§3, §5, §6) внесено строгое неизменяемое правило: фронтенд строго на порту `7100` (`http://localhost:7100/` или `http://127.0.0.1:7100/`).
+     - В `frontend/vite.config.js` `server.port` установлен в `7100`.
+     - В `.env` и `.env.example` установлены `FRONTEND_PORT=7100`, `FRONTEND_URL=http://localhost:7100`.
+     - В `scripts/run_app.ps1`, `scripts/check.ps1`, `scripts/smoke_ui_playwright.py` проверка и запуск переведены на порт `7100`.
+     - Старый dev-сервер на 5173 полностью остановлен, чтобы исключить дубликаты. Активный сервер работает на `http://localhost:7100/`.
+  2. **Оптимизация стратегий под каждую монету по винрейту и PnL**:
+     - Запущен скрипт перебора стратегий на исторических данных (`scripts/optimize_portfolio_strategies.py`).
+     - Для монет с наилучшими показателями на `confluence_ema` (15m) параметры переключены с низкой `cvd_absorption`:
+       - `ETHUSDT` -> `confluence_ema` (15m, WinRate: 38.1%, PF: 0.94)
+       - `ARBUSDT` -> `confluence_ema` (15m, WinRate: 46.7%, PF: 1.83, Net PnL: +$31.60)
+       - `ZECUSDT` -> `cluster_volume_bounce` (15m, WinRate: 55.6%, PF: 1.29, Net PnL: +$3.31)
+       - `WLDUSDT` -> `confluence_ema` (15m, WinRate: 37.5%, PF: 1.07, Net PnL: +$2.64)
+       - `ADAUSDT` -> `confluence_ema` (15m, WinRate: 38.5%, PF: 0.89)
+       - `OPUSDT` -> `confluence_ema` (15m, WinRate: 41.2%)
+     - Запущен и подтвержден перезапуск live-марафона `scripts/launch_overnight_18pairs.py`: все 18 пар активны (`run=True`, `data=connected`, `errs=0`), капитал пула $1,000.
+
+---
+
 ## Antigravity — Ночной чекап марафона 18 пар в 03:40 Киев (2026-10-26)
 
 - **Время проверки:** 2026-10-26 03:40:32 +02:00 (работает непрерывно 2 ч 43 мин).
