@@ -456,13 +456,13 @@ export default function OrderBookDOM({
       {/* 4-Column CScalp / Tiger Trade Header (Left to Right: Clusters | Ticks | DOM Size | Price) */}
       <div
         style={{ borderColor: 'var(--border-subtle)' }}
-        className="grid grid-cols-[34%_14%_30%_22%] px-1.5 py-0.5 text-[9px] text-[#60697b] font-semibold uppercase border-b bg-[#090b0f] font-mono shrink-0"
+        className="grid grid-cols-[32%_14%_30%_24%] px-1.5 py-0.5 text-[9px] text-muted-foreground font-semibold uppercase border-b bg-card/80 font-mono shrink-0"
       >
-        <span className="truncate">Кластер (Bid×Ask)</span>
+        <span className="truncate" title="Кластер (Bid×Ask)">Кластер</span>
         <span className="text-center truncate">Тики</span>
         <span
           onClick={() => setVolumeMode((m) => (m === 'USDT' ? 'COIN' : 'USDT'))}
-          className="text-right cursor-pointer hover:text-white truncate"
+          className="text-right cursor-pointer hover:text-foreground truncate"
           title="Нажмите для смены USDT / COIN"
         >
           Объём ({volumeMode === 'USDT' ? '$' : 'М'})

@@ -41,11 +41,11 @@ export default function PresetBar({ onSwitchPreset, onNewPreset, onAddTradesPane
   return (
     <div
       data-testid="preset-bar"
-      className="h-[30px] bg-[#0c0f17] border-b border-[#1b2130] px-3 flex items-center justify-between text-xs select-none shrink-0"
+      className="h-[28px] bg-card/90 border-b border-border/60 px-2.5 flex items-center justify-between text-xs select-none shrink-0"
     >
       {/* Left: Presets list */}
       <div className="flex items-center space-x-1 overflow-x-auto no-scrollbar py-0.5">
-        <div className="flex items-center space-x-1 text-[#64748b] text-[10px] uppercase font-mono tracking-wider mr-1.5 shrink-0">
+        <div className="flex items-center space-x-1 text-muted-foreground text-[10px] uppercase font-mono tracking-wider mr-1.5 shrink-0">
           <LayoutGrid size={11} className="text-[#3b82f6]" />
           <span>Раскладки:</span>
         </div>

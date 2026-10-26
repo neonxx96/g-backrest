@@ -86,8 +86,7 @@ export default function AppTopBar({
 }) {
   return (
     <header
-      style={{ backgroundColor: '#0b0e11', borderColor: 'rgba(255, 255, 255, 0.07)' }}
-      className="flex items-center justify-between px-2.5 h-[34px] border-b z-20 text-xs gap-2 min-w-0 shrink-0"
+      className="flex items-center justify-between px-2.5 h-[32px] border-b border-border/70 bg-card/95 z-20 text-xs gap-2 min-w-0 shrink-0 text-foreground"
     >
       {/* Left: Brand, Active Coin, Watchlist pills, Denomination switch */}
       <div className="flex items-center space-x-2 min-w-0 shrink-0">

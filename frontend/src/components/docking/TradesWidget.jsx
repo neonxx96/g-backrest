@@ -375,9 +375,9 @@ export default function TradesWidget(props) {
     >
       {/* 1. Header Toolbar */}
       <div className="h-6 px-2 bg-[#0d1017] border-b border-[#1b2130] flex items-center justify-between text-[10px] shrink-0 font-mono">
-        <div className="flex items-center space-x-1.5">
+        <div className="flex items-center space-x-1.5 min-w-0 truncate">
           <Zap size={11} className="text-[#eab308]" />
-          <span className="font-bold text-white text-[11px]">Лента сделок</span>
+          <span className="font-bold text-foreground text-[11px] truncate" title="Лента сделок">Лента</span>
           <span className="text-[10px] text-[#38bdf8] font-bold">{currentSymbol}</span>
 
           {/* Connection status indicator */}

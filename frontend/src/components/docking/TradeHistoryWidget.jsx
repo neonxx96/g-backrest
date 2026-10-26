@@ -1,5 +1,16 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import {
   History,
   Calendar,
   Play,
@@ -525,34 +536,55 @@ export default function TradeHistoryWidget(props) {
                 <span>▶ ВОЗОБНОВИТЬ</span>
               </button>
             ) : (
-              <button
-                type="button"
-                data-testid="btn-kill-switch"
-                onClick={handleKillSwitch}
-                className="flex items-center space-x-1 px-2.5 py-0.5 rounded bg-rose-800 hover:bg-rose-700 text-white border border-rose-600 text-[10px] font-mono font-bold transition cursor-pointer shadow-sm"
-                title="Аварийная остановка: отмена заявок, мгновенный выход по рынку, блокировка новых ордеров"
-              >
-                <AlertCircle size={10} />
-                <span>EMERGENCY STOP</span>
-              </button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button
+                    type="button"
+                    data-testid="btn-kill-switch"
+                    className="flex items-center space-x-1 px-2.5 py-0.5 rounded bg-destructive hover:bg-destructive/90 text-destructive-foreground border border-destructive/50 text-[10px] font-mono font-bold transition cursor-pointer shadow-sm"
+                    title="Аварийная остановка: отмена заявок, мгновенный выход по рынку, блокировка новых ордеров"
+                  >
+                    <AlertCircle size={10} />
+                    <span>EMERGENCY STOP</span>
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Подтверждение экстренной остановки</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Вы уверены, что хотите активировать EMERGENCY STOP? Все активные заявки будут мгновенно сняты, открытые позиции закрыты по рынку, а торговый цикл заблокирован.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Отмена</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleKillSwitch}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      Остановить немедленно
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             )}
-            <button
-              type="button"
-              onClick={fetchStatus}
-              title="Обновить данные"
-              className="p-1 rounded hover:bg-neutral-800 text-neutral-400 hover:text-white transition cursor-pointer"
-            >
-              <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
-            </button>
+            <div className="h-3 w-px bg-border/60 mx-1 shrink-0" />
             <button
               type="button"
               onClick={handleResetWallet}
               disabled={isResetting}
-              className="flex items-center space-x-1 px-2 py-0.5 rounded bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-300 hover:text-white text-[10px] font-mono transition cursor-pointer"
+              className="flex items-center space-x-1 px-2 py-0.5 rounded bg-muted/60 hover:bg-muted border border-border text-muted-foreground hover:text-foreground text-[10px] font-mono transition cursor-pointer"
               title="Сбросить баланс обратно на $100.00 USD"
             >
               <RotateCcw size={10} />
               <span>{isResetting ? 'Сброс...' : 'Сброс $100'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={fetchStatus}
+              title="Обновить данные"
+              className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition cursor-pointer ml-1"
+            >
+              <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
             </button>
           </div>
         </div>
