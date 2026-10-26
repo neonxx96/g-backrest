@@ -13,7 +13,8 @@ This is the shared queue for LibreChat, Cline, and Antigravity.
 
 ## Master Plan Reference
 
-- Полный план по блокам: [`docs/superpowers/plans/2026-10-25-positive-trading-roadmap.md`](file:///d:/AI_agent_space/gemini/docs/superpowers/plans/2026-10-25-positive-trading-roadmap.md)
+- Полный план по блокам: [`docs/archive/superpowers/plans/2026-10-25-positive-trading-roadmap.md`](file:///d:/AI_agent_space/gemini/docs/archive/superpowers/plans/2026-10-25-positive-trading-roadmap.md)
+- Действующий квантовый план оптимизации: [`docs/WIN_RATE_IMPROVEMENT_PLAN.md`](file:///d:/AI_agent_space/gemini/docs/WIN_RATE_IMPROVEMENT_PLAN.md)
 
 ## Active & Prioritized Queue (по блокам, утверждено Di 2026-10-25)
 
