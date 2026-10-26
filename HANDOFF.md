@@ -1,3 +1,15 @@
+## Antigravity — Запуск Docker-стека, 1-клик автоподбор стратегий и ночной paper-марафон (2026-10-27, 02:12 Киев)
+
+- **Ветка:** gent/antigravity/postmortem-analyzer
+- **Статус качества:** 🎉 ALL QUALITY CHECKS PASSED. READY TO COMMIT. (Шлюз scripts/check.ps1: 611 pytest passed, 0 failed, npm build в 1.18s, critical smoke 8/8, Playwright blocking + live OK).
+- **Сделано:**
+  1. **Docker-окружение**: Ветка gent/antigravity/docker слита, контейнеры запущены и здоровы (signalscript_backend :8000, signalscript_frontend :7100).
+  2. **1-клик сценарий автоподбора**: Реализован POST /api/overnight-pilot/auto-select и UI-панель AutoSelectPanel.jsx. Зафиксировано в AGENTS.md (§10).
+  3. **Исправление в Microstructure Gate**: В live_paper_runner.py устранена ошибка отсутствия поля .qty у объектов OrderBookLevel (добавлен fallback на .size).
+  4. **Ночной марафон**: Марафон активен в Docker со статусом connected на валидированных монетах.
+
+---
+
 ﻿# HANDOFF.md â€” ÐŸÑ€Ð¾Ñ‚Ð¾ÐºÐ¾Ð» Ð¿ÐµÑ€ÐµÐ´Ð°Ñ‡Ð¸ ÐºÐ¾Ð½Ñ‚ÐµÐºÑÑ‚Ð° Ð¼ÐµÐ¶Ð´Ñƒ Ð°Ð³ÐµÐ½Ñ‚Ð°Ð¼Ð¸
 
 > **Ð•Ð”Ð˜ÐÐ«Ð™ Ð˜Ð¡Ð¢ÐžÐ§ÐÐ˜Ðš ÐŸÐ ÐÐ’Ð˜Ð›:** ÐžÑÐ½Ð¾Ð²Ð½Ñ‹Ðµ Ð°Ñ€Ñ…Ð¸Ñ‚ÐµÐºÑ‚ÑƒÑ€Ð½Ñ‹Ðµ, Ð¸Ð½Ð¶ÐµÐ½ÐµÑ€Ð½Ñ‹Ðµ Ð¿Ñ€Ð°Ð²Ð¸Ð»Ð°, ÑÑ‚ÐµÐº Ñ‚ÐµÑ…Ð½Ð¾Ð»Ð¾Ð³Ð¸Ð¹, Ð¿Ñ€Ð°Ð²Ð¸Ð»Ð° Git Ð¸ ÑˆÐ»ÑŽÐ· ÐºÐ°Ñ‡ÐµÑÑ‚Ð²Ð° Ð¾Ð¿Ñ€ÐµÐ´ÐµÐ»ÐµÐ½Ñ‹ Ð² [AGENTS.md](file:///d:/AI_agent_space/gemini/AGENTS.md). Ð’ÑÐµ Ñ‚Ñ€ÐµÐ±Ð¾Ð²Ð°Ð½Ð¸Ñ Ð¾Ð±ÑÐ·Ð°Ñ‚ÐµÐ»ÑŒÐ½Ñ‹ Ðº Ð¸ÑÐ¿Ð¾Ð»Ð½ÐµÐ½Ð¸ÑŽ.
