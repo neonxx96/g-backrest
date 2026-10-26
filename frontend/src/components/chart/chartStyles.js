@@ -1,10 +1,15 @@
-// Стили графика KLineCharts (темы tealstreet/tiger/bloomberg).
-// Извлечено ДОСЛОВНО из Chart.jsx (слайс 6.4l, п.1 MODULARIZATION_PLAN):
-// hexToRgba + buildChartStyles — без изменений тел. Импортёры: Chart.jsx,
-// chart/useChartLifecycle.js (apply initial theme styles).
+// Стили графика KLineCharts.
+// Цвета и токены берутся динамически из themeBridge (единый источник правды).
+import { themeBridge } from '../../theme/themeBridge.js';
 
 function hexToRgba(hex, alpha = 1) {
-  if (!hex || typeof hex !== 'string' || !hex.startsWith('#')) return hex;
+  if (!hex || typeof hex !== 'string') return hex;
+  if (!hex.startsWith('#')) {
+    if (hex.startsWith('rgba') || hex.startsWith('rgb')) {
+      return hex;
+    }
+    return hex;
+  }
   const h = hex.replace('#', '');
   const full = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
   const num = parseInt(full, 16);
@@ -15,7 +20,7 @@ function hexToRgba(hex, alpha = 1) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-// Базовые тёмные токены терминала (общие для всех тем).
+// Базовые тёмные токены терминала (общие для графиков).
 const DARK = {
   border: '#1f2638',
   crosshair: '#3a4560',
@@ -24,21 +29,20 @@ const DARK = {
 };
 
 export function buildChartStyles(uiConfig = {}) {
-  const theme = uiConfig.theme || 'tealstreet';
-  const gridOpacity = uiConfig.gridOpacity ?? 0.22;
+  const tokens = themeBridge.getTokens();
+  const gridOpacity = uiConfig.gridOpacity ?? tokens.gridOpacity ?? 0.22;
   const candleOpacity = uiConfig.candleOpacity ?? 1.0;
-  const emaColors = uiConfig.emaColors || ['#38bdf8', '#f59e0b', '#a855f7'];
+  const emaColors = uiConfig.emaColors || [tokens.ema1 || '#38bdf8', tokens.ema2 || '#f59e0b', tokens.ema3 || '#a855f7'];
   const emaWidth = uiConfig.emaWidth ?? 1.5;
 
-  const palette = theme === 'tiger'
-    ? { bull: '#00f5d4', bear: '#ff2a6d', gridRgb: '0, 229, 255', axis: '#141c2b', tick: '#64748b' }
-    : theme === 'bloomberg'
-    ? { bull: '#00e676', bear: '#ff3d00', gridRgb: '255, 152, 0', axis: '#332400', tick: '#b45309' }
-    : { bull: '#26a69a', bear: '#ef5350', gridRgb: '120, 135, 165', axis: '#161922', tick: '#60697b' };
+  const bull = tokens.bull || '#10b981';
+  const bear = tokens.bear || '#f43f5e';
+  const gridRgb = tokens.gridRgb || '30, 36, 48';
+  const tickColor = tokens.mutedForeground || '#60697b';
 
-  const gridColor = `rgba(${palette.gridRgb}, ${gridOpacity})`;
-  const upCol = hexToRgba(palette.bull, candleOpacity);
-  const dnCol = hexToRgba(palette.bear, candleOpacity);
+  const gridColor = `rgba(${gridRgb}, ${gridOpacity})`;
+  const upCol = hexToRgba(bull, candleOpacity);
+  const dnCol = hexToRgba(bear, candleOpacity);
 
   return {
     grid: {
@@ -48,26 +52,26 @@ export function buildChartStyles(uiConfig = {}) {
     },
     candle: {
       type: 'candle_solid',
-      tooltip: { text: { color: DARK.text, size: 11, family: 'var(--font-mono)' } },
+      tooltip: { text: { color: tokens.foreground || DARK.text, size: 11, family: 'var(--font-mono)' } },
       bar: {
         upColor: upCol,
         downColor: dnCol,
         noChangeColor: '#787f91',
-        upBorderColor: palette.bull,
-        downBorderColor: palette.bear,
+        upBorderColor: bull,
+        downBorderColor: bear,
         noChangeBorderColor: '#787f91',
-        upWickColor: palette.bull,
-        downWickColor: palette.bear,
+        upWickColor: bull,
+        downWickColor: bear,
         noChangeWickColor: '#787f91'
       },
       priceMark: {
         show: true,
-        high: { show: true, color: palette.tick, textSize: 10 },
-        low: { show: true, color: palette.tick, textSize: 10 },
+        high: { show: true, color: tickColor, textSize: 10 },
+        low: { show: true, color: tickColor, textSize: 10 },
         last: {
           show: true,
-          upColor: palette.bull,
-          downColor: palette.bear,
+          upColor: bull,
+          downColor: bear,
           noChangeColor: '#787f91',
           line: { show: true, style: 'dash', dashedValue: [3, 3], size: 1 },
           text: { show: true, color: '#ffffff', size: 11, paddingLeft: 4, paddingRight: 4, paddingTop: 2, paddingBottom: 2 }
@@ -75,50 +79,73 @@ export function buildChartStyles(uiConfig = {}) {
       }
     },
     indicator: {
-      tooltip: { text: { color: DARK.text, size: 11, family: 'var(--font-mono)' } },
+      tooltip: { text: { color: tokens.foreground || DARK.text, size: 11, family: 'var(--font-mono)' } },
       bars: [{
         style: 'fill',
         borderStyle: 'solid',
         borderSize: 1,
-        upColor: hexToRgba(palette.bull, 0.28),
-        downColor: hexToRgba(palette.bear, 0.28),
-        noChangeColor: 'rgba(120, 127, 145, 0.25)'
+        borderDashedValue: [2, 2],
+        upColor: hexToRgba(bull, 0.7),
+        downColor: hexToRgba(bear, 0.7),
+        noChangeColor: '#888888'
       }],
       lines: [
-        { style: 'solid', smooth: false, size: emaWidth, color: emaColors[0] || '#38bdf8', dashedValue: [2, 2] },
-        { style: 'solid', smooth: false, size: emaWidth, color: emaColors[1] || '#f59e0b', dashedValue: [2, 2] },
-        { style: 'solid', smooth: false, size: emaWidth, color: emaColors[2] || '#a855f7', dashedValue: [2, 2] }
+        { style: 'solid', smooth: false, size: emaWidth, dashedValue: [2, 2], color: emaColors[0] },
+        { style: 'solid', smooth: false, size: emaWidth, dashedValue: [2, 2], color: emaColors[1] },
+        { style: 'solid', smooth: false, size: emaWidth, dashedValue: [2, 2], color: emaColors[2] }
       ]
     },
     xAxis: {
-      axisLine: { show: true, color: palette.axis },
-      tickLine: { show: true, color: palette.axis },
-      tickText: { color: palette.tick, size: 10, family: 'var(--font-mono)' }
+      tickText: { color: tickColor, size: 10, family: 'var(--font-mono)' },
+      axisLine: { color: tokens.border || DARK.border, size: 1 }
     },
     yAxis: {
-      axisLine: { show: true, color: palette.axis },
-      tickLine: { show: true, color: palette.axis },
-      tickText: { color: palette.tick, size: 10, family: 'var(--font-mono)' }
+      tickText: { color: tickColor, size: 10, family: 'var(--font-mono)' },
+      axisLine: { color: tokens.border || DARK.border, size: 1 }
     },
-    // Единая тёмная палитра терминала: разделители панелей индикаторов,
-    // тултипы (OHLC/индикаторы) и подписи crosshair — в тон фону #0a0d14 / границам #1f2638.
     separator: {
       size: 1,
       color: DARK.border,
       fill: true,
-      activeBackgroundColor: 'rgba(56, 189, 248, 0.18)'
+      activeBackgroundColor: 'rgba(56, 189, 248, 0.15)'
     },
     crosshair: {
       show: true,
       horizontal: {
         show: true,
-        line: { show: true, color: DARK.crosshair, style: 'dash', dashedValue: [3, 3], size: 1 },
-        text: { show: true, color: '#e5e7eb', size: 10, family: 'var(--font-mono)', borderColor: DARK.border, backgroundColor: DARK.label, borderSize: 1 }
+        line: { show: true, style: 'dash', dashedValue: [4, 4], size: 1, color: tokens.crosshair || DARK.crosshair },
+        text: {
+          show: true,
+          color: '#ffffff',
+          size: 10,
+          family: 'var(--font-mono)',
+          paddingLeft: 4,
+          paddingRight: 4,
+          paddingTop: 2,
+          paddingBottom: 2,
+          borderSize: 1,
+          borderColor: tokens.border || DARK.border,
+          borderRadius: 2,
+          backgroundColor: DARK.label
+        }
       },
       vertical: {
         show: true,
-        line: { show: true, color: DARK.crosshair, style: 'dash', dashedValue: [3, 3], size: 1 },
-        text: { show: true, color: '#e5e7eb', size: 10, family: 'var(--font-mono)', borderColor: DARK.border, backgroundColor: DARK.label, borderSize: 1 }
+        line: { show: true, style: 'dash', dashedValue: [4, 4], size: 1, color: tokens.crosshair || DARK.crosshair },
+        text: {
+          show: true,
+          color: '#ffffff',
+          size: 10,
+          family: 'var(--font-mono)',
+          paddingLeft: 4,
+          paddingRight: 4,
+          paddingTop: 2,
+          paddingBottom: 2,
+          borderSize: 1,
+          borderColor: tokens.border || DARK.border,
+          borderRadius: 2,
+          backgroundColor: DARK.label
+        }
       }
     }
   };
