@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   History,
+  Calendar,
   Play,
   Square,
   TrendingUp,
@@ -37,12 +38,13 @@ import {
 } from './paperPairs';
 
 const API_BASE = '/api';
+const fmtPx = (v) => (v == null || !isFinite(Number(v)) ? '-' : Math.abs(Number(v)) < 1 ? Number(v).toFixed(5) : Math.abs(Number(v)) < 100 ? Number(v).toFixed(4) : Number(v).toFixed(2));
 
 export default function TradeHistoryWidget(props) {
   const [sessionData, setSessionData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState('trades'); // 'trades' | 'positions' | 'candidates' | 'pairs' | 'regimes'
+  const [activeTab, setActiveTab] = useState('positions'); // 'trades' | 'positions' | 'candidates' | 'pairs' | 'regimes'
   const [isResetting, setIsResetting] = useState(false);
   const [monitoringData, setMonitoringData] = useState(null);
   const [liveStatus, setLiveStatus] = useState(null);
@@ -59,6 +61,58 @@ export default function TradeHistoryWidget(props) {
   const [newPairSymbol, setNewPairSymbol] = useState('');
   const [newPairStrategy, setNewPairStrategy] = useState('ema_trend');
   const [newPairTimeframe, setNewPairTimeframe] = useState('5m');
+
+  // Durable Closed Trades Filter, Sort & History State
+  const [closedPeriod, setClosedPeriod] = useState('all'); // 'all' | 'today' | '24h' | '7d' | '30d'
+  const [closedSort, setClosedSort] = useState('date_desc'); // 'date_desc' | 'date_asc' | 'pnl_desc' | 'pnl_asc' | 'symbol'
+  const [closedSymbolFilter, setClosedSymbolFilter] = useState('ALL');
+  const [historicalClosedTrades, setHistoricalClosedTrades] = useState([]);
+  const [closedSummary, setClosedSummary] = useState(null);
+
+  // Fetch Closed Trades History from persistent SQLite backend
+  const fetchClosedHistory = useCallback(async () => {
+    console.log('[DEBUG_TRADES] fetchClosedHistory called');
+    try {
+      let sortBy = 'date';
+      let sortOrder = 'desc';
+      if (closedSort === 'date_asc') {
+        sortBy = 'date';
+        sortOrder = 'asc';
+      } else if (closedSort === 'pnl_desc') {
+        sortBy = 'pnl';
+        sortOrder = 'desc';
+      } else if (closedSort === 'pnl_asc') {
+        sortBy = 'pnl';
+        sortOrder = 'asc';
+      } else if (closedSort === 'symbol') {
+        sortBy = 'symbol';
+        sortOrder = 'asc';
+      }
+
+      const params = new URLSearchParams({
+        period: closedPeriod,
+        sort_by: sortBy,
+        sort_order: sortOrder,
+      });
+      if (closedSymbolFilter && closedSymbolFilter !== 'ALL') {
+        params.append('symbol', closedSymbolFilter);
+      }
+
+      console.log('[DEBUG_TRADES] fetching URL:', `${API_BASE}/paper-trading/closed-trades?${params.toString()}`);
+      const res = await fetch(`${API_BASE}/paper-trading/closed-trades?${params.toString()}`);
+      console.log('[DEBUG_TRADES] response status:', res.status);
+      if (res.ok) {
+        const data = await res.json();
+        console.log('[DEBUG_TRADES] received trades array length:', (data.trades || []).length);
+        setHistoricalClosedTrades(data.trades || []);
+        setClosedSummary(data.summary || null);
+      } else {
+        console.error('[DEBUG_TRADES] HTTP error:', res.status, res.statusText);
+      }
+    } catch (err) {
+      console.error('[DEBUG_TRADES] catch error:', err);
+    }
+  }, [closedPeriod, closedSort, closedSymbolFilter]);
 
   // Fetch Paper Trading Status
   const fetchStatus = useCallback(async () => {
@@ -120,28 +174,43 @@ export default function TradeHistoryWidget(props) {
     fetchMonitoring();
     fetchLiveStatus();
     fetchPilotStatus();
+    fetchClosedHistory();
     const interval = setInterval(() => {
       fetchStatus();
       fetchMonitoring();
       fetchLiveStatus();
       fetchPilotStatus();
+      fetchClosedHistory();
     }, 3000);
     return () => clearInterval(interval);
-  }, [fetchStatus, fetchMonitoring, fetchLiveStatus, fetchPilotStatus]);
+  }, [fetchStatus, fetchMonitoring, fetchLiveStatus, fetchPilotStatus, fetchClosedHistory]);
 
   const [marathonBusy, setMarathonBusy] = useState(false);
 
   const handleStartMarathon = async () => {
     setMarathonBusy(true);
     try {
-      const res = await fetch(`${API_BASE}/overnight-pilot/start`, {
+      // 1. Попытка мгновенного запуска (бэкенд сам выполнит prepare при необходимости)
+      let res = await fetch(`${API_BASE}/overnight-pilot/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(null)
       });
       if (!res.ok) {
-        await fetch(`${API_BASE}/overnight-pilot/preflight`, { method: 'POST' });
-        await fetch(`${API_BASE}/overnight-pilot/start`, { method: 'POST' });
+        // 2. Если требуется preflight_id, запускаем preflight и передаём полученный id
+        const pfRes = await fetch(`${API_BASE}/overnight-pilot/preflight`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(null)
+        });
+        const pfData = pfRes.ok ? await pfRes.json() : null;
+        const pfId = pfData?.preflight_id || '';
+        const url = pfId ? `${API_BASE}/overnight-pilot/start?preflight_id=${pfId}` : `${API_BASE}/overnight-pilot/start`;
+        res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(null)
+        });
       }
       await fetchPilotStatus();
     } catch (err) {
@@ -224,11 +293,84 @@ export default function TradeHistoryWidget(props) {
   const pilotAgg = pilotStatus?.aggregate?.paper;
   const hasPilotData = hasMarathonData(pilotStatus, pilotOpen, pilotClosed);
 
-  // Live-раннер + марафон: показываем всё, что реально торговалось на paper (баланс тестовый — paper)
-  const closedTrades = useMemo(
-    () => mergePaperLists(sessionData?.closed_trades, pilotClosed),
-    [sessionData, pilotClosed]
-  );
+  // Доступные монеты для выпадающего фильтра закрытых сделок
+  const availableClosedSymbols = useMemo(() => {
+    const syms = new Set();
+    for (const t of historicalClosedTrades) {
+      if (t.symbol) syms.add(t.symbol);
+    }
+    for (const t of (sessionData?.closed_trades || [])) {
+      if (t.symbol) syms.add(t.symbol);
+    }
+    for (const t of pilotClosed) {
+      if (t.symbol) syms.add(t.symbol);
+    }
+    return Array.from(syms).sort();
+  }, [historicalClosedTrades, sessionData?.closed_trades, pilotClosed]);
+
+  // Объединяем долговечную историю из SQLite и активные живые сделки (дедупликация по id/closure_id)
+  const closedTrades = useMemo(() => {
+    const map = new Map();
+    // 1. Постоянная база SQLite
+    for (const t of historicalClosedTrades) {
+      const id = t.trade_id || `${t.symbol}:${t.entry_ts}:${t.exit_ts}`;
+      map.set(id, t);
+    }
+    // 2. Живой раннер
+    for (const t of (sessionData?.closed_trades || [])) {
+      const id = t.closure_id || t.trade_id || `${t.symbol}:${t.entry_ts}:${t.exit_ts}`;
+      if (!map.has(id)) {
+        map.set(id, { ...t, _source: 'live' });
+      }
+    }
+    // 3. Марафон
+    for (const t of pilotClosed) {
+      const id = t.closure_id || t.trade_id || `${t.symbol}:${t.entry_ts}:${t.exit_ts}`;
+      if (!map.has(id)) {
+        map.set(id, { ...t, _source: 'marathon' });
+      }
+    }
+    const list = Array.from(map.values());
+    const filtered = closedSymbolFilter !== 'ALL'
+      ? list.filter((t) => (t.symbol || '').toUpperCase() === closedSymbolFilter.toUpperCase())
+      : list;
+
+    const now = Date.now();
+    let minTs = 0;
+    if (closedPeriod === '24h') minTs = now - 24 * 3600 * 1000;
+    else if (closedPeriod === '7d') minTs = now - 7 * 86400 * 1000;
+    else if (closedPeriod === '30d') minTs = now - 30 * 86400 * 1000;
+    else if (closedPeriod === 'today') {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      minTs = d.getTime();
+    }
+    const periodFiltered = minTs > 0 ? filtered.filter((t) => Number(t.exit_ts || 0) >= minTs) : filtered;
+
+    return periodFiltered.sort((a, b) => {
+      if (closedSort === 'date_asc') return Number(a.exit_ts || 0) - Number(b.exit_ts || 0);
+      if (closedSort === 'pnl_desc') return Number(b.net_pnl || 0) - Number(a.net_pnl || 0);
+      if (closedSort === 'pnl_asc') return Number(a.net_pnl || 0) - Number(b.net_pnl || 0);
+      if (closedSort === 'symbol') return (a.symbol || '').localeCompare(b.symbol || '');
+      return Number(b.exit_ts || 0) - Number(a.exit_ts || 0);
+    });
+  }, [historicalClosedTrades, sessionData?.closed_trades, pilotClosed, closedSymbolFilter, closedPeriod, closedSort]);
+
+  // Агрегаты за выбранный период
+  const periodMetrics = useMemo(() => {
+    const count = closedTrades.length;
+    const netPnl = closedTrades.reduce((acc, t) => acc + Number(t.net_pnl ?? 0), 0);
+    const fees = closedTrades.reduce((acc, t) => acc + Number(t.fee_drag ?? t.fee ?? 0), 0);
+    const wins = closedTrades.filter((t) => Number(t.net_pnl ?? 0) > 0).length;
+    const losses = closedTrades.filter((t) => Number(t.net_pnl ?? 0) <= 0).length;
+    const winRate = count > 0 ? (wins / count) * 100 : 0;
+    const grossWins = closedTrades.reduce((acc, t) => acc + Math.max(0, Number(t.net_pnl ?? 0)), 0);
+    const grossLosses = closedTrades.reduce((acc, t) => acc + Math.abs(Math.min(0, Number(t.net_pnl ?? 0))), 0);
+    const profitFactor = grossLosses > 0 ? grossWins / grossLosses : (grossWins > 0 ? 999 : 0);
+    const realizedRs = closedTrades.map((t) => Number(t.realized_r ?? 0)).filter((v) => !isNaN(v));
+    const expectancyR = realizedRs.length > 0 ? realizedRs.reduce((acc, v) => acc + v, 0) / realizedRs.length : 0;
+    return { count, netPnl, fees, wins, losses, winRate, profitFactor, expectancyR };
+  }, [closedTrades]);
   const openPositions = useMemo(
     () => mergePaperLists(sessionData?.positions, pilotOpen),
     [sessionData, pilotOpen]
@@ -316,7 +458,7 @@ export default function TradeHistoryWidget(props) {
 
     // Профиль = live-раннер + все сессии марафона (единый кошелек $1,000.00).
     const liveBalance = Number(sessionData?.balance ?? 0);
-    const isLiveRunning = Boolean(liveStatus?.is_running);
+    const isLiveRunning = Boolean(liveStatus?.is_running && !liveStatus?.is_marathon_bridge);
     const profileBalance = hasMarathon ? marathonBalance : (isLiveRunning ? liveBalance : (sessionData ? liveBalance : 1000.0));
 
     return {
@@ -632,17 +774,125 @@ export default function TradeHistoryWidget(props) {
       {/* Main Content Area */}
       <div className="flex-1 overflow-auto">
         {activeTab === 'trades' && (
-          <div className="min-w-full">
+          <div className="min-w-full flex flex-col">
+            {/* Filter, Period & Sort Toolbar */}
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 bg-[#0D1117] border-b border-neutral-800 text-[10px] font-mono">
+              {/* Period selection */}
+              <div className="flex items-center space-x-1">
+                <span className="text-neutral-500 mr-1 flex items-center gap-1">
+                  <Calendar size={11} className="text-cyan-400" /> Период:
+                </span>
+                {[
+                  { id: 'all', label: 'Все время' },
+                  { id: 'today', label: 'Сегодня' },
+                  { id: '24h', label: '24ч' },
+                  { id: '7d', label: '7 дней' },
+                  { id: '30d', label: '30 дней' },
+                ].map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setClosedPeriod(p.id)}
+                    data-testid={`closed-period-${p.id}`} className={`px-2 py-0.5 rounded transition cursor-pointer ${
+                      closedPeriod === p.id
+                        ? 'bg-cyan-950 text-cyan-300 font-bold border border-cyan-700'
+                        : 'bg-neutral-900 text-neutral-400 hover:text-white hover:bg-neutral-800 border border-neutral-800'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Symbol & Sort Controls */}
+              <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-1">
+                  <span className="text-neutral-500">Пара:</span>
+                  <select
+                    data-testid="closed-symbol-select"
+                    value={closedSymbolFilter}
+                    onChange={(e) => setClosedSymbolFilter(e.target.value)}
+                    className="bg-[#161B22] border border-neutral-700 rounded px-1.5 py-0.5 text-neutral-200 text-[10px] focus:outline-none focus:border-cyan-500 cursor-pointer"
+                  >
+                    <option value="ALL">Все монеты ({availableClosedSymbols.length})</option>
+                    {availableClosedSymbols.map((sym) => (
+                      <option key={sym} value={sym}>{sym}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center space-x-1">
+                  <span className="text-neutral-500">Сортировка:</span>
+                  <select
+                    data-testid="closed-sort-select"
+                    value={closedSort}
+                    onChange={(e) => setClosedSort(e.target.value)}
+                    className="bg-[#161B22] border border-neutral-700 rounded px-1.5 py-0.5 text-neutral-200 text-[10px] focus:outline-none focus:border-cyan-500 cursor-pointer"
+                  >
+                    <option value="date_desc">Дата: новые сначала ↓</option>
+                    <option value="date_asc">Дата: старые сначала ↑</option>
+                    <option value="pnl_desc">PnL: прибыль сначала ↓</option>
+                    <option value="pnl_asc">PnL: убыток сначала ↑</option>
+                    <option value="symbol">Монета (A-Z)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Sub-bar with Period Aggregates */}
+            <div className="flex items-center justify-between px-3 py-1 bg-[#10141C] border-b border-neutral-800/80 text-[10px] font-mono">
+              <div className="flex items-center space-x-3 text-neutral-400">
+                <span>
+                  Сделок: <strong className="text-white">{periodMetrics.count}</strong>
+                </span>
+                <span>•</span>
+                <span>
+                  PnL:{' '}
+                  <strong className={periodMetrics.netPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                    {periodMetrics.netPnl >= 0 ? '+' : ''}${periodMetrics.netPnl.toFixed(2)}
+                  </strong>
+                </span>
+                <span>•</span>
+                <span>
+                  Win Rate:{' '}
+                  <strong className="text-white">{periodMetrics.winRate.toFixed(1)}%</strong>{' '}
+                  <span className="text-neutral-500">({periodMetrics.wins}W / {periodMetrics.losses}L)</span>
+                </span>
+                <span>•</span>
+                <span>
+                  Fee Drag: <strong className="text-amber-400">-${periodMetrics.fees.toFixed(2)}</strong>
+                </span>
+                {periodMetrics.count > 0 && (
+                  <>
+                    <span>•</span>
+                    <span>
+                      Profit Factor: <strong className="text-cyan-300">{periodMetrics.profitFactor.toFixed(2)}</strong>
+                    </span>
+                    <span>•</span>
+                    <span>
+                      Expectancy:{' '}
+                      <strong className={periodMetrics.expectancyR >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                        {periodMetrics.expectancyR >= 0 ? '+' : ''}{periodMetrics.expectancyR.toFixed(2)}R
+                      </strong>
+                    </span>
+                  </>
+                )}
+              </div>
+              <div className="text-[9px] text-neutral-500">
+                Хранилище: SQLite durable history
+              </div>
+            </div>
+
             {closedTrades.length === 0 ? (
               <div className="h-40 flex flex-col items-center justify-center text-neutral-500 text-xs">
                 <Clock size={24} className="mb-2 text-neutral-600" />
-                <span>Нет закрытых сделок. Ожидание сигналов фокус-листа...</span>
+                <span>Нет закрытых сделок за выбранный период ({closedPeriod})</span>
               </div>
             ) : (
               <table className="w-full text-left border-collapse text-[11px] font-mono">
                 <thead>
                   <tr className="border-b border-neutral-800 bg-[#0E1217] text-neutral-400 uppercase text-[9.5px]">
-                    <th className="py-2 px-3">Время</th>
+                    <th className="py-2 px-3">Дата / Время</th>
                     <th className="py-2 px-3">Монета</th>
                     <th className="py-2 px-3">Сторона</th>
                     <th className="py-2 px-3 text-right">Объем</th>
@@ -655,7 +905,7 @@ export default function TradeHistoryWidget(props) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-800/50">
-                  {closedTrades.slice().reverse().map((trade, idx) => {
+                  {closedTrades.map((trade, idx) => {
                     const gross = (trade.exit_price - trade.entry_price) * (trade.side === 'LONG' ? 1 : -1) * trade.qty;
                     const pnlPct = trade.entry_price > 0
                       ? ((trade.exit_price - trade.entry_price) / trade.entry_price) * 100 * (trade.side === 'LONG' ? 1 : -1)
@@ -663,15 +913,23 @@ export default function TradeHistoryWidget(props) {
                     const netPnl = Number(trade.net_pnl ?? gross - Number(trade.fee_drag ?? trade.fee ?? 0));
                     const feeDrag = Number(trade.fee_drag ?? trade.fee ?? 0);
                     const isProfit = netPnl > 0;
-                    const timeStr = trade.exit_ts ? new Date(trade.exit_ts).toLocaleTimeString() : '--:--:--';
+                    const timeStr = trade.exit_ts ? (() => {
+                      const d = new Date(trade.exit_ts);
+                      const day = String(d.getDate()).padStart(2, '0');
+                      const mo = String(d.getMonth() + 1).padStart(2, '0');
+                      const h = String(d.getHours()).padStart(2, '0');
+                      const m = String(d.getMinutes()).padStart(2, '0');
+                      const s = String(d.getSeconds()).padStart(2, '0');
+                      return `${day}.${mo} ${h}:${m}:${s}`;
+                    })() : '--:--:--';
 
                     return (
-                      <tr key={idx} className="hover:bg-neutral-800/40 transition">
-                        <td className="py-2 px-3 text-neutral-400">{timeStr}</td>
+                      <tr key={trade.trade_id || idx} className="hover:bg-neutral-800/40 transition">
+                        <td className="py-2 px-3 text-neutral-400 whitespace-nowrap">{timeStr}</td>
                         <td className="py-2 px-3 font-bold text-white flex items-center space-x-1">
                           <span className="w-1.5 h-1.5 rounded-full bg-neutral-600 inline-block" />
                           <span>{trade.symbol}</span>
-                          {trade._source === 'marathon' && (
+                          {(trade._source === 'marathon' || trade.source === 'marathon') && (
                             <span
                               data-testid="marathon-trade-badge"
                               className="px-1 rounded text-[8px] font-bold bg-amber-950 text-amber-300 border border-amber-700"
@@ -698,10 +956,10 @@ export default function TradeHistoryWidget(props) {
                           <div className="text-[9px] text-neutral-500">{trade.qty?.toFixed(4)} {trade.symbol?.replace('USDT', '')}</div>
                         </td>
                         <td className="py-2 px-3 text-right text-neutral-300 tabular-nums">
-                          ${trade.entry_price?.toFixed(2)}
+                          ${fmtPx(trade.entry_price)}
                         </td>
                         <td className="py-2 px-3 text-right text-neutral-300 tabular-nums">
-                          ${trade.exit_price?.toFixed(2)}
+                          ${fmtPx(trade.exit_price)}
                         </td>
                         <td className={`py-2 px-3 text-right font-bold tabular-nums ${isProfit ? 'text-[#10b981]' : 'text-[#ef4444]'}`}>
                           {isProfit ? '+' : ''}${netPnl.toFixed(2)} ({isProfit ? '+' : ''}{pnlPct.toFixed(2)}%)
@@ -788,14 +1046,14 @@ export default function TradeHistoryWidget(props) {
                           <div className="text-[9px] text-neutral-500">{pos.qty?.toFixed(4)} {pos.symbol?.replace('USDT', '')}</div>
                         </td>
                         <td className="py-2 px-3 text-right text-neutral-300 tabular-nums">
-                          ${pos.avg_entry_price?.toFixed(2)}
+                          ${fmtPx(pos.avg_entry_price)}
                         </td>
                         <td className="py-2 px-3 text-right text-white font-medium tabular-nums">
-                          ${lastPx?.toFixed(2)}
+                          ${fmtPx(lastPx)}
                         </td>
                         <td className="py-2 px-3 text-right text-neutral-400 text-[10px] tabular-nums">
-                          <span className="text-[#10b981]">${pos.target_price?.toFixed(2) || '-'}</span> /{' '}
-                          <span className="text-[#ef4444]">${pos.stop_price?.toFixed(2) || '-'}</span>
+                          <span className="text-[#10b981]">${pos.target_price ? fmtPx(pos.target_price) : '-'}</span> /{' '}
+                          <span className="text-[#ef4444]">${pos.stop_price ? fmtPx(pos.stop_price) : '-'}</span>
                         </td>
                         <td className={`py-2 px-3 text-right font-bold tabular-nums ${isProfit ? 'text-[#10b981]' : 'text-[#ef4444]'}`}>
                           <div>{isProfit ? '+' : ''}${uPnl.toFixed(2)}</div>
@@ -1375,19 +1633,19 @@ export default function TradeHistoryWidget(props) {
                           <td className="py-1.5 px-2 text-center">
                             <span
                               className={`px-1 rounded text-[9px] font-bold border ${
-                                pair.dataStatus === 'stale' || pair.dataStatus === 'disconnected'
-                                  ? 'bg-rose-950 text-rose-300 border-rose-700'
-                                  : pair.running
-                                    ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
-                                    : 'bg-neutral-800 text-neutral-400 border-neutral-700'
+                                pair.running
+                                  ? (pair.dataStatus === 'stale' || pair.dataStatus === 'disconnected'
+                                      ? 'bg-rose-950 text-rose-300 border-rose-700'
+                                      : 'bg-emerald-950 text-emerald-300 border-emerald-700')
+                                  : 'bg-neutral-800 text-neutral-400 border-neutral-700'
                               }`}
-                              title={pair.dataStatus ? `данные: ${pair.dataStatus}` : undefined}
+                              title={pair.running ? (pair.dataStatus ? `данные: ${pair.dataStatus}` : 'Поток активен') : 'Сессия остановлена'}
                             >
-                              {pair.dataStatus === 'stale' || pair.dataStatus === 'disconnected'
-                                ? 'DATA!'
-                                : pair.running
-                                  ? 'RUNNING'
-                                  : 'STOPPED'}
+                              {pair.running
+                                ? (pair.dataStatus === 'stale' || pair.dataStatus === 'disconnected'
+                                    ? 'DATA!'
+                                    : 'RUNNING')
+                                : 'STOPPED'}
                             </span>
                           </td>
                           <td className="py-1.5 px-2 text-right whitespace-nowrap">

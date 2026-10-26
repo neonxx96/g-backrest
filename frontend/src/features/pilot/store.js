@@ -44,7 +44,7 @@ export function createPilotStore({ api = pilotApi, storage = globalThis.localSto
       if (refreshing || get().busy) return;
       refreshing = true;
       const epoch = mutationEpoch;
-      try { const status = await api.status(); if (epoch === mutationEpoch) set({ status, connection: 'connected' }); }
+      try { const status = await api.status(); if (epoch === mutationEpoch) { const running = hasRunning(status); const activeConfigs = running ? Object.values(status?.sessions || {}).map(s => s?.config).filter(Boolean) : null; set({ status, connection: 'connected', ...(running && activeConfigs?.length ? { configs: activeConfigs, step: 3 } : {}) }); } }
       catch (e) { if (epoch === mutationEpoch) set({ connection: 'disconnected', checkedKey: null, error: e.message }); }
       finally { refreshing = false; }
     },
