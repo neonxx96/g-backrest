@@ -24,6 +24,8 @@ export const DEFAULT_TICKER_PARAMS = {
   maker_fee_pct: 0.02,
   taker_fee_pct: 0.05,
   slippage_ticks: 2,
+  fast_period: 20,
+  slow_period: 50,
   use_multi_tp: true,
   use_dynamic_breakeven: true,
   dynamic_be_trigger_r: 0.5,
@@ -144,6 +146,20 @@ export const useBacktestStore = create(
         }
       },
 
+      depositLivePaper: async (amount, reason = 'UI top-up') => {
+        const res = await fetch(`${API_BASE}/paper-trading/live/deposit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount, reason }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || 'Deposit failed');
+        if (data.runner) {
+          set({ livePaperStatus: data.runner });
+        }
+        return data;
+      },
+
       // Isolated parameter map: { [SYMBOL]: { ...params } }
       customParamsBySymbol: {},
 
@@ -213,6 +229,8 @@ export const useBacktestStore = create(
               maker_fee_pct: Number(symbolParams.maker_fee_pct) >= 0 ? Number(symbolParams.maker_fee_pct) : 0.02,
               taker_fee_pct: Number(symbolParams.taker_fee_pct) >= 0 ? Number(symbolParams.taker_fee_pct) : 0.05,
               slippage_ticks: Number(symbolParams.slippage_ticks) >= 0 ? Number(symbolParams.slippage_ticks) : 2,
+              fast_period: Number(symbolParams.fast_period) || 20,
+              slow_period: Number(symbolParams.slow_period) || 50,
               use_multi_tp: symbolParams.use_multi_tp !== undefined ? Boolean(symbolParams.use_multi_tp) : true,
               use_dynamic_breakeven: symbolParams.use_dynamic_breakeven !== undefined ? Boolean(symbolParams.use_dynamic_breakeven) : true,
               dynamic_be_trigger_r: Number(symbolParams.dynamic_be_trigger_r) || 0.5,

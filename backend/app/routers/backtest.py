@@ -13,16 +13,18 @@ from typing import Any, Dict, List, Optional
 import aiohttp
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, HTTPException, Response
+from pydantic import BaseModel, Field, model_validator
+from starlette.concurrency import run_in_threadpool
 
 from backend.app.adapters.exchange.binance import BINANCE_FUTURES_REST
+from backend.app.services.backtest_report import render_backtest_report_html, render_backtest_report_pdf
 from backend.app.services.binance_service import binance_service
 from backend.app.services.orderflow_backtester import OrderFlowBacktester, orderflow_backtester
 
 backtest_router = APIRouter(prefix="/api/backtest", tags=["backtest"])
 
-TF_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240}
+TF_MINUTES = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240}
 MAX_CANDLES = 45000  # 30 days of 1m
 
 # Non-native intervals (45m, 6h) are assembled from a Binance-native base
@@ -67,6 +69,22 @@ STRATEGIES_CATALOG = [
         "badge": "Реальная история"
     },
     {
+        "id": "ema_pullback",
+        "name": "Отскок к EMA20 в тренде (Pullback)",
+        "engine_domain": "historical_flow",
+        "is_historical_ready": True,
+        "description": "Касание EMA20 и закрытие обратно по тренду (EMA20/50). Вход в тренде, а не на пересечении — существенно больше сигналов, чем у EMA Trend Momentum.",
+        "badge": "Реальная история"
+    },
+    {
+        "id": "ema_trend_window",
+        "name": "Подтверждение кросса EMA(20/50) в окне 8 баров",
+        "engine_domain": "historical_flow",
+        "is_historical_ready": True,
+        "description": "Вход не на самом пересечении EMA20/50, а на следующих 8 барах: тренд сохранён и цена закрылась обратно по стороне кросса от EMA20. Закрывает главный провал ema_trend — сигнал есть только в день кросса.",
+        "badge": "Реальная история"
+    },
+    {
         "id": "live_density_bounce",
         "name": "Отскок от плотности стакана L2",
         "engine_domain": "live_orderbook",
@@ -92,7 +110,9 @@ STRATEGIES = {
     "breakout",
     "delta_absorption",
     "cvd_absorption",
+    "ema_pullback",
     "ema_trend",
+    "ema_trend_window",
     "confluence_ema",
     "diagnostics_lenient",
     "naked_test",
@@ -114,6 +134,10 @@ class BacktestParams(BaseModel):
     use_cvd_filter: bool = False
     use_oi_filter: bool = False
     use_rsi_filter: bool = False
+    # Блок 1.2: Кластерные фильтры
+    use_stacked_imbalance_filter: bool = False
+    use_absorption_filter: bool = False
+    use_poc_migration_filter: bool = False
     # ТАКТ 1: Realistic Execution Engine & Multi-TP Scaling Out
     maker_fee_pct: float = Field(0.02, ge=0.0, le=2.0)
     taker_fee_pct: float = Field(0.05, ge=0.0, le=2.0)
@@ -132,8 +156,18 @@ class BacktestParams(BaseModel):
     tp2_mode: str = "trend_rr"
     tp2_rr_ratio: float = Field(2.8, ge=1.0, le=15.0)
     min_wall_lifetime_sec: int = Field(30, ge=10, le=60)
+    sl_tp_mode: str = "fixed"
     # Unified Indicators Configuration { "indicator_id": { "params": {...} } }
     indicators: Optional[Dict[str, Dict[str, Any]]] = None
+    # M5.2: EMA Trend periods (Quant Sweep apply); 20/50 = legacy behavior
+    fast_period: int = Field(20, ge=2, le=300)
+    slow_period: int = Field(50, ge=5, le=500)
+
+    @model_validator(mode="after")
+    def _validate_ema_periods(self):
+        if self.fast_period >= self.slow_period:
+            raise ValueError("fast_period must be strictly less than slow_period")
+        return self
 
 
 class BacktestRequest(BaseModel):
@@ -159,6 +193,9 @@ class BacktestRequest(BaseModel):
     use_cvd_filter: Optional[bool] = None
     use_oi_filter: Optional[bool] = None
     use_rsi_filter: Optional[bool] = None
+    use_stacked_imbalance_filter: Optional[bool] = None
+    use_absorption_filter: Optional[bool] = None
+    use_poc_migration_filter: Optional[bool] = None
     maker_fee_pct: Optional[float] = None
     taker_fee_pct: Optional[float] = None
     slippage_ticks: Optional[int] = None
@@ -170,6 +207,7 @@ class BacktestRequest(BaseModel):
     tp2_mode: Optional[str] = None
     tp2_rr_ratio: Optional[float] = None
     min_wall_lifetime_sec: Optional[int] = None
+    sl_tp_mode: Optional[str] = None
     source_setup: Optional[Dict[str, Any]] = None
 
     model_config = {"extra": "ignore"}
@@ -293,15 +331,40 @@ def _read_cached_history(symbol: str, timeframe: str, days: int) -> Optional[pd.
     return _ensure_delta_column(cached)
 
 
-async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
-    """Paginated Binance klines with multi-endpoint fallback (Futures -> Spot -> Vision) and 60s TTL cache."""
-    cache_key = (symbol.upper(), timeframe, int(days))
+async def fetch_history(symbol: str, timeframe: str, days: int, require_fresh: bool = False) -> pd.DataFrame:
+    """Paginated Binance klines with multi-endpoint fallback (Futures -> Spot -> Vision) and 60s TTL cache.
+
+    By default backtests stay bounded by the locally recorded Parquet period.
+    Live consumers (paper runner) pass require_fresh=True: a Parquet tail older
+    than ~2 candle intervals is treated as a miss and the frame is refetched
+    from Binance, so freshness gates never silently consume stale candles.
+    """
+    tf_min = TF_MINUTES.get(timeframe, 5)
+    # A frame whose last candle closed more than ~2 intervals ago can never
+    # satisfy live freshness checks (interval + 60s grace on candle close).
+    fresh_max_age_ms = (2 * tf_min * 60_000) + 60_000
     now_ts = time.time()
+
+    def _frame_is_fresh(df: pd.DataFrame) -> bool:
+        if df is None or df.empty or "timestamp" not in df.columns:
+            return False
+        return (int(now_ts * 1000) - int(df["timestamp"].max())) <= fresh_max_age_ms
+
+    cache_key = (symbol.upper(), timeframe, int(days), bool(require_fresh))
     cached = _HISTORY_CACHE.get(cache_key)
     if cached is not None and (now_ts - cached[0]) < _HISTORY_CACHE_TTL_SEC:
-        return cached[1].copy()
+        if not require_fresh or _frame_is_fresh(cached[1]):
+            return cached[1].copy()
 
-    tf_min = TF_MINUTES.get(timeframe, 5)
+    # Smart fallback: reuse any fresh cached entry for this (symbol, timeframe) with sufficient candles
+    needed_candles = min(max(100, int(days * 1440 / tf_min)), MAX_CANDLES)
+    for (c_sym, c_tf, c_days, c_fresh), cached_entry in list(_HISTORY_CACHE.items()):
+        if c_sym == symbol.upper() and c_tf == timeframe:
+            if (now_ts - cached_entry[0]) < _HISTORY_CACHE_TTL_SEC:
+                cached_df = cached_entry[1]
+                if len(cached_df) >= needed_candles and (not require_fresh or _frame_is_fresh(cached_df)):
+                    return cached_df.tail(needed_candles).copy().reset_index(drop=True)
+
     # Non-native intervals (45m, 6h) fetch a native base timeframe and resample.
     custom_tf = CUSTOM_TF_MAP_BT.get(timeframe)
     fetch_interval = custom_tf["base"] if custom_tf else timeframe
@@ -316,7 +379,7 @@ async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
             # calling the incremental loader first would block on Binance and
             # make preflight hang when the exchange is unavailable.
             df_parquet = _read_cached_history(symbol, timeframe, days)
-            if df_parquet is not None:
+            if df_parquet is not None and (not require_fresh or _frame_is_fresh(df_parquet)):
                 df = df_parquet
                 _HISTORY_CACHE[cache_key] = (now_ts, df.copy())
                 return df
@@ -350,7 +413,7 @@ async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
             limit = min(max_chunk, need_base - len(rows))
             params = {"symbol": symbol, "interval": fetch_interval, "limit": limit, "endTime": end_ms}
             try:
-                async with session.get(ep["url"], params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                async with session.get(ep["url"], params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                     if resp.status == 200:
                         chunk = await resp.json()
                         if not chunk or not isinstance(chunk, list):
@@ -366,7 +429,7 @@ async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
                 endpoint_ok = False
                 break
 
-        if endpoint_ok and rows:
+        if (endpoint_ok and rows) or len(rows) >= 60:
             break
 
     if not rows:
@@ -428,6 +491,107 @@ async def fetch_history(symbol: str, timeframe: str, days: int) -> pd.DataFrame:
 
     _HISTORY_CACHE[cache_key] = (now_ts, df)
     return df.copy()
+
+
+class LimitSetupRequest(BaseModel):
+    """Request for the single limit order "here & now" backtest."""
+    symbol: str = Field(default="BTCUSDT")
+    side: str = Field(default="BUY")  # "BUY" | "SELL"
+    entry_price: float = Field(gt=0)
+    sl_price: float = Field(gt=0)
+    tp_price: float = Field(gt=0)
+    size: float = Field(default=0.01, gt=0)
+    created_at_ts: int = Field(ge=0)  # UTC ms
+    max_bars: int = Field(default=1440, ge=1, le=43200)
+    maker_fee_pct: float = Field(default=0.02, ge=0.0, le=1.0)
+    taker_fee_pct: float = Field(default=0.05, ge=0.0, le=1.0)
+    slippage_ticks: float = Field(default=1.0, ge=0.0)
+    tick_size: float = Field(default=0.01, gt=0)
+
+    @model_validator(mode="after")
+    def _check_level_order(self):
+        # BUY: sl < entry < tp; SELL: tp < entry < sl — порядок уровней зависит от стороны.
+        # (Первоначальная версия ветки отвергала ВСЕ шорты: sl >= tp у SELL — норма.)
+        side = self.side.strip().upper()
+        if side == "BUY" and self.sl_price >= self.tp_price:
+            raise ValueError("BUY: sl_price must be below tp_price")
+        if side == "SELL" and self.tp_price >= self.sl_price:
+            raise ValueError("SELL: tp_price must be below sl_price")
+        return self
+
+
+class LimitSetupResponse(BaseModel):
+    filled: bool
+    entry_price: float
+    entry_bar_ts: Optional[int]
+    exit_price: Optional[float]
+    exit_bar_ts: Optional[int]
+    exit_reason: str
+    bars_held: int
+    gross_pnl: float
+    fees_paid: float
+    slippage_cost: float
+    net_pnl: float
+    net_pnl_r: float
+
+
+@backtest_router.post("/simulate-limit-box")
+async def simulate_limit_box(req: LimitSetupRequest) -> LimitSetupResponse:
+    """
+    Fast single-setup backtest: deterministic simulation of a limit order
+    (entry / SL / TP) against real historical bars strictly AFTER created_at_ts.
+    Zero look-ahead bias, maker/taker fees, adverse slippage on SL.
+    """
+    from backend.app.services.limit_fill_simulator import LimitSetupParams, simulate_limit_setup
+
+    symbol = req.symbol.strip().upper()
+    side = req.side.strip().upper()
+    if side not in {"BUY", "SELL"}:
+        raise HTTPException(status_code=422, detail="side must be BUY or SELL")
+    # Порядок уровней (sl/tp) валидирует LimitSetupRequest._check_level_order → 422.
+
+    # Симулятор работает на 1m-барах; выводим нужную глубину истории из max_bars.
+    days = max(1, int(math.ceil((req.max_bars + 5) / 1440.0)))
+
+    try:
+        df = await fetch_history(symbol, "1m", days)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"History load failed: {e}")
+
+    if df.empty:
+        raise HTTPException(status_code=400, detail=f"No candles for {symbol}")
+
+    params = LimitSetupParams(
+        symbol=symbol,
+        side=side,
+        entry_price=float(req.entry_price),
+        sl_price=float(req.sl_price),
+        tp_price=float(req.tp_price),
+        size=float(req.size),
+        created_at_ts=int(req.created_at_ts),
+        max_bars=int(req.max_bars),
+        maker_fee_pct=float(req.maker_fee_pct),
+        taker_fee_pct=float(req.taker_fee_pct),
+        slippage_ticks=float(req.slippage_ticks),
+        tick_size=float(req.tick_size),
+    )
+
+    result = simulate_limit_setup(df, params)
+    return LimitSetupResponse(
+        filled=result.filled,
+        entry_price=result.entry_price,
+        entry_bar_ts=result.entry_bar_ts,
+        exit_price=result.exit_price,
+        exit_bar_ts=result.exit_bar_ts,
+        exit_reason=result.exit_reason,
+        bars_held=result.bars_held,
+        gross_pnl=result.gross_pnl,
+        fees_paid=result.fees_paid,
+        slippage_cost=result.slippage_cost,
+        net_pnl=result.net_pnl,
+        net_pnl_r=result.net_pnl_r,
+    )
+
 
 
 def _sharpe(equity_curve: List[Dict[str, float]]) -> float:
@@ -632,6 +796,15 @@ async def run_backtest(req: BacktestRequest):
     use_cvd_filter = req.use_cvd_filter if req.use_cvd_filter is not None else p.use_cvd_filter
     use_oi_filter = req.use_oi_filter if req.use_oi_filter is not None else p.use_oi_filter
     use_rsi_filter = req.use_rsi_filter if req.use_rsi_filter is not None else p.use_rsi_filter
+    use_stacked_imbalance_filter = (
+        req.use_stacked_imbalance_filter if req.use_stacked_imbalance_filter is not None else p.use_stacked_imbalance_filter
+    )
+    use_absorption_filter = (
+        req.use_absorption_filter if req.use_absorption_filter is not None else p.use_absorption_filter
+    )
+    use_poc_migration_filter = (
+        req.use_poc_migration_filter if req.use_poc_migration_filter is not None else p.use_poc_migration_filter
+    )
 
     maker_fee_pct = req.maker_fee_pct if req.maker_fee_pct is not None else p.maker_fee_pct
     taker_fee_pct = req.taker_fee_pct if req.taker_fee_pct is not None else p.taker_fee_pct
@@ -645,6 +818,7 @@ async def run_backtest(req: BacktestRequest):
     tp2_mode = req.tp2_mode if req.tp2_mode is not None else p.tp2_mode
     tp2_rr_ratio = req.tp2_rr_ratio if req.tp2_rr_ratio is not None else p.tp2_rr_ratio
     min_wall_lifetime_sec = req.min_wall_lifetime_sec if req.min_wall_lifetime_sec is not None else p.min_wall_lifetime_sec
+    sl_tp_mode = req.sl_tp_mode if req.sl_tp_mode is not None else p.sl_tp_mode
 
     try:
         df = await fetch_history(symbol, req.timeframe, req.days)
@@ -713,6 +887,13 @@ async def run_backtest(req: BacktestRequest):
         tp2_rr_ratio,
         min_wall_lifetime_sec,
         risk_per_trade_pct=risk_per_trade_pct,
+        fast_period=p.fast_period,
+        slow_period=p.slow_period,
+        use_stacked_imbalance_filter=use_stacked_imbalance_filter,
+        use_absorption_filter=use_absorption_filter,
+        use_poc_migration_filter=use_poc_migration_filter,
+        sl_tp_mode=sl_tp_mode,
+        symbol=symbol,
     )
     if "error" in raw:
         raise HTTPException(status_code=400, detail=raw["error"])
@@ -788,6 +969,10 @@ class OptimizeRequest(BaseModel):
     use_cvd_filter: bool = False
     use_oi_filter: bool = False
     use_rsi_filter: bool = False
+    # Блок 1.2: Кластерные фильтры
+    use_stacked_imbalance_filter: bool = False
+    use_absorption_filter: bool = False
+    use_poc_migration_filter: bool = False
     risk_per_trade_pct: Optional[float] = Field(default=None, gt=0, le=10)
     use_trailing: bool = True
     trailing_pct: float = Field(0.5, ge=0.0, le=20.0)
@@ -943,3 +1128,73 @@ async def inspect_level(req: InspectLevelRequest):
     res["timeframe"] = tf
     res["days"] = days
     return _clean(res)
+
+
+class BacktestReportRequest(BaseModel):
+    """Payload = ответ /api/backtest/run (фронт шлёт result целиком).
+
+    Валидация мягкая: обязателен только symbol; все блоки опциональны и честно
+    рендерятся страницей «нет данных». extra="allow" — лишние legacy-ключи
+    ответа не ломают генерацию.
+    """
+
+    model_config = {"extra": "allow"}
+
+    symbol: str
+    summary: Dict[str, Any] = {}
+    trades: List[Dict[str, Any]] = []
+    equity_curve: List[Dict[str, Any]] = []
+    monte_carlo: Optional[Dict[str, Any]] = None
+    meta: Dict[str, Any] = {}
+    strategy_type: Optional[str] = None
+    timeframe: Optional[str] = None
+    initial_capital: Optional[float] = None
+
+
+@backtest_router.post("/report")
+async def export_backtest_report(req: BacktestReportRequest):
+    """PDF-отчёт по готовому результату бэктеста (задача 6.5).
+
+    Не запускает расчёт заново — только рендерит переданный result.
+    """
+    symbol = req.symbol.strip().upper()
+    if not symbol:
+        raise HTTPException(status_code=422, detail="symbol is required")
+
+    payload = req.model_dump()
+    payload["symbol"] = symbol
+    try:
+        pdf_bytes = await run_in_threadpool(render_backtest_report_pdf, payload)
+    except Exception as e:  # pragma: no cover - защита от ошибок рендера
+        raise HTTPException(status_code=500, detail=f"Report render failed: {e}")
+
+    filename = f"backtest_report_{symbol}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@backtest_router.post("/report-html")
+async def export_backtest_report_html(req: BacktestReportRequest):
+    """HTML-отчёт по готовому результату бэктеста (задача 6.4 HTML).
+
+    Тот же контракт тела, что у /api/backtest/report; ответ отдаётся inline
+    (text/html) — фронт открывает его в новой вкладке через blob-URL.
+    """
+    symbol = req.symbol.strip().upper()
+    if not symbol:
+        raise HTTPException(status_code=422, detail="symbol is required")
+
+    payload = req.model_dump()
+    payload["symbol"] = symbol
+    try:
+        html_text = await run_in_threadpool(render_backtest_report_html, payload)
+    except Exception as e:  # pragma: no cover - защита от ошибок рендера
+        raise HTTPException(status_code=500, detail=f"Report render failed: {e}")
+
+    return Response(
+        content=html_text,
+        media_type="text/html; charset=utf-8",
+    )

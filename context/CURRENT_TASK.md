@@ -1,33 +1,34 @@
-# Current Task: Слияние recorder-ветки в main (2026-10-22)
+# Current Task: Задача 008 — Квантовая трансформация: Expectancy Engine, Market Regime Classifier и Risk Engine
 
 ## Status
-- **Priority**: 🟡 СЛИЯНИЕ ВЫПОЛНЕНО (merge main + agent/codex/recorder)
-- **Agent**: Kimi Work (новый агент)
-- **Branch**: main (merge commit)
-- **Gate**: scripts/check.ps1 — ALL QUALITY CHECKS PASSED (212 pytest, build, blocking + live UI smoke)
+- **Status**: IN_PROGRESS (Этапы 1–3 завершены, тесты 100% зеленые)
+- **Task Specification**: `tasks/008-situation-analysis-and-winrate-boost.md`
+- **Architectural Plan**: `docs/WIN_RATE_IMPROVEMENT_PLAN.md` & `QUANT_TRANSFORMATION_PLAN.md`
+- **Recommended Model**: `Claude Sonnet 3.5 / Expert` (Quantitative Analysis, Risk & Microstructure)
+- **Gate**: `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`
 
-## Completed
-- ✅ Все ветки слиты в main (merge, 1 конфликт в CURRENT_TASK.md — разрешён)
-- ✅ scripts/check.ps1 GREEN (212 passed, 28 skipped; build; Playwright blocking + live WS)
-- ✅ Tag stable-20261018-merged создан (main = a129916, tag pushed)
-- ✅ Model routing synchronized (config/model-routing.json = OpenRouter budget models)
-- ✅ Recorder S1: canonical envelope, нормализаторы, fsync spool, immutable zstd Parquet + SHA-256 манифесты, gap-журнал, YAML-конфиг; Docker-артефакты собраны
-- ✅ ROADMAP.md и CODEGRAPH.md добавлены (мастер-план + карта кода)
+## Immediate Starting Point for the Agent
+1. **Текущий статус**:
+   - Реализован квантовый риск-движок (`risk_engine.py`) со строгим сайзингом от дистанции SL, лимитом Portfolio Heat (1.25%), Directional Heat (0.75%), динамическим штрафом за корреляцию ($\lambda=0.6$) и потолком плеча 5.0x.
+   - Реализован двухтаймфреймовый классификатор рыночных фаз (`regime_classifier.py`) с Choppiness Index (CI-14), 288-барным скользящим перцентилем ATR и BBW, а также Microstructure Gate (спред <= 5 bps, глубина >= $5k, дисбаланс $I_{depth}$, CVD-абсорбция).
+   - База SQLite мигрирована без потери истории сделок.
+   - В UI выведено матожидание `Expectancy (R)`.
+   - Шлюз `scripts/check.ps1` полностью пройден (570 тестов pytest, 85 тестов frontend, critical smoke 8/8, Playwright blocking + live 100% OK).
+   - Сформирован скрипт запуска пула из топ-8 ликвидных пар `scripts/launch_overnight_8pairs.py`.
+2. **Следующие шаги реализации**:
+   - Запуск ночного марафона по топ-8 парам на 5m/15m.
+   - Сбор сравнительной статистики телеметрии (старая версия vs новая) на одинаковом историческом срезе данных.
+   - Пост-мортем анализ сделок (`trade_postmortem_service.py`) с детальным анализом MFE/MAE распределения.
 
-## Quant Constraints (limit-fill task)
-- Zero look-ahead bias: bars with open_time <= created_at_ts are ignored.
-- Limit fill: low <= entry (BUY) / high >= entry (SELL), price = entry, fee = maker.
-- TP = limit (maker), SL = market (taker + adverse slippage).
-- Tie-break (TP & SL in same bar): conservative → SL first (worst case).
-- Timestamps: UTC ms, deterministic (no Math.random()).
+## Roadmap Checklist
+- [x] **Этап 0**: Диагностика узких мест по закрытым сделкам (Fee Drag, MFE Bleed, боковик, спуфинг)
+- [x] **Этап 1**: Разработка математической квант-модели и архитектурного плана (`QUANT_TRANSFORMATION_PLAN.md`)
+- [x] **Этап 2**: Квантовый риск-движок (`risk_engine.py`): сайзинг от SL, Portfolio Heat (1.25%), корреляционный дисконт, Circuit Breakers, флаг Pyramiding=False
+- [x] **Этап 3**: Классификатор рыночных фаз (`regime_classifier.py`) и микроструктурный фильтр (`microstructure_gate`)
+- [x] **Этап 4**: Миграция схемы `paper_trade_records` в SQLite (`signals.db`), адаптация `paper_trading.py` и `live_paper_runner.py` для раздельного хранения плеча биржи и effective_leverage, расчет `mfe_r`, `mae_r`, `realized_r`, `expected_r`
+- [x] **Этап 5**: Отображение Net Expectancy ($E_R$) в `TradeHistoryWidget.jsx`
+- [ ] **Этап 6**: Сравнительный бэктест/демо-тест старой и новой версии на одинаковых рыночных данных
+- [ ] **Этап 7**: Пост-мортем анализатор закрытых сделок (`trade_postmortem_service.py`) с детальной MFE/MAE аналитикой
 
-## Next Steps
-1. Remote deployment recorder (нужен SSH/Docker target от пользователя) + 48 ч параллельного прогона.
-2. Внедрить пресет production_robust в overnight_pilot.py (см. AI_HANDOFF.md §3).
-3. Судьба веток agent/cline/* (replay-engine, limit-fill-simulator, live-assistant) — решение Di.
-4. Дальнейшие шаги — по ROADMAP.md (редактирует Di).
-
-## Notes
-- Consultative mode only: auto-trading forbidden.
-- If scope creep detected → stop and ask user.
-- Backend: два runtime (старый listener 8000, новый 8002 по data/backend_runtime.json) — требует решения (ROADMAP Фаза 0.2).
+## Execution Log
+- 2026-10-26 Задача 008: Завершена реализация квантового ядра терминала. Реализован `backend/app/services/risk_engine.py` и `backend/app/services/regime_classifier.py`. Интегрированы в `live_paper_runner.py` и `paper_trading.py`. Проведена безопасная миграция `data/signals.db` с сохранением всех 82 сделок. Добавлены 10 модульных тестов `test_risk_engine_and_regime.py`. Единый шлюз качества `scripts/check.ps1` успешно пройден (0 ошибок).

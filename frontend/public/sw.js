@@ -1,5 +1,5 @@
 // Signal Script PWA Service Worker
-const CACHE_NAME = 'signalscript-v1';
+const CACHE_NAME = 'signalscript-v2';
 const PRECACHE_URLS = [
   '/',
   '/index.html',
@@ -34,8 +34,22 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url);
+
   // Pass API and WebSocket calls directly to network
   if (event.request.url.includes('/api/') || event.request.url.startsWith('ws')) {
+    return;
+  }
+
+  // DEV-режим (Vite): никогда не кешировать исходники и зависимости —
+  // иначе вкладка получает устаревшие модули после правок и падает с пустым root.
+  if (
+    url.pathname.startsWith('/src/') ||
+    url.pathname.startsWith('/node_modules/') ||
+    url.pathname.startsWith('/@') ||
+    url.pathname === '/index.html'
+  ) {
+    event.respondWith(fetch(event.request));
     return;
   }
 
@@ -45,7 +59,7 @@ self.addEventListener('fetch', (event) => {
         return cachedResponse;
       }
       return fetch(event.request).then((response) => {
-        // Cache static shell assets
+        // Cache static shell assets (prod build only)
         if (response && response.status === 200 && response.type === 'basic') {
           const responseToCache = response.clone();
           caches.open(CACHE_NAME).then((cache) => {

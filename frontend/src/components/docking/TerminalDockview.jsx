@@ -12,7 +12,8 @@ import ScreenerWidget from './ScreenerWidget';
 import TradesWidget from './TradesWidget';
 import WidgetHubModal from './WidgetHubModal';
 import TradeHistoryWidget from './TradeHistoryWidget';
-import { FootprintPlaceholderWidget, CvdPlaceholderWidget } from './Placeholders';
+import { CvdPlaceholderWidget } from './Placeholders';
+import FootprintPanel from './FootprintPanel';
 import { sanitizeDockviewLayout } from './layoutSanitizer';
 import {
   readCachedDockviewLayout,
@@ -146,8 +147,8 @@ function ChartDockPanel(props) {
                 {isBacktesting
                   ? 'Счет...'
                   : activeSetup?.entry_price > 0
-                  ? `⚡ Бэктест R:R (1:${activeSetup.rr_ratio || '?'})`
-                  : '⚡ Бэктест'}
+                  ? `Бэктест R:R (1:${activeSetup.rr_ratio || '?'})`
+                  : 'Бэктест'}
               </span>
             </button>
 
@@ -437,7 +438,8 @@ export default function TerminalDockview({
       screener: ScreenerWidget,
       signals: SignalsDockPanel,
       trades: TradesWidget,
-      footprint_placeholder: FootprintPlaceholderWidget,
+      footprint: FootprintPanel,
+      footprint_placeholder: FootprintPanel, // обратная совместимость с сохранёнными раскладками
       cvd_placeholder: CvdPlaceholderWidget,
       papertrade: TradeHistoryWidget,
       tradehistory: TradeHistoryWidget,
@@ -509,6 +511,9 @@ export default function TerminalDockview({
         title: 'График (HTF)',
         position: { referencePanel: watchlistPanel, direction: 'right' }
       });
+      api.addPanel({ id: 'tradehistory_main', component: 'tradehistory', title: 'Демо-торговля & Сделки (20 пар)', position: { referencePanel: chartPanel, direction: 'below' } });
+      ({
+      });
 
       const domPanel = api.addPanel({
         id: 'orderbook_main',
@@ -559,6 +564,25 @@ export default function TerminalDockview({
           if (!api.getPanel('trades_main')) {
             const ref = api.getPanel('signals_main') || api.getPanel('orderbook_main') || api.getPanel('chart_main');
             if (ref) {
+              api.addPanel({ id: 'trades_main', component: 'trades', title: 'Лента сделок (Tape)', position: { referencePanel: ref, direction: 'within' } });
+            }
+          }
+          // Auto-deduplicate: Ensure only one unified tradehistory panel exists
+          const existingTradePanels = (api.panels || []).filter(p => p.component === 'tradehistory' || p.component === 'papertrade');
+          if (existingTradePanels.length > 1) {
+            for (let i = 1; i < existingTradePanels.length; i++) {
+              try { existingTradePanels[i].api?.close?.(); } catch (_) {}
+            }
+          }
+          if (!api.getPanel('tradehistory_main')) {
+            const chartRef = api.getPanel('chart_main') || api.getPanel('chart_ltf') || api.getPanel('signals_main');
+            if (chartRef) {
+              api.addPanel({ id: 'tradehistory_main', component: 'tradehistory', title: 'Демо-торговля & Сделки (20 пар)', position: { referencePanel: chartRef, direction: 'below' } });
+            }
+          }
+          if (false) {
+            const ref = api.getPanel('signals_main') || api.getPanel('orderbook_main') || api.getPanel('chart_main');
+            if (ref) {
               api.addPanel({
                 id: 'trades_main',
                 component: 'trades',
@@ -586,6 +610,7 @@ export default function TerminalDockview({
   // Initialize Dockview API
   const onReady = useCallback(
     async (event) => {
+      console.log('[DEBUG] Dockview onReady CALLED! event.api:', Boolean(event?.api));
       dockviewApiRef.current = event.api;
 
       // Provide shared props to panels via containerApi
@@ -593,10 +618,33 @@ export default function TerminalDockview({
       event.api.domSharedProps = domSharedProps;
       event.api.signalsSharedProps = signalsSharedProps;
 
-      // Load presets and active workspace
-      await loadPresets();
-      const currentDetail = await loadWorkspaceDetail(activePresetId);
-      hydrateLayout(event.api, currentDetail);
+      // 1. Мгновенная инициализация раскладки (кэш либо дефолт) — 0мс задержки, исключает пустой экран
+      const cached = readCachedDockviewLayout();
+      if (cached) {
+        const sanitized = sanitizeDockviewLayout(cached);
+        if (sanitized) {
+          try {
+            event.api.fromJSON(sanitized);
+          } catch (_) {
+            buildDefaultLayout(event.api, activePresetId);
+          }
+        } else {
+          buildDefaultLayout(event.api, activePresetId);
+        }
+      } else {
+        buildDefaultLayout(event.api, activePresetId);
+      }
+
+      // 2. Фоновая загрузка пресетов и синхронизация сохранённой в SQLite раскладки
+      try {
+        await loadPresets();
+        const currentDetail = await loadWorkspaceDetail(activePresetId);
+        if (currentDetail?.layout_data?.dockview) {
+          hydrateLayout(event.api, currentDetail);
+        }
+      } catch (err) {
+        console.debug('Background workspace sync:', err);
+      }
 
       // Listen to layout changes for debounced SQLite autosave
       event.api.onDidLayoutChange(() => {
@@ -706,7 +754,7 @@ export default function TerminalDockview({
         }
       } else if (type === 'footprint') {
         title = 'Футпринт / Кластеры';
-        component = 'footprint_placeholder';
+        component = 'footprint';
         const ref = domPanels[0] || panels[0];
         if (ref) {
           position = { referencePanel: ref, direction: 'right' };
@@ -718,19 +766,17 @@ export default function TerminalDockview({
         if (ref) {
           position = { referencePanel: ref, direction: 'below' };
         }
-      } else if (type === 'tradehistory' || type === 'trades_history') {
-        title = 'История сделок & Прогнозы';
-        component = 'tradehistory';
-        const ref = signalsPanels[0] || tradesPanels[0] || domPanels[0] || panels[0];
-        if (ref) {
-          position = { referencePanel: ref, direction: 'within' };
+      } else if (type === 'tradehistory' || type === 'trades_history' || type === 'papertrade' || type === 'paper_trading') {
+        const existing = api.getPanel('tradehistory_main') || (api.panels || []).find(p => p.component === 'tradehistory' || p.component === 'papertrade');
+        if (existing) {
+          existing.api?.setActive?.();
+          return;
         }
-      } else if (type === 'papertrade' || type === 'paper_trading') {
-        title = 'Бумажная торговля (Paper Trade)';
-        component = 'papertrade';
-        const ref = signalsPanels[0] || tradesPanels[0] || domPanels[0] || panels[0];
+        title = 'Демо-торговля & Сделки (20 пар)';
+        component = 'tradehistory';
+        const ref = chartPanels[0] || signalsPanels[0] || domPanels[0] || panels[0];
         if (ref) {
-          position = { referencePanel: ref, direction: 'within' };
+          position = { referencePanel: ref, direction: 'below' };
         }
       }
 

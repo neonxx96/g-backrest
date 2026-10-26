@@ -20,6 +20,17 @@ from typing import Dict, List, Any, Optional, Tuple
 import pandas as pd
 import numpy as np
 
+from types import SimpleNamespace
+
+from backend.app.engine.execution import simulate_execution
+from backend.app.engine.monte_carlo import run_monte_carlo_simulation
+from backend.app.engine.strategies import compute_raw_signal
+from backend.app.engine.cluster_filters import (
+    compute_bar_cluster_arrays,
+    check_cluster_filters_at_bar,
+    compute_fee_aware_rr_bounds,
+)
+
 
 class OrderFlowBacktester:
     def __init__(
@@ -168,6 +179,10 @@ class OrderFlowBacktester:
         use_cvd_filter: bool = False,
         use_oi_filter: bool = False,
         use_rsi_filter: bool = False,
+        use_stacked_imbalance_filter: bool = False,
+        use_absorption_filter: bool = False,
+        use_poc_migration_filter: bool = False,
+        live_cluster_candle: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
         """Evaluate the latest fully formed candle with the backtest signal rules.
 
@@ -205,6 +220,61 @@ class OrderFlowBacktester:
             elif passes_wall and previous_close >= float(prev.get("ema20", 0.0)) and close < float(cur.get("ema20", 0.0)) and volume_ok and delta < 0 and 35 <= rsi <= 60:
                 direction = -1
                 reasons = ["EMA20 cross down", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
+        elif profile == "ema_trend":
+            # Пересечение EMA fast/slow (ema20/ema50) — семантика 1:1 с бэктестом
+            # engine/strategies.py::compute_raw_signal (ema_trend).
+            cross_up = float(prev.get("ema20", 0.0)) <= float(prev.get("ema50", 0.0)) and float(cur.get("ema20", 0.0)) > float(cur.get("ema50", 0.0))
+            cross_down = float(prev.get("ema20", 0.0)) >= float(prev.get("ema50", 0.0)) and float(cur.get("ema20", 0.0)) < float(cur.get("ema50", 0.0))
+            if passes_wall and cross_up and volume_ok and delta > 0:
+                direction = 1
+                reasons = [f"EMA cross up ({float(cur.get('ema20', 0.0)):.2f} > {float(cur.get('ema50', 0.0)):.2f})", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
+            elif passes_wall and cross_down and volume_ok and delta < 0:
+                direction = -1
+                reasons = [f"EMA cross down ({float(cur.get('ema20', 0.0)):.2f} < {float(cur.get('ema50', 0.0)):.2f})", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
+        elif profile == "ema_trend_window":
+            # Окно после свежего кросса EMA20/50 (8 баров) — 1:1 с engine/strategies.py.
+            # Кросс строго раньше текущего бара; вход на подтверждении: тренд
+            # сохранён и close вернулся по стороне кросса относительно EMA20.
+            W = 8
+            tail = frame.iloc[-(W + 1):]
+            ema20_s = tail["ema20"].astype(float).tolist()
+            ema50_s = tail["ema50"].astype(float).tolist()
+            cross_idx = -1
+            cross_up = False
+            for k in range(len(ema20_s) - 1, 0, -1):
+                if ema20_s[k - 1] <= ema50_s[k - 1] and ema20_s[k] > ema50_s[k]:
+                    cross_idx, cross_up = k, True
+                    break
+                if ema20_s[k - 1] >= ema50_s[k - 1] and ema20_s[k] < ema50_s[k]:
+                    cross_idx, cross_up = k, False
+                    break
+            in_window = 0 < cross_idx < len(ema20_s) - 1
+            cur_ema20w = float(cur.get("ema20", 0.0))
+            cur_ema50w = float(cur.get("ema50", 0.0))
+            trend_up = cur_ema20w > cur_ema50w
+            trend_down = cur_ema20w < cur_ema50w
+            if passes_wall and in_window and cross_up and trend_up and close > cur_ema20w and volume_ok and delta > 0:
+                direction = 1
+                bars_since = len(ema20_s) - 1 - cross_idx
+                reasons = [f"Cross up {bars_since} bar(s) ago confirmed (close {close:.4f} > EMA20 {cur_ema20w:.4f})", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
+            elif passes_wall and in_window and (not cross_up) and trend_down and close < cur_ema20w and volume_ok and delta < 0:
+                direction = -1
+                bars_since = len(ema20_s) - 1 - cross_idx
+                reasons = [f"Cross down {bars_since} bar(s) ago confirmed (close {close:.4f} < EMA20 {cur_ema20w:.4f})", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
+        elif profile == "ema_pullback":
+            # Отскок к EMA20 внутри тренда — 1:1 с engine/strategies.py (ema_pullback).
+            cur_ema20 = float(cur.get("ema20", 0.0))
+            cur_ema50 = float(cur.get("ema50", 0.0))
+            trend_up = cur_ema20 > cur_ema50
+            trend_down = cur_ema20 < cur_ema50
+            touch_reject_up = float(cur.get("low", 0.0)) <= cur_ema20 and close > cur_ema20
+            touch_reject_down = float(cur.get("high", 0.0)) >= cur_ema20 and close < cur_ema20
+            if passes_wall and trend_up and touch_reject_up and volume_ok and delta > 0:
+                direction = 1
+                reasons = [f"EMA20 touch-reject in uptrend (low {float(cur.get('low', 0.0)):.4f} <= EMA20 {cur_ema20:.4f}, close {close:.4f} > EMA20)", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
+            elif passes_wall and trend_down and touch_reject_down and volume_ok and delta < 0:
+                direction = -1
+                reasons = [f"EMA20 touch-reject in downtrend (high {float(cur.get('high', 0.0)):.4f} >= EMA20 {cur_ema20:.4f}, close {close:.4f} < EMA20)", f"Volume ratio {float(cur.get('vol_ratio', 0.0)):.2f}x", f"Delta {delta:+.2f}"]
         elif profile == "diagnostics_lenient":
             # Diagnostic-only profile: keeps real OHLCV/EMA/delta inputs but
             # intentionally drops production-only confirmation gates so the
@@ -269,6 +339,19 @@ class OrderFlowBacktester:
                     return None
                 if direction < 0 and not (rsi >= 58 or (previous_rsi >= 64 and rsi <= 70)):
                     return None
+        if use_stacked_imbalance_filter or use_absorption_filter or use_poc_migration_filter:
+            cluster_arrays = compute_bar_cluster_arrays(frame)
+            cluster_ok, _ = check_cluster_filters_at_bar(
+                len(frame) - 1,
+                direction,
+                cluster_arrays,
+                use_stacked_imbalance_filter=use_stacked_imbalance_filter,
+                use_absorption_filter=use_absorption_filter,
+                use_poc_migration_filter=use_poc_migration_filter,
+                live_cluster_candle=live_cluster_candle,
+            )
+            if not cluster_ok:
+                return None
         return {"direction": "LONG" if direction > 0 else "SHORT", "reasons": reasons, "timestamp": int(cur.get("timestamp", 0))}
 
     def explain_latest_signal(
@@ -281,6 +364,10 @@ class OrderFlowBacktester:
         use_cvd_filter: bool = False,
         use_oi_filter: bool = False,
         use_rsi_filter: bool = False,
+        use_stacked_imbalance_filter: bool = False,
+        use_absorption_filter: bool = False,
+        use_poc_migration_filter: bool = False,
+        live_cluster_candle: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Explain the latest decision without changing signal semantics.
 
@@ -324,7 +411,72 @@ class OrderFlowBacktester:
 
         if profile not in {"diagnostics_lenient", "naked_test"} and volume_ratio < float(volume_multiplier):
             reject("volume_multiplier", round(volume_ratio, 4), ">=", float(volume_multiplier))
-        if profile == "confluence_ema":
+        if profile == "ema_trend":
+            cross_up = float(prev.get("ema20", 0.0)) <= float(prev.get("ema50", 0.0)) and float(cur.get("ema20", 0.0)) > float(cur.get("ema50", 0.0))
+            cross_down = float(prev.get("ema20", 0.0)) >= float(prev.get("ema50", 0.0)) and float(cur.get("ema20", 0.0)) < float(cur.get("ema50", 0.0))
+            if not (cross_up or cross_down):
+                reject(
+                    "ema_cross",
+                    [round(float(prev.get("ema20", 0.0)), 8), round(float(cur.get("ema20", 0.0)), 8)],
+                    "crosses",
+                    [round(float(prev.get("ema50", 0.0)), 8), round(float(cur.get("ema50", 0.0)), 8)],
+                )
+            if delta == 0:
+                reject("delta_direction", round(delta, 4), "!=", 0.0)
+        elif profile == "ema_trend_window":
+            W = 8
+            tail = frame.iloc[-(W + 1):]
+            ema20_s = tail["ema20"].astype(float).tolist()
+            ema50_s = tail["ema50"].astype(float).tolist()
+            cross_idx = -1
+            cross_up = False
+            for k in range(len(ema20_s) - 1, 0, -1):
+                if ema20_s[k - 1] <= ema50_s[k - 1] and ema20_s[k] > ema50_s[k]:
+                    cross_idx, cross_up = k, True
+                    break
+                if ema20_s[k - 1] >= ema50_s[k - 1] and ema20_s[k] < ema50_s[k]:
+                    cross_idx, cross_up = k, False
+                    break
+            in_window = 0 < cross_idx < len(ema20_s) - 1
+            cur_ema20w = float(cur.get("ema20", 0.0))
+            cur_ema50w = float(cur.get("ema50", 0.0))
+            if not in_window:
+                reject(
+                    "cross_window",
+                    {"bars_scanned": len(ema20_s) - 1, "cross_idx": cross_idx},
+                    "requires",
+                    f"кросс EMA20/50 в окне {W} баров строго до текущего",
+                )
+            else:
+                if cross_up and cur_ema20w <= cur_ema50w:
+                    reject("trend_structure", round(cur_ema20w - cur_ema50w, 8), "requires", "EMA20 > EMA50 после ап-кросса")
+                if (not cross_up) and cur_ema20w >= cur_ema50w:
+                    reject("trend_structure", round(cur_ema20w - cur_ema50w, 8), "requires", "EMA20 < EMA50 после даун-кросса")
+                if cross_up and not close > cur_ema20w:
+                    reject("close_vs_ema20", round(close, 8), ">", round(cur_ema20w, 8))
+                if (not cross_up) and not close < cur_ema20w:
+                    reject("close_vs_ema20", round(close, 8), "<", round(cur_ema20w, 8))
+            if delta == 0:
+                reject("delta_direction", round(delta, 4), "!=", 0.0)
+        elif profile == "ema_pullback":
+            cur_ema20 = float(cur.get("ema20", 0.0))
+            cur_ema50 = float(cur.get("ema50", 0.0))
+            trend_up = cur_ema20 > cur_ema50
+            trend_down = cur_ema20 < cur_ema50
+            touch_reject_up = float(cur.get("low", 0.0)) <= cur_ema20 and close > cur_ema20
+            touch_reject_down = float(cur.get("high", 0.0)) >= cur_ema20 and close < cur_ema20
+            if not (trend_up or trend_down):
+                reject("trend_structure", round(cur_ema20 - cur_ema50, 8), "requires", "EMA20 != EMA50 (тренд отсутствует, флэт)")
+            elif not (touch_reject_up or touch_reject_down):
+                reject(
+                    "ema20_touch_reject",
+                    {"low": round(float(cur.get("low", 0.0)), 8), "high": round(float(cur.get("high", 0.0)), 8), "close": round(close, 8), "ema20": round(cur_ema20, 8)},
+                    "requires",
+                    "касание EMA20 (low<=EMA20 для лонга / high>=EMA20 для шорта) и закрытие обратно",
+                )
+            if delta == 0:
+                reject("delta_direction", round(delta, 4), "!=", 0.0)
+        elif profile == "confluence_ema":
             cross_up = previous_close <= float(prev.get("ema20", 0.0)) and close > float(cur.get("ema20", 0.0))
             cross_down = previous_close >= float(prev.get("ema20", 0.0)) and close < float(cur.get("ema20", 0.0))
             if not (cross_up or cross_down):
@@ -377,6 +529,22 @@ class OrderFlowBacktester:
             elif profile not in {"confluence_ema", "naked_test"} and not (rsi <= 42 or rsi >= 58):
                 reject("rsi_filter", round(rsi, 4), "outside", [42.0, 58.0])
 
+        if use_stacked_imbalance_filter or use_absorption_filter or use_poc_migration_filter:
+            cluster_arrays = compute_bar_cluster_arrays(frame)
+            probe_dir = 1 if delta >= 0 else -1
+            cluster_ok, failed_clusters = check_cluster_filters_at_bar(
+                len(frame) - 1,
+                probe_dir,
+                cluster_arrays,
+                use_stacked_imbalance_filter=use_stacked_imbalance_filter,
+                use_absorption_filter=use_absorption_filter,
+                use_poc_migration_filter=use_poc_migration_filter,
+                live_cluster_candle=live_cluster_candle,
+            )
+            if not cluster_ok:
+                for fc in failed_clusters:
+                    reject(fc, False, "==", True)
+
         signal = self.evaluate_latest_signal(
             frame,
             strategy_type=strategy_type,
@@ -386,6 +554,10 @@ class OrderFlowBacktester:
             use_cvd_filter=use_cvd_filter,
             use_oi_filter=use_oi_filter,
             use_rsi_filter=use_rsi_filter,
+            use_stacked_imbalance_filter=use_stacked_imbalance_filter,
+            use_absorption_filter=use_absorption_filter,
+            use_poc_migration_filter=use_poc_migration_filter,
+            live_cluster_candle=live_cluster_candle,
         )
         observed = {"close": close, "volume_ratio": round(volume_ratio, 4), "delta": round(delta, 4), "rsi": round(rsi, 4), "turnover": round(turnover, 2)}
         if signal:
@@ -440,6 +612,24 @@ class OrderFlowBacktester:
         use_dynamic_breakeven: bool = False,       # Move SL to Breakeven (+2*Fee+1tick) when MFE >= +0.5R
         dynamic_be_trigger_r: float = 0.5,
         risk_per_trade_pct: Optional[float] = None,
+        # STRATEGY_WEAKNESSES fixes (docs/STRATEGY_WEAKNESSES_AND_UPGRADES.md), all default-off
+        use_adaptive_wall: bool = False,           # Fix 2: dynamic_wall = rolling median(turnover, window) * mult
+        adaptive_wall_mult: float = 2.5,
+        adaptive_wall_window: int = 50,
+        use_time_stop: bool = False,               # Fix 3: market exit if trade < +min_r after N minutes
+        time_stop_minutes: int = 45,
+        time_stop_min_r: float = 0.3,
+        use_maker_exits: bool = False,             # Fix 4: trailing exits as limit orders (maker, no slippage)
+        # EMA Trend periods (M5.2 sweep apply): defaults 20/50 keep legacy behavior
+        fast_period: int = 20,                     # EMA fast span used by ema_trend/confluence baseline
+        slow_period: int = 50,                     # EMA slow span; must be strictly greater than fast_period
+        # Блок 1.2: Кластерные фильтры потока ордеров (default-off для сохранения обратной совместимости)
+        use_stacked_imbalance_filter: bool = False,
+        use_absorption_filter: bool = False,
+        use_poc_migration_filter: bool = False,
+        # Блок 2: Селективный динамический расчёт SL/TP ('fixed' | 'atr_cone' | 'magnet_hybrid' | 'auto_calibrated')
+        sl_tp_mode: str = "fixed",
+        symbol: str = "BTCUSDT",
     ) -> Dict[str, Any]:
         """
         Executes realistic institutional order-flow backtest with:
@@ -452,6 +642,14 @@ class OrderFlowBacktester:
         """
         if df is None or df.empty or len(df) < 60:
             return {"error": "Недостаточно свечей для бэктеста (минимум 60)"}
+
+        fast_ema_span = int(fast_period)
+        slow_ema_span = int(slow_period)
+        if fast_ema_span < 2 or slow_ema_span <= fast_ema_span:
+            raise ValueError(
+                f"EMA periods invalid: fast_period={fast_ema_span} must be >= 2 and "
+                f"strictly less than slow_period={slow_ema_span}"
+            )
 
         # Map entry_mode aliases to canonical strategy_type if specified
         eff_strategy = strategy_type
@@ -467,6 +665,49 @@ class OrderFlowBacktester:
         if use_atr_sl and sl_mode == "fixed_pct":
             sl_mode = "atr_volatility"
 
+        eff_sl_tp_mode = str(sl_tp_mode or "fixed").strip().lower()
+        sl_tp_calibration = None
+        if eff_sl_tp_mode == "auto_calibrated":
+            from backend.app.engine.dynamic_sl_tp import calibrate_best_sl_tp_mode_for_df
+
+            sl_tp_calibration = calibrate_best_sl_tp_mode_for_df(
+                self,
+                df,
+                symbol=symbol,
+                strategy_type=eff_strategy,
+                backtest_kwargs={
+                    "take_profit_pct": take_profit_pct,
+                    "stop_loss_pct": stop_loss_pct,
+                    "use_trailing": use_trailing,
+                    "trailing_pct": trailing_pct,
+                    "leverage": leverage,
+                    "volume_multiplier": volume_multiplier,
+                    "min_density_usd": min_density_usd,
+                    "use_atr_filter": use_atr_filter,
+                    "use_atr_sl": use_atr_sl,
+                    "atr_multiplier": atr_multiplier,
+                    "use_cvd_filter": use_cvd_filter,
+                    "use_oi_filter": use_oi_filter,
+                    "use_rsi_filter": use_rsi_filter,
+                    "maker_fee_pct": maker_fee_pct,
+                    "taker_fee_pct": taker_fee_pct,
+                    "slippage_ticks": slippage_ticks,
+                    "use_multi_tp": use_multi_tp,
+                    "tp1_pct": tp1_pct,
+                    "tp1_atr_mult": tp1_atr_mult,
+                    "atr_period": atr_period,
+                    "cvd_ema_period": cvd_ema_period,
+                    "tp1_rr_ratio": tp1_rr_ratio,
+                    "tp2_rr_ratio": tp2_rr_ratio,
+                    "risk_per_trade_pct": risk_per_trade_pct,
+                    "use_stacked_imbalance_filter": use_stacked_imbalance_filter,
+                    "use_absorption_filter": use_absorption_filter,
+                    "use_poc_migration_filter": use_poc_migration_filter,
+                    "symbol": symbol,
+                },
+            )
+            eff_sl_tp_mode = str(sl_tp_calibration.get("selected_mode", "fixed"))
+
         maker_rate = (float(maker_fee_pct) / 100.0) if maker_fee_pct is not None else self.maker_fee_rate
         taker_rate = (float(taker_fee_pct) / 100.0) if taker_fee_pct is not None else self.taker_fee_rate
         slip_ticks = int(slippage_ticks) if slippage_ticks is not None else self.slippage_ticks
@@ -479,6 +720,13 @@ class OrderFlowBacktester:
             and int(df['_cvd_p'].iloc[0]) == int(cvd_ema_period)
         )
         data = df if already_enriched else self.calculate_indicators(df, atr_period=atr_period, cvd_ema_period=cvd_ema_period)
+
+        # M5.2: переопределение EMA-периодов для sweep-apply (по умолчанию 20/50 — код не изменён).
+        # Copy before mutation: already_enriched path reuses the caller-owned dataframe.
+        if (fast_ema_span, slow_ema_span) != (20, 50):
+            data = data.copy()
+            data['ema20'] = data['close'].ewm(span=fast_ema_span, adjust=False).mean()
+            data['ema50'] = data['close'].ewm(span=slow_ema_span, adjust=False).mean()
 
         signals = np.zeros(len(data), dtype=np.int8)
 
@@ -513,9 +761,36 @@ class OrderFlowBacktester:
         if effective_min_wall > 0 and median_turnover > 0 and effective_min_wall > median_turnover * 4.5:
             effective_min_wall = median_turnover * min(3.5, 0.8 + (effective_min_wall / 3_000_000.0) * 2.2)
 
+        # Fix 2 (STRATEGY_WEAKNESSES): per-bar adaptive wall threshold from a rolling
+        # median of bar turnover. Warmup bars have no median -> honestly no wall gate.
+        adaptive_wall_vals: Optional[np.ndarray] = None
+        if use_adaptive_wall:
+            turnover_series = close_vals * volume_vals
+            adaptive_wall_vals = (
+                pd.Series(turnover_series)
+                .rolling(window=max(2, int(adaptive_wall_window)), min_periods=max(2, int(adaptive_wall_window)))
+                .median()
+                .values
+                * max(0.1, float(adaptive_wall_mult))
+            )
+
         # Spoofing & Wall Lifetime filter: higher min_wall_lifetime_sec (e.g. 45-60s) requires sustained multi-bar volume
         lifetime_factor = 1.0 + max(0.0, (wall_life_sec - 30.0) / 150.0)
 
+        cluster_arrays = (
+            compute_bar_cluster_arrays(data)
+            if (use_stacked_imbalance_filter or use_absorption_filter or use_poc_migration_filter)
+            else None
+        )
+
+        signal_ctx = SimpleNamespace(
+            ema20_vals=ema20_vals, ema50_vals=ema50_vals,
+            low_vals=low_vals, high_vals=high_vals,
+            low_min10_vals=low_min10_vals, high_max10_vals=high_max10_vals,
+            cvd_vals=cvd_vals, cvd_min10_vals=cvd_min10_vals, cvd_max10_vals=cvd_max10_vals,
+            low_min6_vals=low_min6_vals, high_max6_vals=high_max6_vals,
+            volume_multiplier=volume_multiplier,
+        )
         for i in range(50, len(data)):
             c = float(close_vals[i])
             prev_c = float(close_vals[i - 1])
@@ -527,55 +802,24 @@ class OrderFlowBacktester:
             delta = float(delta_vals[i])
 
             turnover = c * float(volume_vals[i])
-            passes_wall = (effective_min_wall <= 0) or (turnover >= effective_min_wall)
+            if adaptive_wall_vals is not None:
+                bar_wall = float(adaptive_wall_vals[i])
+                passes_wall = np.isfinite(bar_wall) and turnover >= bar_wall
+            else:
+                passes_wall = (effective_min_wall <= 0) or (turnover >= effective_min_wall)
             # Wall hold verification: if min_wall_lifetime_sec > 35s, ensure previous bar was not an isolated spoof flash
             passes_lifetime = True if wall_life_sec <= 35 else ((v_rat + prev_v_rat) * 0.5 >= volume_multiplier * 0.75 * lifetime_factor)
 
-            raw_signal = 0
-
-            if eff_strategy == "confluence_ema":
-                if passes_wall and passes_lifetime and prev_c <= prev_ema and c > ema and v_rat >= volume_multiplier and delta > 0 and 40 <= rsi <= 65:
-                    raw_signal = 1
-                elif passes_wall and passes_lifetime and prev_c >= prev_ema and c < ema and v_rat >= volume_multiplier and delta < 0 and 35 <= rsi <= 60:
-                    raw_signal = -1
-
-            elif eff_strategy == "ema_trend":
-                cross_up = ema20_vals[i - 1] <= ema50_vals[i - 1] and ema20_vals[i] > ema50_vals[i]
-                cross_dn = ema20_vals[i - 1] >= ema50_vals[i - 1] and ema20_vals[i] < ema50_vals[i]
-                if passes_wall and passes_lifetime and cross_up and v_rat >= volume_multiplier and delta > 0:
-                    raw_signal = 1
-                elif passes_wall and passes_lifetime and cross_dn and v_rat >= volume_multiplier and delta < 0:
-                    raw_signal = -1
-
-            elif eff_strategy in ("delta_absorption", "cvd_absorption"):
-                if passes_wall and passes_lifetime and low_vals[i] <= low_min10_vals[i] and cvd_vals[i] > cvd_min10_vals[i] and delta > 0 and rsi < 42 and v_rat >= volume_multiplier:
-                    raw_signal = 1
-                elif passes_wall and passes_lifetime and high_vals[i] >= high_max10_vals[i] and cvd_vals[i] < cvd_max10_vals[i] and delta < 0 and rsi > 58 and v_rat >= volume_multiplier:
-                    raw_signal = -1
-
-            elif eff_strategy in ("density_bounce", "limit_bounce"):
-                if passes_wall and passes_lifetime:
-                    is_pinbar_bull = (c - low_vals[i]) > 1.8 * (high_vals[i] - c) and delta > 0
-                    is_pinbar_bear = (high_vals[i] - c) > 1.8 * (c - low_vals[i]) and delta < 0
-                    if is_pinbar_bull and v_rat >= volume_multiplier and rsi < 44:
-                        raw_signal = 1
-                    elif is_pinbar_bear and v_rat >= volume_multiplier and rsi > 56:
-                        raw_signal = -1
-
-            elif eff_strategy == "diagnostics_lenient":
-                if passes_wall and passes_lifetime and delta != 0:
-                    raw_signal = 1 if c >= ema else -1
-
-            elif eff_strategy == "naked_test":
-                raw_signal = 1 if c >= ema else -1
-
-            elif eff_strategy in ("wall_breakout", "breakout"):
-                # Пробой плотности (Wall Breakout): импульсный пробой локального экстремума/стенки на повышенном объёме и дельте
-                if passes_wall and passes_lifetime:
-                    if c > high_max6_vals[i] and delta > 0 and v_rat >= max(1.1, volume_multiplier) and 48 <= rsi <= 74:
-                        raw_signal = 1
-                    elif c < low_min6_vals[i] and delta < 0 and v_rat >= max(1.1, volume_multiplier) and 26 <= rsi <= 52:
-                        raw_signal = -1
+            signal_ctx.c = c
+            signal_ctx.prev_c = prev_c
+            signal_ctx.ema = ema
+            signal_ctx.prev_ema = prev_ema
+            signal_ctx.v_rat = v_rat
+            signal_ctx.delta = delta
+            signal_ctx.rsi = rsi
+            signal_ctx.passes_wall = passes_wall
+            signal_ctx.passes_lifetime = passes_lifetime
+            raw_signal = compute_raw_signal(i, signal_ctx, eff_strategy)
 
             # CONFLUENCE FILTER SUITE VALIDATION
             if raw_signal != 0:
@@ -617,352 +861,56 @@ class OrderFlowBacktester:
                             if not (rsi >= 58 or (prev_rsi >= 64 and rsi <= 70)):
                                 allowed = False
 
+                if allowed and cluster_arrays is not None:
+                    cluster_ok, _ = check_cluster_filters_at_bar(
+                        i,
+                        raw_signal,
+                        cluster_arrays,
+                        use_stacked_imbalance_filter=use_stacked_imbalance_filter,
+                        use_absorption_filter=use_absorption_filter,
+                        use_poc_migration_filter=use_poc_migration_filter,
+                    )
+                    if not cluster_ok:
+                        allowed = False
+
                 if allowed:
                     signals[i] = raw_signal
 
-        # Simulate Realistic Execution with Maker/Taker Fees, Slippage Ticks & Multi-TP Scaling Out
-        trades: List[Dict[str, Any]] = []
-        capital = float(self.initial_capital)
-        gross_capital = float(self.initial_capital)
-        total_fees_usd = 0.0
-        total_slippage_usd = 0.0
-
-        equity_curve = [{"time": int(ts_vals[0]), "equity": round(capital, 2), "gross_equity": round(gross_capital, 2)}]
-
-        in_pos = False
-        pos_dir = 0
-        entry_price = 0.0
-        entry_time = None
-        tp1_price = 0.0
-        tp2_price = 0.0
-        sl_price = 0.0
-        trailing_sl = 0.0
-        max_favorable = 0.0
-        initial_pos_size = 0.0
-        remaining_fraction = 1.0
-        tp1_filled = False
-        dynamic_be_triggered = False
-        realized_leg1_gross_usd = 0.0
-        realized_leg1_fee_usd = 0.0
-        entry_fee_usd = 0.0
-        entry_context_snapshot = None
-
-        safe_lev = max(1.0, float(leverage))
-
-        for i in range(len(data)):
-            cur_time = int(ts_vals[i])
-            open_p = float(open_vals[i])
-            high_p = float(high_vals[i])
-            low_p = float(low_vals[i])
-            close_p = float(close_vals[i])
-            sig = int(signals[i])
-
-            # 1. Check Active Position Exits (TP1 Scaling Out, Breakeven SL, TP2, or Stop Loss with Slippage Ticks)
-            if in_pos and entry_price > 0:
-                tick_unit = self._estimate_tick_size(entry_price)
-                stop_slippage_abs = tick_unit * slip_ticks
-
-                # Step 1A: Check TP1 (50% volume scaling out + move SL to Breakeven) if Multi-TP enabled
-                if use_multi_tp and not tp1_filled:
-                    tp1_hit = (pos_dir == 1 and high_p >= tp1_price) or (pos_dir == -1 and low_p <= tp1_price)
-                    # Only trigger TP1 first if SL wasn't hit on open before TP1
-                    sl_hit_same_bar = (pos_dir == 1 and low_p <= sl_price) or (pos_dir == -1 and high_p >= sl_price)
-                    if tp1_hit and not sl_hit_same_bar:
-                        leg1_size = initial_pos_size * 0.5
-                        leg1_ret = ((tp1_price - entry_price) / entry_price) if pos_dir == 1 else ((entry_price - tp1_price) / entry_price)
-                        realized_leg1_gross_usd = leg1_size * leg1_ret
-                        # TP1 is a limit order -> Maker fee
-                        realized_leg1_fee_usd = leg1_size * maker_rate
-                        tp1_filled = True
-                        remaining_fraction = 0.5
-                        # Move Stop-Loss of remaining 50% to Breakeven (+ tiny fee offset)
-                        be_offset = entry_price * maker_rate
-                        sl_price = (entry_price + be_offset) if pos_dir == 1 else max(1e-8, entry_price - be_offset)
-                        trailing_sl = sl_price
-
-                # Step 1A2: Dynamic Breakeven (+0.5R MFE protection)
-                if use_dynamic_breakeven and not dynamic_be_triggered and sl_dist > 0:
-                    fee_buffer = entry_price * (taker_rate * 2.0)
-                    if pos_dir == 1:
-                        if (high_p - entry_price) >= dynamic_be_trigger_r * sl_dist:
-                            dynamic_be_triggered = True
-                            be_sl = entry_price + fee_buffer + tick_unit
-                            if be_sl > sl_price:
-                                sl_price = be_sl
-                                trailing_sl = max(trailing_sl, sl_price)
-                    elif pos_dir == -1:
-                        if (entry_price - low_p) >= dynamic_be_trigger_r * sl_dist:
-                            dynamic_be_triggered = True
-                            be_sl = entry_price - fee_buffer - tick_unit
-                            if sl_price <= 0 or be_sl < sl_price:
-                                sl_price = be_sl
-                                trailing_sl = min(trailing_sl, sl_price)
-
-                exit_price = None
-                exit_reason = ""
-                is_stop_exit = False
-
-                # Step 1B: Trailing Stop update
-                if use_trailing and trailing_sl > 0:
-                    if pos_dir == 1:
-                        if high_p > max_favorable:
-                            max_favorable = high_p
-                            new_sl = max_favorable * (1.0 - (trailing_pct / 100.0))
-                            if new_sl > trailing_sl:
-                                trailing_sl = new_sl
-                        if low_p <= trailing_sl:
-                            exit_price = max(1e-8, trailing_sl - stop_slippage_abs)
-                            exit_reason = "Trailing Stop"
-                            is_stop_exit = True
-                    elif pos_dir == -1:
-                        if low_p < max_favorable:
-                            max_favorable = low_p
-                            new_sl = max_favorable * (1.0 + (trailing_pct / 100.0))
-                            if new_sl < trailing_sl:
-                                trailing_sl = new_sl
-                        if high_p >= trailing_sl:
-                            exit_price = trailing_sl + stop_slippage_abs
-                            exit_reason = "Trailing Stop"
-                            is_stop_exit = True
-
-                # Step 1C: Check Stop Loss / Breakeven Stop or Final TP2
-                if exit_price is None:
-                    if pos_dir == 1:
-                        if low_p <= sl_price:
-                            exit_price = max(1e-8, sl_price - stop_slippage_abs)
-                            exit_reason = "Dynamic Breakeven" if dynamic_be_triggered else ("TP1 + Breakeven" if tp1_filled else "Stop Loss")
-                            is_stop_exit = True
-                        elif high_p >= tp2_price:
-                            exit_price = tp2_price
-                            exit_reason = "TP1 + TP2 (Scaling Out)" if tp1_filled else "Take Profit"
-                            is_stop_exit = False
-                    elif pos_dir == -1:
-                        if high_p >= sl_price:
-                            exit_price = sl_price + stop_slippage_abs
-                            exit_reason = "Dynamic Breakeven" if dynamic_be_triggered else ("TP1 + Breakeven" if tp1_filled else "Stop Loss")
-                            is_stop_exit = True
-                        elif low_p <= tp2_price:
-                            exit_price = tp2_price
-                            exit_reason = "TP1 + TP2 (Scaling Out)" if tp1_filled else "Take Profit"
-                            is_stop_exit = False
-
-                # Step 1D: Process Final Exit
-                if exit_price is not None:
-                    rem_size = initial_pos_size * remaining_fraction
-                    if is_stop_exit:
-                        # Reference un-slipped stop price to measure exact slippage cost
-                        ref_stop_p = trailing_sl if exit_reason == "Trailing Stop" else sl_price
-                        unslipped_ret = ((ref_stop_p - entry_price) / entry_price) if pos_dir == 1 else ((entry_price - ref_stop_p) / entry_price)
-                        actual_ret = ((exit_price - entry_price) / entry_price) if pos_dir == 1 else ((entry_price - exit_price) / entry_price)
-                        leg2_gross_usd = rem_size * unslipped_ret
-                        slippage_cost_usd = max(0.0, rem_size * (unslipped_ret - actual_ret))
-                        # Market Stop Loss pays Taker fee
-                        leg2_fee_usd = rem_size * taker_rate
-                    else:
-                        actual_ret = ((exit_price - entry_price) / entry_price) if pos_dir == 1 else ((entry_price - exit_price) / entry_price)
-                        leg2_gross_usd = rem_size * actual_ret
-                        slippage_cost_usd = 0.0
-                        # Limit TP2 exit pays Maker fee
-                        leg2_fee_usd = rem_size * maker_rate
-
-                    trade_gross_pnl_usd = realized_leg1_gross_usd + leg2_gross_usd
-                    trade_fee_usd = entry_fee_usd + realized_leg1_fee_usd + leg2_fee_usd
-                    trade_net_pnl_usd = trade_gross_pnl_usd - trade_fee_usd - slippage_cost_usd
-
-                    trade_net_pnl_pct = (trade_net_pnl_usd / max(1e-9, initial_pos_size / safe_lev)) * 100.0
-                    trade_gross_pnl_pct = (trade_gross_pnl_usd / max(1e-9, initial_pos_size / safe_lev)) * 100.0
-
-                    capital = max(100.0, capital + trade_net_pnl_usd)
-                    gross_capital = max(100.0, gross_capital + trade_gross_pnl_usd)
-                    total_fees_usd += trade_fee_usd
-                    total_slippage_usd += slippage_cost_usd
-
-                    trades.append({
-                        "entry_time": entry_time,
-                        "exit_time": cur_time,
-                        "direction": "LONG" if pos_dir == 1 else "SHORT",
-                        "entry_price": round(entry_price, 4),
-                        "exit_price": round(exit_price, 4),
-                        "gross_pnl_usd": round(trade_gross_pnl_usd, 2),
-                        "gross_pnl_pct": round(trade_gross_pnl_pct, 2),
-                        "fee_paid_usd": round(trade_fee_usd, 2),
-                        "slippage_cost_usd": round(slippage_cost_usd, 2),
-                        "pnl_usd": round(trade_net_pnl_usd, 2),
-                        "pnl_pct": round(trade_net_pnl_pct, 2),
-                        "tp1_hit": bool(tp1_filled),
-                        "exit_reason": exit_reason,
-                        "context_snapshot": entry_context_snapshot or {
-                            "imbalance_ratio": 1.0,
-                            "imbalance_group": "< 1.5x (Нейтральный)",
-                            "poc_position": "На уровне POC",
-                            "cvd_trend": "CVD > EMA",
-                            "cvd_divergence": "Без дивергенции",
-                            "oi_status": "Флэт OI",
-                            "wall_type": "Без крупной стенки",
-                            "turnover_usd": 0
-                        }
-                    })
-                    in_pos = False
-                    entry_context_snapshot = None
-                    equity_curve.append({
-                        "time": cur_time,
-                        "equity": round(capital, 2),
-                        "gross_equity": round(gross_capital, 2)
-                    })
-
-            # 2. Check New Entry if flat
-            if not in_pos and sig != 0 and close_p > 0:
-                pos_dir = int(sig)
-                entry_price = close_p
-                entry_time = cur_time
-                # Preserve legacy fixed-notional behavior unless an explicit
-                # risk budget is supplied by the unified overnight config.
-                initial_pos_size = capital * safe_lev
-                remaining_fraction = 1.0
-                tp1_filled = False
-                dynamic_be_triggered = False
-                realized_leg1_gross_usd = 0.0
-                realized_leg1_fee_usd = 0.0
-                # Limit entry at liquidity density pays Maker fee (0.02% default)
-                entry_fee_usd = initial_pos_size * maker_rate
-
-                # Capture cluster and indicator context snapshot (skipped in fast_eval mode)
-                if not fast_eval:
-                    vol_i = float(volume_vals[i]) if not np.isnan(volume_vals[i]) else 1.0
-                    delta_i = float(delta_vals[i]) if not np.isnan(delta_vals[i]) else 0.0
-                    buy_vol = max(0.0, (vol_i + delta_i) / 2.0)
-                    sell_vol = max(1e-9, vol_i - buy_vol)
-                    imb_ratio = (buy_vol / sell_vol) if pos_dir == 1 else (sell_vol / max(1e-9, buy_vol))
-
-                    if imb_ratio >= 3.0:
-                        imb_group = "> 3:1 (Сильный дисбаланс)"
-                    elif imb_ratio >= 1.5:
-                        imb_group = "1.5x - 3.0x (Умеренный)"
-                    else:
-                        imb_group = "< 1.5x (Нейтральный)"
-
-                    prev_idx = max(0, i - 1)
-                    prev_poc = (
-                        float(open_vals[prev_idx])
-                        + 2.0 * float(close_vals[prev_idx])
-                        + float(high_vals[prev_idx])
-                        + float(low_vals[prev_idx])
-                    ) / 5.0
-                    if entry_price > prev_poc * 1.0006:
-                        poc_pos = "Выше POC"
-                    elif entry_price < prev_poc * 0.9994:
-                        poc_pos = "Ниже POC"
-                    else:
-                        poc_pos = "На уровне POC"
-
-                    cur_cvd = float(cvd_vals[i]) if not np.isnan(cvd_vals[i]) else 0.0
-                    cur_cvd_ema = float(cvd_ema14_vals[i]) if not np.isnan(cvd_ema14_vals[i]) else 0.0
-                    cvd_trend = "CVD > EMA" if cur_cvd >= cur_cvd_ema else "CVD <= EMA"
-
-                    if i >= 2:
-                        min_p = float(low_min6_vals[i])
-                        max_p = float(high_max6_vals[i])
-                        min_c = float(cvd_min6_vals[i])
-                        max_c = float(cvd_max6_vals[i])
-                        if pos_dir == 1 and low_p <= min_p and cur_cvd > min_c:
-                            cvd_div = "Бычья дивергенция"
-                        elif pos_dir == -1 and high_p >= max_p and cur_cvd < max_c:
-                            cvd_div = "Медвежья дивергенция"
-                        else:
-                            cvd_div = "Без дивергенции"
-                    else:
-                        cvd_div = "Без дивергенции"
-
-                    cur_oi_d = float(oi_delta_vals[i]) if np.isfinite(oi_delta_vals[i]) else None
-                    if cur_oi_d is None:
-                        oi_status = "Unavailable"
-                    elif cur_oi_d > 0.5:
-                        oi_status = "Набор OI (Expansion)"
-                    elif cur_oi_d is not None and cur_oi_d < -0.5:
-                        oi_status = "Сброс OI (Flush)"
-                    else:
-                        oi_status = "Флэт OI"
-
-                    turnover_bar = close_p * vol_i
-                    if turnover_bar >= 1_000_000:
-                        wall_type = "Стенка > $1M"
-                    elif turnover_bar >= 400_000:
-                        wall_type = "Стенка $400k-$1M"
-                    else:
-                        wall_type = "Без крупной стенки"
-
-                    entry_context_snapshot = {
-                        "imbalance_ratio": round(float(imb_ratio), 2),
-                        "imbalance_group": imb_group,
-                        "poc_position": poc_pos,
-                        "cvd_trend": cvd_trend,
-                        "cvd_divergence": cvd_div,
-                        "oi_status": oi_status,
-                        "wall_type": wall_type,
-                        "turnover_usd": round(float(turnover_bar), 0)
-                    }
-
-                cur_atr = float(atr_vals[i]) if not np.isnan(atr_vals[i]) else 0.0
-                tick_unit_entry = self._estimate_tick_size(entry_price)
-
-                # Dynamic Stop-Loss Mode: 'fixed_pct' | 'behind_wall' | 'atr_volatility'
-                if (sl_mode == "atr_volatility" or use_atr_sl) and cur_atr > 0 and entry_price > 0:
-                    sl_dist = cur_atr * max(0.5, min(5.0, float(atr_multiplier)))
-                elif sl_mode == "behind_wall" and entry_price > 0:
-                    offset_abs = max(1, int(wall_sl_offset_ticks or 3)) * tick_unit_entry
-                    if pos_dir == 1:
-                        wall_anchor = min(low_p, float(low_min6_vals[i]))
-                        sl_dist = max(entry_price * 0.0015, (entry_price - wall_anchor) + offset_abs)
-                    else:
-                        wall_anchor = max(high_p, float(high_max6_vals[i]))
-                        sl_dist = max(entry_price * 0.0015, (wall_anchor - entry_price) + offset_abs)
-                    sl_dist = min(sl_dist, entry_price * 0.025)
-                else:
-                    sl_dist = entry_price * (max(0.05, float(stop_loss_pct)) / 100.0)
-
-                if risk_per_trade_pct is not None:
-                    risk_budget = capital * (float(risk_per_trade_pct) / 100.0)
-                    # `initial_pos_size` is quote-currency notional throughout
-                    # the execution engine. Convert the absolute stop distance
-                    # to a price fraction before sizing; dividing by the raw
-                    # price distance would size in base units and make PnL
-                    # artificially tiny for high-priced instruments.
-                    stop_fraction = max(sl_dist / max(entry_price, 1e-9), 1e-9)
-                    initial_pos_size = min(
-                        capital * safe_lev,
-                        risk_budget / stop_fraction,
-                    )
-                    entry_fee_usd = initial_pos_size * maker_rate
-
-                # TP2 distance: either explicit take_profit_pct or opposite_wall / R:R target
-                base_tp2_dist = entry_price * (max(0.1, float(take_profit_pct)) / 100.0)
-                if tp2_mode == "opposite_wall" and i >= 6:
-                    opp_wall = float(high_max10_vals[i]) if pos_dir == 1 else float(low_min10_vals[i])
-                    wall_dist = abs(opp_wall - entry_price) * 0.96
-                    tp2_dist = max(sl_dist * 1.6, wall_dist if wall_dist > sl_dist * 1.2 else base_tp2_dist)
-                else:
-                    tp2_dist = base_tp2_dist
-
-                # TP1 distance: R:R based (e.g. 1:1.5) or +0.6% / 1.5 ATR, capped at 70% of TP2
-                rr_tp1_dist = sl_dist * max(0.8, float(tp1_rr_ratio or 1.5))
-                atr_tp1_dist = (cur_atr * float(tp1_atr_mult)) if cur_atr > 0 else (entry_price * (float(tp1_pct) / 100.0))
-                pct_tp1_dist = entry_price * (max(0.15, float(tp1_pct)) / 100.0)
-                tp1_dist = min(tp2_dist * 0.70, max(pct_tp1_dist, min(rr_tp1_dist, max(pct_tp1_dist, atr_tp1_dist))))
-
-                if pos_dir == 1:
-                    tp1_price = entry_price + tp1_dist
-                    tp2_price = entry_price + tp2_dist
-                    sl_price = max(1e-8, entry_price - sl_dist)
-                    trailing_sl = sl_price
-                    max_favorable = entry_price
-                else:
-                    tp1_price = max(1e-8, entry_price - tp1_dist)
-                    tp2_price = max(1e-8, entry_price - tp2_dist)
-                    sl_price = entry_price + sl_dist
-                    trailing_sl = sl_price
-                    max_favorable = entry_price
-
-                in_pos = True
+        # Simulate Realistic Execution (тело перенесено в engine/execution.py — дословно, слайс 6.4 п.3)
+        exec_result = simulate_execution(
+            signals,
+            SimpleNamespace(
+                ts_vals=ts_vals, open_vals=open_vals, high_vals=high_vals, low_vals=low_vals,
+                close_vals=close_vals, volume_vals=volume_vals, delta_vals=delta_vals,
+                cvd_vals=cvd_vals, cvd_ema14_vals=cvd_ema14_vals, atr_vals=atr_vals,
+                oi_delta_vals=oi_delta_vals,
+                low_min10_vals=low_min10_vals, high_max10_vals=high_max10_vals,
+                low_min6_vals=low_min6_vals, high_max6_vals=high_max6_vals,
+                cvd_min6_vals=cvd_min6_vals, cvd_max6_vals=cvd_max6_vals,
+            ),
+            SimpleNamespace(
+                initial_capital=self.initial_capital,
+                maker_rate=maker_rate, taker_rate=taker_rate, slip_ticks=slip_ticks,
+                leverage=leverage, use_multi_tp=use_multi_tp, use_trailing=use_trailing,
+                use_atr_sl=use_atr_sl,
+                trailing_pct=trailing_pct, use_dynamic_breakeven=use_dynamic_breakeven,
+                dynamic_be_trigger_r=dynamic_be_trigger_r, use_time_stop=use_time_stop,
+                time_stop_minutes=time_stop_minutes, time_stop_min_r=time_stop_min_r,
+                use_maker_exits=use_maker_exits, sl_mode=sl_mode,
+                wall_sl_offset_ticks=wall_sl_offset_ticks, atr_multiplier=atr_multiplier,
+                stop_loss_pct=stop_loss_pct, take_profit_pct=take_profit_pct,
+                tp2_mode=tp2_mode, tp1_rr_ratio=tp1_rr_ratio, tp2_rr_ratio=tp2_rr_ratio,
+                tp1_pct=tp1_pct, tp1_atr_mult=tp1_atr_mult, risk_per_trade_pct=risk_per_trade_pct,
+                fast_eval=fast_eval, sl_tp_mode=eff_sl_tp_mode, symbol=symbol,
+            ),
+        )
+        trades = exec_result.trades
+        equity_curve = exec_result.equity_curve
+        capital = exec_result.capital
+        gross_capital = exec_result.gross_capital
+        total_fees_usd = exec_result.total_fees_usd
+        total_slippage_usd = exec_result.total_slippage_usd
+        safe_lev = max(1.0, float(leverage))  # ранее вычислялся внутри перенесённого блока исполнения
 
         # Aggregate Statistics (zero-division safe)
         total_trades = len(trades)
@@ -1101,7 +1049,10 @@ class OrderFlowBacktester:
             if sl_mode == "atr_volatility" or use_atr_sl:
                 setup_sl_dist = max(last_p * 0.002, last_atr * float(atr_multiplier))
             elif sl_mode == "behind_wall":
-                setup_sl_dist = max(last_p * 0.0025, abs(entry_lvl - (bid_wall_p if setup_dir == "LONG" else ask_wall_p)) + tick_sz * max(1, int(wall_sl_offset_ticks or 3)))
+                # Исторические L2-снимки в бэктест не подаются (orderbook_walls.available=False
+                # выше), переменные bid_wall_p/ask_wall_p никогда не определялись — этот
+                # ветвь падал с NameError. «За стеной» заменяем ATR-буфером.
+                setup_sl_dist = max(last_p * 0.0025, last_atr * float(atr_multiplier))
             else:
                 setup_sl_dist = entry_lvl * (max(0.15, float(stop_loss_pct)) / 100.0)
 
@@ -1176,8 +1127,11 @@ class OrderFlowBacktester:
                 "wall_sl_offset_ticks": int(wall_sl_offset_ticks or 3),
                 "tp1_rr_ratio": float(tp1_rr_ratio or 1.5),
                 "tp2_mode": tp2_mode,
+                "sl_tp_mode": eff_sl_tp_mode,
                 "min_wall_lifetime_sec": wall_life_sec,
             },
+            "sl_tp_mode": eff_sl_tp_mode,
+            "sl_tp_calibration": sl_tp_calibration,
             "data_feed_context": data_feed_context,
             "active_position_setup": active_position_setup,
             "equity_curve": equity_curve,
@@ -1217,156 +1171,13 @@ class OrderFlowBacktester:
         n_simulations: int = 500,
         actual_equity_curve: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
-        """
-        ТАКТ 3: Monte Carlo Stress-Test (500 Bootstrap & Permutation runs).
-        Computes:
-        - Probability of Drawdown > 10%
-        - Expected Worst-Case Drawdown (95th / 99th percentile)
-        - Median PnL (% and $)
-        - Robustness Score & Verdict (Robust vs Overfitted)
-        - Fan Chart data (p5, p25, p50, p75, p95 + sample paths) for visual rendering
-        """
-        n_sims = max(50, int(n_simulations))
-        cap0 = max(100.0, float(initial_capital))
-
-        if not trades:
-            return {
-                "simulations_count": n_sims,
-                "prob_drawdown_gt_10_pct": 0.0,
-                "worst_case_dd_pct": 0.0,
-                "median_pnl_pct": 0.0,
-                "median_pnl_usd": 0.0,
-                "p5_pnl_pct": 0.0,
-                "p95_pnl_pct": 0.0,
-                "randomized_win_rate_p10_pct": 0.0,
-                "randomized_win_rate_median_pct": 0.0,
-                "robustness_score": 0,
-                "verdict": "OVERFITTED",
-                "badge_text": "⚠️ Риск переподгонки (Overfitted)",
-                "reason": "Недостаточно сделок для подтверждения статистической устойчивости.",
-                "fan_chart": [],
-                "sample_paths": [],
-            }
-
-        pnl_usd_arr = np.array([float(t.get("pnl_usd", 0.0)) for t in trades], dtype=float)
-        n_trades = len(pnl_usd_arr)
-        rng = np.random.default_rng(42)
-
-        # Generate 500 trajectories:
-        # Half exact permutations (order stress-test for path drawdown) +
-        # Half bootstrap resampling with replacement (for WinRate & PnL distribution stress-test)
-        n_perm = n_sims // 2
-        n_boot = n_sims - n_perm
-
-        sim_equities = np.zeros((n_sims, n_trades + 1), dtype=float)
-        sim_equities[:, 0] = cap0
-        sim_win_rates = np.zeros(n_sims, dtype=float)
-        sim_max_dds = np.zeros(n_sims, dtype=float)
-
-        for s in range(n_sims):
-            if s < n_perm:
-                sampled = rng.permutation(pnl_usd_arr)
-            else:
-                idx = rng.integers(0, n_trades, size=n_trades)
-                sampled = pnl_usd_arr[idx]
-
-            eq_path = cap0 + np.cumsum(sampled)
-            eq_path = np.maximum(100.0, eq_path)
-            sim_equities[s, 1:] = eq_path
-
-            wins_s = int(np.sum(sampled > 0))
-            sim_win_rates[s] = (wins_s / max(1, n_trades)) * 100.0
-
-            # Compute Max Drawdown (%) of this trajectory
-            full_path = sim_equities[s]
-            peaks = np.maximum.accumulate(full_path)
-            dds = np.where(peaks > 0, (peaks - full_path) / peaks * 100.0, 0.0)
-            sim_max_dds[s] = float(np.max(dds))
-
-        final_pnls_usd = sim_equities[:, -1] - cap0
-        final_pnls_pct = (final_pnls_usd / cap0) * 100.0
-
-        prob_dd_gt_10 = float(np.mean(sim_max_dds > 10.0) * 100.0)
-        worst_case_dd = float(np.percentile(sim_max_dds, 95))
-        median_pnl_pct = float(np.median(final_pnls_pct))
-        median_pnl_usd = float(np.median(final_pnls_usd))
-        p5_pnl_pct = float(np.percentile(final_pnls_pct, 5))
-        p95_pnl_pct = float(np.percentile(final_pnls_pct, 95))
-        wr_p10 = float(np.percentile(sim_win_rates, 10))
-        wr_median = float(np.median(sim_win_rates))
-
-        # Check outlier dependency: does removing top 2 winning trades destroy profitability?
-        sorted_pnls = np.sort(pnl_usd_arr)
-        pnl_without_top2 = float(np.sum(sorted_pnls[:-2])) if n_trades > 2 else -1.0
-        total_actual_pnl = float(np.sum(pnl_usd_arr))
-        outlier_dependent = (total_actual_pnl <= 0) or (n_trades <= 3) or (n_trades >= 5 and pnl_without_top2 < 0 and total_actual_pnl > 0)
-
-        # ТАКТ 3.2: Verdict logic
-        # Robust if randomized winrate stays >= 50% (or median WR >= 50% and not dependent on 1-2 outlier trades)
-        is_robust = (wr_median >= 50.0 and wr_p10 >= 45.0 and not outlier_dependent and median_pnl_pct > 0)
-        if is_robust:
-            verdict = "ROBUST"
-            badge_text = "✅ Устойчива к рынку (Robust)"
-            score = min(98, max(72, int(65 + (wr_median - 50.0) * 1.1 + min(15.0, median_pnl_pct) - prob_dd_gt_10 * 0.2)))
-            reason = (
-                f"При 500 перестановках Монте-Карло медианный WinRate держится на уровне {wr_median:.1f}% "
-                f"(нижний квантиль {wr_p10:.1f}%), а прибыль сохраняется даже без топ-2 сделок."
-            )
-        else:
-            verdict = "OVERFITTED"
-            badge_text = "⚠️ Риск переподгонки (Overfitted)"
-            score = max(18, min(58, int(45 + (wr_median - 50.0) * 0.8 - (15 if outlier_dependent else 0))))
-            if outlier_dependent and total_actual_pnl > 0:
-                reason = "Результат стратегии критически зависит от 1–2 случайных прибыльных сделок или малой выборки."
-            else:
-                reason = (
-                    f"При рандомизации сделок WinRate опускается до {wr_p10:.1f}% (медиана {wr_median:.1f}%), "
-                    f"ожидаемый Worst-Case DD достигает -{worst_case_dd:.1f}%."
-                )
-
-        # Build Fan Chart points (up to 30 steps along trade index)
-        step_indices = np.linspace(0, n_trades, num=min(n_trades + 1, 30), dtype=int)
-        step_indices = np.unique(step_indices)
-
-        actual_eq_step = cap0 + np.concatenate(([0.0], np.cumsum(pnl_usd_arr)))
-        gross_pnl_arr = np.array([float(t.get("gross_pnl_usd", t.get("pnl_usd", 0.0))) for t in trades], dtype=float)
-        gross_eq_step = cap0 + np.concatenate(([0.0], np.cumsum(gross_pnl_arr)))
-
-        fan_chart = []
-        for idx in step_indices:
-            col = sim_equities[:, idx]
-            fan_chart.append({
-                "step": int(idx),
-                "actual": round(float(actual_eq_step[idx]), 2),
-                "gross": round(float(gross_eq_step[idx]), 2),
-                "p5": round(float(np.percentile(col, 5)), 2),
-                "p25": round(float(np.percentile(col, 25)), 2),
-                "p50": round(float(np.percentile(col, 50)), 2),
-                "p75": round(float(np.percentile(col, 75)), 2),
-                "p95": round(float(np.percentile(col, 95)), 2),
-            })
-
-        sample_paths = []
-        for s_idx in range(min(10, n_sims)):
-            sample_paths.append([round(float(sim_equities[s_idx, idx]), 2) for idx in step_indices])
-
-        return {
-            "simulations_count": n_sims,
-            "prob_drawdown_gt_10_pct": round(prob_dd_gt_10, 1),
-            "worst_case_dd_pct": round(worst_case_dd, 2),
-            "median_pnl_pct": round(median_pnl_pct, 2),
-            "median_pnl_usd": round(median_pnl_usd, 2),
-            "p5_pnl_pct": round(p5_pnl_pct, 2),
-            "p95_pnl_pct": round(p95_pnl_pct, 2),
-            "randomized_win_rate_p10_pct": round(wr_p10, 1),
-            "randomized_win_rate_median_pct": round(wr_median, 1),
-            "robustness_score": int(score),
-            "verdict": verdict,
-            "badge_text": badge_text,
-            "reason": reason,
-            "fan_chart": fan_chart,
-            "sample_paths": sample_paths,
-        }
+        """ТАКТ 3: Monte Carlo Stress-Test — тело перенесено в engine/monte_carlo.py (слайс 6.4 п.3, дословно)."""
+        return run_monte_carlo_simulation(
+            trades,
+            initial_capital=initial_capital,
+            n_simulations=n_simulations,
+            actual_equity_curve=actual_equity_curve,
+        )
 
     def run_genetic_optimization(
         self,
@@ -1505,11 +1316,18 @@ class OrderFlowBacktester:
         best_fitness = -1e18
 
         def random_genome() -> Dict[str, Any]:
-            sl = round(rng.uniform(sl_lo, sl_hi) / 0.05) * 0.05
-            tp = round(rng.uniform(tp_lo, tp_hi) / 0.1) * 0.1
+            sl = round(max(0.15, min(2.5, round(rng.uniform(sl_lo, sl_hi) / 0.05) * 0.05)), 2)
+            rr_bounds = compute_fee_aware_rr_bounds(
+                sl,
+                maker_fee_pct=maker_fee_pct if maker_fee_pct is not None else 0.02,
+                taker_fee_pct=taker_fee_pct if taker_fee_pct is not None else 0.05,
+            )
+            min_tp = max(tp_lo, rr_bounds["min_viable_tp_pct"])
+            eff_tp_hi = max(min_tp + 0.2, tp_hi)
+            tp = round(rng.uniform(min_tp, eff_tp_hi) / 0.1) * 0.1
             wall = round(rng.uniform(w_lo, w_hi) / 50000.0) * 50000.0
             return {
-                "stop_loss_pct": round(max(0.15, min(2.5, sl)), 2),
+                "stop_loss_pct": sl,
                 "take_profit_pct": round(max(0.4, min(5.0, tp)), 2),
                 "min_density_usd": round(max(0.0, wall), 0),
                 "use_cvd_filter": rng.choice([True, False]),
@@ -1598,17 +1416,34 @@ class OrderFlowBacktester:
                 "losses_count": sum(int(item.get("losses_count", 0)) for item in fold_results),
             }
 
-            # Fitness Function: Maximize Sharpe & Sortino with strict penalty if Max Drawdown > 5%
+            # Fitness Function: Maximize Sharpe & Sortino with strict penalty if Max Drawdown > 5% and Fee-Drag awareness
+            rr_ratio = round(float(g["take_profit_pct"]) / max(0.05, float(g["stop_loss_pct"])), 2)
             if total_trades == 0:
                 fitness = -500.0
             else:
                 dd_penalty = max(0.0, max_dd - 5.0) * 3.5
                 trade_bonus = min(1.5, total_trades * 0.15)
-                fitness = (0.55 * sharpe) + (0.45 * sortino) + (0.35 * pf) + (0.08 * pnl_pct) + trade_bonus - dd_penalty
+                gross_val = float(raw.get("gross_pnl", 0.0))
+                costs_val = float(raw.get("total_fees_usd", 0.0)) + float(raw.get("total_slippage_usd", 0.0))
+                fee_drag_penalty = 0.0
+                if gross_val > 0 and costs_val > 0.35 * gross_val:
+                    fee_drag_penalty = min(3.0, ((costs_val / gross_val) - 0.35) * 2.5)
+                rr_bonus = min(0.6, max(-1.5, (rr_ratio - 1.8) * 0.35))
+                fitness = (
+                    (0.55 * sharpe)
+                    + (0.45 * sortino)
+                    + (0.35 * pf)
+                    + (0.08 * pnl_pct)
+                    + trade_bonus
+                    + rr_bonus
+                    - dd_penalty
+                    - fee_drag_penalty
+                )
 
             row = {
                 "stop_loss_pct": g["stop_loss_pct"],
                 "take_profit_pct": g["take_profit_pct"],
+                "rr_ratio": rr_ratio,
                 "min_density_usd": g["min_density_usd"],
                 "use_cvd_filter": g["use_cvd_filter"],
                 "atr_period": g["atr_period"],
@@ -1660,31 +1495,22 @@ class OrderFlowBacktester:
             return row
 
         # Seed initial population (include smart anchors + random genomes)
+        def _seed_anchor(sl_target: float, tp_target: float, wall_target: float, cvd_flag: bool, atr_p: int, cvd_p: int) -> Dict[str, Any]:
+            sl_v = round(max(sl_lo, min(sl_hi, sl_target)), 2)
+            tp_v = round(max(tp_lo, min(tp_hi, max(tp_target, sl_v * 1.8))), 2)
+            return {
+                "stop_loss_pct": sl_v,
+                "take_profit_pct": tp_v,
+                "min_density_usd": round(wall_target, 0),
+                "use_cvd_filter": cvd_flag,
+                "atr_period": atr_p,
+                "cvd_ema_period": cvd_p,
+            }
+
         population: List[Dict[str, Any]] = [
-            {
-                "stop_loss_pct": round(max(sl_lo, min(sl_hi, 0.4)), 2),
-                "take_profit_pct": round(max(tp_lo, min(tp_hi, 1.5)), 2),
-                "min_density_usd": round(w_lo, 0),
-                "use_cvd_filter": True,
-                "atr_period": 14,
-                "cvd_ema_period": 14,
-            },
-            {
-                "stop_loss_pct": round(max(sl_lo, min(sl_hi, 0.6)), 2),
-                "take_profit_pct": round(max(tp_lo, min(tp_hi, 1.8)), 2),
-                "min_density_usd": round((w_lo + w_hi) * 0.35, 0),
-                "use_cvd_filter": False,
-                "atr_period": 10,
-                "cvd_ema_period": 14,
-            },
-            {
-                "stop_loss_pct": round(max(sl_lo, min(sl_hi, 0.3)), 2),
-                "take_profit_pct": round(max(tp_lo, min(tp_hi, 1.2)), 2),
-                "min_density_usd": round(w_lo, 0),
-                "use_cvd_filter": False,
-                "atr_period": 14,
-                "cvd_ema_period": 10,
-            },
+            _seed_anchor(0.4, 1.5, w_lo, True, 14, 14),
+            _seed_anchor(0.6, 1.8, (w_lo + w_hi) * 0.35, False, 10, 14),
+            _seed_anchor(0.3, 1.2, w_lo, False, 14, 10),
         ]
         while len(population) < population_size:
             population.append(random_genome())
@@ -1732,6 +1558,10 @@ class OrderFlowBacktester:
                         max(tp_lo, min(tp_hi, child["take_profit_pct"] + rng.choice([-0.4, -0.2, 0.2, 0.4, 0.6]))),
                         2,
                     )
+                # Fee-aware R:R floor: prevent mutated TP from falling below 1.8x SL
+                min_mut_tp = round(min(tp_hi, max(tp_lo, child["stop_loss_pct"] * 1.8)), 2)
+                if child["take_profit_pct"] < min_mut_tp:
+                    child["take_profit_pct"] = min_mut_tp
                 if rng.random() < 0.55:
                     child["min_density_usd"] = round(
                         max(w_lo, min(w_hi, child["min_density_usd"] + rng.choice([-250000, -100000, 100000, 250000, 500000]))),

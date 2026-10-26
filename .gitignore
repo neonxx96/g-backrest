@@ -45,3 +45,10 @@ frontend/.vite/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Временные скрипты и отладочный мусор агентов
+scripts/_tmp_*
+моя комора/
+calibration_results.json
+check_pilot.py
+context/qa/

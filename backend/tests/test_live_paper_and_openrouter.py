@@ -226,3 +226,40 @@ def test_live_runner_aggregates_rejection_counts_for_runtime_telemetry(tmp_path)
 
     assert runner.get_status()["rejection_counts"] == {"ema20_cross": 1, "volume_multiplier": 1}
     assert runner.get_status()["no_trade_count"] == 1
+
+
+def test_status_equity_does_not_double_count_unrealized(monkeypatch):
+    """Регрессия: paper.get_state().balance УЖЕ включает unrealized (инвариант
+    test_balance_identity_holds_after_deposit). get_status не должен прибавлять unrealized повторно."""
+    from backend.app.services.live_paper_runner import LivePaperRunner
+
+    runner = LivePaperRunner()
+    runner.initial_capital = 1000.0
+
+    class _FakeState:
+        def to_dict(self):
+            return {
+                "balance": 1097.13,  # = initial + realized + unrealized
+                "unrealized_pnl": 97.26,
+                "realized_pnl": -0.13,
+                "available_margin": 759.71,
+                "locked_margin": 240.15,
+                "positions": [{"symbol": "DOGEUSDT"}],
+                "closed_trades": [],
+                "total_fees_paid": 1.34,
+                "total_slippage_paid": 0.0,
+                "total_funding_paid": 0.0,
+                "is_halted": False,
+            }
+
+    class _FakeSession:
+        def get_state(self):
+            return _FakeState()
+
+    monkeypatch.setattr(runner, "session", _FakeSession())
+
+    status = runner.get_status()
+
+    assert status["current_equity"] == pytest.approx(1097.13)   # НЕ 1194.39
+    assert status["current_equity"] != pytest.approx(1097.13 + 97.26)
+    assert status["unrealized_pnl"] == pytest.approx(97.26)

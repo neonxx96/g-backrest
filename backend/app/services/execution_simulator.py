@@ -75,6 +75,7 @@ class OrderConfig:
     maker_fee: float = DEFAULT_MAKER_FEE
     taker_fee: float = DEFAULT_TAKER_FEE
     market_slippage_bps: float = 0.0
+    symbol: Optional[str] = None
 
     @property
     def order_active_ts(self) -> int:
@@ -148,6 +149,10 @@ class ExecutionSimulator:
     def process_event(self, event) -> None:
         """Process a single ReplayEvent. Zero look-ahead enforced here."""
         if event.timestamp < self._active_ts:
+            return
+
+        ev_sym = getattr(event, "symbol", None) or (getattr(event, "payload", {}) or {}).get("symbol")
+        if self.cfg.symbol and ev_sym and str(self.cfg.symbol).upper() != str(ev_sym).upper():
             return
 
         if event.kind == "depth":

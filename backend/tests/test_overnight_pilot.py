@@ -150,6 +150,28 @@ def test_production_robust_preset_has_fee_aware_geometry_and_neutral_rsi_filter(
     assert all(config.trailing_pct == 0.5 for config in configs)
 
 
+def test_production_robust_live_runner_enforces_neutral_rsi_band_42_58():
+    """ROADMAP 1.1: production_robust RSI filter is the neutral 42-58 band for confluence_ema."""
+    from backend.app.services.live_paper_runner import LivePaperRunner
+
+    runner = LivePaperRunner()
+    runner.strategy_type = "confluence_ema"
+    runner.use_rsi_filter = True
+    runner.use_atr_filter = False
+    runner.use_cvd_filter = False
+    runner.use_oi_filter = False
+
+    def passes(rsi: float) -> bool:
+        context = {"latest": {"rsi": rsi}, "previous": {"rsi": 50.0}}
+        return runner._passes_live_indicator_filters(context, direction=1)
+
+    assert passes(42.0) is True
+    assert passes(50.0) is True
+    assert passes(58.0) is True
+    assert passes(41.9) is False
+    assert passes(58.1) is False
+
+
 def test_pilot_detects_running_sessions_before_restart():
     manager = OvernightPilotManager()
     assert manager._has_running_sessions() is False
@@ -423,6 +445,29 @@ def test_preflight_run_id_is_exposed_and_restore_invalidates_it():
     assert payload["preflight_valid"] is True
     session.preflight_valid = False
     assert session.to_dict()["preflight_valid"] is False
+
+
+def test_preflight_passed_survives_start_consumption():
+    """preflight_valid — гейт запуска, сбрасывается в start()/stop() как «потреблённый».
+    preflight_passed — результат проверки backtest+forecast; после start() должен
+    остаться True, чтобы статус здоровых работающих сессий не выглядел «preflight invalid»
+    (ложная тревога ночного теста 23–24.10, P1 «preflight_valid=False»)."""
+    config = OvernightPilotConfig(symbol="BTCUSDT", strategy_type="confluence_ema")
+    session = overnight_module.PilotSession(config, session_id="overnight_btcusdt_1", run_id="run-123")
+
+    assert session.to_dict()["preflight_passed"] is False
+
+    session.preflight_valid = True
+    session.preflight_passed = True
+    # start() потребляет гейт: preflight_valid сбрасывается, результат проверки сохраняется
+    session.preflight_valid = False
+    payload = session.to_dict()
+    assert payload["preflight_valid"] is False
+    assert payload["preflight_passed"] is True
+
+    # stop() тоже не должен стирать результат проверки
+    session.preflight_valid = False
+    assert session.to_dict()["preflight_passed"] is True
 
 
 def test_pilot_start_requires_the_current_preflight_and_exact_configuration():

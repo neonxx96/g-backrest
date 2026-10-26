@@ -4,14 +4,29 @@ Database Engine & Session Management (Async SQLite)
 
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
+from sqlalchemy import event
 from backend.app.config import DATABASE_URL
 from backend.app.db.models import Base, UserSetting
 
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
-    future=True
+    future=True,
+    poolclass=NullPool,
+    connect_args={"timeout": 30},
 )
+
+@event.listens_for(engine.sync_engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    try:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.close()
+    except Exception:
+        pass
 
 AsyncSessionLocal = sessionmaker(
     bind=engine,
@@ -21,7 +36,9 @@ AsyncSessionLocal = sessionmaker(
 
 async def init_db():
     """Initializes tables, migrates missing columns, and seeds default user_id='0' settings."""
+    from sqlalchemy import text
     async with engine.begin() as conn:
+        await conn.execute(text("PRAGMA journal_mode=WAL"))
         await conn.run_sync(Base.metadata.create_all)
         
         # Check and migrate columns in user_settings table
@@ -51,6 +68,24 @@ async def init_db():
             sh_cols = [c["name"] for c in inspector.get_columns("signal_history")]
             if "normalized_metric" not in sh_cols:
                 sync_conn.execute(text("ALTER TABLE signal_history ADD COLUMN normalized_metric VARCHAR DEFAULT NULL"))
+
+            # Check paper_trade_records table
+            if "paper_trade_records" in inspector.get_table_names():
+                ptr_cols = [c["name"] for c in inspector.get_columns("paper_trade_records")]
+                new_ptr_cols = {
+                    "mfe_r": "FLOAT DEFAULT NULL",
+                    "mae_r": "FLOAT DEFAULT NULL",
+                    "expected_r": "FLOAT DEFAULT NULL",
+                    "realized_r": "FLOAT DEFAULT NULL",
+                    "regime": "VARCHAR DEFAULT 'NO_TRADE'",
+                    "leverage": "FLOAT DEFAULT 1.0",
+                    "risk_usd": "FLOAT DEFAULT NULL",
+                    "strategy_version": "VARCHAR DEFAULT '2.0-quant'",
+                    "run_id": "VARCHAR DEFAULT NULL",
+                }
+                for col_name, col_type in new_ptr_cols.items():
+                    if col_name not in ptr_cols:
+                        sync_conn.execute(text(f"ALTER TABLE paper_trade_records ADD COLUMN {col_name} {col_type}"))
 
         await conn.run_sync(migrate_columns)
         

@@ -80,25 +80,14 @@ const MODULES = [
     defaultLocation: 'Левая колонка рынков'
   },
   {
-    id: 'papertrade',
-    type: 'papertrade',
-    title: 'Бумажная торговля (Paper Trading)',
-    badge: 'Shadow Engine',
-    badgeColor: 'text-[#10b981] bg-[#10b98115] border-[#10b98130]',
-    icon: ShieldCheck,
-    iconColor: 'text-[#10b981]',
-    description: 'Симуляция исполнения скальпинг-сделок в реальном времени с виртуальным балансом, контролем риска и PnL без риска для депозита.',
-    defaultLocation: 'Нижняя вкладка'
-  },
-  {
     id: 'tradehistory',
     type: 'tradehistory',
-    title: 'История сделок и Прогнозы',
-    badge: 'Paper Trades $100',
+    title: 'Демо-торговля & Сделки (20 пар)',
+    badge: 'Paper Marathon & AI',
     badgeColor: 'text-[#10b981] bg-[#10b98115] border-[#10b98130]',
     icon: History,
     iconColor: 'text-[#10b981]',
-    description: 'Журнал исполненных paper-сделок, баланс $100.00, PnL, причины входов (EMA/CVD), открытые позиции и фокус-лист авто-оптимизированных квант-стратегий.',
+    description: 'Единый центр бумажной торговли: 20 пар, активные позиции, история закрытых сделок с фильтрами по периодам, лимитные претенденты, статистика PnL и AI-сопровождение.',
     defaultLocation: 'Нижняя вкладка'
   },
   {

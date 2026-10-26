@@ -8,6 +8,7 @@ Streams real-time progress and telemetry updates to frontend clients via WebSock
 import asyncio
 import inspect
 import logging
+import os
 import time
 from typing import Dict, Any, List, Set, Optional
 import pandas as pd
@@ -31,6 +32,14 @@ DEFAULT_FOCUS_LIST = [
     "UNIUSDT",
     "ZECUSDT"
 ]
+
+# Symbols with live 15m consumers (overnight marathon / live paper runner).
+# Their 15m parquet cache is NOT covered by the 5m quant cycle below, so it
+# goes stale and 15m backtests become bounded to the last sync. Each master
+# cycle incrementally tail-syncs these symbols on 15m via load_dataset_async.
+MARATHON_SYNC_SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT")
+MARATHON_SYNC_TIMEFRAME = "15m"
+MARATHON_SYNC_DAYS = 14
 
 CANDIDATE_STRATEGIES = [
     {
@@ -122,6 +131,26 @@ CANDIDATE_STRATEGIES = [
 ]
 
 
+def background_auto_trade_allowed(ticker: str) -> bool:
+    """
+    P0-гейт (ночной тест 23-24.10): авто-выставление shadow-ордеров в ОБЩИЙ
+    paper-кошелёк из quant-цикла. Без флага ВЫКЛЮЧЕНО по умолчанию; при
+    явном включении (BACKGROUND_WORKER_AUTO_TRADE=true) ордера принимаются
+    ТОЛЬКО по символу live-раннера — чтобы кошелёк не получал паразитные
+    заявки по всему фокус-листу (баг: 685 ENTRY-ордеров × 13 символов).
+    """
+    if os.getenv("BACKGROUND_WORKER_AUTO_TRADE", "false").lower() not in ("1", "true", "yes", "on"):
+        return False
+    try:
+        from backend.app.services.live_paper_runner import live_paper_runner
+    except Exception:
+        return False
+    runner_symbol = getattr(live_paper_runner, "symbol", None)
+    if not runner_symbol:
+        return False
+    return ticker.strip().upper() == str(runner_symbol).strip().upper()
+
+
 class BackgroundWorker:
     """
     Parallel background processing engine for active coin monitoring.
@@ -157,6 +186,10 @@ class BackgroundWorker:
                 "forecast_trend": "FLAT",
                 "updated_at": int(time.time() * 1000)
             }
+
+        # Make the initial focus list visible to the standalone recorder (M1.3a)
+        # even before the first UI toggle.
+        self._persist_active_watchlist()
 
     @property
     def semaphore(self) -> asyncio.Semaphore:
@@ -244,6 +277,29 @@ class BackgroundWorker:
                 task = asyncio.create_task(self._process_ticker_safely(sym))
                 self.active_tasks[sym] = task
 
+        self._persist_active_watchlist()
+
+    def _persist_active_watchlist(self):
+        """Writes the active watchlist to data/active_watchlist.json (M1.3a).
+
+        The standalone recorder package tails this file and rotates its Binance
+        subscriptions to follow the UI watchlist. Persistence failures must never
+        break monitoring, so they are logged and swallowed.
+        """
+        import json as _json
+        from backend.app.config import DATA_DIR
+        payload = {
+            "updated_at": int(time.time() * 1000),
+            "symbols": sorted(self.monitored_tickers),
+        }
+        path = DATA_DIR / "active_watchlist.json"
+        tmp_path = path.with_suffix(".json.tmp")
+        try:
+            tmp_path.write_text(_json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            tmp_path.replace(path)
+        except OSError:
+            logger.warning("Failed to persist active watchlist to %s", path, exc_info=True)
+
     def is_monitored(self, ticker: str) -> bool:
         """Returns True if the ticker is currently in the monitored list."""
         if not ticker:
@@ -299,7 +355,8 @@ class BackgroundWorker:
 
                 for cand in CANDIDATE_STRATEGIES:
                     kw = {k: v for k, v in cand.items() if k != "name"}
-                    bt_res = backtester.run_backtest(
+                    bt_res = await asyncio.to_thread(
+                        backtester.run_backtest,
                         df=df,
                         compute_monte_carlo=False,
                         fast_eval=True,
@@ -451,7 +508,8 @@ class BackgroundWorker:
                 if k in valid_bt_keys and k not in ("df", "compute_monte_carlo", "fast_eval")
             }
 
-            bt_res = backtester.run_backtest(
+            bt_res = await asyncio.to_thread(
+                backtester.run_backtest,
                 df=df,
                 compute_monte_carlo=False,
                 fast_eval=True,
@@ -505,9 +563,17 @@ class BackgroundWorker:
                     elif active_pos.target_price > 0 and last_close <= active_pos.target_price:
                         paper_trading_session.close_position(ticker, reason="Take Profit Hit", price=last_close, order_type="LIMIT")
 
-            # Open paper trade if profitable regime found and fresh signal exists
+            # Open paper trade if profitable regime found and fresh signal exists.
+            # P0 (night test 23-24.10): gate — только символ live-раннера и только
+            # при явном BACKGROUND_WORKER_AUTO_TRADE=true, иначе quant-цикл по
+            # фокус-листу спамит общий кошелёк ордерами по всем монетам.
             is_profitable = opt_cfg.get("is_profitable", True)
-            if is_profitable and is_trade_allowed and last_signal in ("LONG", "SHORT"):
+            if (
+                is_profitable
+                and is_trade_allowed
+                and last_signal in ("LONG", "SHORT")
+                and background_auto_trade_allowed(ticker)
+            ):
                 active_pos = paper_trading_session.positions.get(ticker)
                 has_open_pos = active_pos and not active_pos.closed and active_pos.qty > 0
                 has_pending = any(
@@ -583,6 +649,29 @@ class BackgroundWorker:
                 f"WinRate {win_rate}% | TradeAllowed: {is_trade_allowed}"
             )
 
+    async def _sync_marathon_history(self):
+        """Incrementally tail-syncs the 15m parquet cache for marathon symbols.
+
+        Runs once per master cycle under the same concurrency semaphore.
+        A failure for one symbol is logged and never blocks the others or
+        the main quant cycle.
+        """
+        for sym in MARATHON_SYNC_SYMBOLS:
+            try:
+                async with self.semaphore:
+                    df = await historical_loader.load_dataset_async(
+                        symbol=sym,
+                        timeframe=MARATHON_SYNC_TIMEFRAME,
+                        days=MARATHON_SYNC_DAYS,
+                        force_refresh=False,
+                    )
+                logger.info(
+                    f"[15M-SYNC] {sym}: parquet tail-synced "
+                    f"({len(df) if df is not None else 0} candles in window)."
+                )
+            except Exception as e:
+                logger.warning(f"[15M-SYNC] {sym}: sync failed: {e}", exc_info=True)
+
     async def _process_ticker_safely(self, ticker: str):
         """Wrapper ensuring task cancellation and exceptions are safely caught."""
         try:
@@ -606,7 +695,7 @@ class BackgroundWorker:
     async def _run_periodic_loop(self):
         """Master background loop running every cycle_interval_sec with exponential backoff resilience."""
         logger.info(f"Parallel Background Worker running (interval={self.cycle_interval_sec}s, max_concurrency={self.max_concurrency}).")
-        await asyncio.sleep(2)  # Initial grace period after server boot
+        await asyncio.sleep(45)  # Initial grace period after server boot
 
         # Run Pre-Flight Auto-Optimization across monitored coins before entering loop
         try:
@@ -632,6 +721,10 @@ class BackgroundWorker:
 
                 if tasks:
                     await asyncio.gather(*tasks, return_exceptions=True)
+
+                # Keep the 15m parquet cache of marathon symbols fresh
+                # (the quant cycle above only syncs 5m).
+                await self._sync_marathon_history()
 
                 reconnect_attempts = 0  # Reset on successful cycle
                 # Wait for next cycle

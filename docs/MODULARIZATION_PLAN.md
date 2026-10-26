@@ -11,7 +11,7 @@
 
 | № | Файл | Строк | Зона ответственности | Уровень риска |
 |---|---|---|---|---|
-| 1 | `frontend/src/components/Chart.jsx` | **3833** | KLineCharts v9, оверлеи сетапов, уровни, тулбары, второе мнение AI | 🔴 КРИТИЧЕСКИЙ |
+| 1 | `frontend/src/components/Chart.jsx` | **526** ✅ (было 3833; п.1 закрыт 2026-10-23: 8 слайсов, плановые модули в `chart/` выделены, E2E 6_4h–6_4o) | KLineCharts v9, оверлеи сетапов, уровни, тулбары, второе мнение AI | 🔴 КРИТИЧЕСКИЙ |
 | 2 | `frontend/src/components/BacktestPanel.jsx` | **1950** | Панель бэктеста, генетический оптимизатор, пресеты, SVG графики | 🔴 ВЫСОКИЙ |
 | 3 | `backend/app/services/orderflow_backtester.py` | **1421** | Квант-движок бэктеста, комиссии, проскальзывание, Монте-Карло | 🔴 ВЫСОКИЙ |
 | 4 | `frontend/src/components/OrderBookDOM.jsx` | **1234** | Стакан L2 Canvas 2D, WebSocket depth20, скальперский ввод | 🔴 ВЫСОКИЙ |

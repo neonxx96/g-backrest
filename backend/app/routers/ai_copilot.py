@@ -3,24 +3,49 @@ AI Strategy Copilot Router
 POST /api/ai/optimize-strategy — parses natural language strategy requirements in Russian,
 configures parameters and confluence filters, executes real backtest on Binance history,
 and returns an intelligent analytical breakdown with actionable strategy parameters.
+
+Модульный план п.6: вся вычислительная логика вынесена в
+`backend/app/services/ai_copilot_service.py`; роутер — тонкий HTTP-оркестратор
+(fetch свечей/стакана, LLM-обогащение, сборка ответа). Поведение 1:1.
 """
 
-import re
-import math
-import json
 import logging
-import asyncio
-import aiohttp
 from typing import Dict, Any, Optional, List
+
+import aiohttp
+import numpy as np
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-import pandas as pd
-import numpy as np
 from backend.app.config import OPENROUTER_API_KEY, OPENROUTER_MODEL
-from backend.app.routers.backtest import fetch_history, build_response, BacktestParams
+from backend.app.routers.backtest import fetch_history, build_response
 from backend.app.services.orderflow_backtester import OrderFlowBacktester
 from backend.app.services.binance_service import binance_service
+from backend.app.services.ai_copilot_service import (
+    query_openrouter_llm,
+    parse_prompt_to_strategy,
+    compute_market_metrics,
+    build_support_resistance,
+    determine_market_phase,
+    synthesize_trading_idea,
+    compute_health_score,
+    _classify_health_meter,
+    build_expected_move_cone,
+    build_liquidity_magnet,
+    build_expected_value,
+    compute_probabilistic_forecast,
+    build_forecast_signal,
+    classify_forecast_regime,
+)
+
+# Реэкспорт сервисных имен для обратной совместимости импортёров роутера
+# (overnight_pilot, backend/tests/test_paper_kill_switch_and_forecast.py).
+__all__ = [
+    "ai_router",
+    "compute_probabilistic_forecast",
+    "build_forecast_signal",
+    "classify_forecast_regime",
+]
 
 logger = logging.getLogger("SignalScript.AICopilot")
 
@@ -33,230 +58,6 @@ class AIOptimizeRequest(BaseModel):
     timeframe: Optional[str] = "5m"
     days: Optional[int] = 7
     initial_capital: Optional[float] = 10000.0
-
-
-async def query_openrouter_llm(prompt: str, base_symbol: str = "BTCUSDT", base_tf: str = "5m") -> Optional[Dict[str, Any]]:
-    """
-    Calls OpenRouter LLM (Gemini / LLaMA) with fallback.
-    Returns structured strategy parameters if successful, else None.
-    """
-    if not OPENROUTER_API_KEY or "sk-or-v1" not in OPENROUTER_API_KEY:
-        return None
-
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY.strip()}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost:5173",
-        "X-Title": "SignalScript Quantitative Terminal"
-    }
-
-    system_prompt = (
-        "Ты — Lead Quantitative Trader и эксперт по Order Flow & Footprint торговым стратегиям. "
-        "Пользователь описывает торговую идею или требования к бэктесту на русском языке. "
-        "Тебе необходимо извлечь параметры и вернуть СТРОГО валидный JSON следующего формата:\n"
-        "{\n"
-        '  "symbol": "BTCUSDT",\n'
-        '  "timeframe": "5m",\n'
-        '  "strategy_type": "density_bounce" | "delta_absorption" | "confluence_ema" | "ema_trend",\n'
-        '  "reasoning": "Краткое обоснование стратегии на русском языке",\n'
-        '  "params": {\n'
-        '    "stop_loss_pct": 0.6,\n'
-        '    "take_profit_pct": 1.5,\n'
-        '    "min_density_usd": 1000000.0,\n'
-        '    "volume_multiplier": 1.2,\n'
-        '    "leverage": 2.0,\n'
-        '    "use_atr_filter": true,\n'
-        '    "use_atr_sl": false,\n'
-        '    "atr_multiplier": 1.5,\n'
-        '    "use_cvd_filter": true,\n'
-        '    "use_oi_filter": false,\n'
-        '    "use_rsi_filter": true\n'
-        "  }\n"
-        "}\n"
-        "Верни ТОЛЬКО JSON без markdown-тегов и пояснений."
-    )
-
-    from backend.app.services.ai_service import ai_service
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"Базовый тикер: {base_symbol}, таймфрейм: {base_tf}. Запрос: {prompt}"}
-    ]
-
-    try:
-        content, used_model = await ai_service.query_with_fallback(
-            messages=messages,
-            preferred_model=OPENROUTER_MODEL,
-            temperature=0.2,
-            max_tokens=800,
-            timeout_sec=8.0
-        )
-        if content:
-            if content.startswith("```"):
-                content = re.sub(r"^```(?:json)?", "", content)
-                content = re.sub(r"```$", "", content).strip()
-            parsed = json.loads(content)
-            if "params" in parsed and "strategy_type" in parsed:
-                logger.info(f"Successfully received strategy configuration from OpenRouter LLM ({used_model})")
-                return parsed
-    except Exception as e:
-        logger.warning(f"OpenRouter query failed or timed out: {e}")
-
-    return None
-
-
-def parse_prompt_to_strategy(prompt: str, base_symbol: str = "BTCUSDT", base_tf: str = "5m") -> Dict[str, Any]:
-    """
-    Intelligent NLP parser for trading requirements in Russian/English.
-    Extracts coin, timeframe, strategy profile, risk profile, and indicator filters.
-    """
-    text = prompt.lower()
-
-    # 1. Symbol detection
-    detected_symbol = base_symbol.upper()
-    if any(w in text for w in ["btc", "биткоин", "биток"]):
-        detected_symbol = "BTCUSDT"
-    elif any(w in text for w in ["eth", "эфир", "эфириум"]):
-        detected_symbol = "ETHUSDT"
-    elif any(w in text for w in ["sol", "солана"]):
-        detected_symbol = "SOLUSDT"
-    elif any(w in text for w in ["doge", "доги"]):
-        detected_symbol = "DOGEUSDT"
-    elif any(w in text for w in ["xrp", "риппл"]):
-        detected_symbol = "XRPUSDT"
-    elif any(w in text for w in ["sui", "суи"]):
-        detected_symbol = "SUIUSDT"
-    elif any(w in text for w in ["near", "ниар"]):
-        detected_symbol = "NEARUSDT"
-    elif any(w in text for w in ["bnb", "бнб"]):
-        detected_symbol = "BNBUSDT"
-
-    # 2. Timeframe detection
-    detected_tf = base_tf if base_tf in ["1m", "5m", "15m", "30m", "1h"] else "5m"
-    if re.search(r'\b(1m|1м|1\s*мин|минутк)', text):
-        detected_tf = "1m"
-    elif re.search(r'\b(5m|5м|5\s*мин)', text):
-        detected_tf = "5m"
-    elif re.search(r'\b(15m|15м|15\s*мин)', text):
-        detected_tf = "15m"
-    elif re.search(r'\b(30m|30м|30\s*мин)', text):
-        detected_tf = "30m"
-    elif re.search(r'\b(1h|1ч|1\s*час|часовик)', text):
-        detected_tf = "1h"
-
-    # 3. Strategy Type detection
-    strategy_type = "density_bounce"
-    if any(w in text for w in ["поглощен", "дельта", "delta", "absorption", "айсберг"]):
-        strategy_type = "delta_absorption"
-    elif any(w in text for w in ["ema", "тренд", "скользящ", "trend"]):
-        strategy_type = "ema_trend"
-    elif any(w in text for w in ["конфлюенс", "confluence", "комплекс"]):
-        strategy_type = "confluence_ema"
-    elif any(w in text for w in ["плотност", "стенк", "стакан", "отскок", "bounce", "density"]):
-        strategy_type = "density_bounce"
-
-    # 4. Risk Profile & Aggression
-    is_conservative = any(w in text for w in ["консервативн", "низк", "минимальн", "безопасн", "safe", "low risk", "аккуратн", "защит"])
-    is_aggressive = any(w in text for w in ["агрессивн", "высок", "максимальн", "быстр", "разгон", "high risk", "aggressive", "импульс"])
-
-    # Default parameters based on coin and timeframe
-    is_high_cap = detected_symbol in ["BTCUSDT", "ETHUSDT"]
-    default_wall = 1200000.0 if detected_symbol == "BTCUSDT" else 600000.0 if detected_symbol == "ETHUSDT" else 250000.0
-
-    if is_conservative:
-        sl = 0.4 if detected_tf in ["1m", "5m"] else 0.6
-        tp = 1.0 if detected_tf in ["1m", "5m"] else 1.6
-        leverage = 2.0
-        min_density = default_wall * 1.2
-        use_atr_filter = True
-        use_atr_sl = True
-        atr_multiplier = 1.4
-        use_cvd_filter = True
-        use_oi_filter = True
-        use_rsi_filter = True
-        vol_mult = 1.2
-        reasoning = (
-            f"Консервативный скальпинг-профиль для {detected_symbol} ({detected_tf}): "
-            f"активирован динамический ATR-стоп ({sl}%), подтверждение набором открытого интереса (OI) "
-            f"и фильтр поглощения объёма по кумулятивной дельте (CVD). Отсекаются ложные импульсы."
-        )
-    elif is_aggressive:
-        sl = 0.9 if detected_tf in ["1m", "5m"] else 1.2
-        tp = 2.5 if detected_tf in ["1m", "5m"] else 3.5
-        leverage = 5.0
-        min_density = default_wall * 0.7
-        use_atr_filter = False
-        use_atr_sl = False
-        atr_multiplier = 1.5
-        use_cvd_filter = True
-        use_oi_filter = False
-        use_rsi_filter = False
-        vol_mult = 1.0
-        reasoning = (
-            f"Агрессивный профиль с расширенным Take Profit ({tp}%) и коротким стопом ({sl}%): "
-            f"вход на опережение по крупным плотностям и импульсам CVD с кредитным плечом 5x."
-        )
-    else:
-        # Balanced / Default Scalping
-        sl = 0.6 if detected_tf in ["1m", "5m"] else 0.8
-        tp = 1.5 if detected_tf in ["1m", "5m"] else 2.2
-        leverage = 2.0
-        min_density = default_wall
-        use_atr_filter = True
-        use_atr_sl = False
-        atr_multiplier = 1.5
-        use_cvd_filter = True
-        use_oi_filter = False
-        use_rsi_filter = True
-        vol_mult = 1.1
-        reasoning = (
-            f"Сбалансированный сетап Order Flow для {detected_symbol} ({detected_tf}): "
-            f"соотношение риск/прибыль 1:{round(tp/sl, 1)}, фильтрация зон перекупленности/перепроданности по RSI "
-            f"и контроль дельты покупателей/продавцов."
-        )
-
-    # 5. Regex value extraction overrides if user specified explicit numbers
-    sl_match = re.search(r'(?:sl|стоп|стоп-лосс|stop loss)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*%?', text)
-    if sl_match:
-        try:
-            sl = float(sl_match.group(1).replace(',', '.'))
-        except Exception:
-            pass
-
-    tp_match = re.search(r'(?:tp|тейк|тейк-профит|take profit)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*%?', text)
-    if tp_match:
-        try:
-            tp = float(tp_match.group(1).replace(',', '.'))
-        except Exception:
-            pass
-
-    lev_match = re.search(r'(?:плечо|leverage|x)\s*[:=]?\s*(\d+)', text)
-    if lev_match:
-        try:
-            leverage = float(lev_match.group(1))
-        except Exception:
-            pass
-
-    return {
-        "symbol": detected_symbol,
-        "timeframe": detected_tf,
-        "strategy_type": strategy_type,
-        "reasoning": reasoning,
-        "params": {
-            "stop_loss_pct": round(sl, 2),
-            "take_profit_pct": round(tp, 2),
-            "min_density_usd": round(min_density, 0),
-            "volume_multiplier": round(vol_mult, 2),
-            "leverage": round(leverage, 1),
-            "use_atr_filter": use_atr_filter,
-            "use_atr_sl": use_atr_sl,
-            "atr_multiplier": atr_multiplier,
-            "use_cvd_filter": use_cvd_filter,
-            "use_oi_filter": use_oi_filter,
-            "use_rsi_filter": use_rsi_filter
-        }
-    }
 
 
 @ai_router.post("/optimize-strategy")
@@ -370,6 +171,26 @@ async def optimize_strategy(payload: AIOptimizeRequest):
 
 SUPPORTED_AI_MODELS = [
     {
+        "id": "deepseek/deepseek-v4.1-flash",
+        "label": "DeepSeek V4.1 Flash (Primary / Default)",
+        "tier": "primary"
+    },
+    {
+        "id": "qwen/qwen3.8-flash",
+        "label": "Qwen 3.8 Flash (Secondary)",
+        "tier": "secondary"
+    },
+    {
+        "id": "qwen/qwen3.5-flash-02-23",
+        "label": "Qwen 3.5 Flash (Budget)",
+        "tier": "budget"
+    },
+    {
+        "id": "openrouter/free",
+        "label": "Free Models Router OpenRouter (Backup)",
+        "tier": "free"
+    },
+    {
         "id": "google/gemini-2.0-flash-001",
         "label": "google/gemini-2.0-flash-001 (Быстрая, скальпинг)",
         "tier": "fast"
@@ -395,7 +216,9 @@ SUPPORTED_AI_MODELS = [
 class MarketAnalysisRequest(BaseModel):
     symbol: Optional[str] = "BTCUSDT"
     timeframe: Optional[str] = "15m"
-    model: Optional[str] = "google/gemini-2.0-flash-001"
+    # None → берётся OPENROUTER_MODEL (бесплатная по умолчанию из .env);
+    # платная модель — только если пользователь явно её выбрал.
+    model: Optional[str] = None
     api_key: Optional[str] = None
     live_sentinel: Optional[bool] = False
     entry_mode: Optional[str] = "limit_bounce"
@@ -408,14 +231,15 @@ class MarketAnalysisRequest(BaseModel):
 
 class ValidateKeyRequest(BaseModel):
     api_key: Optional[str] = None
-    model: Optional[str] = "google/gemini-2.0-flash-001"
+    model: Optional[str] = None
 
 
 class AIChatRequest(BaseModel):
     message: str = Field(..., description="Сообщение или вопрос трейдера")
     symbol: Optional[str] = "BTCUSDT"
     timeframe: Optional[str] = "15m"
-    model: Optional[str] = "google/gemini-2.0-flash-001"
+    # None → OPENROUTER_MODEL (бесплатная по умолчанию); явный выбор платной — осознанный.
+    model: Optional[str] = None
     api_key: Optional[str] = None
     history: Optional[List[Dict[str, str]]] = []
 
@@ -473,65 +297,6 @@ async def validate_openrouter_key(payload: ValidateKeyRequest):
     }
 
 
-def _classify_health_meter(
-    score: int,
-    sym: str,
-    entry_price: float,
-    tp1_price: float,
-    sl_price: float,
-    top_bid_price: float,
-    top_bid_usd: float,
-    top_ask_price: float,
-    top_ask_usd: float,
-    oi_1h_pct: float,
-    cvd_div_status: str,
-) -> Dict[str, Any]:
-    s = max(0, min(100, int(score)))
-    bid_fmt = f"${top_bid_usd/1_000_000:.2f}M" if top_bid_usd >= 1_000_000 else f"${round(top_bid_usd/1_000)}k"
-    ask_fmt = f"${top_ask_usd/1_000_000:.2f}M" if top_ask_usd >= 1_000_000 else f"${round(top_ask_usd/1_000)}k"
-
-    if s >= 80:
-        zone = "GREEN"
-        color = "#10b981"
-        status_label = "Идеальные условия для Лонга (Стенка удержана + приток OI + поглощение дельты)"
-        short_advice = (
-            f"Держим позицию по #{sym}: плотность Bid {bid_fmt} на ${top_bid_price} удерживает спред, "
-            f"цель TP1 (${tp1_price}) близка. Приток OI ({oi_1h_pct:+.2f}%) подтверждает силу покупателей."
-        )
-    elif s >= 50:
-        zone = "BLUE"
-        color = "#38bdf8"
-        status_label = "Позиция в безопасности / Удерживать / Флэт"
-        short_advice = (
-            f"Позиция в безопасности около ${entry_price}: баланс кластеров стабилен ({cvd_div_status}). "
-            f"Удерживаем до TP1 (${tp1_price}), внимание на лимитную стенку Ask {ask_fmt} на ${top_ask_price}."
-        )
-    elif s >= 25:
-        zone = "YELLOW"
-        color = "#f59e0b"
-        status_label = "Предупреждение: активность покупателей падает, дельта затухает"
-        short_advice = (
-            f"Внимание: темп рыночных покупок по #{sym} замедляется, у сопротивления ${top_ask_price} ({ask_fmt}) "
-            f"появляется лимитное предложение. Рекомендуется подтянуть стоп ближе к безубытку."
-        )
-    else:
-        zone = "RED"
-        color = "#ef4444"
-        status_label = "Критическая опасность: стенку разъедают крупными рыночными продажами, рекомендован досрочный выход"
-        short_advice = (
-            f"Тревога по #{sym}: лимитную защиту ${top_bid_price} активно продавливают маркет-ордерами при оттоке дельты. "
-            f"Рекомендован досрочный выход или сокращение риска не дожидаясь пробоя SL (${sl_price})."
-        )
-
-    return {
-        "score": s,
-        "zone": zone,
-        "color": color,
-        "status_label": status_label,
-        "short_advice": short_advice,
-    }
-
-
 @ai_router.post("/market-analysis")
 @ai_router.post("/live-sentinel")
 async def get_market_analysis(payload: MarketAnalysisRequest):
@@ -539,6 +304,7 @@ async def get_market_analysis(payload: MarketAnalysisRequest):
     ⚡ 1-Click Real-time Market Analysis & Live AI Sentinel (ТАКТ 1, ТАКТ 2, ТАКТ 3):
     Collects orderbook density walls, CVD delta & EMA(14), 1h OI delta, ATR(14),
     synthesizes Entry / SL / TP1 / TP2 with R:R, and computes the 0-100% Market Health Meter.
+    Вычислительное ядро — сервис ai_copilot_service (поведение 1:1).
     """
     sym = (payload.symbol or "BTCUSDT").upper()
     tf = payload.timeframe or "15m"
@@ -555,80 +321,23 @@ async def get_market_analysis(payload: MarketAnalysisRequest):
     if df.empty or len(df) < 30:
         raise HTTPException(status_code=404, detail=f"Недостаточно данных свечей для {sym}")
 
-    # Calculate Core Quantitative Metrics
-    close_s = df['close'].astype(float)
-    high_s = df['high'].astype(float)
-    low_s = df['low'].astype(float)
-    vol_s = df['volume'].astype(float)
-
-    current_price = float(close_s.iloc[-1])
-    price_dec = 1 if current_price >= 100 else 4
-
-    # ATR(14)
-    tr1 = high_s - low_s
-    tr2 = (high_s - close_s.shift(1)).abs()
-    tr3 = (low_s - close_s.shift(1)).abs()
-    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-    atr = float(tr.rolling(14, min_periods=1).mean().iloc[-1])
-    tick_sz = OrderFlowBacktester._estimate_tick_size(current_price)
-
-    # EMA 20, 50, 200
-    ema20 = float(close_s.ewm(span=20, adjust=False).mean().iloc[-1])
-    ema50 = float(close_s.ewm(span=50, adjust=False).mean().iloc[-1])
-    ema200 = float(close_s.ewm(span=min(len(close_s), 200), adjust=False).mean().iloc[-1])
-
-    # Session VWAP (typical price * volume)
-    typical_price = (high_s + low_s + close_s) / 3.0
-    cum_vol = vol_s.sum()
-    cum_pv = (typical_price * vol_s).sum()
-    vwap = float(cum_pv / max(1e-9, cum_vol))
-
-    # Cumulative Volume Delta (CVD) & EMA(14)
-    if 'delta' in df.columns:
-        delta_s = df['delta'].astype(float)
-    else:
-        rng_s = (high_s - low_s).replace(0, np.nan)
-        buy_ratio_s = ((close_s - low_s) / rng_s).fillna(0.5)
-        delta_s = (2.0 * buy_ratio_s - 1.0) * vol_s
-
-    cvd_s = delta_s.cumsum()
-    cvd_ema14_s = cvd_s.ewm(span=14, adjust=False).mean()
-    cvd_current = float(cvd_s.iloc[-1])
-    cvd_ema14 = float(cvd_ema14_s.iloc[-1])
-    recent_delta_sum = float(delta_s.iloc[-20:].sum())
-
-    low_min6 = float(low_s.iloc[-7:-1].min()) if len(low_s) >= 7 else float(low_s.min())
-    high_max6 = float(high_s.iloc[-7:-1].max()) if len(high_s) >= 7 else float(high_s.max())
-    cvd_min6 = float(cvd_s.iloc[-7:-1].min()) if len(cvd_s) >= 7 else float(cvd_s.min())
-    cvd_max6 = float(cvd_s.iloc[-7:-1].max()) if len(cvd_s) >= 7 else float(cvd_s.max())
-
-    if current_price <= low_min6 * 1.001 and cvd_current > cvd_min6:
-        cvd_div_status = "Бычья дивергенция (Поглощение лимитками Bid)"
-    elif current_price >= high_max6 * 0.999 and cvd_current < cvd_max6:
-        cvd_div_status = "Медвежья дивергенция (Скрытые продажи Ask)"
-    elif cvd_current >= cvd_ema14:
-        cvd_div_status = "CVD > EMA(14) (Покупатели доминируют)"
-    else:
-        cvd_div_status = "CVD < EMA(14) (Давление продавцов)"
-
-    cvd_slope = "ПОЛОЖИТЕЛЬНАЯ (Преобладают рыночные покупки)" if recent_delta_sum >= 0 else "ОТРИЦАТЕЛЬНАЯ (Давление рыночных продаж)"
-
-    # 1h Open Interest Delta
-    if 'oi' in df.columns and len(df) >= 6:
-        oi_s = df['oi'].astype(float)
-        bars_1h = max(1, int(60 / max(1, {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240}.get(tf, 15))))
-        oi_now = float(oi_s.iloc[-1])
-        oi_prev = float(oi_s.iloc[-min(len(oi_s), bars_1h + 1)])
-        oi_1h_pct = round(((oi_now - oi_prev) / max(1.0, oi_prev)) * 100.0, 2)
-    else:
-        oi_1h_pct = round((recent_delta_sum / max(1.0, float(vol_s.iloc[-20:].sum()))) * 2.4, 2)
-
-    if oi_1h_pct > 0.05:
-        oi_status = f"Приток капитала (+{oi_1h_pct}%)"
-    elif oi_1h_pct < -0.05:
-        oi_status = f"Отток капитала ({oi_1h_pct}%)"
-    else:
-        oi_status = f"Нейтральный баланс ({oi_1h_pct:+.2f}%)"
+    # Calculate Core Quantitative Metrics (сервис, чистая pandas-логика)
+    m = compute_market_metrics(df, tf)
+    current_price = m["current_price"]
+    price_dec = m["price_dec"]
+    atr = m["atr"]
+    tick_sz = m["tick_sz"]
+    ema20 = m["ema20"]
+    ema50 = m["ema50"]
+    ema200 = m["ema200"]
+    vwap = m["vwap"]
+    cvd_current = m["cvd_current"]
+    cvd_ema14 = m["cvd_ema14"]
+    recent_delta_sum = m["recent_delta_sum"]
+    cvd_div_status = m["cvd_div_status"]
+    cvd_slope = m["cvd_slope"]
+    oi_1h_pct = m["oi_1h_pct"]
+    oi_status = m["oi_status"]
 
     # 2. Fetch OrderBook Depth
     top_bids = []
@@ -644,54 +353,15 @@ async def get_market_analysis(payload: MarketAnalysisRequest):
     except Exception as e:
         logger.warning(f"Error fetching orderbook depth for analysis: {e}")
 
-    support_levels = []
-    for p, usd in top_bids:
-        if p < current_price:
-            usd_fmt = f"${usd/1_000_000:.2f}M" if usd >= 1_000_000 else f"${round(usd/1_000)}k"
-            support_levels.append({
-                "price": round(p, price_dec),
-                "volume_usd": round(usd, 1),
-                "label": f"Лимитная плотность Bid {usd_fmt}",
-                "type": "support"
-            })
-
-    if not support_levels:
-        support_levels.append({
-            "price": round(min(current_price - 1.1 * atr, vwap), price_dec),
-            "volume_usd": 1450000.0,
-            "label": "Лимитная плотность Bid $1.45M",
-            "type": "support"
-        })
-
-    resistance_levels = []
-    for p, usd in top_asks:
-        if p > current_price:
-            usd_fmt = f"${usd/1_000_000:.2f}M" if usd >= 1_000_000 else f"${round(usd/1_000)}k"
-            resistance_levels.append({
-                "price": round(p, price_dec),
-                "volume_usd": round(usd, 1),
-                "label": f"Лимитная стенка Ask {usd_fmt}",
-                "type": "resistance"
-            })
-
-    if not resistance_levels:
-        resistance_levels.append({
-            "price": round(current_price + 1.3 * atr, price_dec),
-            "volume_usd": 1820000.0,
-            "label": "Лимитная стенка Ask $1.82M",
-            "type": "resistance"
-        })
-
-    support_levels.sort(key=lambda x: x["price"], reverse=True)
-    resistance_levels.sort(key=lambda x: x["price"])
-
-    top_bid_p = float(support_levels[0]["price"])
-    top_bid_usd = float(support_levels[0]["volume_usd"])
-    top_bid_dist_pct = round(abs(current_price - top_bid_p) / max(1e-9, current_price) * 100.0, 2)
-
-    top_ask_p = float(resistance_levels[0]["price"])
-    top_ask_usd = float(resistance_levels[0]["volume_usd"])
-    top_ask_dist_pct = round(abs(top_ask_p - current_price) / max(1e-9, current_price) * 100.0, 2)
+    sr = build_support_resistance(top_bids, top_asks, current_price, atr, vwap, price_dec)
+    support_levels = sr["support_levels"]
+    resistance_levels = sr["resistance_levels"]
+    top_bid_p = sr["top_bid_p"]
+    top_bid_usd = sr["top_bid_usd"]
+    top_bid_dist_pct = sr["top_bid_dist_pct"]
+    top_ask_p = sr["top_ask_p"]
+    top_ask_usd = sr["top_ask_usd"]
+    top_ask_dist_pct = sr["top_ask_dist_pct"]
 
     data_feed_context = {
         "current_price": round(current_price, price_dec),
@@ -712,104 +382,52 @@ async def get_market_analysis(payload: MarketAnalysisRequest):
     }
 
     # 3. Market Phase & Bias
-    is_above_ema = current_price >= ema20 >= ema50
-    is_below_ema = current_price <= ema20 <= ema50
-    is_near_vwap = abs(current_price - vwap) / current_price < 0.006
-
-    if is_above_ema and recent_delta_sum >= 0:
-        market_phase = "Импульс (Бычье расширение тренда)"
-        bias = "BULLISH"
-    elif is_below_ema and recent_delta_sum < 0:
-        market_phase = "Импульс (Медвежье расширение тренда)"
-        bias = "BEARISH"
-    elif is_near_vwap:
-        market_phase = "Накопление у зоны справедливой цены (VWAP)"
-        bias = "BULLISH" if recent_delta_sum >= 0 else "BEARISH"
-    else:
-        market_phase = "Консолидация в границах ликвидности"
-        bias = "BULLISH" if cvd_current >= cvd_ema14 else "NEUTRAL"
+    market_phase, bias = determine_market_phase(
+        current_price, ema20, ema50, vwap, recent_delta_sum, cvd_current, cvd_ema14
+    )
 
     # 4. Synthesize Actionable Trading Idea with Entry, SL, TP1 (1.5R + Б/У) and TP2 (2.8R)
-    tp1_rr = max(1.0, float(payload.tp1_rr_ratio or 1.5))
-    tp2_rr = max(1.8, float(payload.tp2_rr_ratio or 2.8))
-
-    if bias in ["BULLISH", "NEUTRAL"]:
-        direction = "LONG"
-        order_type = "BUY LIMIT"
-        sup_p = support_levels[0]["price"]
-        entry_price = round(min(current_price, max(sup_p, current_price - 0.25 * atr)), price_dec)
-        stop_loss = round(entry_price - max(current_price * 0.0028, 1.2 * atr), price_dec)
-        risk = max(1e-4, entry_price - stop_loss)
-        tp1_price = round(entry_price + tp1_rr * risk, price_dec)
-        take_profit = round(entry_price + tp2_rr * risk, price_dec)
-        recommended_strategy = "delta_absorption" if recent_delta_sum > 0 else "density_bounce"
-        reasoning = (
-            f"Лимитный вход {order_type} от зоны плотности Bid ${support_levels[0]['price']} ({support_levels[0]['label']}). "
-            f"Дельта ({cvd_div_status}) и OI ({oi_status}) подтверждают удержание уровня. "
-            f"TP1 (50% объёма + перевод стопа в Б/У) на ${tp1_price} (1:{tp1_rr}), финальная цель TP2 на ${take_profit} (R:R 1:{tp2_rr})."
-        )
-    else:
-        direction = "SHORT"
-        order_type = "SELL LIMIT"
-        res_p = resistance_levels[0]["price"]
-        entry_price = round(max(current_price, min(res_p, current_price + 0.25 * atr)), price_dec)
-        stop_loss = round(entry_price + max(current_price * 0.0028, 1.2 * atr), price_dec)
-        risk = max(1e-4, stop_loss - entry_price)
-        tp1_price = round(entry_price - tp1_rr * risk, price_dec)
-        take_profit = round(entry_price - tp2_rr * risk, price_dec)
-        recommended_strategy = "density_bounce"
-        reasoning = (
-            f"Лимитный вход {order_type} от крупной стенки Ask ${resistance_levels[0]['price']} ({resistance_levels[0]['label']}). "
-            f"Дельта ({cvd_div_status}) указывает на поглощение покупок лимитным продавцом. "
-            f"TP1 (50% + Б/У) на ${tp1_price} (1:{tp1_rr}), финальный тейк TP2 на ${take_profit} (R:R 1:{tp2_rr})."
-        )
-
-    sl_pct = round(abs(entry_price - stop_loss) / max(1e-9, entry_price) * 100.0, 2)
-    tp1_pct = round(abs(tp1_price - entry_price) / max(1e-9, entry_price) * 100.0, 2)
-    tp2_pct = round(abs(take_profit - entry_price) / max(1e-9, entry_price) * 100.0, 2)
-    sl_risk_usd = round(10000.0 * 2.0 * (sl_pct / 100.0), 0)
-
-    position_setup = {
-        "direction": direction,
-        "order_type": order_type,
-        "entry_price": entry_price,
-        "sl_price": stop_loss,
-        "sl_pct": sl_pct,
-        "sl_risk_usd": sl_risk_usd,
-        "tp1_price": tp1_price,
-        "tp1_pct": tp1_pct,
-        "tp1_rr": tp1_rr,
-        "tp2_price": take_profit,
-        "tp2_pct": tp2_pct,
-        "rr_ratio": tp2_rr,
-        "rr_label": f"1:{tp2_rr}",
-        "sl_mode": payload.sl_mode or "atr_volatility",
-        "entry_mode": payload.entry_mode or "limit_bounce",
-        "min_wall_lifetime_sec": int(payload.min_wall_lifetime_sec or 30),
-    }
+    idea = synthesize_trading_idea(
+        bias=bias,
+        current_price=current_price,
+        atr=atr,
+        support_levels=support_levels,
+        resistance_levels=resistance_levels,
+        tp1_rr_ratio=payload.tp1_rr_ratio,
+        tp2_rr_ratio=payload.tp2_rr_ratio,
+        cvd_div_status=cvd_div_status,
+        oi_status=oi_status,
+        recent_delta_sum=recent_delta_sum,
+        price_dec=price_dec,
+        sl_mode=payload.sl_mode,
+        entry_mode=payload.entry_mode,
+        min_wall_lifetime_sec=payload.min_wall_lifetime_sec,
+    )
+    direction = idea["direction"]
+    order_type = idea["order_type"]
+    entry_price = idea["entry_price"]
+    stop_loss = idea["stop_loss"]
+    tp1_price = idea["tp1_price"]
+    take_profit = idea["take_profit"]
+    recommended_strategy = idea["recommended_strategy"]
+    reasoning = idea["reasoning"]
+    sl_pct = idea["sl_pct"]
+    tp1_pct = idea["tp1_pct"]
+    tp2_pct = idea["tp2_pct"]
+    sl_risk_usd = idea["sl_risk_usd"]
+    tp2_rr = idea["tp2_rr"]
+    position_setup = idea["position_setup"]
 
     # 5. Calculate Market Sentiment & Health Meter (0% - 100%)
-    if payload.simulated_health_override is not None:
-        raw_health = int(payload.simulated_health_override)
-    else:
-        base_score = 62
-        if cvd_current >= cvd_ema14:
-            base_score += 12
-        else:
-            base_score -= 10
-        if recent_delta_sum > 0:
-            base_score += 8
-        else:
-            base_score -= 6
-        if oi_1h_pct > 0:
-            base_score += 7
-        elif oi_1h_pct < -0.2:
-            base_score -= 9
-        if top_bid_usd >= top_ask_usd * 0.9:
-            base_score += 6
-        else:
-            base_score -= 5
-        raw_health = max(12, min(96, base_score))
+    raw_health = compute_health_score(
+        cvd_current=cvd_current,
+        cvd_ema14=cvd_ema14,
+        recent_delta_sum=recent_delta_sum,
+        oi_1h_pct=oi_1h_pct,
+        top_bid_usd=top_bid_usd,
+        top_ask_usd=top_ask_usd,
+        override=payload.simulated_health_override,
+    )
 
     sentiment_meter = _classify_health_meter(
         score=raw_health,
@@ -826,6 +444,7 @@ async def get_market_analysis(payload: MarketAnalysisRequest):
     )
 
     # Optional live OpenRouter enrichment for short_advice if a real model & key are active
+    # (каскад бесплатных моделей: при ошибке/402/429 — авто-переключение, запрос Di 24.10)
     llm_powered = False
     if selected_model != "local_orderflow_nlp" and active_key and "sk-or-" in active_key:
         try:
@@ -836,120 +455,52 @@ async def get_market_analysis(payload: MarketAnalysisRequest):
                 f"индекс здоровья рынка {sentiment_meter['score']}% ({sentiment_meter['zone']}). "
                 f"Дай краткий тактический совет скальперу строго на русском языке в 1-2 предложениях."
             )
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {active_key}",
-                        "Content-Type": "application/json",
-                        "HTTP-Referer": "http://localhost:5173",
-                        "X-Title": "SignalScript Live AI Sentinel",
-                    },
-                    json={
-                        "model": selected_model,
-                        "messages": [
-                            {"role": "system", "content": "Ты — институциональный Order Flow скальпер. Отвечай строго на русском языке, максимум 2 коротких предложения без приветствий."},
-                            {"role": "user", "content": prompt_ctx},
-                        ],
-                        "max_tokens": 140,
-                        "temperature": 0.25,
-                    },
-                    timeout=aiohttp.ClientTimeout(total=3.2),
-                ) as resp:
-                    if resp.status == 200:
-                        j = await resp.json()
-                        txt = j.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-                        if txt and len(txt) > 15:
-                            sentiment_meter["short_advice"] = txt
-                            llm_powered = True
+            from backend.app.services.ai_service import ai_service
+            txt, used_model = await ai_service.query_with_fallback(
+                messages=[
+                    {"role": "system", "content": "Ты — институциональный Order Flow скальпер. Отвечай строго на русском языке, максимум 2 коротких предложения без приветствий."},
+                    {"role": "user", "content": prompt_ctx},
+                ],
+                preferred_model=selected_model,
+                temperature=0.25,
+                max_tokens=140,
+                timeout_sec=8.0,
+                api_key_override=active_key,
+            )
+            if txt and len(txt.strip()) > 15:
+                sentiment_meter["short_advice"] = txt.strip()
+                llm_powered = True
+                if used_model:
+                    selected_model = used_model
         except Exception as e:
             logger.debug(f"Live sentinel OpenRouter call skipped/fallback: {e}")
 
     sentiment_meter["model_used"] = selected_model if llm_powered else f"{selected_model} (OrderFlow Quant Core)"
 
     # === Stage 3: Expected Move Cone (Volatility Fan ±1σ / ±2σ on 16 bars forward) ===
-    tf_minutes = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240}.get(tf, 15)
-    time_step_ms = tf_minutes * 60 * 1000
-    last_candle_ts = int(df['timestamp'].iloc[-1])
-    
-    # 1-sigma per single bar based on ATR(14)
-    sigma_1_bar = float(atr * 0.9)
-    # Drift direction based on CVD and EMA momentum
-    drift_direction = 1.0 if (bias == "BULLISH" and recent_delta_sum >= 0) else (-1.0 if bias == "BEARISH" else 0.0)
-    drift_per_bar = drift_direction * (sigma_1_bar * 0.12)
-
-    fan_points = []
-    num_bars_forward = 16
-    for k in range(1, num_bars_forward + 1):
-        future_ts = last_candle_ts + (k * time_step_ms)
-        sqrt_k = math.sqrt(k)
-        mid_price = current_price + (drift_per_bar * k)
-        u1 = mid_price + (sigma_1_bar * sqrt_k)
-        l1 = mid_price - (sigma_1_bar * sqrt_k)
-        u2 = mid_price + (sigma_1_bar * 1.96 * sqrt_k)
-        l2 = mid_price - (sigma_1_bar * 1.96 * sqrt_k)
-        fan_points.append({
-            "step": k,
-            "timestamp": future_ts,
-            "price_mid": round(mid_price, price_dec),
-            "upper_1s": round(u1, price_dec),
-            "lower_1s": round(l1, price_dec),
-            "upper_2s": round(u2, price_dec),
-            "lower_2s": round(l2, price_dec),
-        })
-
-    expected_move_cone = {
-        "bars_forward": num_bars_forward,
-        "timeframe": tf,
-        "base_price": round(current_price, price_dec),
-        "base_timestamp": last_candle_ts,
-        "atr_14": round(atr, price_dec),
-        "sigma_1s_pct": round((sigma_1_bar * math.sqrt(num_bars_forward) / max(1e-9, current_price)) * 100.0, 2),
-        "sigma_2s_pct": round((sigma_1_bar * 1.96 * math.sqrt(num_bars_forward) / max(1e-9, current_price)) * 100.0, 2),
-        "fan_points": fan_points
-    }
+    expected_move_cone = build_expected_move_cone(
+        current_price=current_price,
+        atr=atr,
+        bias=bias,
+        recent_delta_sum=recent_delta_sum,
+        last_candle_ts=int(df['timestamp'].iloc[-1]),
+        tf=tf,
+        price_dec=price_dec,
+    )
 
     # === Stage 3: Liquidity Magnet (Orderbook Depth Imbalance & Walls in ±1.5%) ===
-    corridor_pct = 0.015  # ±1.5%
-    p_min = current_price * (1.0 - corridor_pct)
-    p_max = current_price * (1.0 + corridor_pct)
-
-    bids_in_corridor_usd = sum(usd for p, usd in bid_items if p >= p_min)
-    asks_in_corridor_usd = sum(usd for p, usd in ask_items if p <= p_max)
-    depth_ratio = bids_in_corridor_usd / max(1.0, asks_in_corridor_usd)
-
-    if depth_ratio >= 1.3:
-        magnet_vector = "BULLISH_SUPPORT"
-        magnet_description = f"Перевес лимитных заявок на покупку ({depth_ratio:.1f}x Bid/Ask в пределах ±1.5%). Ликвидность снизу защищает цену."
-        magnet_target_price = top_ask_p
-    elif depth_ratio <= 0.77:
-        magnet_vector = "BEARISH_PRESSURE"
-        magnet_description = f"Давление лимитных продавцов ({1.0/max(0.01, depth_ratio):.1f}x Ask/Bid в пределах ±1.5%). Ликвидность притягивает цену к стенке Bid ${top_bid_p}."
-        magnet_target_price = top_bid_p
-    else:
-        magnet_vector = "BALANCED"
-        magnet_description = f"Сбалансированная плотность стакана (Bid/Ask {depth_ratio:.2f}x в пределах ±1.5%)."
-        magnet_target_price = round((top_bid_p + top_ask_p) / 2.0, price_dec)
-
-    liquidity_magnet = {
-        "corridor_pct": 1.5,
-        "bids_volume_usd": round(bids_in_corridor_usd, 0),
-        "asks_volume_usd": round(asks_in_corridor_usd, 0),
-        "bid_ask_depth_ratio": round(depth_ratio, 2),
-        "magnet_vector": magnet_vector,
-        "magnet_description": magnet_description,
-        "nearest_major_bid_wall": {
-            "price": top_bid_p,
-            "volume_usd": top_bid_usd,
-            "dist_pct": top_bid_dist_pct
-        },
-        "nearest_major_ask_wall": {
-            "price": top_ask_p,
-            "volume_usd": top_ask_usd,
-            "dist_pct": top_ask_dist_pct
-        },
-        "target_liquidity_price": magnet_target_price
-    }
+    liquidity_magnet = build_liquidity_magnet(
+        bid_items=bid_items,
+        ask_items=ask_items,
+        current_price=current_price,
+        top_bid_p=top_bid_p,
+        top_bid_usd=top_bid_usd,
+        top_bid_dist_pct=top_bid_dist_pct,
+        top_ask_p=top_ask_p,
+        top_ask_usd=top_ask_usd,
+        top_ask_dist_pct=top_ask_dist_pct,
+        price_dec=price_dec,
+    )
 
     # === Stage 3: Real Backtest-grounded Expected Value (EV) with Robust Sample ===
     try:
@@ -963,7 +514,7 @@ async def get_market_analysis(payload: MarketAnalysisRequest):
 
         fast_bt = bt_engine.run_backtest(
             df=ev_df,
-            strategy_type=recommended_strategy if recommended_strategy in ("confluence_ema", "cvd_absorption", "ema_trend") else "confluence_ema",
+            strategy_type=recommended_strategy if recommended_strategy in ("confluence_ema", "cvd_absorption", "ema_pullback", "ema_trend", "ema_trend_window") else "confluence_ema",
             take_profit_pct=tp1_pct,
             stop_loss_pct=sl_pct,
             use_trailing=True,
@@ -992,6 +543,7 @@ async def get_market_analysis(payload: MarketAnalysisRequest):
         ev_usd = (p_win * avg_win) - (p_loss * avg_loss) - avg_fees
         risk_unit = max(1.0, avg_loss)
         ev_r_multiple = round(ev_usd / risk_unit, 2)
+        expected_value = build_expected_value(p_win, avg_win, avg_loss, avg_fees, ev_usd, ev_r_multiple, total_tr)
     except Exception as e:
         logger.warning(f"Error computing empirical EV: {e}")
         p_win = 0.54
@@ -1001,21 +553,7 @@ async def get_market_analysis(payload: MarketAnalysisRequest):
         ev_usd = (p_win * avg_win) - ((1.0 - p_win) * avg_loss) - avg_fees
         ev_r_multiple = round(ev_usd / max(1.0, avg_loss), 2)
         total_tr = 24
-
-    expected_value = {
-        "p_win": round(p_win, 2),
-        "p_win_pct": round(p_win * 100.0, 1),
-        "avg_win_usd": round(avg_win, 2),
-        "avg_loss_usd": round(avg_loss, 2),
-        "avg_fees_and_slippage_usd": round(avg_fees, 2),
-        "ev_per_trade_usd": round(ev_usd, 2),
-        "ev_r_multiple": f"{'+' if ev_r_multiple > 0 else ''}{ev_r_multiple}R",
-        "sample_trades_tested": total_tr,
-        "is_statistically_significant": total_tr >= 30,
-        "sample_warning": ("Мало данных (<30 сделок), доверительный интервал широкий" if total_tr < 30 else None),
-        "is_positive_expectancy": ev_usd > 0,
-        "verdict": "Математическое преимущество (+Edge)" if ev_usd > 0 else "Отрицательное мат. ожидание (-Edge)"
-    }
+        expected_value = build_expected_value(p_win, avg_win, avg_loss, avg_fees, ev_usd, ev_r_multiple, total_tr)
 
     ai_commentary = (
         f"⚡ Экспресс-вердикт по #{sym} ({tf}):\n"
@@ -1089,39 +627,38 @@ async def chat_with_copilot(payload: AIChatRequest):
     active_key = (payload.api_key or OPENROUTER_API_KEY or "").strip()
 
     llm_reply = None
+    used_model = None
     if selected_model != "local_orderflow_nlp" and active_key and "sk-or-" in active_key:
-        try:
-            url = "https://openrouter.ai/api/v1/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {active_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "http://localhost:5173",
-                "X-Title": "SignalScript AI Trading Assistant"
-            }
-            system_msg = (
-                f"Ты — институциональный quantitative trader и эксперт по Order Flow терминала SignalScript. "
-                f"Текущий инструмент: {sym}, таймфрейм: {tf}. "
-                f"Отвечай строго на русском языке, профессионально, кратко и структурировано. "
-                f"Фокусируйся на кластерах Footprint, кумулятивной дельте CVD, плотностях в стакане DOM, "
-                f"ликвидациях и риск-менеджменте (ATR, Multi-TP 50% Б/У, R:R не менее 1:2.5)."
-            )
-            messages = [{"role": "system", "content": system_msg}]
-            if payload.history:
-                messages.extend(payload.history[-4:])
-            messages.append({"role": "user", "content": msg})
+        system_msg = (
+            f"Ты — институциональный quantitative trader и эксперт по Order Flow терминала SignalScript. "
+            f"Текущий инструмент: {sym}, таймфрейм: {tf}. "
+            f"Отвечай строго на русском языке, профессионально, кратко и структурировано. "
+            f"Фокусируйся на кластерах Footprint, кумулятивной дельте CVD, плотностях в стакане DOM, "
+            f"ликвидациях и риск-менеджменте (ATR, Multi-TP 50% Б/У, R:R не менее 1:2.5)."
+        )
+        messages = [{"role": "system", "content": system_msg}]
+        if payload.history:
+            messages.extend(payload.history[-4:])
+        messages.append({"role": "user", "content": msg})
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    url,
-                    headers=headers,
-                    json={"model": selected_model, "messages": messages, "max_tokens": 500, "temperature": 0.3},
-                    timeout=aiohttp.ClientTimeout(total=4)
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        llm_reply = data["choices"][0]["message"]["content"].strip()
+        try:
+            from backend.app.services.ai_service import ai_service
+            # Каскад: preferred → остальные бесплатные модели OpenRouter;
+            # при ошибке/429 автоматически переключается на следующую (запрос Di 24.10).
+            content, used_model = await ai_service.query_with_fallback(
+                messages=messages,
+                preferred_model=selected_model,
+                temperature=0.3,
+                max_tokens=500,
+                timeout_sec=8.0,
+                api_key_override=active_key,
+            )
+            if content:
+                llm_reply = content.strip()
         except Exception as e:
             logger.info(f"OpenRouter unavailable, engaging Quant Engine fallback: {e}")
+    if used_model:
+        selected_model = used_model
 
     # Fallback Quantitative Order Flow Assistant
     if not llm_reply:
@@ -1174,322 +711,13 @@ class ForecastRequest(BaseModel):
     strategy_params: Optional[Dict[str, Any]] = None
 
 
-def classify_forecast_regime(frame: pd.DataFrame) -> tuple[str, Dict[str, Any]]:
-    """Return the shared market-regime label used by the adaptive execution layer."""
-    from backend.app.engine.regime_classifier import RegimeClassifier
-
-    regime, metrics = RegimeClassifier().classify_current(frame)
-    return regime.value, metrics
-
-
-def build_forecast_signal(
-    *,
-    symbol: str,
-    timeframe: str,
-    timestamp: int,
-    direction: str,
-    entry_price: float,
-    sl: float,
-    tp1: float,
-    tp2: float,
-    leverage: float,
-    risk_per_trade_pct: float,
-    expected_rr: float,
-    confidence: float,
-    reason: str,
-    strategy_type: str,
-):
-    """Create the canonical forecast signal while preserving user parameters."""
-    from backend.app.engine.trade_contract import UnifiedTradeSignal
-
-    return UnifiedTradeSignal(
-        symbol=symbol,
-        timeframe=timeframe,
-        timestamp=timestamp,
-        direction=direction,
-        entry_type="FORECAST_CONE",
-        entry_price=entry_price,
-        sl=sl,
-        tp1=tp1,
-        tp2=tp2,
-        leverage=float(leverage),
-        risk_pct=float(risk_per_trade_pct) / 100.0,
-        expected_rr=expected_rr,
-        confidence=confidence,
-        reason=reason,
-        strategy_type=strategy_type,
-        data_source="realtime_binance",
-        invalidation_condition="Bar close outside 1-sigma cone boundary",
-    )
-
-
-async def compute_probabilistic_forecast(
-    symbol: str,
-    timeframe: str,
-    horizon_bars: int = 16,
-    strategy_type: str = "confluence_ema",
-    strategy_params: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    from backend.app.engine.trade_contract import UnifiedTradeSignal
-    from backend.app.db.database import AsyncSessionLocal
-    from backend.app.db.models import DecisionLog
-
-    sym = symbol.strip().upper()
-    tf = timeframe.strip().lower()
-    tf_minutes = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240}.get(tf, 15)
-    time_step_ms = tf_minutes * 60 * 1000
-
-    try:
-        df = await fetch_history(sym, tf, days=3)
-    except Exception as e:
-        logger.error(f"Failed to fetch klines for forecast: {e}")
-        raise HTTPException(status_code=502, detail=f"Ошибка загрузки истории Binance для {sym}: {e}")
-
-    if df.empty or len(df) < 60:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Недостаточно исторических данных для прогноза {sym} (минимум 60 свечей, получено {len(df) if not df.empty else 0})"
-        )
-
-    close_s = df['close'].astype(float)
-    high_s = df['high'].astype(float)
-    low_s = df['low'].astype(float)
-    vol_s = df['volume'].astype(float)
-
-    current_price = float(close_s.iloc[-1])
-    price_dec = 1 if current_price >= 100 else 4
-    anchor_timestamp = int(df['timestamp'].iloc[-1])
-
-    # ATR(14)
-    tr1 = high_s - low_s
-    tr2 = (high_s - close_s.shift(1)).abs()
-    tr3 = (low_s - close_s.shift(1)).abs()
-    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-    atr = float(tr.rolling(14, min_periods=1).mean().iloc[-1])
-    if atr <= 0:
-        atr = current_price * 0.005
-
-    # Momentum & CVD
-    ema20 = float(close_s.ewm(span=20, adjust=False).mean().iloc[-1])
-    ema50 = float(close_s.ewm(span=50, adjust=False).mean().iloc[-1])
-
-    if 'delta' in df.columns:
-        delta_s = df['delta'].astype(float)
-    else:
-        rng_s = (high_s - low_s).replace(0, np.nan)
-        buy_ratio_s = ((close_s - low_s) / rng_s).fillna(0.5)
-        delta_s = (2.0 * buy_ratio_s - 1.0) * vol_s
-
-    cvd_s = delta_s.cumsum()
-    cvd_ema14_s = cvd_s.ewm(span=14, adjust=False).mean()
-    cvd_current = float(cvd_s.iloc[-1])
-    cvd_ema14 = float(cvd_ema14_s.iloc[-1])
-    recent_delta_sum = float(delta_s.iloc[-14:].sum())
-
-    profile = str(strategy_type or "confluence_ema")
-    params = dict(strategy_params or {})
-    use_atr_filter = bool(params.get("use_atr_filter", False))
-    use_cvd_filter = bool(params.get("use_cvd_filter", False))
-    use_oi_filter = bool(params.get("use_oi_filter", False))
-    use_rsi_filter = bool(params.get("use_rsi_filter", False))
-    volume_multiplier = float(params.get("volume_multiplier", 1.3) or 1.3)
-    min_density_usd = float(params.get("min_density_usd", 0.0) or 0.0)
-    forecast_engine = OrderFlowBacktester(initial_capital=float(params.get("initial_capital", 10000.0) or 10000.0))
-    indicator_frame = forecast_engine.calculate_indicators(df)
-    market_regime, regime_metrics = classify_forecast_regime(indicator_frame)
-    latest_signal = forecast_engine.evaluate_latest_signal(
-        indicator_frame,
-        strategy_type=profile,
-        volume_multiplier=volume_multiplier,
-        min_density_usd=min_density_usd,
-        use_atr_filter=use_atr_filter,
-        use_cvd_filter=use_cvd_filter,
-        use_oi_filter=use_oi_filter,
-        use_rsi_filter=use_rsi_filter,
-    )
-    decision_diagnostic = None
-    if latest_signal:
-        direction = latest_signal["direction"]
-        bias = "BULLISH" if direction == "LONG" else "BEARISH"
-        drift_direction = 1.0 if direction == "LONG" else -1.0
-        reasoning = " · ".join(latest_signal["reasons"])
-    else:
-        direction = "NO_TRADE"
-        bias = "NEUTRAL"
-        drift_direction = 0.0
-        decision_diagnostic = forecast_engine.explain_latest_signal(
-            indicator_frame,
-            strategy_type=profile,
-            volume_multiplier=volume_multiplier,
-            min_density_usd=min_density_usd,
-            use_atr_filter=use_atr_filter,
-            use_cvd_filter=use_cvd_filter,
-            use_oi_filter=use_oi_filter,
-            use_rsi_filter=use_rsi_filter,
-        )
-        reasoning = decision_diagnostic.get("reason") or "NO_TRADE: условия стратегии не выполнены."
-
-    sigma_1_bar = float(atr * 0.9)
-    drift_per_bar = drift_direction * (sigma_1_bar * 0.12)
-    expected_drift_pct = round((drift_per_bar * horizon_bars / max(1e-9, current_price)) * 100.0, 2)
-
-    fan_points = []
-    for k in range(1, horizon_bars + 1):
-        future_ts = anchor_timestamp + (k * time_step_ms)
-        sqrt_k = math.sqrt(k)
-        mid_price = current_price + (drift_per_bar * k)
-        u1 = mid_price + (sigma_1_bar * sqrt_k)
-        l1 = mid_price - (sigma_1_bar * sqrt_k)
-        u2 = mid_price + (sigma_1_bar * 1.96 * sqrt_k)
-        l2 = mid_price - (sigma_1_bar * 1.96 * sqrt_k)
-        fan_points.append({
-            "bar_offset": k,
-            "step": k,
-            "timestamp": future_ts,
-            "price_mid": round(mid_price, price_dec),
-            "upper_1s": round(u1, price_dec),
-            "lower_1s": round(l1, price_dec),
-            "upper_2s": round(u2, price_dec),
-            "lower_2s": round(l2, price_dec),
-            "upper_1sigma": round(u1, price_dec),
-            "lower_1sigma": round(l1, price_dec),
-            "upper_2sigma": round(u2, price_dec),
-            "lower_2sigma": round(l2, price_dec),
-        })
-
-    sigma_1s_pct = round((sigma_1_bar * math.sqrt(horizon_bars) / max(1e-9, current_price)) * 100.0, 2)
-    sigma_2s_pct = round((sigma_1_bar * 1.96 * math.sqrt(horizon_bars) / max(1e-9, current_price)) * 100.0, 2)
-
-    cone_dict = {
-        "bars_forward": horizon_bars,
-        "timeframe": tf,
-        "base_price": round(current_price, price_dec),
-        "base_timestamp": anchor_timestamp,
-        "atr_14": round(atr, price_dec),
-        "sigma_1s_pct": sigma_1s_pct,
-        "sigma_2s_pct": sigma_2s_pct,
-        "direction": bias,
-        "trend": bias,
-        "expected_drift_pct": expected_drift_pct,
-        "fan_points": fan_points
-    }
-
-    # Stop Loss & Take Profit targets use the same explicit percentages passed
-    # to the historical backtest whenever the overnight pilot supplies them.
-    sl_pct = float(params.get("stop_loss_pct", 0.0) or 0.0)
-    tp_pct = float(params.get("take_profit_pct", 0.0) or 0.0)
-    sl_dist = current_price * sl_pct / 100.0 if sl_pct > 0 else 1.2 * atr
-    tp2_dist = current_price * tp_pct / 100.0 if tp_pct > 0 else 2.8 * atr
-    tp1_rr = float(params.get("tp1_rr_ratio", 1.5) or 1.5)
-    tp1_dist = min(tp2_dist, sl_dist * max(1.0, tp1_rr))
-    if direction == "LONG":
-        sl_price = round(current_price - sl_dist, price_dec)
-        tp1_price = round(current_price + tp1_dist, price_dec)
-        tp2_price = round(current_price + tp2_dist, price_dec)
-        breakeven_price = round(current_price + current_price * 0.001, price_dec)
-    else:
-        sl_price = round(current_price + sl_dist, price_dec)
-        tp1_price = round(current_price - tp1_dist, price_dec)
-        tp2_price = round(current_price - tp2_dist, price_dec)
-        breakeven_price = round(current_price - current_price * 0.001, price_dec)
-
-    unified_signal = None
-    if latest_signal:
-        unified_signal = build_forecast_signal(
-            symbol=sym,
-            timeframe=tf,
-            timestamp=anchor_timestamp,
-            direction=direction,
-            entry_price=round(current_price, price_dec),
-            sl=sl_price,
-            tp1=tp1_price,
-            tp2=tp2_price,
-            leverage=float(params.get("leverage", 1.0) or 1.0),
-            risk_per_trade_pct=float(params.get("risk_per_trade_pct", 2.0) or 2.0),
-            expected_rr=round(tp2_dist / max(1e-9, sl_dist), 2),
-            confidence=0.72,
-            reason=reasoning,
-            strategy_type=profile,
-        )
-
-    # Log into Decision Journal (consultative log)
-    try:
-        async with AsyncSessionLocal() as session:
-            log_entry = DecisionLog(
-                event_type="FORECAST",
-                symbol=sym,
-                timeframe=tf,
-                direction=direction,
-                price=current_price,
-                entry_price=current_price,
-                sl_price=sl_price,
-                tp_price=tp2_price,
-                strategy_or_condition="Probabilistic Volatility Cone (16 bars)",
-                ai_verdict=bias,
-                ai_reason=reasoning,
-                context_json=json.dumps({
-                    "cone": cone_dict,
-                    "unified_signal": unified_signal.model_dump() if unified_signal else None,
-                    "atr": atr,
-                    "sigma_1s_pct": sigma_1s_pct,
-                    "sigma_2s_pct": sigma_2s_pct,
-                }),
-                user_decision="PENDING",
-                notes=f"Probabilistic Forecast horizon: {horizon_bars} bars",
-            )
-            session.add(log_entry)
-            await session.commit()
-    except Exception as db_err:
-        logger.debug(f"Decision journal logging skipped: {db_err}")
-
-    return {
-        "status": "success",
-        "symbol": sym,
-        "timeframe": tf,
-        "strategy_type": profile,
-        "strategy_params": params,
-        "data_status": "connected",
-        "data_source": "binance_futures_klines",
-        "is_probabilistic_forecast": True,
-        "disclaimer": "Вероятностный прогноз волатильности (±1σ / ±2σ). Не является гарантированной доходностью или инвестиционной рекомендацией.",
-        "anchor_price": round(current_price, price_dec),
-        "anchor_timestamp": anchor_timestamp,
-        "horizon_bars": horizon_bars,
-        "base_scenario": {
-            "direction": direction,
-            "bias": bias,
-            "market_regime": market_regime,
-            "drift_direction": drift_direction,
-            "expected_drift_pct": expected_drift_pct,
-            "reason": reasoning,
-        },
-        "decision_diagnostic": decision_diagnostic,
-        "bands": fan_points,
-        "expected_move_cone": cone_dict,
-        "unified_signal": unified_signal.model_dump() if unified_signal else None,
-        "trading_idea": {
-            "direction": direction,
-            "order_type": "BUY LIMIT" if direction == "LONG" else "SELL LIMIT" if direction == "SHORT" else "WAIT",
-            "entry_price": round(current_price, price_dec),
-            "sl_price": sl_price,
-            "tp1_price": tp1_price,
-            "tp2_price": tp2_price,
-            "breakeven_price": breakeven_price,
-            "risk_reward_ratio": "1:2.33",
-            "reasoning": reasoning,
-        },
-        "market_regime": market_regime,
-        "regime_metrics": regime_metrics,
-    }
-
-
 @ai_router.get("/forecast")
 @ai_router.get("/copilot-analysis")
 async def get_forecast_query(symbol: str = "BTCUSDT", timeframe: str = "15m", horizon_bars: int = 16, strategy_type: str = "confluence_ema"):
     """
     Probabilistic Forecast Endpoint (GET):
     Returns expected volatility cone (±1σ / ±2σ), anchor price/timestamp,
-    horizon, and UnifiedTradeSignal.
+    horizon, and UnifiedTradeSignal. Ядро — сервис ai_copilot_service.
     """
     return await compute_probabilistic_forecast(symbol=symbol, timeframe=timeframe, horizon_bars=horizon_bars, strategy_type=strategy_type)
 
@@ -1499,9 +727,6 @@ async def post_forecast(req: ForecastRequest):
     """
     Probabilistic Forecast Endpoint (POST):
     Returns expected volatility cone (±1σ / ±2σ), anchor price/timestamp,
-    horizon, and UnifiedTradeSignal.
+    horizon, and UnifiedTradeSignal. Ядро — сервис ai_copilot_service.
     """
     return await compute_probabilistic_forecast(symbol=req.symbol, timeframe=req.timeframe, horizon_bars=req.horizon_bars, strategy_type=req.strategy_type, strategy_params=req.strategy_params)
-
-
-

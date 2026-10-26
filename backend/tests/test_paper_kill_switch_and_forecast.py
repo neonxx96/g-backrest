@@ -187,7 +187,7 @@ def test_probabilistic_forecast_output_contract():
         })
     df_mock = pd.DataFrame(rows)
 
-    with patch("backend.app.routers.ai_copilot.fetch_history", return_value=df_mock):
+    with patch("backend.app.services.ai_copilot_service.fetch_history", return_value=df_mock):
         res = asyncio.run(compute_probabilistic_forecast("BTCUSDT", "15m", horizon_bars=16))
 
     assert res["status"] == "success"
@@ -222,7 +222,7 @@ def test_probabilistic_forecast_rejects_insufficient_bars():
     Proves that if historical candles count < 60, forecast raises HTTPException(400).
     """
     df_short = pd.DataFrame([{"timestamp": 1, "open": 1, "high": 2, "low": 0.5, "close": 1, "volume": 100}])
-    with patch("backend.app.routers.ai_copilot.fetch_history", return_value=df_short):
+    with patch("backend.app.services.ai_copilot_service.fetch_history", return_value=df_short):
         with pytest.raises(HTTPException) as exc_info:
             asyncio.run(compute_probabilistic_forecast("BTCUSDT", "15m", horizon_bars=16))
         assert exc_info.value.status_code == 400

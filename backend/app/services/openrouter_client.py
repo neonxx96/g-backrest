@@ -70,6 +70,9 @@ class OpenRouterClient:
         # Telemetry call history ring buffer (last 100 calls)
         self.call_history: List[Dict[str, Any]] = []
 
+        # Model failure cooldown tracker (TTL: 60s per failed model)
+        self._model_cooldowns: Dict[str, float] = {}
+
     def _get_current_utc_date(self) -> str:
         return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
@@ -200,16 +203,27 @@ class OpenRouterClient:
         chain: List[Tuple[str, bool, Optional[str]]] = []
         avail = available_models if available_models is not None else self._models_cache
 
+        now_t = time.time()
         for model in candidates:
             is_paid = self.is_paid_model(model)
             skip_reason = None
 
+            # Check 0: Temporary cooldown for recently failed/timed out models
+            if self._model_cooldowns.get(model, 0.0) > now_t:
+                skip_reason = f"Model '{model}' is in cooldown ({int(self._model_cooldowns[model] - now_t)}s remaining)"
+
             # Check 1: Daily budget ceiling for paid models
-            if is_paid and not self.can_use_paid_models():
+            elif is_paid and not self.can_use_paid_models():
                 skip_reason = f"Daily budget ceiling reached (${self.daily_spent_usd:.4f} >= ${self.daily_budget_usd:.2f})"
 
             # Check 2: Model availability in OpenRouter models catalog (1-hr cache)
-            elif avail and not self.is_model_available(model, avail):
+            # 'openrouter/free' — маршрутизатор бесплатных моделей, его ID нет в
+            # каталоге, но API его принимает: не отсекаем проверкой каталога.
+            elif (
+                avail
+                and model != "openrouter/free"
+                and not self.is_model_available(model, avail)
+            ):
                 skip_reason = f"Model '{model}' not present in OpenRouter models catalog"
 
             chain.append((model, is_paid, skip_reason))
@@ -440,23 +454,34 @@ class OpenRouterClient:
                                     is_fallback_hop = True
                                     break  # Try next model
 
-                                content = choices[0].get("message", {}).get("content", "")
+                                msg = choices[0].get("message", {})
+                                content = msg.get("content", "")
                                 if not content or not content.strip():
-                                    logger.warning(f"OpenRouter returned empty content for model '{model}'")
-                                    self._record_call(
-                                        model=model,
-                                        latency_ms=elapsed_ms,
-                                        prompt_tokens=0,
-                                        completion_tokens=0,
-                                        total_tokens=0,
-                                        cost=0.0,
-                                        status="EMPTY_RESPONSE",
-                                        fallback=is_fallback_hop,
-                                        fallback_reason="Empty message content",
-                                    )
-                                    last_failure_reason = "Empty content"
-                                    is_fallback_hop = True
-                                    break  # Try next model
+                                    # Reasoning-модели (flint, nemotron и др.) возвращают
+                                    # рассуждение в поле `reasoning`, а content=None.
+                                    # Решение (CONFIRM/VETO/JSON) извлекается из reasoning.
+                                    reasoning = msg.get("reasoning", "")
+                                    if reasoning and reasoning.strip():
+                                        content = reasoning.strip()
+                                        logger.info(
+                                            f"Model '{model}' returned reasoning instead of content; using reasoning as content"
+                                        )
+                                    else:
+                                        logger.warning(f"OpenRouter returned empty content for model '{model}'")
+                                        self._record_call(
+                                            model=model,
+                                            latency_ms=elapsed_ms,
+                                            prompt_tokens=0,
+                                            completion_tokens=0,
+                                            total_tokens=0,
+                                            cost=0.0,
+                                            status="EMPTY_RESPONSE",
+                                            fallback=is_fallback_hop,
+                                            fallback_reason="Empty message content",
+                                        )
+                                        last_failure_reason = "Empty content"
+                                        is_fallback_hop = True
+                                        break  # Try next model
 
                                 usage = res_json.get("usage", {})
                                 p_tok = int(usage.get("prompt_tokens", 0))
@@ -564,6 +589,7 @@ class OpenRouterClient:
 
                     except asyncio.TimeoutError:
                         elapsed_ms = int((time.time() - start_t) * 1000)
+                        self._model_cooldowns[model] = time.time() + 60.0
                         logger.warning(f"OpenRouter request timed out ({eff_timeout}s) for model '{model}'")
                         self._record_call(
                             model=model,
@@ -582,6 +608,7 @@ class OpenRouterClient:
 
                     except Exception as e:
                         elapsed_ms = int((time.time() - start_t) * 1000)
+                        self._model_cooldowns[model] = time.time() + 60.0
                         logger.warning(f"OpenRouter exception on model '{model}': {e}")
                         self._record_call(
                             model=model,
@@ -692,6 +719,173 @@ REASON: [1-2 concise sentences in Russian explaining the liquidity mechanics]
             "latency_ms": chat_res.get("latency_ms", 0),
             "cost": chat_res.get("cost", 0.0),
             "tokens": chat_res.get("tokens", {}),
+            "fallback": chat_res.get("fallback", False),
+            "fallback_reason": chat_res.get("fallback_reason"),
+        }
+
+    def _sentinel_quant_fallback(
+        self,
+        symbol: str,
+        position_info: Dict[str, Any],
+        market_snapshot: Dict[str, Any],
+        fallback_reason: str = "Local Cold Quant Sentinel",
+    ) -> Dict[str, Any]:
+        """
+        Детерминированный Cold Quant Sentinel для сопровождения открытой позиции,
+        когда LLM-модели недоступны или отключены (Block 3).
+        """
+        from backend.app.services.early_exit_engine import clamp_protective_stop
+
+        side = str(position_info.get("side", "LONG")).upper()
+        sign = 1 if side == "LONG" else -1
+        entry = float(position_info.get("entry_price", 0.0) or 0.0)
+        cur_sl = float(position_info.get("stop_price", 0.0) or 0.0)
+        price = float(market_snapshot.get("price", position_info.get("current_price", entry)) or entry)
+        mfe_r = float(position_info.get("mfe_r", 0.0) or 0.0)
+        pnl_r = float(position_info.get("current_pnl_r", 0.0) or 0.0)
+        depth_delta = float(market_snapshot.get("depth_delta_pct", 0.0) or 0.0)
+        opposing_absorption = bool(market_snapshot.get("opposing_absorption", False))
+        r_dist = abs(entry - float(position_info.get("initial_stop_price", cur_sl) or cur_sl))
+        if r_dist <= 0 and entry > 0:
+            r_dist = entry * 0.008
+
+        adverse_flow = opposing_absorption or (
+            (sign == 1 and depth_delta <= -15.0) or (sign == -1 and depth_delta >= 15.0)
+        )
+
+        action = "HOLD"
+        suggested_sl = cur_sl
+        reason = "Cold Quant Sentinel: импульс сохраняется, позиция удерживается по плану."
+
+        if mfe_r >= 0.5 and pnl_r <= mfe_r * 0.5 and adverse_flow:
+            action = "PARTIAL_CLOSE_50"
+            raw_sl = entry + sign * (r_dist * max(0.2, pnl_r * 0.5))
+            suggested_sl = clamp_protective_stop(side, cur_sl, raw_sl, price)
+            reason = (
+                f"Cold Quant Sentinel: MFE Bleed с +{mfe_r:.2f}R до +{pnl_r:.2f}R при встречном дисбалансе "
+                f"({depth_delta:+.1f}%) — фиксация 50% и подтяжка стопа."
+            )
+        elif mfe_r >= 1.2:
+            action = "TIGHTEN_SL"
+            lock_r = 0.9 if mfe_r >= 1.8 else 0.4
+            raw_sl = entry + sign * (r_dist * lock_r)
+            suggested_sl = clamp_protective_stop(side, cur_sl, raw_sl, price)
+            reason = f"Cold Quant Sentinel: MFE достиг +{mfe_r:.2f}R — защита +{lock_r:.1f}R прибыли."
+        elif mfe_r >= 0.5:
+            action = "TIGHTEN_SL"
+            raw_sl = entry * (1.0 + sign * 0.0012)
+            suggested_sl = clamp_protective_stop(side, cur_sl, raw_sl, price)
+            reason = f"Cold Quant Sentinel: MFE +{mfe_r:.2f}R — перевод стопа в безубыток с запасом на комиссию."
+
+        return {
+            "action": action,
+            "suggested_sl": suggested_sl,
+            "reason": reason,
+            "confidence": 0.88,
+            "model": "local_quant_sentinel",
+            "fallback": True,
+            "fallback_reason": fallback_reason,
+        }
+
+    async def evaluate_open_position_sentinel(
+        self,
+        symbol: str,
+        position_info: Dict[str, Any],
+        market_snapshot: Dict[str, Any],
+        model: Optional[str] = None,
+        timeout_sec: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """
+        Tier-2 Event-Driven AI Position Sentinel (Block 3):
+        Evaluates an already open position during MFE excursions, profit bleed, or order-flow shifts.
+        Enforces `clamp_protective_stop` so AI can NEVER widen the stop-loss or cross current price.
+        """
+        from backend.app.services.early_exit_engine import clamp_protective_stop
+
+        side = str(position_info.get("side", "LONG")).upper()
+        entry = float(position_info.get("entry_price", 0.0) or 0.0)
+        cur_sl = float(position_info.get("stop_price", 0.0) or 0.0)
+        tp_price = float(position_info.get("target_price", 0.0) or 0.0)
+        mfe_r = float(position_info.get("mfe_r", 0.0) or 0.0)
+        pnl_r = float(position_info.get("current_pnl_r", 0.0) or 0.0)
+        time_sec = float(position_info.get("time_in_trade_sec", 0.0) or 0.0)
+        price = float(market_snapshot.get("price", position_info.get("current_price", entry)) or entry)
+
+        prompt = f"""You are an institutional Position Sentinel managing an OPEN crypto futures trade on {symbol.upper()}.
+Your goal is PROFIT RETENTION (preventing MFE bleed where winning trades turn into losses).
+
+OPEN POSITION STATE:
+- Side: {side}
+- Entry Price: ${entry:,.4f}
+- Current Price: ${price:,.4f}
+- Current Stop-Loss: ${cur_sl:,.4f}
+- Take-Profit Target: ${tp_price:,.4f}
+- Current Unrealized PnL (R-multiples): {pnl_r:+.2f}R
+- Peak MFE Reached: +{mfe_r:.2f}R
+- Time in Trade: {time_sec:.0f}s
+
+LIVE ORDER-FLOW SNAPSHOT:
+- L2 Depth Delta (2.5%): {float(market_snapshot.get('depth_delta_pct', 0.0)):+.2f}%
+- Opposing Cluster Absorption Detected: {bool(market_snapshot.get('opposing_absorption', False))}
+- Active Tactical Alerts: {market_snapshot.get('active_alerts', [])}
+
+RULES:
+1. Choose ONE action from: HOLD, TIGHTEN_SL, PARTIAL_CLOSE_50, EARLY_EXIT_MARKET
+2. You may ONLY tighten the stop-loss in the direction of profit (for LONG: above current SL and below current price; for SHORT: below current SL and above current price). Never widen SL.
+
+RESPOND STRICTLY IN THIS FORMAT:
+ACTION: [HOLD | TIGHTEN_SL | PARTIAL_CLOSE_50 | EARLY_EXIT_MARKET]
+SUGGESTED_SL: [numeric price or {cur_sl}]
+CONFIDENCE: [0.0 to 1.0]
+REASON: [1 concise sentence in Russian explaining why]
+"""
+        messages = [
+            {"role": "system", "content": "You are a quantitative position sentinel focused on profit retention."},
+            {"role": "user", "content": prompt},
+        ]
+
+        chat_res = await self.chat_completion(
+            messages=messages,
+            preferred_model=model,
+            temperature=0.1,
+            max_tokens=160,
+            timeout_sec=timeout_sec,
+        )
+
+        content = chat_res.get("content")
+        if not content:
+            return self._sentinel_quant_fallback(
+                symbol,
+                position_info,
+                market_snapshot,
+                fallback_reason=chat_res.get("fallback_reason") or "All AI models unavailable",
+            )
+
+        act_match = re.search(
+            r"ACTION:\s*(HOLD|TIGHTEN_SL|PARTIAL_CLOSE_50|EARLY_EXIT_MARKET)",
+            content,
+            re.IGNORECASE,
+        )
+        action = act_match.group(1).upper() if act_match else "HOLD"
+
+        sl_match = re.search(r"SUGGESTED_SL:\s*\$?([0-9]+(?:\.[0-9]+)?)", content, re.IGNORECASE)
+        proposed_sl = float(sl_match.group(1)) if sl_match else cur_sl
+        safe_sl = clamp_protective_stop(side, cur_sl, proposed_sl, price)
+
+        conf_match = re.search(r"CONFIDENCE:\s*([0-9.]+)", content, re.IGNORECASE)
+        conf = float(conf_match.group(1)) if conf_match else 0.85
+
+        reason_match = re.search(r"REASON:\s*(.+)", content, re.IGNORECASE | re.DOTALL)
+        reason = reason_match.group(1).strip().split("\n")[0].strip() if reason_match else content.strip()
+
+        return {
+            "action": action,
+            "suggested_sl": safe_sl,
+            "reason": reason or f"AI Sentinel: {action}",
+            "confidence": min(max(conf, 0.0), 1.0),
+            "model": chat_res.get("model", self.primary_model),
+            "latency_ms": chat_res.get("latency_ms", 0),
+            "cost": chat_res.get("cost", 0.0),
             "fallback": chat_res.get("fallback", False),
             "fallback_reason": chat_res.get("fallback_reason"),
         }

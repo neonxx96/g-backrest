@@ -15,8 +15,6 @@ import { useTradeOverlayStore } from '../stores/tradeOverlayStore';
  * 8. Позиции и уровни: Синхронизированные плашки ENTRY (синяя), SL (красная), TP1/TP2 (зеленые).
  */
 
-const ROW_HEIGHT = 20;
-
 export default function OrderBookCanvasLadder({
   visibleRows = [],
   aggregatedData = {},
@@ -25,6 +23,8 @@ export default function OrderBookCanvasLadder({
   stepSize = 1,
   priceDecimals = 1,
   volumeMode = 'USDT',
+  rowHeight = 20,
+  volumePalette = 'classic',
   megaWallUsd = 1000000,
   densityThresholdUsd = 250000,
   strategyLevels = [],
@@ -35,6 +35,7 @@ export default function OrderBookCanvasLadder({
   onRowClick = null,
   onHoverRow = null
 }) {
+  const ROW_HEIGHT = Math.max(14, Math.min(32, Number(rowHeight) || 20));
   const canvasRef = useRef(null);
   const hoverIdxRef = useRef(-1);
 
@@ -173,33 +174,85 @@ export default function OrderBookCanvasLadder({
         ctx.fillText(fmtUsd(cl.totalUsd), colClusterX + colClusterW - 6, y + ROW_HEIGHT / 2);
       }
 
+      // 2b-2. Trade Bubbles (Column 2: круги рыночных сделок, CScalp-стиль)
+      const tb = aggregatedData.tickBubbles ? aggregatedData.tickBubbles.get(row.key) : null;
+      if (tb && tb.usd > 0) {
+        const cx = colTicksX + colTicksW / 2;
+        const cy = y + ROW_HEIGHT / 2;
+        const maxBubbleUsd = 100_000;
+        const radius = Math.max(3.5, Math.min(colTicksW / 2 - 2, Math.round(3.5 + Math.sqrt(Math.min(tb.usd, maxBubbleUsd) / maxBubbleUsd) * 8)));
+        ctx.fillStyle = tb.isBuy ? 'rgba(16, 185, 129, 0.85)' : 'rgba(239, 68, 68, 0.85)';
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (radius >= 6) {
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 7.5px monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          const bubbleTxt = tb.usd >= 1e6 ? `${(tb.usd / 1e6).toFixed(1)}M` : tb.usd >= 1e3 ? `${Math.round(tb.usd / 1e3)}K` : `${Math.round(tb.usd)}`;
+          ctx.fillText(bubbleTxt, cx, cy);
+        }
+      }
+
       // 2c. Depth volume bar (Column 3)
       if (bookItem && rawVal > 0) {
         const barWidth = Math.min(colDepthW - 6, Math.max(2, Math.round((rawVal / maxDomVal) * (colDepthW - 6))));
+        const totalBook = aggregatedData.totalBookUsd || 1;
+        const depthPct = totalBook > 0 ? `${((usdVal / totalBook) * 100).toFixed(1)}%` : '';
+
+        let normFill = side === 'bid' ? 'rgba(38, 166, 154, 0.22)' : 'rgba(239, 83, 80, 0.22)';
+        let largeFill = side === 'bid' ? 'rgba(38, 166, 154, 0.55)' : 'rgba(239, 83, 80, 0.55)';
+        let largeStroke = side === 'bid' ? '#26a69a' : '#ef5350';
+
+        if (volumePalette === 'heat') {
+          const intensity = Math.min(1.0, (rawVal / maxDomVal) * 1.4);
+          if (intensity > 0.7) {
+            normFill = 'rgba(249, 115, 22, 0.35)';
+            largeFill = 'rgba(249, 115, 22, 0.65)';
+            largeStroke = '#f97316';
+          } else if (intensity > 0.35) {
+            normFill = 'rgba(234, 179, 8, 0.28)';
+            largeFill = 'rgba(234, 179, 8, 0.55)';
+            largeStroke = '#eab308';
+          } else {
+            normFill = 'rgba(34, 197, 94, 0.22)';
+            largeFill = 'rgba(34, 197, 94, 0.45)';
+            largeStroke = '#22c55e';
+          }
+        } else if (volumePalette === 'monochrome') {
+          normFill = side === 'bid' ? 'rgba(56, 189, 248, 0.20)' : 'rgba(148, 163, 184, 0.20)';
+          largeFill = side === 'bid' ? 'rgba(56, 189, 248, 0.50)' : 'rgba(148, 163, 184, 0.50)';
+          largeStroke = side === 'bid' ? '#38bdf8' : '#94a3b8';
+        }
 
         if (isMegaWall) {
-          // Mega wall highlight: gold/amber glow with border
-          ctx.fillStyle = 'rgba(245, 158, 11, 0.65)';
+          // Mega wall highlight: яркий янтарный фон с рамкой (CScalp-референс 5: крупный сайз)
+          ctx.fillStyle = 'rgba(245, 158, 11, 0.78)';
           ctx.fillRect(colDepthX + 2, y + 1.5, barWidth, ROW_HEIGHT - 3);
           ctx.strokeStyle = '#fbbf24';
-          ctx.lineWidth = 1;
+          ctx.lineWidth = 1.2;
           ctx.strokeRect(colDepthX + 2, y + 1.5, barWidth, ROW_HEIGHT - 3);
         } else if (isLargeWall) {
-          ctx.fillStyle = side === 'bid' ? 'rgba(38, 166, 154, 0.45)' : 'rgba(239, 83, 80, 0.45)';
+          ctx.fillStyle = largeFill;
           ctx.fillRect(colDepthX + 2, y + 2, barWidth, ROW_HEIGHT - 4);
+          ctx.strokeStyle = largeStroke;
+          ctx.lineWidth = 0.8;
+          ctx.strokeRect(colDepthX + 2, y + 2, barWidth, ROW_HEIGHT - 4);
         } else {
-          ctx.fillStyle = side === 'bid' ? 'rgba(38, 166, 154, 0.22)' : 'rgba(239, 83, 80, 0.22)';
+          ctx.fillStyle = normFill;
           ctx.fillRect(colDepthX + 2, y + 2, barWidth, ROW_HEIGHT - 4);
         }
 
-        // Feature 1: Lifetime badge text [<10s] / [>30s]
-        if (isLargeWall) {
-          ctx.font = '8.5px monospace';
+        // Feature 1: Lifetime badge text [<10s] / [>30s] / [>1m] + процент глубины
+        if (isLargeWall || isMegaWall) {
+          ctx.font = '8px monospace';
           ctx.textBaseline = 'middle';
-          let lifeBadge = lifeSec >= 30 ? '[>30s]' : lifeSec < 10 ? '[<10s]' : `[${lifeSec}s]`;
-          ctx.fillStyle = isMegaWall ? '#fbbf24' : lifeSec >= 30 ? '#f59e0b' : '#94a3b8';
+          let lifeBadge = lifeSec >= 60 ? '[>1m]' : lifeSec >= 30 ? '[>30s]' : lifeSec < 10 ? '[<10s]' : `[${lifeSec}s]`;
+          ctx.fillStyle = isMegaWall ? '#fef08a' : lifeSec >= 30 ? '#f59e0b' : '#94a3b8';
           ctx.textAlign = 'left';
-          ctx.fillText(lifeBadge, colDepthX + 4, y + ROW_HEIGHT / 2);
+          ctx.fillText(`${lifeBadge} ${depthPct}`, colDepthX + 4, y + ROW_HEIGHT / 2);
         }
 
         // Volume text

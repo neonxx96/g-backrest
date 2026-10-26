@@ -2,6 +2,9 @@ export const STRATEGIES = [
   { id: 'confluence_ema', label: 'Тренд EMA + фильтры' },
   { id: 'cvd_absorption', label: 'Поглощение объёма (CVD)' },
   { id: 'cluster_volume_bounce', label: 'Отскок от объёмного уровня' },
+  { id: 'ema_pullback', label: 'EMA Pullback (Откат к тренду)' },
+  { id: 'ema_trend_window', label: 'EMA Trend Window (Окно тренда)' },
+  { id: 'ema_trend', label: 'EMA Trend (Классический тренд)' },
 ];
 
 export function allocateCapital(total, count) {
@@ -57,14 +60,14 @@ export function describePilotEvent(event, paper) {
 
 export function validateConfigs(configs) {
   const errors = [];
-  if (!Array.isArray(configs) || !configs.length || configs.length > 5) return ['Выберите от 1 до 5 монет.'];
+  if (!Array.isArray(configs) || !configs.length || configs.length > 25) return ['Выберите от 1 до 25 монет.'];
   const symbols = new Set();
   for (const c of configs) {
     const symbol = String(c.symbol || '').trim().toUpperCase();
     if (!/^[A-Z0-9]{2,20}USDT$/.test(symbol) || symbols.has(symbol)) errors.push('Монеты должны быть уникальными USDT-парами.');
     symbols.add(symbol);
     if (!STRATEGIES.some(s => s.id === c.strategy_type)) errors.push(`${symbol}: выберите поддержанную стратегию.`);
-    if (!['1m', '5m', '15m', '1h'].includes(c.timeframe)) errors.push(`${symbol}: выберите таймфрейм.`);
+    if (!['1m', '3m', '5m', '15m', '1h', '4h'].includes(c.timeframe)) errors.push(`${symbol}: выберите таймфрейм.`);
     for (const [key, min, max, label] of [
       ['initial_capital', 0.01, Number.MAX_SAFE_INTEGER / 100, 'депозит'], ['risk_per_trade_pct', 0.01, 10, 'риск'],
       ['stop_loss_pct', 0.01, 50, 'стоп'], ['take_profit_pct', 0.01, 200, 'цель'], ['leverage', 1, 125, 'плечо'],

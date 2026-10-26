@@ -176,6 +176,30 @@ async def broadcast_signal(signal: Dict[str, Any]):
         logger.error(f"Error in broadcast_signal: {e}")
 
 
+async def broadcast_alert(text: str) -> None:
+    """Системное оповещение (Warning Sentinel, задача 7.2) всем подписчикам.
+
+    Без rate-limit очереди сигналов: sentinel сам кулдаунит по ключу алерта.
+    """
+    if not bot:
+        logger.warning("Telegram Bot is not initialized or token missing; alert suppressed.")
+        return
+    try:
+        async with AsyncSessionLocal() as db:
+            res = await db.execute(select(UserSetting.user_id).where(
+                UserSetting.user_id != "0",
+                UserSetting.notifications_enabled == True
+            ))
+            subscribers = res.scalars().all()
+        for uid in subscribers:
+            try:
+                await bot.send_message(chat_id=uid, text=text, parse_mode=ParseMode.HTML)
+            except Exception as e:
+                logger.warning(f"Could not send alert to telegram user {uid}: {e}")
+    except Exception as e:
+        logger.error(f"Error in broadcast_alert: {e}")
+
+
 async def start_bot_polling():
     """Runs bot polling loop in background."""
     if bot and dp:

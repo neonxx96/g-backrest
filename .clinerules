@@ -1,21 +1,21 @@
 # Cline Project Workflow & Constraints
 
-1. Context Verification:
-   - Before writing, modifying, or deleting any code, always read context/CURRENT_TASK.md.
-   - Strictly follow the "Quant Constraints", target file paths, and Acceptance Criteria defined there.
+> **ЕДИНЫЙ ИСТОЧНИК ПРАВИЛ:** Основные архитектурные, инженерные правила, стек технологий, правила Git и шлюз качества определены в [AGENTS.md](file:///d:/AI_agent_space/gemini/AGENTS.md). Все требования обязательны к исполнению.
 
-2. Engineering Invariants for Backtesting Engine:
-   - Zero Look-Ahead Bias: Bar t calculations must never access data at index > t.
-   - Timestamps: Strictly UTC UNIX millisecond timestamps (ms).
-   - Sizing & Execution: Include slippage, maker/taker fees, and latency models in execution logic.
+1. **Контекст задачи**:
+   - Перед написанием, модификацией или удалением кода всегда читать [HANDOFF.md](file:///d:/AI_agent_space/gemini/HANDOFF.md) и [context/CURRENT_TASK.md](file:///d:/AI_agent_space/gemini/context/CURRENT_TASK.md).
+   - Следовать спецификации задачи в `tasks/` (текущая: [tasks/008-situation-analysis-and-winrate-boost.md](file:///d:/AI_agent_space/gemini/tasks/008-situation-analysis-and-winrate-boost.md)).
 
-3. Task Completion:
-   - Run unit tests and linters in terminal to verify implementation.
-   - Once completed, append the execution summary, list of changed files, and test output to the "### Execution Log" section in context/CURRENT_TASK.md.
+2. **Инженерные инварианты движка**:
+   - Zero Look-Ahead Bias: бары $t$ никогда не обращаются к данным $> t$.
+   - Таймстампы: строго UTC UNIX миллисекунды (ms).
+   - Исполнение и сайзинг: включать проскальзывание, maker/taker комиссии и модель задержки.
 
-4. Automatic Model Routing:
-   - Start Cline tasks through `powershell -ExecutionPolicy Bypass -File scripts/cline-auto.ps1 -TaskFile <task-file>`.
-   - The router classifies the task as routine, standard, expert, or review and launches Cline with the configured model.
-   - Do not change the model during one task. If the task becomes materially harder, stop and report `ESCALATE_MODEL`.
-   - Use `-DryRun` to inspect the selected route without starting Cline.
-   - Never place API keys or secrets in routing files, task files, or logs.
+3. **Автоматический выбор модели**:
+   - Запуск через `powershell -ExecutionPolicy Bypass -File scripts/cline-auto.ps1 -TaskFile <task-file>`.
+   - Конфигурация зафиксирована в [config/model-routing.json](file:///d:/AI_agent_space/gemini/config/model-routing.json).
+   - Модель фиксируется на всю задачу. При усложнении остановиться с маркером `ESCALATE_MODEL`.
+
+4. **Завершение задачи**:
+   - Перед коммитом запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`.
+   - Заполнить финальный отчет строго по разделу 7 [AGENTS.md](file:///d:/AI_agent_space/gemini/AGENTS.md).

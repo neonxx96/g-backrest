@@ -1,15 +1,17 @@
-# Antigravity Trading Terminal Engineering Rules
+# GEMINI.md — Правила для Antigravity Agent
 
-## 1. Master Context Source
-- The current blueprint, architectural constraints, and task definitions are located in context/CURRENT_TASK.md.
-- Read context/CURRENT_TASK.md before planning actions or launching subagents.
+> **ЕДИНЫЙ ИСТОЧНИК ПРАВИЛ:** Основные архитектурные, инженерные правила, стек технологий, правила Git и шлюз качества определены в [AGENTS.md](file:///d:/AI_agent_space/gemini/AGENTS.md). Все требования обязательны к исполнению.
 
-## 2. Quantitative & Architecture Standards
-- Zero Look-Ahead Bias: Strategies must only consume data available strictly at or before execution timestamp t.
-- Performance: Prioritize vectorization (NumPy/Polars) or zero-copy event-driven structures.
-- Precision: Round prices and lot sizes according to exchange tick-size/lot-size filters.
+## Быстрые правила для Antigravity
 
-## 3. Artifact & Log Protocol
-- Reflect all completed checklist items directly in context/CURRENT_TASK.md.
-- Run terminal test verification (pytest, benchmarks) before concluding the task.
-- Update "### Execution Log" with diff summaries and test results.
+1. **Контекст задачи**:
+   - Перед началом работы прочитать [HANDOFF.md](file:///d:/AI_agent_space/gemini/HANDOFF.md) и [context/CURRENT_TASK.md](file:///d:/AI_agent_space/gemini/context/CURRENT_TASK.md).
+   - Следовать спецификации задачи в `tasks/` (текущая: [tasks/008-situation-analysis-and-winrate-boost.md](file:///d:/AI_agent_space/gemini/tasks/008-situation-analysis-and-winrate-boost.md)).
+
+2. **Квантовые и архитектурные стандарты**:
+   - Zero Look-Ahead Bias: вычисления на свече $t$ используют только данные $\le t$.
+   - Все решения и параметры риска валидируются через [docs/DECISIONS.md](file:///d:/AI_agent_space/gemini/docs/DECISIONS.md) и `backend/app/services/risk_engine.py`.
+
+3. **Шлюз качества и завершение задачи**:
+   - Перед коммитом запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`.
+   - Оформить отчет строго по разделу 7 [AGENTS.md](file:///d:/AI_agent_space/gemini/AGENTS.md).

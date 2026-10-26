@@ -214,30 +214,37 @@ async def save_workspace(payload: SaveWorkspacePayload, db: AsyncSession = Depen
     layout_str = json.dumps(layout_data, ensure_ascii=False)
     color_links_str = json.dumps(payload.color_links or DEFAULT_COLOR_LINKS, ensure_ascii=False)
 
-    existing_ws = next((w for w in all_ws if w.id == target_id), None)
-    if existing_ws:
-        existing_ws.name = payload.name
-        existing_ws.layout_data = layout_str
-        existing_ws.color_links = color_links_str
-        existing_ws.updated_at = datetime.utcnow()
-        await db.commit()
-        await db.refresh(existing_ws)
-        saved = existing_ws
-    else:
-        new_ws = Workspace(
-            id=target_id,
-            user_id="0",
-            name=payload.name,
-            layout_data=layout_str,
-            color_links=color_links_str,
-            is_default=bool(payload.is_default),
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+    try:
+        existing_ws = next((w for w in all_ws if w.id == target_id), None)
+        if existing_ws:
+            existing_ws.name = payload.name
+            existing_ws.layout_data = layout_str
+            existing_ws.color_links = color_links_str
+            existing_ws.updated_at = datetime.utcnow()
+            await db.commit()
+            await db.refresh(existing_ws)
+            saved = existing_ws
+        else:
+            new_ws = Workspace(
+                id=target_id,
+                user_id="0",
+                name=payload.name,
+                layout_data=layout_str,
+                color_links=color_links_str,
+                is_default=bool(payload.is_default),
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
+            )
+            db.add(new_ws)
+            await db.commit()
+            await db.refresh(new_ws)
+            saved = new_ws
+    except Exception as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Не удалось сохранить раскладку в SQLite: {exc}"
         )
-        db.add(new_ws)
-        await db.commit()
-        await db.refresh(new_ws)
-        saved = new_ws
 
     return WorkspaceDetail(
         id=saved.id,

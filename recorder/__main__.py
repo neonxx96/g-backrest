@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 
 def main() -> int:
     parser = argparse.ArgumentParser(prog="python -m recorder")
-    parser.add_argument("command", choices=("run", "status"))
+    parser.add_argument("command", choices=("run", "status", "manifest"))
     parser.add_argument("--config", type=Path, default=Path("recorder.yaml"))
     args = parser.parse_args()
     config = load_config(args.config)
@@ -23,9 +23,21 @@ def main() -> int:
         print(json.dumps(service.status(), indent=2))
         service.close()
         return 0
-    url = config.binance_ws_url or service.build_binance_url(config.tier1_symbols)
+    if args.command == "manifest":
+        from .manifest import write_data_manifest
+        output = write_data_manifest(config.lake_root)
+        print(json.dumps({"manifest": str(output)}, indent=2))
+        service.close()
+        return 0
+    url = config.binance_ws_url or service.build_binance_url(
+        RecorderService.merged_symbols(config.tier1_symbols, RecorderService.load_watchlist_symbols(config.watchlist_file))
+    )
     try:
-        asyncio.run(service.run_forever(url))
+        asyncio.run(service.run_forever(
+            url,
+            watchlist_path=config.watchlist_file or None,
+            base_symbols=config.tier1_symbols,
+        ))
     except KeyboardInterrupt:
         service.close()
     return 0

@@ -13,9 +13,9 @@ from backend.app.config import BASE_DIR, OPENROUTER_API_KEY
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 CACHE_TTL_SECONDS = 6 * 60 * 60
 DEFAULT_AI_CONFIG = {
-    "selected_model": "google/gemini-2.0-flash-001",
-    "favorite_models": [],
-    "fallback_model": "google/gemini-2.0-flash-001",
+    "selected_model": "deepseek/deepseek-v4.1-flash",
+    "favorite_models": ["deepseek/deepseek-v4.1-flash", "qwen/qwen3.8-flash", "qwen/qwen3.5-flash-02-23"],
+    "fallback_model": "openrouter/free",
     "temperature": 0.2,
 }
 CURATED_ROLES = {

@@ -6,6 +6,9 @@ const STRATEGY_OPTIONS = [
   { value: 'confluence_ema', label: 'Confluence EMA · CVD/RSI/ATR' },
   { value: 'cvd_absorption', label: 'CVD Absorption' },
   { value: 'cluster_volume_bounce', label: 'Cluster Volume Bounce' },
+  { value: 'ema_pullback', label: 'EMA Pullback · отскок к EMA20 в тренде' },
+  { value: 'ema_trend', label: 'EMA Trend · пересечение 20/50' },
+  { value: 'ema_trend_window', label: 'EMA Trend Window · подтверждение кросса 8 баров' },
 ];
 
 function formatPct(value, digits = 3) {
@@ -36,6 +39,26 @@ function rowPaperFloatingPnl(row) {
     return Number(row.paper_equity) - Number(row.paper_starting_balance) - Number(row.paper_pnl);
   }
   return null;
+}
+
+const VERDICT_STYLES = {
+  PASS: 'border-emerald-700 bg-emerald-950/60 text-emerald-300',
+  WARNING: 'border-amber-700 bg-amber-950/60 text-amber-300',
+  BLOCK: 'border-red-700 bg-red-950/60 text-red-300'
+};
+
+function VerdictBadge({ verdict }) {
+  if (!verdict || !verdict.level) return null;
+  const style = VERDICT_STYLES[verdict.level] || VERDICT_STYLES.WARNING;
+  const title = [...(verdict.reasons || []), ...(verdict.flags || [])].join('\n');
+  return (
+    <span
+      title={title || verdict.level}
+      className={`inline-block rounded border px-1 py-px font-mono text-[8px] font-bold ${style}`}
+    >
+      {verdict.level}
+    </span>
+  );
 }
 
 function Metric({ label, value }) {
@@ -106,7 +129,7 @@ function RecentBacktestTrades({ backtest }) {
 
 function PaperTradeTimeline({ paper }) {
   const trades = (paper?.closed_trades || []).slice(-5).reverse();
-  const positions = (paper?.positions || []).filter((position) => !position.closed && Number(position.qty || 0) > 0);
+  const positions = (paper?.open_positions || paper?.positions || []).filter((position) => !position.closed && Number(position.qty || 0) > 0);
   const asDate = (value) => {
     if (value == null || value === '') return null;
     const numeric = Number(value);
@@ -469,7 +492,7 @@ export default function OvernightPilotPanel({ onClose }) {
           </div>
         ))}
       </div>
-      {status.summary?.length > 0 && <div className="mx-3 mb-3 rounded border border-neutral-800 bg-neutral-950/70 p-2"><div className="mb-1 text-[10px] font-bold text-amber-200">Сводка сравнения · Backtest / Forecast / Paper</div><div className="grid gap-1 text-[9px] text-neutral-400 md:grid-cols-3">{status.summary.map((row) => { const floating = rowPaperFloatingPnl(row); return <div key={row.symbol} className="rounded bg-neutral-900 px-2 py-1"><div><span className="font-mono text-white">{row.symbol}</span> · BT ROI {formatPct(row.backtest_roi_pct)} · PF {row.backtest_profit_factor} · DD {formatPct(row.backtest_max_drawdown_pct)}</div><div>BT Avg ${Number(row.backtest_average_trade_usd || 0).toFixed(2)} · Best ${Number(row.backtest_best_trade_usd || 0).toFixed(2)} · Worst ${Number(row.backtest_worst_trade_usd || 0).toFixed(2)}</div><div>Forecast {row.forecast_direction || 'NO_TRADE'} · Paper ${row.paper_starting_balance == null ? '—' : Number(row.paper_starting_balance).toFixed(2)} → ${row.paper_equity == null ? '—' : Number(row.paper_equity).toFixed(2)} · Realized {row.paper_pnl == null ? '—' : `$${Number(row.paper_pnl).toFixed(2)}`} · Floating {floating == null ? '—' : `$${floating.toFixed(2)}`}</div><div>Paper ROI {formatPct(row.paper_roi_pct, 3)} · Win {formatPct(row.paper_win_rate_pct, 1)} · PF {row.paper_profit_factor == null ? '—' : Number(row.paper_profit_factor).toFixed(2)} · Risk {row.paper_average_risk_pct == null ? '—' : `${Number(row.paper_average_risk_pct).toFixed(2)}%`}</div><div>Paper Avg ${Number(row.paper_average_trade_usd || 0).toFixed(2)} · Best ${Number(row.paper_best_trade_usd || 0).toFixed(2)} · Worst ${Number(row.paper_worst_trade_usd || 0).toFixed(2)}</div><div>Forecast NO_TRADE {row.forecast_no_trade_count || 0} · Paper no-entry {row.paper_no_trade_count || 0} · errors {row.paper_errors || 0} · data {row.paper_data_status || row.forecast_data_status || 'unknown'} · {row.forecast_backtest_divergence ? <span className="text-amber-300">forecast ≠ last BT</span> : 'forecast aligns'}{row.paper_losing_trade_reasons?.length ? ` · losses: ${row.paper_losing_trade_reasons.map((item) => item.exit_reason).join(', ')}` : ''}</div>{row.paper_last_decision_reason && <div className="truncate text-amber-200" title={row.paper_last_decision_reason}>Last paper decision: {row.paper_last_decision_reason}</div>}</div>; })}</div></div>}
+      {status.summary?.length > 0 && <div className="mx-3 mb-3 rounded border border-neutral-800 bg-neutral-950/70 p-2"><div className="mb-1 text-[10px] font-bold text-amber-200">Сводка сравнения · Backtest / Forecast / Paper</div><div className="grid gap-1 text-[9px] text-neutral-400 md:grid-cols-3">{status.summary.map((row) => { const floating = rowPaperFloatingPnl(row); return <div key={row.symbol} className="rounded bg-neutral-900 px-2 py-1"><div><span className="font-mono text-white">{row.symbol}</span> <VerdictBadge verdict={row.verdict} /> · BT ROI {formatPct(row.backtest_roi_pct)} · PF {row.backtest_profit_factor} · DD {formatPct(row.backtest_max_drawdown_pct)}</div><div>BT Avg ${Number(row.backtest_average_trade_usd || 0).toFixed(2)} · Best ${Number(row.backtest_best_trade_usd || 0).toFixed(2)} · Worst ${Number(row.backtest_worst_trade_usd || 0).toFixed(2)}</div><div>Forecast {row.forecast_direction || 'NO_TRADE'} · Paper ${row.paper_starting_balance == null ? '—' : Number(row.paper_starting_balance).toFixed(2)} → ${row.paper_equity == null ? '—' : Number(row.paper_equity).toFixed(2)} · Realized {row.paper_pnl == null ? '—' : `$${Number(row.paper_pnl).toFixed(2)}`} · Floating {floating == null ? '—' : `$${floating.toFixed(2)}`}</div><div>Paper ROI {formatPct(row.paper_roi_pct, 3)} · Win {formatPct(row.paper_win_rate_pct, 1)} · PF {row.paper_profit_factor == null ? '—' : Number(row.paper_profit_factor).toFixed(2)} · Risk {row.paper_average_risk_pct == null ? '—' : `${Number(row.paper_average_risk_pct).toFixed(2)}%`}</div><div>Paper Avg ${Number(row.paper_average_trade_usd || 0).toFixed(2)} · Best ${Number(row.paper_best_trade_usd || 0).toFixed(2)} · Worst ${Number(row.paper_worst_trade_usd || 0).toFixed(2)}</div><div>Forecast NO_TRADE {row.forecast_no_trade_count || 0} · Paper no-entry {row.paper_no_trade_count || 0} · errors {row.paper_errors || 0} · data {row.paper_data_status || row.forecast_data_status || 'unknown'} · {row.forecast_backtest_divergence ? <span className="text-amber-300">forecast ≠ last BT</span> : 'forecast aligns'}{row.paper_losing_trade_reasons?.length ? ` · losses: ${row.paper_losing_trade_reasons.map((item) => item.exit_reason).join(', ')}` : ''}</div>{row.paper_last_decision_reason && <div className="truncate text-amber-200" title={row.paper_last_decision_reason}>Last paper decision: {row.paper_last_decision_reason}</div>}</div>; })}</div></div>}
       {!status.aggregate && status.summary?.length > 0 && <ClientAggregate summary={status.summary} />}
       {status.aggregate && <div className="mx-3 mb-3 rounded border border-cyan-900/50 bg-cyan-950/10 p-2" data-testid="overnight-aggregate-report">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><div className="text-[10px] font-bold text-cyan-200">Итоговый отчёт · метрики не смешиваются</div><div className="text-[8px] text-neutral-500">Лучший BT: <span className="text-white">{status.aggregate.best_backtest_symbol || '—'}</span> · Лучший Paper: <span className="text-white">{status.aggregate.best_paper_symbol || '—'}</span></div></div>

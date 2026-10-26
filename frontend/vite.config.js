@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig(({ mode }) => {
+  // Vite перечитывает .env при каждом перезапуске dev-сервера; при смене
+  // BACKEND_PORT достаточно триггернуть restart этим конфигом.
   const env = loadEnv(mode, '..', '')
   const backendHost = env.BACKEND_HOST || '127.0.0.1'
   const backendPort = env.BACKEND_PORT || '8000'
@@ -29,7 +31,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      port: 5173,
+      port: 7100,
       host: true,
       proxy: {
         '/api': {

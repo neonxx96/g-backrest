@@ -37,7 +37,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 BACKEND_URL = "http://127.0.0.1:8000"
-FRONTEND_URL = "http://127.0.0.1:5173"
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:7100")
 BACKEND_PROBE = f"{BACKEND_URL}/api/settings?user_id=0"
 
 BACKEND_START_TIMEOUT = 90
@@ -114,13 +114,13 @@ def ensure_servers() -> None:
         _wait_for(BACKEND_PROBE, BACKEND_START_TIMEOUT, "Backend :8000")
 
     if _probe(FRONTEND_URL):
-        log("[INFO] Frontend already running on :5173 (reused).")
+        log(f"[INFO] Frontend already running on {FRONTEND_URL} (reused).")
     else:
-        log("[INFO] Starting frontend: npm run dev -- --host 127.0.0.1 --port 5173")
+        log("[INFO] Starting frontend: npm run dev -- --host 127.0.0.1 --port 7100")
         npm_cmd = "npm.cmd" if os.name == "nt" else "npm"
-        _spawn([npm_cmd, "run", "dev", "--", "--host", "127.0.0.1", "--port", "5173"],
+        _spawn([npm_cmd, "run", "dev", "--", "--host", "127.0.0.1", "--port", "7100"],
                PROJECT_ROOT / "frontend")
-        _wait_for(FRONTEND_URL, FRONTEND_START_TIMEOUT, "Frontend :5173")
+        _wait_for(FRONTEND_URL, FRONTEND_START_TIMEOUT, "Frontend :7100")
 
 
 def shutdown_servers() -> None:
@@ -335,11 +335,12 @@ def run_blocking_part(console_errors: list, page_errors: list) -> bool:
             failures.append(f"page did not open: {exc}")
 
         log("[2/4] Waiting for chart and order-book canvases ...")
-        try:
-            page.wait_for_selector('[data-testid="orderbook-canvas-ladder"]',
-                                   timeout=UI_RENDER_TIMEOUT_MS)
-        except Exception as exc:
-            failures.append(f"order-book canvas not found: {exc}")
+        ladder_rect = _ensure_orderbook_visible(page)
+        log(f"      order-book canvas rect: {ladder_rect}")
+        if not ladder_rect:
+            failures.append("order-book ladder canvas is missing after opening the DOM widget")
+        elif ladder_rect["w"] < 100 or ladder_rect["h"] < 40:
+            failures.append(f"order-book ladder canvas is not really rendered: {ladder_rect}")
 
         try:
             page.wait_for_function(
@@ -403,14 +404,6 @@ def run_blocking_part(console_errors: list, page_errors: list) -> bool:
             failures.append(f"chart canvas is not really rendered: {chart_rect}")
         if not canvas_report["ladder_present"]:
             failures.append("order-book ladder canvas element is missing")
-
-        log("[2b/4] Ensuring the order-book widget is actually visible ...")
-        ladder_rect = _ensure_orderbook_visible(page)
-        log(f"      order-book canvas rect: {ladder_rect}")
-        if not ladder_rect:
-            failures.append("order-book ladder canvas is missing after opening the DOM widget")
-        elif ladder_rect["w"] < 100 or ladder_rect["h"] < 40:
-            failures.append(f"order-book ladder canvas is not really rendered: {ladder_rect}")
 
         log("[3/4] Switching symbol (ArrowDown) ...")
         symbol_before = _collect_header_symbol(page)

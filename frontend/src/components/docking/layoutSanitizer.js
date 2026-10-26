@@ -1,6 +1,6 @@
 export const DOCKVIEW_COMPONENT_IDS = new Set([
   'chart', 'orderbook', 'dom', 'watchlist', 'screener', 'signals', 'trades',
-  'footprint_placeholder', 'cvd_placeholder', 'papertrade', 'tradehistory',
+  'footprint', 'footprint_placeholder', 'cvd_placeholder', 'papertrade', 'tradehistory',
   'liq_analytics', 'liquidations'
 ]);
 
@@ -21,7 +21,20 @@ function sanitizeNode(node, panelIds) {
 /** Drop stale Dockview components before restoring a persisted workspace. */
 export function sanitizeDockviewLayout(layout) {
   if (!layout?.grid?.root || !layout?.panels) return null;
-  const panels = Object.fromEntries(Object.entries(layout.panels).filter(([, panel]) => DOCKVIEW_COMPONENT_IDS.has(panel?.contentComponent)));
+  let seenTradeHistory = false;
+  const panels = {};
+  for (const [id, panel] of Object.entries(layout.panels)) {
+    if (!DOCKVIEW_COMPONENT_IDS.has(panel?.contentComponent)) continue;
+    if (panel?.contentComponent === 'tradehistory' || panel?.contentComponent === 'papertrade') {
+      if (seenTradeHistory) {
+        continue; // Deduplicate: keep only one paper trading / trade history panel
+      }
+      seenTradeHistory = true;
+      panels[id] = { ...panel, contentComponent: 'tradehistory', title: 'Демо-торговля & Сделки (20 пар)' };
+    } else {
+      panels[id] = panel;
+    }
+  }
   const panelIds = new Set(Object.keys(panels));
   const root = sanitizeNode(layout.grid.root, panelIds);
   return root ? { ...layout, panels, grid: { ...layout.grid, root } } : null;

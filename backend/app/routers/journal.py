@@ -9,25 +9,34 @@ import io
 import csv
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional, List
 
 import aiohttp
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, asc
 
 from backend.app.config import OPENROUTER_API_KEY, OPENROUTER_MODEL
 from backend.app.db.database import AsyncSessionLocal
 from backend.app.db.models import DecisionLog, StrategyPreset, SignalHistory
 from backend.app.services.binance_service import binance_service
+from backend.app.services.paper_trading import paper_trading_session
+from backend.app.services.overnight_pilot import overnight_pilot_manager
+from backend.app.services.session_review import (
+    DEFAULT_MAX_LAG_MS,
+    build_session_review,
+    collect_review_trades,
+)
 from backend.app.services.indicators import compute_indicators
 from backend.app.services.orderflow_backtester import OrderFlowBacktester
 
 logger = logging.getLogger("SignalScript.Journal")
 
 journal_router = APIRouter(prefix="/api/journal", tags=["journal"])
+
+ALLOWED_JOURNAL_TYPES = ["SIGNAL", "MANUAL_ENTRY", "AI_OPINION", "ORDER", "MANUAL_EXIT", "MANUAL_SKIP"]
 
 
 # ============================================================================
@@ -186,12 +195,17 @@ DEFAULT_PRESETS = [
 ]
 
 
+_seed_data_ensured = False
+
 async def ensure_seed_data(db):
     """
     If decision_logs is empty, backfill recent SignalHistory items so existing scanner signals
     appear immediately in the trader's journal.
     Also seeds 3 default strategy presets if strategy_presets is empty.
     """
+    global _seed_data_ensured
+    if _seed_data_ensured:
+        return
     count_res = await db.execute(select(DecisionLog).limit(1))
     if count_res.scalar_one_or_none() is None:
         sig_res = await db.execute(select(SignalHistory).order_by(desc(SignalHistory.created_at)).limit(15))
@@ -230,6 +244,7 @@ async def ensure_seed_data(db):
                 params_json=json.dumps(p["params"], ensure_ascii=False)
             ))
         await db.commit()
+    _seed_data_ensured = True
 
 
 # ============================================================================
@@ -250,6 +265,8 @@ async def get_decision_logs(
             stmt = stmt.where(DecisionLog.symbol == clean_sym)
         if event_type and event_type.upper() != "ALL":
             stmt = stmt.where(DecisionLog.event_type == event_type.upper())
+        else:
+            stmt = stmt.where(DecisionLog.event_type.in_(ALLOWED_JOURNAL_TYPES))
         stmt = stmt.limit(limit)
         res = await db.execute(stmt)
         rows = res.scalars().all()
@@ -258,6 +275,67 @@ async def get_decision_logs(
             "count": len(rows),
             "logs": [serialize_log(r) for r in rows]
         }
+
+
+@journal_router.get("/session-review")
+async def get_session_review(
+    hours: int = Query(24, ge=1, le=24 * 30, description="Окно decision_logs, часов"),
+    max_lag_ms: int = Query(DEFAULT_MAX_LAG_MS, ge=1_000, le=3_600_000,
+                            description="Макс. разрыв решение→вход, мс"),
+    source: str = Query("all", description="Источник сделок: all | demo | marathon"),
+):
+    """Пост-сессионный разбор (задача 7.3): закрытые сделки paper-сессии,
+    связанные с decision_logs за окном. Читает demo paper-сессию, марафонные
+    сессии overnight-pilot и SQLite — строго read-only, на торговлю не влияет.
+    """
+    source = (source or "all").strip().lower()
+    if source not in ("all", "demo", "marathon"):
+        raise HTTPException(status_code=422, detail="source must be one of: all, demo, marathon")
+
+    demo_state = paper_trading_session.get_state()
+    collected = collect_review_trades(
+        source,
+        demo_trades=list(getattr(demo_state, "closed_trades", None) or []),
+        marathon_items=[s.to_dict() for s in overnight_pilot_manager.sessions.values()],
+    )
+    trades = collected["trades"]
+
+    now_utc = datetime.now(timezone.utc)
+    since_naive = (now_utc - timedelta(hours=hours)).replace(tzinfo=None)  # БД хранит naive-UTC
+    async with AsyncSessionLocal() as db:
+        stmt = (
+            select(DecisionLog)
+            .where(
+                DecisionLog.timestamp >= since_naive,
+                DecisionLog.event_type.in_(["SIGNAL", "MANUAL_ENTRY", "AI_OPINION", "ORDER"]),
+            )
+            .order_by(asc(DecisionLog.timestamp), asc(DecisionLog.id))
+            .limit(2000)
+        )
+        rows = (await db.execute(stmt)).scalars().all()
+        decisions = [
+            {
+                "id": r.id,
+                # naive datetime = UTC по конвенции проекта (datetime.utcnow)
+                "timestamp_ms": int(r.timestamp.replace(tzinfo=timezone.utc).timestamp() * 1000),
+                "symbol": r.symbol,
+                "event_type": r.event_type,
+                "user_decision": r.user_decision,
+                "direction": r.direction,
+                "price": r.price,
+                "notes": r.notes,
+            }
+            for r in rows
+        ]
+
+    review = build_session_review(trades, decisions, max_lag_ms=max_lag_ms)
+    review["window_hours"] = hours
+    review["paper_session_id"] = getattr(demo_state, "session_id", None)
+    review["marathon_session_ids"] = collected["marathon_session_ids"]
+    review["trades_by_source"] = collected["trades_by_source"]
+    review["source"] = source
+    review["decisions_in_window"] = len(decisions)
+    return review
 
 
 @journal_router.post("/log")
@@ -319,6 +397,8 @@ async def export_decision_logs_csv(
             stmt = stmt.where(DecisionLog.symbol == clean_sym)
         if event_type and event_type.upper() != "ALL":
             stmt = stmt.where(DecisionLog.event_type == event_type.upper())
+        else:
+            stmt = stmt.where(DecisionLog.event_type.in_(ALLOWED_JOURNAL_TYPES))
         res = await db.execute(stmt)
         rows = res.scalars().all()
 

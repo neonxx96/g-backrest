@@ -1,22 +1,10 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
-import {
-  Layers,
-  Crosshair,
-  Settings2,
-  AlertTriangle,
-  CheckCircle,
-  Clock,
-  X
-} from 'lucide-react';
-import { soundManager } from '../utils/sound';
-import { detectSpoofOrFill, evaluateProximityAlert } from '../utils/orderbookLogic';
+import { AlertTriangle, CheckCircle, Clock } from 'lucide-react';
 import OrderBookCanvasLadder from './OrderBookCanvasLadder';
-
-const API_BASE = '/api';
-const ROW_HEIGHT = 20;      // Strictly fixed 20px row height
-const TOTAL_ROWS = 400;     // 400 virtualized price steps around static anchor price
-const BUFFER_ROWS = 20;     // ±20 buffer rows above and below viewport
-const SCALE_OPTIONS = [1, 5, 10, 25, 50, 100];
+import { ROW_HEIGHT, TOTAL_ROWS, BUFFER_ROWS, SCALE_OPTIONS } from './dom/constants';
+import useDepthStream from './dom/useDepthStream';
+import useAggregatedOrderbook from './dom/useAggregatedOrderbook';
+import DOMControlsHeader from './dom/DOMControlsHeader';
 
 const fmtCompactUsd = (usd) => {
   if (!usd || usd <= 0) return '';
@@ -48,6 +36,8 @@ export default function OrderBookDOM({
   const [megaWallUsd, setMegaWallUsd] = useState(1000000); // $1M+ bright amber wall highlight
   const [showSettings, setShowSettings] = useState(false);
   const [clusterMode, setClusterMode] = useState('bid_ask'); // 'bid_ask' | 'delta'
+  const [rowHeight, setRowHeight] = useState(() => Number(localStorage.getItem('dom_row_height')) || 20);
+  const [volumePalette, setVolumePalette] = useState(() => localStorage.getItem('dom_volume_palette') || 'classic');
   const [fps, setFps] = useState(60);
 
   // Sync with global SettingsModal uiConfig
@@ -240,670 +230,40 @@ export default function OrderBookDOM({
     }
   }, [tickMult, recenterLadder]);
 
-  // Connect to Binance Futures Depth + AggTrade + REST deep snapshot
-  // Depends ONLY on [symbol, baseTick] so it NEVER resets on resize or UI state changes!
-  useEffect(() => {
-    rawBidsMap.current.clear();
-    rawAsksMap.current.clear();
-    rawClustersMap.current.clear();
-    recentTicksRef.current = [];
-    levelLifetimes.current.clear();
-    trackedMegaWallsRef.current.clear();
-    spoofRemovedAlertsRef.current.clear();
-    injectedWallsRef.current.clear();
-    prevActiveDensities.current.clear();
-    alertLatchState.current.clear();
-    tradeVolumeMap.current.clear();
-    tradeLog.current = [];
-    bestBidRef.current = 0;
-    bestAskRef.current = 0;
-    anchorPriceRef.current = 0;
-    setAnchorPrice(0);
-    setRecentOrderflowEvents([]);
+  // Connect to Binance Futures Depth + AggTrade + REST deep snapshot.
+  // Логика стрима вынесена в ./dom/useDepthStream (модульный план, п.4); зависимость
+  // эффекта — строго [symbol, baseTick], реконнект только при смене инструмента.
+  useDepthStream({
+    symbol,
+    baseTick,
+    snapToStepRef,
+    scrollContainerRef,
+    anchorPriceRef,
+    bestBidRef,
+    bestAskRef,
+    lastTradePriceRef,
+    lastTradeSideRef,
+    dirtyRef,
+    rawBidsMap,
+    rawAsksMap,
+    rawClustersMap,
+    recentTicksRef,
+    levelLifetimes,
+    trackedMegaWallsRef,
+    spoofRemovedAlertsRef,
+    injectedWallsRef,
+    prevActiveDensities,
+    alertLatchState,
+    tradeVolumeMap,
+    tradeLog,
+    setAnchorPrice,
+    setScrollTop,
+    setRecentOrderflowEvents
+  });
 
-    let isUnmounted = false;
-    const upperSym = symbol.toUpperCase();
-    const cleanSym = symbol.toLowerCase();
-
-    const lockInitialAnchorIfNeeded = (b0, a0) => {
-      if (anchorPriceRef.current === 0 && b0 > 0 && a0 > 0) {
-        const snappedMid = snapToStepRef.current((b0 + a0) / 2, 'round');
-        anchorPriceRef.current = snappedMid;
-        setAnchorPrice(snappedMid);
-        setTimeout(() => {
-          if (!isUnmounted && scrollContainerRef.current) {
-            const totalH = TOTAL_ROWS * ROW_HEIGHT;
-            const viewH = scrollContainerRef.current.clientHeight || 500;
-            const targetTop = Math.max(0, Math.round(totalH / 2 - viewH / 2));
-            scrollContainerRef.current.scrollTop = targetTop;
-            setScrollTop(targetTop);
-          }
-        }, 20);
-      }
-    };
-
-    const applyDepthSnapshot = (bids, asks) => {
-      if (isUnmounted) return;
-      rawBidsMap.current.clear();
-      rawAsksMap.current.clear();
-      if (Array.isArray(bids)) {
-        bids.slice(0, 500).forEach(([p, q]) => {
-          const pf = parseFloat(p);
-          const qf = parseFloat(q);
-          if (qf > 0) rawBidsMap.current.set(pf, qf);
-        });
-      }
-      if (Array.isArray(asks)) {
-        asks.slice(0, 500).forEach(([p, q]) => {
-          const pf = parseFloat(p);
-          const qf = parseFloat(q);
-          if (qf > 0) rawAsksMap.current.set(pf, qf);
-        });
-      }
-      if (bids?.[0]?.[0] && asks?.[0]?.[0]) {
-        const b0 = parseFloat(bids[0][0]);
-        const a0 = parseFloat(asks[0][0]);
-        bestBidRef.current = b0;
-        bestAskRef.current = a0;
-        lockInitialAnchorIfNeeded(b0, a0);
-      }
-      dirtyRef.current = true;
-    };
-
-    // 1. Deep orderbook snapshot
-    const fetchDeepBook = () => {
-      fetch(`${API_BASE}/depth?symbol=${upperSym}&limit=100`)
-        .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-        .then((d) => {
-          if (d?.bids && d?.asks) applyDepthSnapshot(d.bids, d.asks);
-        })
-        .catch(() => {
-          fetch(`https://fapi.binance.com/fapi/v1/depth?symbol=${upperSym}&limit=100`)
-            .then((r) => (r.ok ? r.json() : null))
-            .then((d) => {
-              if (d?.bids && d?.asks) applyDepthSnapshot(d.bids, d.asks);
-            })
-            .catch(() => {});
-        });
-    };
-    fetchDeepBook();
-    const deepRefreshTimer = setInterval(fetchDeepBook, 8000);
-
-    // 2. Seed initial trades for instant Footprint Cluster & Bubble Ticks population
-    fetch(`https://fapi.binance.com/fapi/v1/aggTrades?symbol=${upperSym}&limit=100`)
-      .then((r) => (r.ok ? r.json() : []))
-      .then((list) => {
-        if (isUnmounted || !Array.isArray(list)) return;
-        list.forEach((t) => {
-          const price = parseFloat(t.p);
-          const qty = parseFloat(t.q);
-          const usd = price * qty;
-          const isBuy = !t.m;
-          const baseKey = Number((Math.round(price / baseTick) * baseTick).toFixed(6));
-          const cur = rawClustersMap.current.get(baseKey) || { bidUsd: 0, askUsd: 0, bidQty: 0, askQty: 0 };
-          if (isBuy) {
-            cur.askUsd += usd;
-            cur.askQty += qty;
-          } else {
-            cur.bidUsd += usd;
-            cur.bidQty += qty;
-          }
-          rawClustersMap.current.set(baseKey, cur);
-        });
-        const recent = list.slice(-30).map((t) => {
-          const price = parseFloat(t.p);
-          const qty = parseFloat(t.q);
-          return {
-            id: t.a ?? `${t.T}-${t.p}-${t.q}`,
-            price,
-            qty,
-            usd: price * qty,
-            isBuy: !t.m,
-            ts: Number(t.T) || Date.now()
-          };
-        });
-        recentTicksRef.current = recent;
-        if (recent.length > 0) {
-          const last = recent[recent.length - 1];
-          lastTradePriceRef.current = last.price;
-          lastTradeSideRef.current = last.isBuy ? 'BUY' : 'SELL';
-        }
-        dirtyRef.current = true;
-      })
-      .catch(() => {});
-
-    // 3. Live Depth WebSocket (@depth20@100ms) with auto-reconnect
-    let depthWs = null;
-    let depthReconnectTimer = null;
-
-    const connectDepthWs = () => {
-      if (isUnmounted) return;
-      if (depthReconnectTimer) {
-        clearTimeout(depthReconnectTimer);
-        depthReconnectTimer = null;
-      }
-      if (depthWs) {
-        try {
-          depthWs.onopen = null;
-          depthWs.onmessage = null;
-          depthWs.onerror = null;
-          depthWs.onclose = null;
-          depthWs.close();
-        } catch (_) {}
-        depthWs = null;
-      }
-
-      try {
-        const ws = new WebSocket(`wss://fstream.binance.com/ws/${cleanSym}@depth20@100ms`);
-        depthWs = ws;
-
-        ws.onmessage = (ev) => {
-          if (isUnmounted || depthWs !== ws) return;
-          try {
-            const d = JSON.parse(ev.data);
-            if (!d.b || !d.a) return;
-            const b0 = d.b[0] ? parseFloat(d.b[0][0]) : 0;
-            const bMin = d.b[d.b.length - 1] ? parseFloat(d.b[d.b.length - 1][0]) : 0;
-            const a0 = d.a[0] ? parseFloat(d.a[0][0]) : 0;
-            const aMax = d.a[d.a.length - 1] ? parseFloat(d.a[d.a.length - 1][0]) : 0;
-
-            if (b0 > 0 && a0 > 0) {
-              bestBidRef.current = b0;
-              bestAskRef.current = a0;
-              lockInitialAnchorIfNeeded(b0, a0);
-
-              for (const k of rawBidsMap.current.keys()) {
-                if (k >= bMin || k >= a0) rawBidsMap.current.delete(k);
-              }
-              for (const k of rawAsksMap.current.keys()) {
-                if (k <= aMax || k <= b0) rawAsksMap.current.delete(k);
-              }
-              d.b.forEach(([p, q]) => {
-                const pf = parseFloat(p);
-                const qf = parseFloat(q);
-                if (qf > 0) rawBidsMap.current.set(pf, qf);
-              });
-              d.a.forEach(([p, q]) => {
-                const pf = parseFloat(p);
-                const qf = parseFloat(q);
-                if (qf > 0) rawAsksMap.current.set(pf, qf);
-              });
-
-              if (rawBidsMap.current.size > 600) {
-                const firstKey = rawBidsMap.current.keys().next().value;
-                rawBidsMap.current.delete(firstKey);
-              }
-              if (rawAsksMap.current.size > 600) {
-                const firstKey = rawAsksMap.current.keys().next().value;
-                rawAsksMap.current.delete(firstKey);
-              }
-              dirtyRef.current = true;
-            }
-          } catch (_) {}
-        };
-
-        ws.onerror = () => {
-          try { ws.close(); } catch (_) {}
-        };
-
-        ws.onclose = () => {
-          if (!isUnmounted && depthWs === ws) {
-            depthReconnectTimer = setTimeout(connectDepthWs, 2000);
-          }
-        };
-      } catch (_) {
-        if (!isUnmounted) {
-          depthReconnectTimer = setTimeout(connectDepthWs, 2500);
-        }
-      }
-    };
-
-    // 4. Live AggTrade WebSocket (@aggTrade) with auto-reconnect
-    let tradeWs = null;
-    let tradeReconnectTimer = null;
-
-    const connectTradeWs = () => {
-      if (isUnmounted) return;
-      if (tradeReconnectTimer) {
-        clearTimeout(tradeReconnectTimer);
-        tradeReconnectTimer = null;
-      }
-      if (tradeWs) {
-        try {
-          tradeWs.onopen = null;
-          tradeWs.onmessage = null;
-          tradeWs.onerror = null;
-          tradeWs.onclose = null;
-          tradeWs.close();
-        } catch (_) {}
-        tradeWs = null;
-      }
-
-      try {
-        const ws = new WebSocket(`wss://fstream.binance.com/ws/${cleanSym}@aggTrade`);
-        tradeWs = ws;
-
-        ws.onmessage = (ev) => {
-          if (isUnmounted || tradeWs !== ws) return;
-          try {
-            const t = JSON.parse(ev.data);
-            if (!t.p || !t.q) return;
-            const price = parseFloat(t.p);
-            const qty = parseFloat(t.q);
-            const usd = price * qty;
-            const isBuy = !t.m;
-            const ts = Number(t.T) || Date.now();
-
-            lastTradePriceRef.current = price;
-            lastTradeSideRef.current = isBuy ? 'BUY' : 'SELL';
-
-            const baseKey = Number((Math.round(price / baseTick) * baseTick).toFixed(6));
-            const cur = rawClustersMap.current.get(baseKey) || { bidUsd: 0, askUsd: 0, bidQty: 0, askQty: 0 };
-            if (isBuy) {
-              cur.askUsd += usd;
-              cur.askQty += qty;
-            } else {
-              cur.bidUsd += usd;
-              cur.bidQty += qty;
-            }
-            rawClustersMap.current.set(baseKey, cur);
-
-            if (rawClustersMap.current.size > 600) {
-              const oldestKey = rawClustersMap.current.keys().next().value;
-              rawClustersMap.current.delete(oldestKey);
-            }
-
-            recentTicksRef.current.push({
-              id: t.a ?? `${ts}-${t.p}-${t.q}`,
-              price,
-              qty,
-              usd,
-              isBuy,
-              ts
-            });
-            if (recentTicksRef.current.length > 40) {
-              recentTicksRef.current.splice(0, recentTicksRef.current.length - 40);
-            }
-
-            tradeLog.current.push({ price, usd, time: ts });
-            if (tradeLog.current.length > 500) {
-              const dropped = tradeLog.current.shift();
-              if (dropped) {
-                const cv = tradeVolumeMap.current.get(dropped.price) || 0;
-                if (cv <= dropped.usd) tradeVolumeMap.current.delete(dropped.price);
-                else tradeVolumeMap.current.set(dropped.price, cv - dropped.usd);
-              }
-            }
-            tradeVolumeMap.current.set(price, (tradeVolumeMap.current.get(price) || 0) + usd);
-            dirtyRef.current = true;
-          } catch (_) {}
-        };
-
-        ws.onerror = () => {
-          try { ws.close(); } catch (_) {}
-        };
-
-        ws.onclose = () => {
-          if (!isUnmounted && tradeWs === ws) {
-            tradeReconnectTimer = setTimeout(connectTradeWs, 2000);
-          }
-        };
-      } catch (_) {
-        if (!isUnmounted) {
-          tradeReconnectTimer = setTimeout(connectTradeWs, 2500);
-        }
-      }
-    };
-
-    const handleNetworkOnline = () => {
-      if (isUnmounted) return;
-      connectDepthWs();
-      connectTradeWs();
-      fetchDeepBook();
-    };
-    window.addEventListener('online', handleNetworkOnline);
-
-    connectDepthWs();
-    connectTradeWs();
-
-    return () => {
-      isUnmounted = true;
-      window.removeEventListener('online', handleNetworkOnline);
-      clearInterval(deepRefreshTimer);
-      if (depthReconnectTimer) clearTimeout(depthReconnectTimer);
-      if (tradeReconnectTimer) clearTimeout(tradeReconnectTimer);
-      if (depthWs) {
-        try {
-          depthWs.onopen = null;
-          depthWs.onmessage = null;
-          depthWs.onerror = null;
-          depthWs.onclose = null;
-          depthWs.close();
-        } catch (_) {}
-        depthWs = null;
-      }
-      if (tradeWs) {
-        try {
-          tradeWs.onopen = null;
-          tradeWs.onmessage = null;
-          tradeWs.onerror = null;
-          tradeWs.onclose = null;
-          tradeWs.close();
-        } catch (_) {}
-        tradeWs = null;
-      }
-    };
-  }, [symbol, baseTick]);
-
-  // Aggregate orderbook, clusters, wall lifetimes, and spoofing detection by current stepSize
-  const aggregatedData = useMemo(() => {
-    const now = Date.now();
-    const bidBuckets = new Map(); // priceKey -> { price, qty, usd }
-    const askBuckets = new Map(); // priceKey -> { price, qty, usd }
-    const clusterBuckets = new Map(); // priceKey -> { bidUsd, askUsd, totalUsd }
-    const tickBubbles = new Map(); // priceKey -> { usd, isBuy, count }
-
-    const b0 = bestBidRef.current;
-    const a0 = bestAskRef.current;
-    const mid = b0 && a0 ? (b0 + a0) / 2 : b0 || a0 || anchorPrice;
-
-    for (const [rawP, qty] of rawBidsMap.current.entries()) {
-      if (a0 > 0 && rawP >= a0) continue;
-      const snapped = snapToStep(rawP, 'floor');
-      const key = snapped.toFixed(priceDecimals);
-      const prev = bidBuckets.get(key) || { price: snapped, qty: 0, usd: 0 };
-      prev.qty += qty;
-      prev.usd += rawP * qty;
-      bidBuckets.set(key, prev);
-    }
-
-    for (const [rawP, qty] of rawAsksMap.current.entries()) {
-      if (b0 > 0 && rawP <= b0) continue;
-      const snapped = snapToStep(rawP, 'ceil');
-      const key = snapped.toFixed(priceDecimals);
-      const prev = askBuckets.get(key) || { price: snapped, qty: 0, usd: 0 };
-      prev.qty += qty;
-      prev.usd += rawP * qty;
-      askBuckets.set(key, prev);
-    }
-
-    const bestBidSnap = b0 > 0 ? snapToStep(b0, 'floor') : anchorPrice > 0 ? Number((anchorPrice - stepSize).toFixed(priceDecimals)) : 0;
-    const bestAskSnap = a0 > 0 ? snapToStep(a0, 'ceil') : anchorPrice > 0 ? Number((anchorPrice + stepSize).toFixed(priceDecimals)) : 0;
-
-    // Ensure institutional reference walls exist around static anchorPrice so DOM always shows:
-    // 1) Mature resting walls (> $1M, held > 30s -> [>30s] amber badge) for bounce trading & SL calculation
-    // 2) Fresh density levels (> $500k, held < 10s -> [<10s] muted badge)
-    if (anchorPrice > 0) {
-      const refBidWallPrice = Number((anchorPrice - stepSize * 5).toFixed(priceDecimals));
-      const refBidWallKey = refBidWallPrice.toFixed(priceDecimals);
-      if (!bidBuckets.has(refBidWallKey) || bidBuckets.get(refBidWallKey).usd < 1_200_000) {
-        const usd = 1_280_000;
-        bidBuckets.set(refBidWallKey, {
-          price: refBidWallPrice,
-          qty: usd / refBidWallPrice,
-          usd
-        });
-      }
-      if (!levelLifetimes.current.has(refBidWallKey)) {
-        levelLifetimes.current.set(refBidWallKey, now - 42000); // >30s mature wall
-      }
-
-      const refAskWallPrice = Number((anchorPrice + stepSize * 5).toFixed(priceDecimals));
-      const refAskWallKey = refAskWallPrice.toFixed(priceDecimals);
-      if (!askBuckets.has(refAskWallKey) || askBuckets.get(refAskWallKey).usd < 1_350_000) {
-        const usd = 1_420_000;
-        askBuckets.set(refAskWallKey, {
-          price: refAskWallPrice,
-          qty: usd / refAskWallPrice,
-          usd
-        });
-      }
-      if (!levelLifetimes.current.has(refAskWallKey)) {
-        levelLifetimes.current.set(refAskWallKey, now - 38000); // >30s mature wall
-      }
-
-      // Fresh density level (<10s) near anchor
-      const freshBidPrice = Number((anchorPrice - stepSize * 3).toFixed(priceDecimals));
-      const freshBidKey = freshBidPrice.toFixed(priceDecimals);
-      if (!bidBuckets.has(freshBidKey) || bidBuckets.get(freshBidKey).usd < 550_000) {
-        const usd = 620_000;
-        bidBuckets.set(freshBidKey, {
-          price: freshBidPrice,
-          qty: usd / freshBidPrice,
-          usd
-        });
-      }
-      const existingFreshTs = levelLifetimes.current.get(freshBidKey);
-      if (!existingFreshTs || now - existingFreshTs >= 9000) {
-        levelLifetimes.current.set(freshBidKey, now - 3000); // <10s fresh order
-      }
-    }
-
-    // Apply any externally injected walls (e.g. live spoof test wall)
-    for (const [injKey, inj] of injectedWallsRef.current.entries()) {
-      const targetMap = inj.side === 'ask' ? askBuckets : bidBuckets;
-      targetMap.set(injKey, {
-        price: inj.price,
-        qty: inj.usd / inj.price,
-        usd: inj.usd
-      });
-      if (!levelLifetimes.current.has(injKey)) {
-        levelLifetimes.current.set(injKey, inj.firstSeenMs || now);
-      }
-    }
-
-    let maxDomVal = 1;
-    const currentDensities = new Map();
-    const currentMegaWalls = new Map();
-    const activeDensityList = [];
-    const seenKeys = new Set();
-
-    let nearestBidWall = null;
-    let nearestAskWall = null;
-
-    const inspectBucket = (b, side) => {
-      const k = b.price.toFixed(priceDecimals);
-      seenKeys.add(k);
-      if (!levelLifetimes.current.has(k)) {
-        levelLifetimes.current.set(k, now);
-      }
-      const firstSeen = levelLifetimes.current.get(k) || now;
-      const lifeSec = Math.max(0, Math.floor((now - firstSeen) / 1000));
-
-      const val = volumeMode === 'USDT' ? b.usd : b.qty;
-      if (val > maxDomVal) maxDomVal = val;
-
-      if (b.usd >= densityThresholdUsd) {
-        currentDensities.set(b.price, { price: b.price, usd: b.usd, side, lifeSec });
-        activeDensityList.push({ price: b.price, usd: b.usd, side, lifeSec });
-
-        if (
-          side === 'bid' &&
-          b.usd >= 500_000 &&
-          b.price <= (bestBidSnap || anchorPrice) - stepSize * 2 &&
-          (!nearestBidWall || b.price > nearestBidWall.price)
-        ) {
-          nearestBidWall = { price: b.price, usd: b.usd, lifeSec };
-        }
-        if (
-          side === 'ask' &&
-          b.usd >= 500_000 &&
-          b.price >= (bestAskSnap || anchorPrice) + stepSize * 2 &&
-          (!nearestAskWall || b.price < nearestAskWall.price)
-        ) {
-          nearestAskWall = { price: b.price, usd: b.usd, lifeSec };
-        }
-      }
-
-      if (b.usd >= megaWallUsd) {
-        currentMegaWalls.set(k, {
-          price: b.price,
-          usd: b.usd,
-          side,
-          firstSeenMs: trackedMegaWallsRef.current.get(k)?.firstSeenMs || firstSeen
-        });
-      }
-    };
-
-    bidBuckets.forEach((b) => inspectBucket(b, 'bid'));
-    askBuckets.forEach((a) => inspectBucket(a, 'ask'));
-
-    // Cleanup expired [SPOOF REMOVED] alerts (after 3 seconds)
-    for (const [k, alert] of spoofRemovedAlertsRef.current.entries()) {
-      if (now >= alert.expiresAt) {
-        spoofRemovedAlertsRef.current.delete(k);
-      }
-    }
-
-    // ТАКТ 2.2: Spoofing Detector for >$1M walls held <5 seconds and pulled without market trades
-    for (const [k, prevWall] of trackedMegaWallsRef.current.entries()) {
-      const curBucket = prevWall.side === 'ask' ? askBuckets.get(k) : bidBuckets.get(k);
-      const stillMega = curBucket && curBucket.usd >= megaWallUsd * 0.6;
-      if (!stillMega) {
-        const heldMs = now - prevWall.firstSeenMs;
-        // Calculate market trades executed at or within 1 step of this level
-        let tradedUsdOnLevel = 0;
-        for (const [tradeP, tradedUsd] of tradeVolumeMap.current.entries()) {
-          if (Math.abs(tradeP - prevWall.price) <= stepSize * 1.1) {
-            tradedUsdOnLevel += tradedUsd;
-          }
-        }
-
-        // If wall > $1M stood < 5 seconds and disappeared without market trades on this level:
-        if (prevWall.usd >= 1_000_000 && heldMs < 5000 && tradedUsdOnLevel < prevWall.usd * 0.25) {
-          const expiresAt = now + 3000; // Show red [SPOOF REMOVED] badge for 3 seconds
-          spoofRemovedAlertsRef.current.set(k, {
-            price: prevWall.price,
-            usd: prevWall.usd,
-            side: prevWall.side,
-            heldMs,
-            expiresAt
-          });
-          setTimeout(() => {
-            soundManager.playSpoofAlert();
-            setRecentOrderflowEvents((prev) =>
-              [
-                {
-                  type: 'SPOOF_REMOVED',
-                  price: prevWall.price,
-                  usd: prevWall.usd,
-                  side: prevWall.side,
-                  time: now
-                },
-                ...prev
-              ].slice(0, 2)
-            );
-          }, 0);
-          setTimeout(() => {
-            dirtyRef.current = true;
-          }, 3050);
-        }
-      }
-    }
-    trackedMegaWallsRef.current = currentMegaWalls;
-
-    if (levelLifetimes.current.size > 500) {
-      for (const k of levelLifetimes.current.keys()) {
-        if (!seenKeys.has(k)) levelLifetimes.current.delete(k);
-      }
-    }
-
-    // Spoof / Fill detection & Proximity Alert
-    if (mid > 0) {
-      const newEvents = detectSpoofOrFill({
-        prevDensities: prevActiveDensities.current,
-        currentDensities,
-        midPrice: mid,
-        tradeVolumeMap: tradeVolumeMap.current,
-        densityThresholdUsd,
-        spoofDistancePct: uiConfig?.spoofDistancePct ?? 0.35,
-        fillRatio: 0.5
-      });
-      if (newEvents.length > 0) {
-        setTimeout(() => {
-          setRecentOrderflowEvents((prev) => [...newEvents, ...prev].slice(0, 2));
-          if (newEvents.some((e) => e.type === 'PULLED')) {
-            soundManager.playSpoofAlert();
-          }
-        }, 0);
-      }
-      prevActiveDensities.current = currentDensities;
-
-      const prox = evaluateProximityAlert({
-        activeDensities: activeDensityList,
-        midPrice: mid,
-        minDistanceBps: 5,
-        maxProximityBps: 25,
-        densityThresholdUsd,
-        alertLatchState: alertLatchState.current,
-        now,
-        cooldownMs: 15000
-      });
-      if (prox && onProximityAlert) {
-        setTimeout(() => {
-          soundManager.playProximityAlert();
-          onProximityAlert({
-            symbol,
-            price: prox.price,
-            usd: prox.usd,
-            side: prox.side,
-            distPct: prox.distPct,
-            distBps: prox.distBps
-          });
-        }, 0);
-      }
-    }
-
-    // Aggregate footprint clusters
-    let maxClusterUsd = 1;
-    let pocKey = null;
-    for (const [rawP, cl] of rawClustersMap.current.entries()) {
-      const snapped = snapToStep(rawP, 'round');
-      const key = snapped.toFixed(priceDecimals);
-      const prev = clusterBuckets.get(key) || { bidUsd: 0, askUsd: 0, totalUsd: 0 };
-      prev.bidUsd += cl.bidUsd;
-      prev.askUsd += cl.askUsd;
-      prev.totalUsd = prev.bidUsd + prev.askUsd;
-      clusterBuckets.set(key, prev);
-      if (prev.totalUsd > maxClusterUsd) {
-        maxClusterUsd = prev.totalUsd;
-        pocKey = key;
-      }
-    }
-
-    // Aggregate recent market ticks into bubbles per price step
-    const cutoff = now - 25000;
-    recentTicksRef.current.forEach((t) => {
-      if (t.ts < cutoff) return;
-      const snapped = snapToStep(t.price, 'round');
-      const key = snapped.toFixed(priceDecimals);
-      const prev = tickBubbles.get(key) || { usd: 0, isBuy: t.isBuy, count: 0 };
-      prev.usd += t.usd;
-      prev.isBuy = t.isBuy;
-      prev.count += 1;
-      tickBubbles.set(key, prev);
-    });
-
-    const lastPriceSnap = lastTradePriceRef.current > 0 ? snapToStep(lastTradePriceRef.current, 'round') : bestBidSnap;
-    const spreadAbs = b0 > 0 && a0 > 0 ? Math.max(0, a0 - b0) : stepSize;
-
-    return {
-      bidBuckets,
-      askBuckets,
-      clusterBuckets,
-      tickBubbles,
-      maxDomVal,
-      maxClusterUsd,
-      pocKey,
-      bestBidSnap,
-      bestAskSnap,
-      lastPriceSnap,
-      spreadAbs,
-      nearestBidWall,
-      nearestAskWall
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
+  // Aggregate orderbook, clusters, wall lifetimes, and spoofing detection by current stepSize.
+  // Тело useMemo перенесено в ./dom/useAggregatedOrderbook без изменений (модульный план, п.4).
+  const aggregatedData = useAggregatedOrderbook({
     renderVersion,
     stepSize,
     priceDecimals,
@@ -912,8 +272,26 @@ export default function OrderBookDOM({
     megaWallUsd,
     snapToStep,
     symbol,
-    anchorPrice
-  ]);
+    anchorPrice,
+    spoofDistancePct: uiConfig?.spoofDistancePct,
+    onProximityAlert,
+    bestBidRef,
+    bestAskRef,
+    lastTradePriceRef,
+    rawBidsMap,
+    rawAsksMap,
+    rawClustersMap,
+    recentTicksRef,
+    levelLifetimes,
+    trackedMegaWallsRef,
+    spoofRemovedAlertsRef,
+    injectedWallsRef,
+    prevActiveDensities,
+    alertLatchState,
+    tradeVolumeMap,
+    dirtyRef,
+    setRecentOrderflowEvents
+  });
 
   // Emit market summary to ScalperTradeDesk (throttled to ~150ms)
   useEffect(() => {
@@ -956,8 +334,8 @@ export default function OrderBookDOM({
 
   // Virtualized window math (±BUFFER_ROWS) — strictly static price scale!
   const centerIdx = Math.floor(TOTAL_ROWS / 2);
-  const firstVisibleIdx = Math.floor(scrollTop / ROW_HEIGHT);
-  const visibleCount = Math.ceil(viewportHeight / ROW_HEIGHT);
+  const firstVisibleIdx = Math.floor(scrollTop / rowHeight);
+  const visibleCount = Math.ceil(viewportHeight / rowHeight);
   const startIdx = Math.max(0, firstVisibleIdx - BUFFER_ROWS);
   const endIdx = Math.min(TOTAL_ROWS - 1, firstVisibleIdx + visibleCount + BUFFER_ROWS);
 
@@ -1045,119 +423,35 @@ export default function OrderBookDOM({
       }}
       className="flex flex-col h-full border overflow-hidden text-xs select-none relative font-sans"
     >
-      {/* Top Header Bar: Title, Price Aggregation (x1..x100), Recenter [Space], FPS, Settings, Close [×] */}
-      <div
-        style={{ backgroundColor: 'var(--bg-panel-header)', borderColor: 'var(--border-subtle)' }}
-        className="flex items-center justify-between px-1.5 py-1 border-b gap-1 shrink-0"
-      >
-        <div className="flex items-center space-x-1 font-bold text-white text-[10.5px] shrink-0">
-          <Layers size={11} className="text-[#38bdf8]" />
-          <span>DOM</span>
-          <span className="text-[8.5px] font-mono px-1 py-0.2 rounded bg-[#141c2b] text-[#26a69a] border border-[#26a69a40]">
-            {fps} FPS
-          </span>
-        </div>
-
-        {/* Price Step Aggregation Selector: x1, x5, x10, x25, x50, x100 */}
-        <div className="flex items-center bg-[#08090c] p-0.5 rounded border border-[#161820] space-x-0.5 font-mono text-[8.5px] shrink-0">
-          {SCALE_OPTIONS.map((mult) => (
-            <button
-              key={mult}
-              onClick={() => setTickMult(mult)}
-              className={`px-1 py-0.2 rounded transition cursor-pointer ${
-                tickMult === mult
-                  ? 'bg-[#2563eb] text-white font-bold'
-                  : 'text-[#787f91] hover:text-white'
-              }`}
-              title={`Сжатие шага цены x${mult} (шаг ${(baseTick * mult).toFixed(priceDecimals)})`}
-            >
-              x{mult}
-            </button>
-          ))}
-        </div>
-
-        {/* Right Controls: Recenter [Space], Settings, Close [×] */}
-        <div className="flex items-center space-x-0.5 font-mono shrink-0">
-          <button
-            onClick={recenterLadder}
-            className="flex items-center space-x-0.5 px-1 py-0.5 rounded bg-[#161922] hover:bg-[#2563eb] text-[8.5px] text-[#38bdf8] hover:text-white transition border border-[#1f2430] cursor-pointer"
-            title="Центрировать на спреде (Горячая клавиша Space)"
-          >
-            <Crosshair size={10} />
-            <span>Центр</span>
-          </button>
-
-          <button
-            onClick={() => setShowSettings((v) => !v)}
-            className={`p-1 rounded transition cursor-pointer ${
-              showSettings ? 'bg-[#2563eb] text-white' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'
-            }`}
-            title="Настройки плотностей и кластеров DOM"
-          >
-            <Settings2 size={12} />
-          </button>
-
-          {onClose && (
-            <button
-              onClick={onClose}
-              className="p-1 rounded text-[#60697b] hover:text-[#ef5350] hover:bg-[#ef535018] transition cursor-pointer"
-              title="Скрыть виджет стакана DOM"
-            >
-              <X size={12} />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Collapsible DOM Quick Settings */}
-      {showSettings && (
-        <div
-          style={{ backgroundColor: 'var(--bg-panel-header)', borderColor: 'var(--border-subtle)' }}
-          className="p-2 border-b space-y-1.5 text-[10.5px] font-mono shrink-0 z-20"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[#787f91]">Крупная плотность ($):</span>
-            <input
-              type="number"
-              step="25000"
-              value={densityThresholdUsd}
-              onChange={(e) => setDensityThresholdUsd(Math.max(5000, Number(e.target.value)))}
-              className="w-24 bg-[#08090c] border border-[#1f2430] rounded px-1.5 py-0.5 text-right text-white"
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-[#787f91]">Стена / Мега-уровень ($):</span>
-            <input
-              type="number"
-              step="100000"
-              value={megaWallUsd}
-              onChange={(e) => setMegaWallUsd(Math.max(50000, Number(e.target.value)))}
-              className="w-24 bg-[#08090c] border border-[#1f2430] rounded px-1.5 py-0.5 text-right text-[#ffb300] font-bold"
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-[#787f91]">Формат кластеров:</span>
-            <div className="flex space-x-1">
-              <button
-                onClick={() => setClusterMode('bid_ask')}
-                className={`px-1.5 py-0.5 rounded text-[9.5px] ${
-                  clusterMode === 'bid_ask' ? 'bg-[#2563eb] text-white font-bold' : 'bg-[#08090c] text-[#787f91]'
-                }`}
-              >
-                Bid × Ask
-              </button>
-              <button
-                onClick={() => setClusterMode('delta')}
-                className={`px-1.5 py-0.5 rounded text-[9.5px] ${
-                  clusterMode === 'delta' ? 'bg-[#2563eb] text-white font-bold' : 'bg-[#08090c] text-[#787f91]'
-                }`}
-              >
-                Сумма / Δ
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Шапка управления (DOM + FPS, агрегация x1..x100, Центр/Настройки/Закрыть и
+          сворачиваемые quick settings) вынесена в ./dom/DOMControlsHeader (модульный план, п.4) */}
+      <DOMControlsHeader
+        fps={fps}
+        tickMult={tickMult}
+        baseTick={baseTick}
+        priceDecimals={priceDecimals}
+        showSettings={showSettings}
+        densityThresholdUsd={densityThresholdUsd}
+        megaWallUsd={megaWallUsd}
+        clusterMode={clusterMode}
+        onTickMult={setTickMult}
+        onRecenter={recenterLadder}
+        onToggleSettings={() => setShowSettings((v) => !v)}
+        onClose={onClose}
+        onDensityThreshold={setDensityThresholdUsd}
+        onMegaWall={setMegaWallUsd}
+        onClusterMode={setClusterMode}
+        rowHeight={rowHeight}
+        volumePalette={volumePalette}
+        onRowHeight={(h) => {
+          setRowHeight(h);
+          localStorage.setItem('dom_row_height', String(h));
+        }}
+        onVolumePalette={(p) => {
+          setVolumePalette(p);
+          localStorage.setItem('dom_volume_palette', p);
+        }}
+      />
 
       {/* 4-Column CScalp / Tiger Trade Header (Left to Right: Clusters | Ticks | DOM Size | Price) */}
       <div
@@ -1255,14 +549,14 @@ export default function OrderBookDOM({
         style={{ fontVariantNumeric: 'tabular-nums' }}
         className="flex-1 overflow-y-auto relative font-mono font-mono-numbers"
       >
-        <div style={{ height: `${TOTAL_ROWS * ROW_HEIGHT}px`, position: 'relative' }}>
+        <div style={{ height: `${TOTAL_ROWS * rowHeight}px`, position: 'relative' }}>
           <div
             style={{
               position: 'absolute',
               top: 0,
               left: 0,
               right: 0,
-              transform: `translateY(${startIdx * ROW_HEIGHT}px)`
+              transform: `translateY(${startIdx * rowHeight}px)`
             }}
           >
             <OrderBookCanvasLadder
@@ -1273,13 +567,15 @@ export default function OrderBookDOM({
               stepSize={stepSize}
               priceDecimals={priceDecimals}
               volumeMode={volumeMode}
+              rowHeight={rowHeight}
+              volumePalette={volumePalette}
               megaWallUsd={megaWallUsd}
               densityThresholdUsd={densityThresholdUsd}
               strategyLevels={strategyLevels}
               userLimitOrders={userLimitOrders}
               activePositionSetup={activePositionSetup}
               width={scrollContainerRef.current?.clientWidth || 320}
-              height={Math.max(ROW_HEIGHT, visibleRows.length * ROW_HEIGHT)}
+              height={Math.max(rowHeight, visibleRows.length * rowHeight)}
             />
 
             {/* Hidden semantic metadata elements for accessibility and E2E automation */}

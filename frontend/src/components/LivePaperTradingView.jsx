@@ -23,7 +23,14 @@ import {
  * Interactive SVG Live Equity Curve
  */
 export function LiveEquityChart({ points = [], initialCapital = 10000 }) {
-  if (!points || points.length === 0) {
+  // Защита от нечисловых точек из API (null/string/NaN) — иначе .toFixed() валил весь рендер
+  // приложения (React 19 размонтирует root при неперехваченной ошибке, 2026-10-24).
+  initialCapital = Number(initialCapital);
+  if (!Number.isFinite(initialCapital) || initialCapital <= 0) initialCapital = 10000;
+  points = (Array.isArray(points) ? points : [])
+    .map((v) => Number(v))
+    .filter((v) => Number.isFinite(v));
+  if (points.length === 0) {
     points = [initialCapital];
   }
 
@@ -195,7 +202,10 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
         </div>
 
         <div className="grid grid-cols-2 gap-2">
-          <label className="flex flex-col text-neutral-400">
+          <label
+            className="flex flex-col text-neutral-400"
+            title="Виртуальный депозит симулятора. Реальные средства не используются — терминал строго консультативный."
+          >
             <span className="mb-0.5 text-neutral-300">Стартовый баланс ($):</span>
             <input
               type="number"
@@ -209,7 +219,10 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
             />
           </label>
 
-          <label className="flex flex-col text-neutral-400">
+          <label
+            className="flex flex-col text-neutral-400"
+            title="Сколько процентов виртуального депозита теряется при срабатывании стопа. 1% — классический институциональный лимит; больше 2–3% — агрессивно."
+          >
             <span className="mb-0.5 text-neutral-300">Риск на сделку (%):</span>
             <input
               type="number"
@@ -235,7 +248,9 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
           <span className="text-[8px] text-neutral-500">L2 SENTINEL</span>
         </div>
 
-        <div>
+        <div
+          title="🧱 Вход перед стенкой — лимитный вход впереди крупной плотности стакана ($500k+). 🧬 Quant Confluence — вход только при совпадении трёх независимых факторов (стенка + ликвидации + дельта)."
+        >
           <span className="text-neutral-400 block mb-0.5">Торговый сетап:</span>
           <select
             disabled={isRunning}
@@ -249,7 +264,10 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
         </div>
 
         <div className="grid grid-cols-2 gap-2">
-          <label className="flex flex-col text-neutral-400">
+          <label
+            className="flex flex-col text-neutral-400"
+            title="Минимальный размер лимитной плотности в стакане (в тысячах $), чтобы сигнал считался валидным. Больше = надёжнее, но реже сигналы."
+          >
             <span className="mb-0.5 text-neutral-300">Мин. стенка ($k):</span>
             <input
               type="number"
@@ -263,7 +281,10 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
             />
           </label>
 
-          <label className="flex flex-col text-neutral-400">
+          <label
+            className="flex flex-col text-neutral-400"
+            title="Кредитное плечо виртуальной позиции. Увеличивает требуемую маржу и размер позиции, но не отменяет лимит риска на сделку."
+          >
             <span className="mb-0.5 text-neutral-300">Плечо:</span>
             <input
               type="number"
@@ -278,7 +299,10 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
         </div>
 
         <div className="grid grid-cols-2 gap-2">
-          <label className="flex flex-col text-neutral-400">
+          <label
+            className="flex flex-col text-neutral-400"
+            title="Защитный стоп в % от цены входа. При срабатывании позиция закрывается по рынку с комиссией taker и проскальзыванием."
+          >
             <span className="mb-0.5 text-neutral-300">Stop-Loss (%):</span>
             <input
               type="number"
@@ -292,7 +316,10 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
             />
           </label>
 
-          <label className="flex flex-col text-neutral-400">
+          <label
+            className="flex flex-col text-neutral-400"
+            title="Цель фиксации прибыли в % от цены входа. Лимитный ордер — комиссия maker, без проскальзывания."
+          >
             <span className="mb-0.5 text-neutral-300">Take-Profit (%):</span>
             <input
               type="number"
@@ -372,6 +399,29 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
   const status = useBacktestStore((s) => s.livePaperStatus);
   const config = useBacktestStore((s) => s.livePaperConfig);
   const fetchStatus = useBacktestStore((s) => s.fetchLivePaperStatus);
+  const depositLivePaper = useBacktestStore((s) => s.depositLivePaper);
+
+  const [depositAmount, setDepositAmount] = useState('1000');
+  const [depositBusy, setDepositBusy] = useState(false);
+  const [depositMsg, setDepositMsg] = useState(null);
+
+  const handleDeposit = async () => {
+    const amount = parseFloat(depositAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setDepositMsg('Сумма должна быть > 0');
+      return;
+    }
+    setDepositBusy(true);
+    setDepositMsg(null);
+    try {
+      const res = await depositLivePaper(amount, 'UI top-up');
+      setDepositMsg(`+${res.deposited?.toFixed?.(2) ?? amount}$ пополнено`);
+    } catch (err) {
+      setDepositMsg(err.message || 'Ошибка пополнения');
+    } finally {
+      setDepositBusy(false);
+    }
+  };
 
   // Poll status every 2.5 seconds when active
   useEffect(() => {
@@ -409,7 +459,36 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
           <span className="text-[14px] font-mono font-extrabold text-neutral-100">
             ${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
-          <span className="text-[8px] text-neutral-500 font-mono">Доступный остаток</span>
+          <span className="text-[8px] text-neutral-500 font-mono">Доступный остаток (вирт.)</span>
+        </div>
+
+        {/* Пополнение виртуального кошелька (paper money) */}
+        <div className="border border-neutral-800 rounded-md p-2 bg-[#0d1117] flex flex-col justify-between space-y-1">
+          <span className="text-[8px] text-neutral-400 font-mono uppercase font-bold">Пополнить (вирт.)</span>
+          <div className="flex items-center space-x-1">
+            <input
+              type="number"
+              min="1"
+              step="100"
+              value={depositAmount}
+              onChange={(e) => setDepositAmount(e.target.value)}
+              data-testid="live-deposit-amount"
+              className="w-20 bg-neutral-900 border border-neutral-700 rounded px-1 py-0.5 text-[10px] font-mono text-neutral-100"
+            />
+            <button
+              type="button"
+              onClick={handleDeposit}
+              disabled={depositBusy}
+              data-testid="live-deposit-btn"
+              title="Пополнить виртуальный баланс (paper money, без реальных денег)"
+              className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border transition cursor-pointer bg-emerald-900/40 text-emerald-300 border-emerald-800 hover:bg-emerald-900 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {depositBusy ? '…' : '+ $'}
+            </button>
+          </div>
+          <span className="text-[8px] text-neutral-500 font-mono" data-testid="live-deposit-msg">
+            {depositMsg || 'Paper money · не реальные деньги'}
+          </span>
         </div>
 
         <div className="border border-neutral-800 rounded-md p-2 bg-[#0d1117] flex flex-col justify-between">

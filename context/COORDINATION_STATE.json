@@ -1,9 +1,11 @@
 {
-  "status": "IN_PROGRESS",
-  "activeAgent": "codex",
-  "currentTask": "Remote deployment of standalone recorder",
-  "nextAction": "Receive server hostname/IP and SSH/Docker target, then deploy compose recorder and run status/health smoke",
-  "updatedAtUtc": "2026-10-20T04:55:00Z",
-  "requiresUserDecision": false,
-  "decisionQuestion": null
+  "status": "DONE",
+  "activeAgent": "kimi",
+  "currentTask": "Closeout ROADMAP Фазы 1.1–1.2 — production_robust + Night Pilot CLI",
+  "taskFile": "tasks/003-phase1-production-robust-closeout.md",
+  "branch": "agent/kimi/phase1-production-robust-closeout",
+  "nextAction": "Ожидание решения Di: запуск paper-марафона 3–5 суток (команда в отчёте агента, сам не запускался); критерии 1.3/1.4",
+  "updatedAtUtc": "2026-10-24T13:05:00Z",
+  "requiresUserDecision": true,
+  "decisionQuestion": "Запускать ли paper-марафон 3–5 суток на production_robust и какие пороги 1.4 (max DD %, fee drag %)?"
 }

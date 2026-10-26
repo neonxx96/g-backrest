@@ -67,7 +67,11 @@ class PaperPosition:
     reason: str = "Technical Signal"
     context_snapshot: Optional[Dict[str, Any]] = None
     leverage: float = 1.0
+    effective_leverage: float = 1.0
+    regime: str = "NO_TRADE"
+    expected_rr: float = 1.5
     margin_used: float = 0.0
+    initial_risk_usd: float = 0.0
 
     @property
     def risk_amount(self) -> float:
@@ -181,6 +185,10 @@ class PaperTradingSession:
         self.taker_fee = taker_fee
         self.signal_lag_ms = signal_lag_ms
         self.order_rtt_ms = order_rtt_ms
+        # Максимальное отклонение fill'а входа от цены сигнала, % (0 = guard выключен).
+        # Защита от протухших снапшотов: уровни SL/TP считаются от цены сигнала,
+        # и вход с отклонением больше порога делает сетап бессмысленным/убыточным.
+        self.max_entry_slippage_pct: float = 0.0
 
         # Balance accounting (all in USDT)
         self.realized_pnl = 0.0
@@ -283,6 +291,7 @@ class PaperTradingSession:
         context_snapshot: Optional[Dict[str, Any]] = None,
         tp2_price: float = 0.0,
         leverage: float = 1.0,
+        risk_pct: Optional[float] = None,
     ) -> dict:
         """
         Create a virtual order. Returns an order info dict.
@@ -313,12 +322,26 @@ class PaperTradingSession:
             effective_leverage = max(1.0, float(leverage))
             stop_distance = abs(float(price) - float(stop_price)) if stop_price > 0 else float(price) * 0.015
             risk_amount = float(quantity) * stop_distance
-            risk_budget = max(0.0, self.initial_balance + self.realized_pnl) * max(0.0, self.risk_per_trade_pct)
+            effective_risk_pct = risk_pct if risk_pct is not None else self.risk_per_trade_pct
+            risk_budget = max(0.0, self.initial_balance + self.realized_pnl) * max(0.0, effective_risk_pct)
             if risk_amount > risk_budget + 1e-9:
                 raise ValueError(f"risk_budget_exceeded: {symbol} ({risk_amount:.4f} > {risk_budget:.4f})")
             required_margin = float(price) * float(quantity) / effective_leverage
             if required_margin > self.available_margin + 1e-9:
                 raise ValueError(f"insufficient_margin: {symbol}")
+
+        if role == PaperOrderRole.EXIT.value:
+            # Replace-семантика: не копим конкурирующие exit-ордера по одной позиции.
+            # Ранее каждый тик с ценой >= target ставил новый TP-ордер (12+ дублей
+            # за минуту); при пробое цены обратно через уровень это дало бы серию
+            # fill'ов сверх qty позиции (oversell). Сначала отменяем working-выходы.
+            for existing_id, existing in list(self.orders.items()):
+                if (
+                    existing.symbol == symbol
+                    and existing.role == PaperOrderRole.EXIT
+                    and existing.sim.state.status in (OrderStatus.PENDING, OrderStatus.ACTIVE, OrderStatus.PARTIALLY_FILLED)
+                ):
+                    self.cancel_order(existing_id)
 
         ts = signal_ts if signal_ts is not None else self._last_event_ts
         cfg = OrderConfig(
@@ -331,6 +354,7 @@ class PaperTradingSession:
             order_rtt_ms=self.order_rtt_ms,
             maker_fee=self.maker_fee,
             taker_fee=self.taker_fee,
+            symbol=symbol,
         )
         # Deterministic id: seq counter + ts (no uuid/random).
         seq = len(self.orders) + 1
@@ -427,7 +451,7 @@ class PaperTradingSession:
         else:
             return 0.00001
 
-    def check_dynamic_breakeven(self, symbol: str, current_price: float) -> bool:
+    def check_dynamic_breakeven(self, symbol: str, current_price: float, be_r_trigger: float = 0.5) -> bool:
         """
         Dynamic Breakeven (MFE Bleed Protection):
         When floating profit reaches +0.5R (where R = abs(entry - initial_sl)),
@@ -453,10 +477,11 @@ class PaperTradingSession:
         fee_rate = self.taker_fee * 2.0
         fee_offset = entry * fee_rate
         tick = self.estimate_tick_size(entry)
+        trigger_dist = float(be_r_trigger) * r_dist
 
         if pos.side == "LONG":
             floating_pnl_dist = current_price - entry
-            if floating_pnl_dist >= 0.5 * r_dist:
+            if floating_pnl_dist >= trigger_dist:
                 new_sl = entry + fee_offset + tick
                 pos.breakeven_triggered = True
                 if new_sl > pos.stop_price:
@@ -464,13 +489,13 @@ class PaperTradingSession:
                     pos.stop_price = new_sl
                     logger.info(
                         f"[TRADE] DYNAMIC BREAKEVEN [{self.session_id}] {symbol} LONG: "
-                        f"MFE reached +0.5R (+{floating_pnl_dist:.4f} >= {0.5 * r_dist:.4f}). "
+                        f"MFE reached +{be_r_trigger:.2f}R (+{floating_pnl_dist:.4f} >= {trigger_dist:.4f}). "
                         f"SL moved {old_sl:.4f} -> {new_sl:.4f} (+2*Fee+1tick) | reason='Dynamic Breakeven (MFE Bleed Protection)'"
                     )
                     return True
         elif pos.side == "SHORT":
             floating_pnl_dist = entry - current_price
-            if floating_pnl_dist >= 0.5 * r_dist:
+            if floating_pnl_dist >= trigger_dist:
                 new_sl = entry - fee_offset - tick
                 pos.breakeven_triggered = True
                 if pos.stop_price <= 0 or new_sl < pos.stop_price:
@@ -478,7 +503,7 @@ class PaperTradingSession:
                     pos.stop_price = new_sl
                     logger.info(
                         f"[TRADE] DYNAMIC BREAKEVEN [{self.session_id}] {symbol} SHORT: "
-                        f"MFE reached +0.5R (+{floating_pnl_dist:.4f} >= {0.5 * r_dist:.4f}). "
+                        f"MFE reached +{be_r_trigger:.2f}R (+{floating_pnl_dist:.4f} >= {trigger_dist:.4f}). "
                         f"SL moved {old_sl:.4f} -> {new_sl:.4f} (-2*Fee-1tick) | reason='Dynamic Breakeven (MFE Bleed Protection)'"
                     )
                     return True
@@ -515,8 +540,12 @@ class PaperTradingSession:
                 # --------------------------------------------------------
 
 
-        # Forward to all working orders (snapshot — orders may complete mid-loop)
+        ev_symbol = getattr(event, "symbol", None) or (getattr(event, "payload", {}) or {}).get("symbol")
+
+        # Forward to all working orders matching this event's symbol (snapshot — orders may complete mid-loop)
         for po in list(self.orders.values()):
+            if ev_symbol and po.symbol and str(ev_symbol).upper() != str(po.symbol).upper():
+                continue
             if po.sim.state.status in (OrderStatus.FILLED, OrderStatus.REJECTED, OrderStatus.CANCELLED):
                 if po.sim.state.status in (OrderStatus.REJECTED, OrderStatus.CANCELLED):
                     self._release_entry_reservation(po)
@@ -595,12 +624,31 @@ class PaperTradingSession:
             self._apply_exit_fill(symbol, po, price, qty, fee, slippage_cost)
 
     def _apply_entry_fill(self, symbol: str, po: PaperOrder, price: float, qty: float, fee: float, slippage_cost: float) -> None:
+        # Guard протухшего снапшота: fill сильно ушёл от цены сигнала — сетап
+        # (SL/TP посчитаны от цены сигнала) уже невалиден; отклоняем fill входа.
+        max_slip_pct = float(getattr(self, "max_entry_slippage_pct", 0.0) or 0.0)
+        ref_price = float(po.sim.cfg.price)
+        if max_slip_pct > 0 and ref_price > 0:
+            deviation_pct = abs(float(price) - ref_price) / ref_price * 100.0
+            if deviation_pct > max_slip_pct:
+                po.sim.state.status = OrderStatus.REJECTED
+                self._release_entry_reservation(po)
+                logger.warning(
+                    f"[TRADE] ENTRY fill REJECTED [{self.session_id}] {symbol}: "
+                    f"fill {price:.6f} отклоняется от цены сигнала {ref_price:.6f} "
+                    f"на {deviation_pct:.3f}% > max_entry_slippage_pct={max_slip_pct:.3f}% | reason='{po.reason}'"
+                )
+                return
         pos = self.positions.get(symbol)
         entry_side = po.sim.cfg.side.value  # BUY -> LONG, SELL -> SHORT
         pos_side = "LONG" if entry_side == "BUY" else "SHORT"
 
         if pos is None or pos.closed or pos.qty <= 0:
             stop_px = float(getattr(po, "stop_price", 0.0))
+            snap = getattr(po, "context_snapshot", {}) or {}
+            pos_regime = snap.get("regime") or "NO_TRADE"
+            pos_eff_lev = float(snap.get("effective_leverage") or 0.0)
+            pos_expected_rr = float(snap.get("expected_rr") or 1.5)
             pos = PaperPosition(
                 symbol=symbol,
                 side=pos_side,
@@ -610,9 +658,14 @@ class PaperTradingSession:
                 stop_price=stop_px,
                 initial_stop_price=stop_px,
                 target_price=float(getattr(po, "target_price", 0.0)),
+                tp2_price=float(getattr(po, "tp2_price", 0.0)),
                 reason=getattr(po, "reason", "Technical Signal"),
                 breakeven_triggered=False,
                 leverage=max(1.0, float(getattr(po, "leverage", 1.0))),
+                effective_leverage=pos_eff_lev,
+                regime=pos_regime,
+                expected_rr=pos_expected_rr,
+                context_snapshot=po.context_snapshot,
             )
             self.positions[symbol] = pos
         else:
@@ -626,6 +679,13 @@ class PaperTradingSession:
                 pos.tp2_price = float(po.tp2_price)
             if getattr(po, "context_snapshot", None):
                 pos.context_snapshot = po.context_snapshot
+                snap = po.context_snapshot
+                if "regime" in snap:
+                    pos.regime = str(snap["regime"])
+                if "effective_leverage" in snap:
+                    pos.effective_leverage = float(snap["effective_leverage"])
+                if "expected_rr" in snap:
+                    pos.expected_rr = float(snap["expected_rr"])
 
         if pos.side != pos_side:
             logger.warning(f"[PaperSession] conflicting side for {symbol}: {pos.side} vs {pos_side}")
@@ -652,6 +712,12 @@ class PaperTradingSession:
         self.available_margin += reserved_slice - margin_used
         self.total_fees_paid += fee
         self.total_slippage_paid += slippage_cost
+
+        # Fixed structural risk dollar amount at entry (locked permanently for R calculations)
+        if pos.initial_risk_usd <= 0.0:
+            init_sl = pos.initial_stop_price if pos.initial_stop_price > 0 else pos.stop_price
+            dist = abs(pos.avg_entry_price - init_sl) if init_sl > 0 else (pos.avg_entry_price * 0.015)
+            pos.initial_risk_usd = max(1e-6, dist * pos.qty)
 
         logger.info(
             f"[TRADE] ENTRY fill [{self.session_id}] {symbol}: "
@@ -705,6 +771,21 @@ class PaperTradingSession:
         fee_drag = entry_fee_share + fee
         # Record closed trade with the completed Reality Mirror metrics.
         is_final_exit = pos.qty - close_qty <= 1e-9
+
+        initial_sl = pos.initial_stop_price if pos.initial_stop_price > 0 else pos.stop_price
+        r_dist = abs(pos.avg_entry_price - initial_sl) if initial_sl > 0 else (pos.avg_entry_price * 0.015)
+        # Allocate initial risk proportionally to the fraction of position being closed
+        risk_usd_initial = max(1e-6, (pos.initial_risk_usd * (close_qty / open_qty_before_exit)) if (pos.initial_risk_usd > 0 and open_qty_before_exit > 0) else (r_dist * close_qty))
+        if pos.initial_risk_usd > 0:
+            pos.initial_risk_usd = max(0.0, pos.initial_risk_usd - risk_usd_initial)
+        realized_r = net / risk_usd_initial
+        mfe_r = round(track.mfe_r, 4) if (track and track.risk_amount > 0) else round((track.mfe / risk_usd_initial), 4) if track else 0.0
+        mae_r = round(track.mae_r, 4) if (track and track.risk_amount > 0) else round((track.mae / risk_usd_initial), 4) if track else 0.0
+        expected_r = float(getattr(pos, "expected_rr", 1.5))
+        regime_val = getattr(pos, "regime", "NO_TRADE")
+        exchange_leverage = float(getattr(pos, "leverage", 1.0))
+        effective_lev = float(getattr(pos, "effective_leverage", (close_qty * pos.avg_entry_price) / max(1.0, self.available_margin)))
+
         self._append_closed_trade({
             "symbol": symbol,
             "side": pos.side,
@@ -721,7 +802,14 @@ class PaperTradingSession:
             "slippage_cost": entry_slippage_share + slippage_cost,
             "mfe": track.mfe if track else 0.0,
             "mae": track.mae if track else 0.0,
-            "mfe_r": round(track.mfe_r, 4) if track else 0.0,
+            "mfe_r": mfe_r,
+            "mae_r": mae_r,
+            "expected_r": expected_r,
+            "realized_r": round(realized_r, 4),
+            "regime": regime_val,
+            "leverage": exchange_leverage,
+            "effective_leverage": round(effective_lev, 2),
+            "risk_usd": round(risk_usd_initial, 2),
             "profit_bleed": bool(track and track.mfe_r >= 0.5 and net <= 0.0),
             "reason": exit_reason,
             "entry_reason": getattr(pos, "reason", "Technical Signal"),
@@ -769,6 +857,7 @@ class PaperTradingSession:
         context_snapshot: Optional[Dict[str, Any]] = None,
         tp2_price: float = 0.0,
         leverage: float = 1.0,
+        risk_pct: Optional[float] = None,
     ) -> dict:
         """
         Executes a trade signal applying risk position sizing, stop/target, reason, and margin rules.
@@ -797,7 +886,7 @@ class PaperTradingSession:
             return {"status": "REJECTED", "reason": "toxic_volatility_blocked"}
 
         if quantity is None or quantity <= 0:
-            quantity = self.calculate_position_size(symbol, price, stop_price, leverage=leverage)
+            quantity = self.calculate_position_size(symbol, price, stop_price, risk_pct=risk_pct, leverage=leverage)
 
         if quantity <= 0:
             logger.warning(f"[TRADE] Rejected signal for {symbol}: insufficient margin or zero size | reason='{reason}'")
@@ -817,23 +906,27 @@ class PaperTradingSession:
             context_snapshot=context_snapshot,
             tp2_price=tp2_price,
             leverage=leverage,
+            risk_pct=risk_pct,
         )
 
-    def execute_unified_signal(self, signal, regime: Optional[str] = None) -> dict:
+    def execute_unified_signal(self, signal, regime: Optional[str] = None, quantity: Optional[float] = None) -> dict:
         """Execute an entry only through the shared History/Validation/Paper contract."""
         from backend.app.engine.trade_contract import UnifiedTradeSignal, to_paper_order_request
 
         if not isinstance(signal, UnifiedTradeSignal):
             raise TypeError("Paper entries require a UnifiedTradeSignal")
 
-        payload = to_paper_order_request(signal)
+        payload = to_paper_order_request(signal, quantity=quantity)
         payload["regime"] = regime
+        raw_risk = getattr(signal, "risk_pct", None)
+        risk_fraction = (raw_risk / 100.0) if (raw_risk is not None and raw_risk > 0.05) else (raw_risk if raw_risk is not None else None)
         return self.execute_trade_signal(
             **payload,
             signal_ts=signal.timestamp,
             context_snapshot=getattr(signal, "context_snapshot", None),
             tp2_price=float(getattr(signal, "tp2", None) or 0.0),
             leverage=max(1.0, float(getattr(signal, "leverage", 1.0) or 1.0)),
+            risk_pct=risk_fraction,
         )
 
     def close_position(
@@ -915,6 +1008,18 @@ class PaperTradingSession:
                 pos.qty = 0.0
                 pos.closed = True
 
+                initial_sl = pos.initial_stop_price if pos.initial_stop_price > 0 else pos.stop_price
+                r_dist = abs(pos.avg_entry_price - initial_sl) if initial_sl > 0 else (pos.avg_entry_price * 0.015)
+                risk_usd_initial = max(1e-6, r_dist * close_qty)
+                realized_r = net / risk_usd_initial
+                track = self.early_exit_engine.tracks.get(sym)
+                mfe_r = round(track.mfe_r, 4) if (track and track.risk_amount > 0) else round((track.mfe / risk_usd_initial), 4) if track else 0.0
+                mae_r = round(track.mae_r, 4) if (track and track.risk_amount > 0) else round((track.mae / risk_usd_initial), 4) if track else 0.0
+                expected_r = float(getattr(pos, "expected_rr", 1.5))
+                regime_val = getattr(pos, "regime", "NO_TRADE")
+                exchange_leverage = float(getattr(pos, "leverage", 1.0))
+                effective_lev = float(getattr(pos, "effective_leverage", (close_qty * pos.avg_entry_price) / max(1.0, self.available_margin)))
+
                 self._append_closed_trade({
                     "symbol": sym,
                     "side": pos.side,
@@ -929,9 +1034,16 @@ class PaperTradingSession:
                     "fee": fee,
                     "fee_drag": entry_fee + fee,
                     "slippage_cost": entry_slippage + slippage_cost,
-                    "mfe": track.mfe if (track := self.early_exit_engine.tracks.get(sym)) else 0.0,
+                    "mfe": track.mfe if track else 0.0,
                     "mae": track.mae if track else 0.0,
-                    "mfe_r": round(track.mfe_r, 4) if track else 0.0,
+                    "mfe_r": mfe_r,
+                    "mae_r": mae_r,
+                    "expected_r": expected_r,
+                    "realized_r": round(realized_r, 4),
+                    "regime": regime_val,
+                    "leverage": exchange_leverage,
+                    "effective_leverage": round(effective_lev, 2),
+                    "risk_usd": round(risk_usd_initial, 2),
                     "profit_bleed": bool(track and track.mfe_r >= 0.5 and net <= 0.0),
                     "reason": f"KILL_SWITCH: {reason}",
                     "entry_reason": getattr(pos, "reason", "Technical Signal"),
@@ -969,6 +1081,30 @@ class PaperTradingSession:
         return {
             "status": "ACTIVE",
             "state": self.get_state().to_dict(),
+        }
+
+    def deposit(self, amount: float, reason: str = "Manual top-up") -> dict:
+        """Пополнение виртуального кошелька (paper money).
+
+        Не трогает позиции, ордера и историю сделок — только увеличивает
+        базу кошелька и доступную маржу. Полностью виртуально: реальных
+        денег и ключей не существует (инвариант AGENTS.md §5.1).
+        """
+        amount = float(amount)
+        if not math.isfinite(amount) or amount <= 0:
+            raise ValueError("Deposit amount must be a positive finite number")
+        self.initial_balance += amount
+        self.available_margin += amount
+        self._last_event_ts = int(time.time() * 1000)
+        logger.info(
+            f"[TRADE] Virtual wallet topped up +${amount:.2f} USD "
+            f"(balance base now ${self.initial_balance:.2f}) | reason='{reason}'"
+        )
+        return {
+            "deposited": amount,
+            "initial_balance": self.initial_balance,
+            "available_margin": self.available_margin,
+            "reason": reason,
         }
 
     def reset_wallet(self, initial_balance: float = 100.0) -> None:

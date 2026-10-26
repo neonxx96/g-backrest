@@ -9,7 +9,6 @@ import {
   EyeOff,
   X,
   AlertTriangle,
-  Grid,
   Sliders,
   Sparkles,
   Check,
@@ -17,17 +16,44 @@ import {
   ShieldCheck,
   Dna,
   Download,
+  FileCode2,
   ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
-  HelpCircle,
   Zap
 } from 'lucide-react';
 import { LivePaperTradingControls, LivePaperTradingResults } from './LivePaperTradingView';
 const PilotDialog = lazy(() => import('../features/pilot/PilotWorkspace.jsx'));
 import BacktestTradeTimeline from './BacktestTradeTimeline';
+import MonteCarloEquityChart from './backtest/MonteCarloEquityChart';
+import BacktestTradesTable from './backtest/BacktestTradesTable';
+import BacktestPresetsBar from './backtest/BacktestPresetsBar';
+import BacktestParametersForm from './backtest/BacktestParametersForm';
+import BacktestOptimizerView from './backtest/BacktestOptimizerView';
+import { STRATEGIES, TIMEFRAMES } from './backtest/constants';
+import { InfoTip } from './backtest/fields';
 
 const API_BASE = '/api';
+
+async function safeParseResponse(res) {
+  const rawText = await res.text();
+  let data = null;
+  if (rawText) {
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      data = null;
+    }
+  }
+  if (!res.ok) {
+    const errorMsg = data?.detail
+      ? (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail))
+      : (rawText ? rawText.slice(0, 250) : `Ошибка сервера (${res.status} ${res.statusText || 'Bad Gateway'})`);
+    throw new Error(errorMsg);
+  }
+  if (data === null) {
+    throw new Error(`Сервер вернул пустой ответ (HTTP ${res.status})`);
+  }
+  return data;
+}
 
 const PRESET_CHIPS = [
   { label: '🛡️ Консервативный BTC (5m)', text: 'Сделай консервативный сетап для скальпинга BTC на 5m с низким риском' },
@@ -36,58 +62,7 @@ const PRESET_CHIPS = [
   { label: '🎯 Сбалансированный ETH (15m)', text: 'Сбалансированная стратегия на ETH 15m с ATR фильтром и RSI' }
 ];
 
-const STRATEGIES = [
-  // Historical Flow & Volume Engine (100% реальные исторические данные)
-  { 
-    id: 'confluence_ema', 
-    label: '🟢 Confluence EMA (CVD+RSI)',
-    group: 'historical',
-    badge: 'Реальная история',
-    description: 'Мультифакторный трендовый сетап с подтверждением по дельте'
-  },
-  { 
-    id: 'cvd_absorption', 
-    label: '🟢 CVD Absorption (Поглощение)',
-    group: 'historical',
-    badge: 'Реальная история',
-    description: 'Дивергенция кумулятивной дельты и цены на экстремумах'
-  },
-  { 
-    id: 'cluster_volume_bounce', 
-    label: '🟢 Cluster Volume Bounce (Отскок)',
-    group: 'historical',
-    badge: 'Реальная история',
-    description: 'Пинбар с кульминацией кластерного объема свечи (Volume Climax)'
-  },
-  { 
-    id: 'ema_trend', 
-    label: '🟢 EMA Trend Momentum',
-    group: 'historical',
-    badge: 'Реальная история',
-    description: 'Пересечение EMA(20/50) с подтверждением покупок по дельте'
-  },
-  // Live Order Book Sentinel (Только Real-time L2)
-  { 
-    id: 'live_density_bounce', 
-    label: '🟠 Плотность стакана L2 [Live]',
-    group: 'live',
-    badge: 'Только Live L2',
-    isLiveOnly: true,
-    description: 'Работает только в реальном времени. Биржа не хранит исторический стакан.'
-  }
-];
-const TIMEFRAMES = ['1m', '5m', '15m', '1h'];
-
-const fmtTime = (ms) =>
-  new Date(ms).toLocaleString('ru-RU', {
-    timeZone: 'Europe/Kyiv',
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
-
-const fmtPrice = (p) => (p >= 1000 ? p.toFixed(1) : p >= 1 ? p.toFixed(2) : p.toFixed(5));
+// STRATEGIES / TIMEFRAMES вынесены в ./backtest/constants (модульный план, п.2)
 
 function Card({ label, value, tone, sub, testId, isLarge = false }) {
   const color =
@@ -116,28 +91,7 @@ function Card({ label, value, tone, sub, testId, isLarge = false }) {
   );
 }
 
-function InfoTip({ text }) {
-  const [show, setShow] = useState(false);
-  return (
-    <span
-      className="relative inline-flex items-center ml-1 cursor-help shrink-0 align-middle"
-      onMouseEnter={() => setShow(true)}
-      onMouseLeave={() => setShow(false)}
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setShow((v) => !v);
-      }}
-    >
-      <HelpCircle size={10} className="text-neutral-500 hover:text-neutral-300 transition-colors" />
-      {show && (
-        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 z-50 w-52 p-2 bg-neutral-900 border border-neutral-700 text-neutral-200 text-[9px] font-sans font-normal rounded shadow-2xl pointer-events-none whitespace-normal leading-tight">
-          {text}
-        </span>
-      )}
-    </span>
-  );
-}
+// InfoTip / NumField вынесены в ./backtest/fields (модульный план, п.2)
 
 export function formatBacktestError(rawError) {
   if (!rawError) return null;
@@ -203,199 +157,6 @@ export function formatBacktestError(rawError) {
   return str;
 }
 
-function NumField({ label, value, onChange, step = 0.1, min = 0, max, suffix, testId, tooltip }) {
-  const isInvalid = (min != null && value !== '' && Number(value) < min) || (max != null && value !== '' && Number(value) > max);
-  return (
-    <label className="flex flex-col text-[9px] font-mono min-w-0">
-      <span className="mb-0.5 text-neutral-400 flex items-center justify-between truncate select-none">
-        <span className={`truncate ${isInvalid ? 'text-red-400 font-bold' : ''}`}>{label}</span>
-        {tooltip && <InfoTip text={tooltip} />}
-      </span>
-      <div className={`relative flex items-center bg-neutral-950/80 border rounded px-1.5 py-0.5 transition-all ${
-        isInvalid
-          ? 'border-red-500/80 ring-1 ring-red-500/30'
-          : 'border-neutral-800 focus-within:border-neutral-500 focus-within:ring-1 focus-within:ring-neutral-500/30'
-      }`}>
-        <input
-          data-testid={testId}
-          type="number"
-          value={value}
-          step={step}
-          min={min}
-          max={max}
-          onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))}
-          className={`w-full bg-transparent text-[10px] text-right font-mono outline-none pr-1 ${
-            isInvalid ? 'text-red-300 font-bold' : 'text-neutral-100'
-          }`}
-        />
-        {suffix && (
-          <span className="text-neutral-500 text-[8.5px] font-mono select-none shrink-0 border-l border-neutral-800/80 pl-1 ml-0.5">
-            {suffix}
-          </span>
-        )}
-      </div>
-    </label>
-  );
-}
-
-/**
- * Interactive SVG Equity Curve with Monte Carlo 500-Run Fan Cloud Overlay & Gross vs Net Comparison
- */
-function MonteCarloEquityChart({ fanChart = [], samplePaths = [], initialCapital = 10000 }) {
-  if (!fanChart || fanChart.length < 2) {
-    return (
-      <div className="h-full flex items-center justify-center text-[#60697b] text-[10px] font-mono">
-        Недостаточно сделок для построения веера Монте-Карло
-      </div>
-    );
-  }
-
-  const width = 580;
-  const height = 148;
-  const padL = 46;
-  const padR = 12;
-  const padT = 10;
-  const padB = 18;
-  const plotW = width - padL - padR;
-  const plotH = height - padT - padB;
-
-  const allVals = [initialCapital];
-  fanChart.forEach((pt) => {
-    allVals.push(pt.p5, pt.p95, pt.actual, pt.gross || pt.actual);
-  });
-  samplePaths.forEach((path) => {
-    path.forEach((v) => allVals.push(v));
-  });
-
-  const minVal = Math.min(...allVals) * 0.996;
-  const maxVal = Math.max(...allVals) * 1.004;
-  const valRange = Math.max(1, maxVal - minVal);
-  const nPts = fanChart.length;
-
-  const toX = (idx) => padL + (idx / Math.max(1, nPts - 1)) * plotW;
-  const toY = (val) => padT + plotH - ((val - minVal) / valRange) * plotH;
-
-  const buildLine = (key) =>
-    fanChart
-      .map((pt, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(pt[key] ?? pt.actual).toFixed(1)}`)
-      .join(' ');
-
-  const buildBandPolygon = (upperKey, lowerKey) => {
-    const topPts = fanChart.map((pt, i) => `${toX(i).toFixed(1)},${toY(pt[upperKey]).toFixed(1)}`);
-    const botPts = [...fanChart]
-      .reverse()
-      .map((pt, revIdx) => {
-        const i = nPts - 1 - revIdx;
-        return `${toX(i).toFixed(1)},${toY(pt[lowerKey]).toFixed(1)}`;
-      });
-    return [...topPts, ...botPts].join(' ');
-  };
-
-  const yBase = toY(initialCapital);
-
-  return (
-    <svg
-      data-testid="monte-carlo-svg"
-      viewBox={`0 0 ${width} ${height}`}
-      className="w-full h-full select-none overflow-visible"
-    >
-      {/* Grid & Initial Capital Baseline */}
-      <line
-        x1={padL}
-        y1={yBase}
-        x2={width - padR}
-        y2={yBase}
-        stroke="#334155"
-        strokeWidth="1"
-        strokeDasharray="3 3"
-      />
-      <text x={4} y={padT + 8} fill="#64748b" fontSize="8.5" fontFamily="monospace">
-        ${Math.round(maxVal).toLocaleString()}
-      </text>
-      <text x={4} y={Math.min(height - 6, Math.max(padT + 18, yBase + 3))} fill="#94a3b8" fontSize="8.5" fontFamily="monospace">
-        ${Math.round(initialCapital).toLocaleString()}
-      </text>
-      <text x={4} y={height - 4} fill="#64748b" fontSize="8.5" fontFamily="monospace">
-        ${Math.round(minVal).toLocaleString()}
-      </text>
-
-      {/* Outer 5%-95% Monte Carlo Confidence Cloud */}
-      <polygon
-        points={buildBandPolygon('p95', 'p5')}
-        fill="rgba(56, 189, 248, 0.11)"
-        stroke="none"
-      />
-
-      {/* Inner 25%-75% Monte Carlo Quartile Cloud */}
-      <polygon
-        points={buildBandPolygon('p75', 'p25')}
-        fill="rgba(56, 189, 248, 0.22)"
-        stroke="none"
-      />
-
-      {/* Individual Monte Carlo Sample Fan Paths */}
-      {samplePaths.map((path, sIdx) => {
-        const d = path
-          .map((v, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(v).toFixed(1)}`)
-          .join(' ');
-        return (
-          <path
-            key={sIdx}
-            d={d}
-            fill="none"
-            stroke="rgba(148, 163, 184, 0.18)"
-            strokeWidth="0.9"
-          />
-        );
-      })}
-
-      {/* P50 Median Monte Carlo Path */}
-      <path
-        d={buildLine('p50')}
-        fill="none"
-        stroke="#38bdf8"
-        strokeWidth="1.2"
-        strokeDasharray="4 2"
-      />
-
-      {/* Gross Equity Curve (Before Exchange Fees & Slippage) */}
-      <path
-        d={buildLine('gross')}
-        fill="none"
-        stroke="#f59e0b"
-        strokeWidth="1.3"
-        strokeDasharray="2 2"
-      />
-
-      {/* Actual Net Equity Curve (After Exchange Fees & Slippage) */}
-      <path
-        d={buildLine('actual')}
-        fill="none"
-        stroke="#26a69a"
-        strokeWidth="2.2"
-      />
-
-      {/* Legend */}
-      <g transform={`translate(${padL + 6}, ${padT + 2})`}>
-        <rect x="0" y="0" width="8" height="4" fill="#26a69a" rx="1" />
-        <text x="11" y="4.5" fill="#e2e8f0" fontSize="8" fontFamily="monospace">
-          Чистый Equity
-        </text>
-
-        <rect x="82" y="0" width="8" height="4" fill="#f59e0b" rx="1" />
-        <text x="93" y="4.5" fill="#cbd5e1" fontSize="8" fontFamily="monospace">
-          До комиссий (Gross)
-        </text>
-
-        <rect x="192" y="0" width="8" height="4" fill="rgba(56,189,248,0.45)" rx="1" />
-        <text x="203" y="4.5" fill="#38bdf8" fontSize="8" fontFamily="monospace">
-          Облако Монте-Карло (P5–P95)
-        </text>
-      </g>
-    </svg>
-  );
-}
-
 export default function BacktestPanel({
   isOpen,
   onClose,
@@ -446,6 +207,9 @@ export default function BacktestPanel({
   const [minWallK, setMinWallK] = useState(100);
   const [volMult, setVolMult] = useState(1.0);
   const [leverage, setLeverage] = useState(2);
+  // M5.2: EMA-периоды для ema_trend (Quant Sweep apply); 20/50 — legacy-поведение движка
+  const [fastEma, setFastEma] = useState(20);
+  const [slowEma, setSlowEma] = useState(50);
 
   // Sync isolated parameters per symbol when symbol changes
   useEffect(() => {
@@ -472,7 +236,32 @@ export default function BacktestPanel({
     if (p.use_cvd_filter != null) setFilterCvd(Boolean(p.use_cvd_filter));
     if (p.use_oi_filter != null) setFilterOi(Boolean(p.use_oi_filter));
     if (p.use_rsi_filter != null) setFilterRsi(Boolean(p.use_rsi_filter));
+    if (p.fast_period != null) setFastEma(Number(p.fast_period));
+    if (p.slow_period != null) setSlowEma(Number(p.slow_period));
   }, [symbol, getParamsForSymbol]);
+
+  // M5.2: 1-клик apply из Quant Sweep (AI Copilot sidebar → сюда)
+  useEffect(() => {
+    const handler = (e) => {
+      const d = e.detail || {};
+      if (!d.symbol || d.symbol.toUpperCase() !== (symbol || '').toUpperCase()) return;
+      if (d.strategy_type) setStrategy(d.strategy_type);
+      if (d.timeframe && TIMEFRAMES.includes(d.timeframe)) setTimeframe(d.timeframe);
+      if (d.fast_period != null) {
+        setFastEma(Number(d.fast_period));
+        updateSymbolParam({ fast_period: Number(d.fast_period) });
+      }
+      if (d.slow_period != null) {
+        setSlowEma(Number(d.slow_period));
+        updateSymbolParam({ slow_period: Number(d.slow_period) });
+      }
+      setAppliedFeedback(
+        `🏆 Sweep #${d.rank ?? '?'} применён: стратегия ${d.strategy_type || 'ema_trend'} • EMA ${d.fast_period}/${d.slow_period}`
+      );
+    };
+    window.addEventListener('apply-sweep-strategy', handler);
+    return () => window.removeEventListener('apply-sweep-strategy', handler);
+  }, [symbol, updateSymbolParam]);
 
   // ТАКТ 1.2: Расширенные параметры стратегии (Entry Mode, Dynamic SL, Multi-TP, Wall Lifetime)
   const [entryMode, setEntryMode] = useState('limit_bounce'); // 'limit_bounce' | 'breakout' | 'cvd_absorption'
@@ -537,6 +326,18 @@ export default function BacktestPanel({
     const n = Number(v);
     setVolMult(n);
     updateSymbolParam({ volume_multiplier: n });
+  }, [updateSymbolParam]);
+
+  const handleFastEmaChange = useCallback((v) => {
+    const n = Number(v);
+    setFastEma(n);
+    updateSymbolParam({ fast_period: n });
+  }, [updateSymbolParam]);
+
+  const handleSlowEmaChange = useCallback((v) => {
+    const n = Number(v);
+    setSlowEma(n);
+    updateSymbolParam({ slow_period: n });
   }, [updateSymbolParam]);
 
   const handleDaysChange = useCallback((v) => {
@@ -970,9 +771,7 @@ export default function BacktestPanel({
             }
           })
         });
-        const data = await res.json();
-        if (!res.ok)
-          throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail));
+        const data = await safeParseResponse(res);
         handleSetResult({ ...data, symbol, timeframe, mode: 'single' });
         if (symbol && setParamsForSymbol) {
           setParamsForSymbol(symbol, {
@@ -1122,9 +921,7 @@ export default function BacktestPanel({
           generations: 5
         })
       });
-      const data = await res.json();
-      if (!res.ok)
-        throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail));
+      const data = await safeParseResponse(res);
       setOptProgress(100);
       handleSetResult({ ...data, symbol, timeframe, mode: 'grid' });
       if (data.active_position_setup) {
@@ -1192,9 +989,7 @@ export default function BacktestPanel({
             initial_capital: 10000.0
           })
         });
-        const data = await res.json();
-        if (!res.ok)
-          throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail));
+        const data = await safeParseResponse(res);
         setAiResult(data);
         onResult({
           ...data,
@@ -1376,6 +1171,70 @@ export default function BacktestPanel({
     URL.revokeObjectURL(url);
   }, [allTrades, symbol, timeframe]);
 
+  // Stage 2: PDF Report Export (задача 6.5) — серверный рендер из текущего result
+  const [pdfExporting, setPdfExporting] = useState(false);
+  const [pdfExportError, setPdfExportError] = useState(null);
+
+  const handleExportPDF = useCallback(async () => {
+    if (!result) return;
+    setPdfExporting(true);
+    setPdfExportError(null);
+    try {
+      const res = await fetch(`${API_BASE}/backtest/report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(result),
+      });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.detail || `Ошибка сервера (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `backtest_report_${result.symbol || symbol || 'UNKNOWN'}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setPdfExportError(err.message || 'Ошибка формирования PDF');
+    } finally {
+      setPdfExporting(false);
+    }
+  }, [result, symbol]);
+
+  // HTML Report Export (задача 6.4) — серверный рендер, открывается в новой вкладке
+  const [htmlExporting, setHtmlExporting] = useState(false);
+  const [htmlExportError, setHtmlExportError] = useState(null);
+
+  const handleExportHTML = useCallback(async () => {
+    if (!result) return;
+    setHtmlExporting(true);
+    setHtmlExportError(null);
+    let url = null;
+    try {
+      const res = await fetch(`${API_BASE}/backtest/report-html`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(result),
+      });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.detail || `Ошибка сервера (${res.status})`);
+      }
+      const blob = await res.blob();
+      url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener');
+    } catch (err) {
+      setHtmlExportError(err.message || 'Ошибка формирования HTML-отчёта');
+    } finally {
+      if (url) URL.revokeObjectURL(url);
+      setHtmlExporting(false);
+    }
+  }, [result]);
+
   if (!isOpen) return null;
 
   return (
@@ -1524,468 +1383,96 @@ export default function BacktestPanel({
             </div>
           ) : (
             <>
-              {/* Presets Bar */}
-              <div
-                data-testid="strategy-presets-bar"
-                className="p-1.5 rounded-md bg-[#0e1217] border border-neutral-800 space-y-1 font-mono"
-              >
-                <div className="flex items-center justify-between text-[8.5px]">
-                  <span className="font-bold text-neutral-300 uppercase tracking-wider flex items-center">
-                    ⚡ Пресеты (1 клик):
-                    <InfoTip text="Готовые наборы проверенных квант-параметров для быстрого тестирования в 1 клик" />
-                  </span>
-                  <button
-                    type="button"
-                    data-testid="btn-open-save-preset"
-                    onClick={() => setShowSavePresetInput((v) => !v)}
-                    className="text-neutral-400 hover:text-neutral-200 hover:underline cursor-pointer font-bold transition-colors"
-                  >
-                    {showSavePresetInput ? '✕ Отмена' : '+ Сохранить текущие'}
-                  </button>
-                </div>
+              {/* Presets Bar — UI вынесен в ./backtest/BacktestPresetsBar (модульный план, п.2); логика (apply/save/fetch) остаётся здесь */}
+              <BacktestPresetsBar
+                presets={presets}
+                selectedPresetId={selectedPresetId}
+                showSavePresetInput={showSavePresetInput}
+                newPresetName={newPresetName}
+                onToggleSaveInput={() => setShowSavePresetInput((v) => !v)}
+                onNameChange={setNewPresetName}
+                onSave={handleSavePreset}
+                onSelectPreset={(id) => {
+                  setSelectedPresetId(id);
+                  const found = presets.find((p) => String(p.id) === String(id));
+                  if (found) applyPresetByObj(found);
+                }}
+                onApplyPreset={() => {
+                  const found = presets.find((p) => String(p.id) === String(selectedPresetId)) || presets[0];
+                  if (found) applyPresetByObj(found);
+                }}
+              />
 
-                {showSavePresetInput ? (
-                  <div className="flex items-center space-x-1 pt-0.5">
-                    <input
-                      data-testid="input-preset-name"
-                      type="text"
-                      placeholder="Название пресета..."
-                      value={newPresetName}
-                      onChange={(e) => setNewPresetName(e.target.value)}
-                      className="flex-1 bg-neutral-900 border border-neutral-700 rounded px-1.5 py-0.5 text-[9.5px] text-white outline-none focus:border-neutral-500"
-                    />
-                    <button
-                      type="button"
-                      data-testid="btn-confirm-save-preset"
-                      onClick={handleSavePreset}
-                      disabled={!newPresetName.trim()}
-                      className="px-2 py-0.5 rounded bg-neutral-200 hover:bg-white text-neutral-950 text-[9px] font-bold disabled:opacity-40 cursor-pointer transition-colors"
-                    >
-                      💾 Сохранить
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center space-x-1">
-                    <select
-                      data-testid="select-strategy-preset"
-                      value={selectedPresetId}
-                      onChange={(e) => {
-                        const id = e.target.value;
-                        setSelectedPresetId(id);
-                        const found = presets.find((p) => String(p.id) === String(id));
-                        if (found) applyPresetByObj(found);
-                      }}
-                      className="flex-1 bg-neutral-900 border border-neutral-800 rounded px-1.5 py-0.5 text-[9.5px] text-neutral-200 outline-none focus:border-neutral-500"
-                    >
-                      {presets.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      data-testid="btn-apply-preset-1click"
-                      onClick={() => {
-                        const found = presets.find((p) => String(p.id) === String(selectedPresetId)) || presets[0];
-                        if (found) applyPresetByObj(found);
-                      }}
-                      className="px-2 py-0.5 rounded bg-neutral-200 hover:bg-white text-neutral-950 text-[9px] font-bold cursor-pointer shrink-0 transition-colors"
-                      title="Применить выбранный набор параметров в 1 клик без перезапуска"
-                    >
-                      Применить
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* A) СЕКЦИЯ: Входные параметры (Strategy & Entry Rules) */}
-              <div className="border border-neutral-800 rounded-md p-2 space-y-1.5 bg-[#0e1217]/90 shadow-xs">
-                <div className="flex items-center justify-between text-[9px] text-neutral-300 font-bold uppercase tracking-wider border-b border-neutral-800/80 pb-1">
-                  <span className="flex items-center gap-1.5">
-                    <Sliders size={11} className="text-neutral-400" />
-                    Входные параметры
-                    <InfoTip text="Выбор базового квант-алгоритма, таймфрейма, механики входа и горизонта тестирования" />
-                  </span>
-                  <span className="text-[8px] text-neutral-500 font-mono">RULES</span>
-                </div>
-
-                <div className="space-y-1.5">
-                  <select
-                    data-testid="bt-strategy-select"
-                    value={strategy}
-                    onChange={(e) => {
-                      setStrategy(e.target.value);
-                      if (onStrategyChange) onStrategyChange(e.target.value);
-                    }}
-                    className="w-full bg-neutral-900 border border-neutral-800 rounded px-2 py-1 text-neutral-200 text-[10px] font-mono outline-none focus:border-neutral-500"
-                  >
-                    <optgroup label="🟢 Historical Flow & Volume (Реальная история)">
-                      {STRATEGIES.filter((s) => s.group === 'historical').map((st) => (
-                        <option key={st.id} value={st.id}>
-                          {st.label}
-                        </option>
-                      ))}
-                    </optgroup>
-                    <optgroup label="🟠 Live Order Book Sentinel (Только Real-time L2)">
-                      {STRATEGIES.filter((s) => s.group === 'live').map((st) => (
-                        <option key={st.id} value={st.id}>
-                          {st.label}
-                        </option>
-                      ))}
-                    </optgroup>
-                  </select>
-
-                  {isLiveOnlyStrategy && (
-                    <div
-                      data-testid="live-strategy-warning-banner"
-                      className="bg-amber-950/40 border border-amber-600/60 text-amber-200 text-[9px] p-2 rounded-md leading-relaxed flex flex-col space-y-1 font-mono shadow-xs"
-                    >
-                      <div className="flex items-center space-x-1.5 font-bold text-amber-300">
-                        <AlertTriangle size={13} className="shrink-0 text-amber-400" />
-                        <span>Исторический бэктест недоступен (L2 Live)</span>
-                      </div>
-                      <div className="text-neutral-300 text-[8.5px]">
-                        Биржа не хранит потиковый стакан L2 в истории. Данная стратегия предназначена исключительно для торговли в реальном времени (Sentinel).
-                      </div>
-                      <div className="pt-0.5 flex items-center justify-between">
-                        <span className="text-neutral-400 text-[8px]">Для теста на истории:</span>
-                        <button
-                          type="button"
-                          data-testid="btn-switch-cluster-strategy"
-                          onClick={() => {
-                            setStrategy('cluster_volume_bounce');
-                            if (onStrategyChange) onStrategyChange('cluster_volume_bounce');
-                            setError(null);
-                          }}
-                          className="px-2 py-0.5 rounded bg-sky-950 hover:bg-sky-900 border border-sky-600/70 text-sky-300 text-[8.5px] font-bold cursor-pointer transition-colors"
-                        >
-                          Включить Cluster Volume Bounce →
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-2 gap-2 pt-0.5">
-                    {/* Timeframe selector */}
-                    <div>
-                      <div className="text-[8.5px] text-neutral-400 font-mono mb-0.5">Таймфрейм (TF):</div>
-                      <div className="flex space-x-0.5">
-                        {TIMEFRAMES.map((tf) => (
-                          <button
-                            key={tf}
-                            onClick={() => handleTimeframeChange(tf)}
-                            className={`flex-1 py-0.5 rounded text-[9px] font-mono transition cursor-pointer ${
-                              timeframe === tf
-                                ? 'bg-neutral-200 text-neutral-950 font-bold shadow-xs'
-                                : 'bg-neutral-900 text-neutral-400 hover:text-white border border-neutral-800/80'
-                            }`}
-                          >
-                            {tf}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Period (Days) */}
-                    <div>
-                      <div className="text-[8.5px] text-neutral-400 font-mono mb-0.5">Период истории:</div>
-                      <NumField
-                        label=""
-                        testId="input-days"
-                        value={days}
-                        onChange={handleDaysChange}
-                        step={1}
-                        min={1}
-                        max={30}
-                        suffix="дн"
-                        tooltip="Глубина исторической выборки (в днях)"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Entry Mode select */}
-                  <div className="pt-0.5">
-                    <div className="text-[8.5px] uppercase font-bold text-neutral-300 mb-0.5 flex items-center">
-                      🎯 Режим входа (Entry Mode):
-                      <InfoTip text="Механика генерации сигнала: лимитный отскок, агрессивный пробой или поглощение дельты CVD" />
-                    </div>
-                    <select
-                      data-testid="select-entry-mode"
-                      value={entryMode}
-                      onChange={(e) => handleEntryModeChange(e.target.value)}
-                      className="w-full bg-neutral-900 border border-neutral-800 rounded px-2 py-0.5 text-neutral-200 text-[9.5px] outline-none focus:border-neutral-500"
-                    >
-                      <option value="limit_bounce">Лимитный отскок от плотности (Bounce)</option>
-                      <option value="breakout">Пробой плотности на разъедании (Breakout)</option>
-                      <option value="cvd_absorption">Поглощение дельты (CVD Absorption)</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* B) СЕКЦИЯ: Риск-менеджмент (SL, TP, Trailing) */}
-              <div
-                data-testid="extended-strategy-config"
-                className="border border-neutral-800 rounded-md p-2 space-y-1.5 bg-[#0e1217]/90 shadow-xs"
-              >
-                <div className="flex items-center justify-between text-[9px] text-neutral-300 font-bold uppercase tracking-wider border-b border-neutral-800/80 pb-1">
-                  <span className="flex items-center gap-1.5">
-                    <ShieldCheck size={11} className="text-neutral-400" />
-                    Риск-менеджмент
-                    <InfoTip text="Настройки Stop-Loss, Take-Profit, динамического смещения и размера кредитного плеча" />
-                  </span>
-                  <span className="text-[8px] text-neutral-500 font-mono">RISK</span>
-                </div>
-
-                {mode === 'single' ? (
-                  <div className="grid grid-cols-3 gap-1.5">
-                    <NumField testId="input-sl" label="SL" value={sl} onChange={handleSlChange} step={0.1} min={0.1} suffix="%" tooltip="Stop-Loss в % от точки входа" />
-                    <NumField testId="input-tp" label="TP" value={tp} onChange={handleTpChange} step={0.1} min={0.1} suffix="%" tooltip="Take-Profit в % от точки входа" />
-                    <NumField testId="input-leverage" label="Плечо" value={leverage} onChange={handleLeverageChange} step={1} min={1} max={125} suffix="x" tooltip="Изолированное кредитное плечо для расчёта" />
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    <div className="grid grid-cols-2 gap-1">
-                      <NumField label="SL от" value={slMin} onChange={setSlMin} step={0.1} min={0.1} suffix="%" tooltip="Минимальный Stop-Loss для перебора" />
-                      <NumField label="SL до" value={slMax} onChange={setSlMax} step={0.1} min={0.2} suffix="%" tooltip="Максимальный Stop-Loss для перебора" />
-                    </div>
-                    <div className="grid grid-cols-2 gap-1">
-                      <NumField label="TP от" value={tpMin} onChange={setTpMin} step={0.2} min={0.2} suffix="%" tooltip="Минимальный Take-Profit для перебора" />
-                      <NumField label="TP до" value={tpMax} onChange={setTpMax} step={0.2} min={0.5} suffix="%" tooltip="Максимальный Take-Profit для перебора" />
-                    </div>
-                  </div>
-                )}
-
-                {/* Динамический Stop-Loss */}
-                <div className="space-y-1 pt-0.5 border-t border-neutral-800/80">
-                  <div className="text-[8.5px] uppercase font-bold text-neutral-300 flex items-center">
-                    🛡️ Динамический Stop-Loss:
-                    <InfoTip text="Адаптивный алгоритм защиты: фиксированный %, за лимитную стенку или по волатильности ATR" />
-                  </div>
-                  <div className="grid grid-cols-3 gap-1">
-                    {[
-                      { id: 'fixed_pct', label: 'Фикс. %' },
-                      { id: 'behind_wall', label: 'За стенку' },
-                      { id: 'atr_volatility', label: 'По ATR' }
-                    ].map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        data-testid={`sl-mode-${opt.id}`}
-                        onClick={() => handleSlModeChange(opt.id)}
-                        className={`py-0.5 px-1 rounded border text-[8.5px] truncate transition cursor-pointer ${
-                          slMode === opt.id
-                            ? 'bg-neutral-200 text-neutral-950 border-neutral-300 font-bold shadow-xs'
-                            : 'bg-neutral-900 text-neutral-400 border-neutral-800 hover:text-white'
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                  {slMode === 'behind_wall' && (
-                    <div className="flex items-center justify-between pt-0.5">
-                      <span className="text-neutral-400 text-[8.5px]">Отступ за стенку (тиков):</span>
-                      <input
-                        data-testid="input-wall-sl-offset"
-                        type="number"
-                        min={1}
-                        max={50}
-                        value={wallSlOffsetTicks}
-                        onChange={(e) => handleWallSlOffsetChange(e.target.value)}
-                        className="w-16 bg-neutral-900 border border-neutral-800 rounded px-1 py-0.5 text-right text-neutral-200 text-[9px] outline-none focus:border-neutral-500"
-                      />
-                    </div>
-                  )}
-                  {slMode === 'atr_volatility' && (
-                    <div className="flex items-center justify-between pt-0.5">
-                      <span className="text-neutral-400 text-[8.5px]">Множитель ATR (1.0x–3.0x):</span>
-                      <input
-                        data-testid="input-atr-sl-mult"
-                        type="number"
-                        step={0.2}
-                        min={1.0}
-                        max={3.0}
-                        value={atrMultiplier}
-                        onChange={(e) => handleAtrMultiplierChange(e.target.value)}
-                        className="w-16 bg-neutral-900 border border-neutral-800 rounded px-1 py-0.5 text-right text-neutral-200 text-[9px] outline-none focus:border-neutral-500"
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* Мульти-Тейк-Профит & Trailing */}
-                <div className="pt-0.5 border-t border-neutral-800/80 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[8.5px] uppercase font-bold text-neutral-300">🎯 Multi-TP & Trailing</span>
-                    <label className="flex items-center space-x-1 text-[8.5px] font-mono text-neutral-300 cursor-pointer">
-                      <input
-                        data-testid="toggle-multi-tp"
-                        type="checkbox"
-                        checked={useMultiTp}
-                        onChange={(e) => handleMultiTpChange(e.target.checked)}
-                        className="w-3 h-3 rounded accent-neutral-200 cursor-pointer"
-                      />
-                      <span>Включить (50% + Б/У)</span>
-                    </label>
-                  </div>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <label className="flex flex-col text-[8.5px] text-neutral-400">
-                      <span className="flex items-center truncate">
-                        TP1 R:R
-                        <InfoTip text="Коэффициент Risk/Reward для закрытия первых 50% и перевода стопа в Б/У" />
-                      </span>
-                      <input
-                        data-testid="input-tp1-rr"
-                        type="number"
-                        step={0.1}
-                        min={0.8}
-                        max={4.0}
-                        value={tp1RrRatio}
-                        onChange={(e) => handleTp1RrChange(e.target.value)}
-                        className="bg-neutral-900 border border-neutral-800 rounded px-1.5 py-0.5 text-neutral-200 text-right text-[9.5px] outline-none focus:border-neutral-500"
-                      />
-                    </label>
-                    <label className="flex flex-col text-[8.5px] text-neutral-400">
-                      <span className="flex items-center truncate">
-                        TP2 режим
-                        <InfoTip text="Стратегия закрытия оставшихся 50%: перед противоположной плотностью или трендовый R:R" />
-                      </span>
-                      <select
-                        data-testid="select-tp2-mode"
-                        value={tp2Mode}
-                        onChange={(e) => handleTp2ModeChange(e.target.value)}
-                        className="bg-neutral-900 border border-neutral-800 rounded px-1.5 py-0.5 text-neutral-200 text-[9px] outline-none focus:border-neutral-500"
-                      >
-                        <option value="opposite_wall">Перед стенкой</option>
-                        <option value="trend_rr">По тренду (2.8R)</option>
-                      </select>
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              {/* C) СЕКЦИЯ: Фильтры (Volume, Time, Confluence) */}
-              <div className="border border-neutral-800 rounded-md p-2 space-y-1.5 bg-[#0e1217]/90 shadow-xs">
-                <div className="flex items-center justify-between text-[9px] text-neutral-300 font-bold uppercase tracking-wider border-b border-neutral-800/80 pb-1">
-                  <span className="flex items-center gap-1.5">
-                    <Grid size={11} className="text-neutral-400" />
-                    Фильтры
-                    <InfoTip text="Порог стакана, защита от спуфинга, Confluence фильтры и реализм биржевых комиссий" />
-                  </span>
-                  <span className="text-[8px] text-neutral-500 font-mono">FILTERS</span>
-                </div>
-
-                {/* Honest Historical OHLCV Banner (L2 orderbook filters hidden in history) */}
-                <div className="border border-neutral-800/90 rounded bg-neutral-900/80 p-2 text-[8.5px] font-mono space-y-1.5">
-                  <div className="flex items-center justify-between text-amber-400 font-bold text-[9px]">
-                    <span className="flex items-center gap-1">
-                      <span>🛡️ Честный режим OHLCV истории</span>
-                    </span>
-                    <span className="text-[7.5px] bg-amber-500/10 border border-amber-500/30 text-amber-300 px-1 rounded">
-                      L2 фильтры скрыты
-                    </span>
-                  </div>
-                  <p className="text-neutral-400 font-sans leading-tight">
-                    Биржа не хранит исторический стакан L2. В истории доступны только свечные индикаторы (ATR, RSI, поглощение объёма).
-                    Для торговли перед лимитными стенками переключитесь в{' '}
-                    <button
-                      type="button"
-                      onClick={() => setMode('live_paper')}
-                      className="text-amber-300 font-bold underline cursor-pointer hover:text-amber-200"
-                    >
-                      ⚡ Симулятор (Paper)
-                    </button>.
-                  </p>
-                  <div className="pt-1 border-t border-neutral-800/80">
-                    <NumField
-                      label="Множитель объёма свечи"
-                      value={volMult}
-                      onChange={handleVolMultChange}
-                      step={0.1}
-                      min={0.5}
-                      tooltip="Множитель объема свечного кластера (Price Action / Volume Climax)"
-                    />
-                  </div>
-                </div>
-
-                {/* Confluence Suite */}
-                <div className="pt-1 border-t border-neutral-800/80 space-y-1">
-                  <div className="flex items-center justify-between text-[8.5px] font-mono">
-                    <span className="text-neutral-400 font-bold uppercase tracking-wider flex items-center gap-1">
-                      Confluence сигналы
-                      <InfoTip text="Дополнительные условия подтверждения сигналов для отсеивания ложных входов" />
-                    </span>
-                    <span className="text-neutral-500 font-mono">
-                      {[filterCvd, filterOi, filterAtr, filterRsi].filter(Boolean).length}/4 ON
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-4 gap-1 text-[8.5px] font-mono">
-                    {[
-                      { label: 'CVD', active: filterCvd, toggle: () => handleFilterCvdChange(!filterCvd) },
-                      { label: 'OI', active: filterOi, toggle: () => handleFilterOiChange(!filterOi) },
-                      { label: 'ATR', active: filterAtr, toggle: () => handleFilterAtrChange(!filterAtr) },
-                      { label: 'RSI', active: filterRsi, toggle: () => handleFilterRsiChange(!filterRsi) }
-                    ].map((f) => (
-                      <button
-                        key={f.label}
-                        type="button"
-                        onClick={f.toggle}
-                        className={`py-0.5 px-1 rounded border text-center transition cursor-pointer ${
-                          f.active
-                            ? 'bg-neutral-200 text-neutral-950 border-neutral-300 font-bold shadow-xs'
-                            : 'bg-neutral-900 text-neutral-500 border-neutral-800 hover:text-white'
-                        }`}
-                      >
-                        {f.label}: {f.active ? 'ON' : 'OFF'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Fees and Slippage */}
-                <div className="pt-1 border-t border-neutral-800/80">
-                  <div className="text-[8.5px] font-mono text-neutral-400 font-bold uppercase tracking-wider mb-0.5">
-                    Биржевые комиссии & Скольжение:
-                  </div>
-                  <div className="grid grid-cols-3 gap-1">
-                    <NumField
-                      testId="input-maker-fee"
-                      label="Maker"
-                      value={makerFeePct}
-                      onChange={setMakerFeePct}
-                      step={0.01}
-                      min={0}
-                      max={0.5}
-                      suffix="%"
-                      tooltip="Биржевая комиссия при лимитном входе"
-                    />
-                    <NumField
-                      testId="input-taker-fee"
-                      label="Taker"
-                      value={takerFeePct}
-                      onChange={setTakerFeePct}
-                      step={0.01}
-                      min={0}
-                      max={0.5}
-                      suffix="%"
-                      tooltip="Биржевая комиссия при маркет-входе или срабатывании стопа"
-                    />
-                    <NumField
-                      testId="input-slippage-ticks"
-                      label="Скольжение"
-                      value={slippageTicks}
-                      onChange={setSlippageTicks}
-                      step={1}
-                      min={0}
-                      max={10}
-                      suffix="тик"
-                      tooltip="Проскальзывание стоп-лосса в тиках цены"
-                    />
-                  </div>
-                </div>
-              </div>
+              {/* Форма параметров (секции A/B/C) вынесена в ./backtest/BacktestParametersForm (модульный план, п.2);
+                  стейт и хендлеры (включая updateSymbolParam-врапперы) остаются здесь и прокидываются пропсами */}
+              <BacktestParametersForm
+                strategy={strategy}
+                onStrategyChange={(v) => {
+                  setStrategy(v);
+                  if (onStrategyChange) onStrategyChange(v);
+                }}
+                isLiveOnlyStrategy={isLiveOnlyStrategy}
+                onSwitchToClusterStrategy={() => {
+                  setStrategy('cluster_volume_bounce');
+                  if (onStrategyChange) onStrategyChange('cluster_volume_bounce');
+                  setError(null);
+                }}
+                timeframe={timeframe}
+                onTimeframeChange={handleTimeframeChange}
+                days={days}
+                onDaysChange={handleDaysChange}
+                entryMode={entryMode}
+                onEntryModeChange={handleEntryModeChange}
+                mode={mode}
+                sl={sl}
+                onSlChange={handleSlChange}
+                tp={tp}
+                onTpChange={handleTpChange}
+                leverage={leverage}
+                onLeverageChange={handleLeverageChange}
+                slMin={slMin}
+                setSlMin={setSlMin}
+                slMax={slMax}
+                setSlMax={setSlMax}
+                tpMin={tpMin}
+                setTpMin={setTpMin}
+                tpMax={tpMax}
+                setTpMax={setTpMax}
+                showEmaFields={strategy === 'ema_trend' && mode === 'single'}
+                fastEma={fastEma}
+                onFastEmaChange={handleFastEmaChange}
+                slowEma={slowEma}
+                onSlowEmaChange={handleSlowEmaChange}
+                slMode={slMode}
+                onSlModeChange={handleSlModeChange}
+                wallSlOffsetTicks={wallSlOffsetTicks}
+                onWallSlOffsetChange={handleWallSlOffsetChange}
+                atrMultiplier={atrMultiplier}
+                onAtrMultiplierChange={handleAtrMultiplierChange}
+                useMultiTp={useMultiTp}
+                onMultiTpChange={handleMultiTpChange}
+                tp1RrRatio={tp1RrRatio}
+                onTp1RrChange={handleTp1RrChange}
+                tp2Mode={tp2Mode}
+                onTp2ModeChange={handleTp2ModeChange}
+                volMult={volMult}
+                onVolMultChange={handleVolMultChange}
+                filterCvd={filterCvd}
+                onFilterCvdChange={handleFilterCvdChange}
+                filterOi={filterOi}
+                onFilterOiChange={handleFilterOiChange}
+                filterAtr={filterAtr}
+                onFilterAtrChange={handleFilterAtrChange}
+                filterRsi={filterRsi}
+                onFilterRsiChange={handleFilterRsiChange}
+                makerFeePct={makerFeePct}
+                setMakerFeePct={setMakerFeePct}
+                takerFeePct={takerFeePct}
+                setTakerFeePct={setTakerFeePct}
+                slippageTicks={slippageTicks}
+                setSlippageTicks={setSlippageTicks}
+                onSwitchToLivePaper={() => setMode('live_paper')}
+              />
 
               {/* ACTION AREA: Prominent Run Backtest & Forecast Buttons */}
               <div className="pt-1">
@@ -2389,6 +1876,39 @@ export default function BacktestPanel({
                     {mc.badge_text} (Score: {mc.robustness_score}/100)
                   </span>
                 )}
+
+                {/* PDF Report Export (6.5): всегда видна рядом с вердиктом MC */}
+                {result && (
+                  <button
+                    type="button"
+                    data-testid="btn-export-pdf"
+                    onClick={handleExportPDF}
+                    disabled={pdfExporting}
+                    title="Скачать PDF-отчёт: сводка, Монте-Карло, тепловая карта по дням/часам"
+                    className="px-2 py-0.5 rounded font-mono font-bold text-[9.5px] border transition cursor-pointer bg-neutral-900 text-neutral-300 border-neutral-700 hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                  >
+                    {pdfExporting ? <Loader2 size={10} className="animate-spin" /> : <Download size={10} />}
+                    <span>PDF отчёт</span>
+                  </button>
+                )}
+                {result && (
+                  <button
+                    type="button"
+                    data-testid="btn-export-html"
+                    onClick={handleExportHTML}
+                    disabled={htmlExporting}
+                    title="Открыть HTML-отчёт в новой вкладке: сводка, equity, Монте-Карло, тепловая карта"
+                    className="px-2 py-0.5 rounded font-mono font-bold text-[9.5px] border transition cursor-pointer bg-neutral-900 text-neutral-300 border-neutral-700 hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                  >
+                    {htmlExporting ? <Loader2 size={10} className="animate-spin" /> : <FileCode2 size={10} />}
+                    <span>HTML отчёт</span>
+                  </button>
+                )}
+                {(pdfExportError || htmlExportError) && (
+                  <span data-testid="pdf-export-error" className="text-[9.5px] text-[#ef5350] font-mono">
+                    {pdfExportError || htmlExportError}
+                  </span>
+                )}
               </div>
 
               {/* View Body */}
@@ -2465,188 +1985,18 @@ export default function BacktestPanel({
                   </div>
                 )}
 
-                {viewTab === 'optimizer' && (
-                  <div className="p-2 space-y-2">
-                    {/* Cards: До оптимизации vs После оптимизации */}
-                    {beforeOpt && afterOpt && (
-                      <div className="grid grid-cols-2 gap-2 font-mono text-[10px]">
-                        <div
-                          data-testid="card-before-opt"
-                          className="border border-[#1f2430] rounded bg-[#0c0f17] p-2 space-y-1"
-                        >
-                          <div className="flex items-center justify-between border-b border-[#191f2e] pb-1">
-                            <span className="text-[#94a3b8] font-bold uppercase text-[9px]">
-                              До оптимизации (Базовый сетап)
-                            </span>
-                            <span className="text-[#64748b] text-[9px]">
-                              SL {beforeOpt.stop_loss_pct}% • TP {beforeOpt.take_profit_pct}% • Стенка $
-                              {Math.round(beforeOpt.min_density_usd / 1000)}k
-                            </span>
-                          </div>
-                          <div className="grid grid-cols-4 gap-1 pt-0.5">
-                            <div>
-                              <div className="text-[8.5px] text-[#64748b]">Чистый PnL</div>
-                              <div
-                                className={`font-bold ${
-                                  beforeOpt.total_pnl_pct >= 0 ? 'text-[#26a69a]' : 'text-[#ef5350]'
-                                }`}
-                              >
-                                {beforeOpt.total_pnl_pct >= 0 ? '+' : ''}
-                                {beforeOpt.total_pnl_pct}%
-                              </div>
-                            </div>
-                            <div>
-                              <div className="text-[8.5px] text-[#64748b]">WinRate</div>
-                              <div className="text-white font-bold">{beforeOpt.win_rate_pct}%</div>
-                            </div>
-                            <div>
-                              <div className="text-[8.5px] text-[#64748b]">Sharpe / PF</div>
-                              <div className="text-white font-bold">
-                                {beforeOpt.sharpe_ratio} / {beforeOpt.profit_factor}
-                              </div>
-                            </div>
-                            <div>
-                              <div className="text-[8.5px] text-[#64748b]">Max DD</div>
-                              <div className="text-[#ef5350] font-bold">-{beforeOpt.max_drawdown_pct}%</div>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div
-                          data-testid="card-after-opt"
-                          className="border border-neutral-700 rounded bg-neutral-950/80 p-2 space-y-1"
-                        >
-                          <div className="flex items-center justify-between border-b border-neutral-800 pb-1">
-                            <span className="text-neutral-200 font-bold uppercase text-[9px] flex items-center gap-1">
-                              <Dna size={11} className="text-neutral-400" />
-                              После генетической оптимизации
-                            </span>
-                            <button
-                              data-testid="btn-apply-best-setup"
-                              onClick={() => applySetup(afterOpt)}
-                              className="px-2 py-0.5 rounded bg-neutral-200 hover:bg-white text-neutral-950 font-bold text-[9px] transition cursor-pointer"
-                            >
-                              Применить лучший
-                            </button>
-                          </div>
-                          <div className="grid grid-cols-4 gap-1 pt-0.5">
-                            <div>
-                              <div className="text-[8.5px] text-neutral-400">Чистый PnL</div>
-                              <div
-                                className={`font-bold ${
-                                  afterOpt.total_pnl_pct >= 0 ? 'text-[#4ade80]' : 'text-[#ef5350]'
-                                }`}
-                              >
-                                {afterOpt.total_pnl_pct >= 0 ? '+' : ''}
-                                {afterOpt.total_pnl_pct}%
-                              </div>
-                            </div>
-                            <div>
-                              <div className="text-[8.5px] text-neutral-400">WinRate</div>
-                              <div className="text-white font-bold">{afterOpt.win_rate_pct}%</div>
-                            </div>
-                            <div>
-                              <div className="text-[8.5px] text-neutral-400">Sharpe / Sortino</div>
-                              <div className="text-neutral-200 font-bold">
-                                {afterOpt.sharpe_ratio} / {afterOpt.sortino_ratio ?? 0}
-                              </div>
-                            </div>
-                            <div>
-                              <div className="text-[8.5px] text-neutral-400">Max DD</div>
-                              <div className="text-[#fbbf24] font-bold">-{afterOpt.max_drawdown_pct}%</div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {oosOpt && (
-                      <div
-                        data-testid="card-oos-validation"
-                        className={`rounded border p-2 font-mono text-[10px] ${oosOpt.available ? 'border-cyan-900/60 bg-cyan-950/10' : 'border-amber-900/60 bg-amber-950/10'}`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold uppercase text-[9px] text-cyan-300">Проверка OOS · данные после периода подбора</span>
-                          <span className={oosOpt.available ? 'text-cyan-200' : 'text-amber-300'}>
-                            {oosOpt.available ? 'НЕ ИСПОЛЬЗОВАЛАСЬ В ОПТИМИЗАЦИИ' : 'НЕДОСТАТОЧНО ДАННЫХ'}
-                          </span>
-                        </div>
-                        {oosOpt.available && oosOpt.metrics ? (
-                          <div className="mt-1 grid grid-cols-5 gap-2 text-neutral-300">
-                            <span>Свечи <b className="text-white">{oosOpt.oos_candles}</b></span>
-                            <span>PnL <b className={oosOpt.metrics.total_pnl_pct >= 0 ? 'text-emerald-300' : 'text-red-300'}>{oosOpt.metrics.total_pnl_pct}%</b></span>
-                            <span>WinRate <b className="text-white">{oosOpt.metrics.win_rate_pct}%</b></span>
-                            <span>PF <b className="text-white">{oosOpt.metrics.profit_factor}</b></span>
-                            <span>Trades <b className="text-white">{oosOpt.metrics.total_trades}</b></span>
-                          </div>
-                        ) : (
-                          <div className="mt-1 text-amber-200">{oosOpt.warning || 'OOS-проверка недоступна.'}</div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Genetic Leaderboard Table */}
-                    {gridRows.length > 0 && (
-                      <table className="w-full text-[10px] font-mono-numbers">
-                        <thead
-                          className="sticky top-0 bg-neutral-950 text-neutral-400 text-[8.5px] uppercase border-b border-neutral-800"
-                        >
-                          <tr>
-                            <th className="text-left px-2 py-1">#</th>
-                            <th className="text-right px-2">SL %</th>
-                            <th className="text-right px-2">TP %</th>
-                            <th className="text-right px-2">Wall $</th>
-                            <th className="text-center px-2">CVD / ATR</th>
-                            <th className="text-right px-2">WinRate</th>
-                            <th className="text-right px-2">Чистый PnL</th>
-                            <th className="text-right px-2">Max DD</th>
-                            <th className="text-right px-2">Sharpe</th>
-                            <th className="text-center px-2">Действие</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-neutral-900">
-                          {gridRows.slice(0, 15).map((row) => (
-                            <tr
-                              key={row.rank}
-                              className={`hover:bg-neutral-900/60 ${row.rank === 1 ? 'bg-neutral-800/30' : ''}`}
-                            >
-                              <td className="px-2 py-1 font-bold text-neutral-300">#{row.rank}</td>
-                              <td className="px-2 text-right text-white font-mono">{row.stop_loss_pct}%</td>
-                              <td className="px-2 text-right text-[#cbd5e1] font-mono">{row.take_profit_pct}%</td>
-                              <td className="px-2 text-right text-[#ffb300] font-mono">
-                                ${(row.min_density_usd / 1000).toFixed(0)}k
-                              </td>
-                              <td className="px-2 text-center text-[#94a3b8] font-mono">
-                                {row.use_cvd_filter ? 'CVD:ON' : 'CVD:OFF'} • ATR({row.atr_period || 14})
-                              </td>
-                              <td className="px-2 text-right text-[#d1d4dc] font-mono">{row.win_rate_pct}%</td>
-                              <td
-                                className={`px-2 text-right font-bold font-mono ${
-                                  row.total_pnl_pct >= 0 ? 'text-[#26a69a]' : 'text-[#ef5350]'
-                                }`}
-                              >
-                                {row.total_pnl_pct >= 0 ? '+' : ''}
-                                {row.total_pnl_pct}%
-                              </td>
-                              <td className="px-2 text-right text-[#ef5350] font-mono">-{row.max_drawdown_pct}%</td>
-                              <td className="px-2 text-right font-bold text-neutral-200 font-mono">
-                                {row.sharpe_ratio}
-                              </td>
-                              <td className="px-2 text-center">
-                                <button
-                                  onClick={() => applySetup(row)}
-                                  className="px-2 py-0.5 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 font-bold text-[9px] transition cursor-pointer"
-                                >
-                                  Применить
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-                )}
+                {/* Optimizer (До/После + OOS + лидерборд) и матрица конфлюенса вынесены
+                    в ./backtest/BacktestOptimizerView (модульный план, п.2); applySetup/applyConfluenceSetup остались здесь */}
+                <BacktestOptimizerView
+                  viewTab={viewTab}
+                  beforeOpt={beforeOpt}
+                  afterOpt={afterOpt}
+                  oosOpt={oosOpt}
+                  gridRows={gridRows}
+                  confluenceMatrix={confluenceMatrix}
+                  onApplySetup={applySetup}
+                  onApplyConfluenceSetup={applyConfluenceSetup}
+                />
 
                 {viewTab === 'trades' && (
                   <div className="flex flex-col h-full">
@@ -2682,117 +2032,17 @@ export default function BacktestPanel({
                       onSelect={focusTradeFromTimeline}
                     />
 
-                    <div className="flex-1 overflow-auto">
-                      <table className="w-full text-[10px] font-mono-numbers">
-                        <thead
-                          style={{ backgroundColor: 'var(--bg-panel)' }}
-                          className="sticky top-0 text-[#60697b] text-[8.5px] uppercase select-none z-10"
-                        >
-                          <tr>
-                            <th onClick={() => toggleSort('id')} className="text-left px-2 py-1 cursor-pointer hover:text-white">
-                              <span className="flex items-center gap-0.5"># {tradeSortField === 'id' && (tradeSortAsc ? <ArrowUp size={8} /> : <ArrowDown size={8} />)}</span>
-                            </th>
-                            <th onClick={() => toggleSort('type')} className="text-left px-2 cursor-pointer hover:text-white">
-                              <span className="flex items-center gap-0.5">Тип {tradeSortField === 'type' && (tradeSortAsc ? <ArrowUp size={8} /> : <ArrowDown size={8} />)}</span>
-                            </th>
-                            <th onClick={() => toggleSort('entry_time')} className="text-left px-2 cursor-pointer hover:text-white">
-                              <span className="flex items-center gap-0.5">Вход {tradeSortField === 'entry_time' && (tradeSortAsc ? <ArrowUp size={8} /> : <ArrowDown size={8} />)}</span>
-                            </th>
-                            <th onClick={() => toggleSort('entry_price')} className="text-right px-2 cursor-pointer hover:text-white">
-                              <span className="flex items-center justify-end gap-0.5">Цена вх. {tradeSortField === 'entry_price' && (tradeSortAsc ? <ArrowUp size={8} /> : <ArrowDown size={8} />)}</span>
-                            </th>
-                            <th onClick={() => toggleSort('exit_price')} className="text-right px-2 cursor-pointer hover:text-white">
-                              <span className="flex items-center justify-end gap-0.5">Цена вых. {tradeSortField === 'exit_price' && (tradeSortAsc ? <ArrowUp size={8} /> : <ArrowDown size={8} />)}</span>
-                            </th>
-                            <th onClick={() => toggleSort('gross_pnl_usd')} className="text-right px-2 cursor-pointer hover:text-white">
-                              <span className="flex items-center justify-end gap-0.5">Gross $ {tradeSortField === 'gross_pnl_usd' && (tradeSortAsc ? <ArrowUp size={8} /> : <ArrowDown size={8} />)}</span>
-                            </th>
-                            <th onClick={() => toggleSort('fee_paid_usd')} className="text-right px-2 cursor-pointer hover:text-white">
-                              <span className="flex items-center justify-end gap-0.5">Комиссия+Слип {tradeSortField === 'fee_paid_usd' && (tradeSortAsc ? <ArrowUp size={8} /> : <ArrowDown size={8} />)}</span>
-                            </th>
-                            <th onClick={() => toggleSort('pnl_usd')} className="text-right px-2 cursor-pointer hover:text-white">
-                              <span className="flex items-center justify-end gap-0.5">Чистый PnL {tradeSortField === 'pnl_usd' && (tradeSortAsc ? <ArrowUp size={8} /> : <ArrowDown size={8} />)}</span>
-                            </th>
-                            <th onClick={() => toggleSort('reason')} className="text-left px-2 cursor-pointer hover:text-white">
-                              <span className="flex items-center gap-0.5">Выход {tradeSortField === 'reason' && (tradeSortAsc ? <ArrowUp size={8} /> : <ArrowDown size={8} />)}</span>
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#13161f]">
-                          {allTrades.map((t) => (
-                            <tr key={t.id} data-testid="backtest-trade-row" onClick={() => focusTradeFromTimeline(t)} className={`hover:bg-[#161922] transition-colors cursor-pointer ${String(selectedTradeId) === String(t.id) ? 'bg-sky-500/10' : ''}`}>
-                              <td className="px-2 py-0.5 text-[#60697b]">{t.id}</td>
-                              <td
-                                className={`px-2 font-bold ${
-                                  t.type === 'BUY' ? 'text-[#26a69a]' : 'text-[#ef5350]'
-                                }`}
-                              >
-                                {t.type}
-                              </td>
-                              <td className="px-2 text-[#787f91]">{fmtTime(t.entry_time)}</td>
-                              <td className="px-2 text-right text-white">{fmtPrice(t.entry_price)}</td>
-                              <td className="px-2 text-right text-[#787f91]">{fmtPrice(t.exit_price)}</td>
-                              <td className="px-2 text-right text-[#cbd5e1]">
-                                ${(t.gross_pnl_usd ?? t.pnl_usd).toFixed(2)}
-                              </td>
-                              <td className="px-2 text-right text-[#ffb300]">
-                                -${((t.fee_paid_usd || 0) + (t.slippage_cost_usd || 0)).toFixed(2)}
-                              </td>
-                              <td
-                                className={`px-2 text-right font-bold ${
-                                  t.pnl_usd >= 0 ? 'text-[#26a69a]' : 'text-[#ef5350]'
-                                }`}
-                              >
-                                {t.pnl_usd >= 0 ? '+' : ''}${t.pnl_usd} ({t.pnl_pct >= 0 ? '+' : ''}
-                                {t.pnl_pct}%)
-                              </td>
-                              <td className="px-2 text-[#94a3b8]">{t.reason}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                    <BacktestTradesTable
+                      trades={allTrades}
+                      sortField={tradeSortField}
+                      sortAsc={tradeSortAsc}
+                      onSort={toggleSort}
+                      selectedId={selectedTradeId}
+                      onSelect={focusTradeFromTimeline}
+                    />
                   </div>
                 )}
 
-                {viewTab === 'matrix' && (
-                  <table className="w-full text-[10px] font-mono-numbers">
-                    <thead
-                      style={{ backgroundColor: 'var(--bg-panel)' }}
-                      className="sticky top-0 text-[#60697b] text-[8.5px] uppercase z-10"
-                    >
-                      <tr>
-                        <th className="text-left px-2 py-1">Условие / Связка факторов</th>
-                        <th className="text-right px-2">Сделок</th>
-                        <th className="text-right px-2">WinRate</th>
-                        <th className="text-right px-2">PF</th>
-                        <th className="text-right px-2">Ср. PnL</th>
-                        <th className="text-center px-2">Действие</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#13161f]">
-                      {confluenceMatrix.map((item, idx) => (
-                        <tr key={idx} className="hover:bg-[#161922]">
-                          <td className="px-2 py-1 font-bold text-white truncate max-w-[260px]">
-                            {item.condition_name}
-                          </td>
-                          <td className="px-2 text-right text-[#cbd5e1]">{item.total_trades}</td>
-                          <td className="px-2 text-right font-bold text-[#26a69a]">{item.win_rate_pct}%</td>
-                          <td className="px-2 text-right text-white">{item.profit_factor}</td>
-                          <td className="px-2 text-right text-[#38bdf8]">{item.avg_pnl_pct}%</td>
-                          <td className="px-2 text-center">
-                            <button
-                              onClick={() => applyConfluenceSetup(item)}
-                              className="px-2 py-0.5 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 font-bold text-[9px] transition cursor-pointer"
-                            >
-                              Включить
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
               </div>
             </>
           )}

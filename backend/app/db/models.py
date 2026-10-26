@@ -193,3 +193,52 @@ class OvernightPilotRun(Base):
     is_running = Column(Boolean, default=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+class PaperTradeRecord(Base):
+    """
+    Durable paper trade closure history.
+    Stores every closed paper position across live runner and marathon sessions,
+    guaranteeing trades are preserved across restarts, crashes, and re-runs.
+    """
+    __tablename__ = "paper_trade_records"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    trade_id = Column(String, unique=True, index=True)
+    session_id = Column(String, index=True, default="")
+    symbol = Column(String, index=True, nullable=False)
+    side = Column(String, nullable=False)  # 'LONG', 'SHORT'
+    qty = Column(Float, default=0.0)
+    entry_price = Column(Float, default=0.0)
+    exit_price = Column(Float, default=0.0)
+    target_price = Column(Float, nullable=True)
+    stop_price = Column(Float, nullable=True)
+    gross_pnl = Column(Float, default=0.0)
+    net_pnl = Column(Float, default=0.0)
+    pnl_percent = Column(Float, default=0.0)
+    fee = Column(Float, default=0.0)
+    fee_drag = Column(Float, default=0.0)
+    slippage_cost = Column(Float, default=0.0)
+    mfe = Column(Float, default=0.0)
+    mae = Column(Float, default=0.0)
+    mfe_r = Column(Float, nullable=True, default=None)
+    mae_r = Column(Float, nullable=True, default=None)
+    expected_r = Column(Float, nullable=True, default=None)
+    realized_r = Column(Float, nullable=True, default=None)
+    regime = Column(String, default="NO_TRADE")
+    leverage = Column(Float, default=1.0)
+    risk_usd = Column(Float, nullable=True, default=None)
+    strategy_version = Column(String, default="2.0-quant")
+    run_id = Column(String, nullable=True, default=None)
+    profit_bleed = Column(Boolean, default=False)
+    reason = Column(String, default="")
+    entry_reason = Column(Text, default="")
+    source = Column(String, default="paper")  # 'marathon', 'live', 'paper'
+    strategy = Column(String, default="")
+    timeframe = Column(String, default="5m")
+    entry_ts = Column(Integer, index=True, default=0)
+    exit_ts = Column(Integer, index=True, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        Index('idx_paper_symbol_exit_ts', 'symbol', 'exit_ts'),
+    )
+

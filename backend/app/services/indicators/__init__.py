@@ -9,6 +9,15 @@ import pandas as pd
 from backend.app.services.indicators.base import BaseIndicator
 from backend.app.services.indicators.registry import registry, IndicatorRegistry
 from backend.app.services.indicators.normalization import normalize_series, format_normalized_display
+from backend.app.services.regime_classifier import (
+    MarketRegime,
+    classify_market_regime,
+    choppiness_index,
+    bollinger_width,
+    rolling_percentile_rank,
+    microstructure_gate,
+    compute_order_book_imbalance,
+)
 
 def compute_indicators(df: pd.DataFrame, overrides: Optional[Dict[str, Dict[str, Any]]] = None) -> pd.DataFrame:
     """Computes all registered indicator plugins (EMA, RSI, Vol MA, ATR, CVD, VWAP)."""
@@ -60,4 +69,11 @@ __all__ = [
     "check_vwap_signal",
     "normalize_series",
     "format_normalized_display",
+    "MarketRegime",
+    "classify_market_regime",
+    "choppiness_index",
+    "bollinger_width",
+    "rolling_percentile_rank",
+    "microstructure_gate",
+    "compute_order_book_imbalance",
 ]
