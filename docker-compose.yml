@@ -1,36 +1,45 @@
-version: '3.8'
-
 services:
   backend:
     build:
       context: .
       dockerfile: Dockerfile.backend
-    container_name: signal_script_backend
+    container_name: signalscript_backend
     restart: unless-stopped
     ports:
       - "8000:8000"
     env_file:
-      - .env
+      - path: .env.example
+        required: true
+      - path: .env
+        required: false
+    environment:
+      - BACKEND_HOST=0.0.0.0
+      - BACKEND_PORT=8000
     volumes:
       - ./data:/app/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
-      interval: 30s
-      timeout: 10s
+      interval: 15s
+      timeout: 5s
       retries: 3
       start_period: 10s
+    networks:
+      - signalscript_net
 
   frontend:
     build:
       context: .
       dockerfile: Dockerfile.frontend
-    container_name: signal_script_frontend
+    container_name: signalscript_frontend
     restart: unless-stopped
     ports:
-      - "5173:80"
+      - "7100:7100"
     depends_on:
       backend:
         condition: service_healthy
+    networks:
+      - signalscript_net
 
-volumes:
-  data:
+networks:
+  signalscript_net:
+    driver: bridge

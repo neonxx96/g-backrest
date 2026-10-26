@@ -1,0 +1,46 @@
+# Security & Secrets: Never copy environment files into image
+.env
+.env.*
+!.env.example
+
+# Large Data & Storage: Mounted as volume only
+data/
+**/data/
+logs/
+*.log
+
+# Python Virtual Environments & Packages
+.venv/
+**/.venv/
+env/
+venv/
+ENV/
+
+# Python Caches & Build Artifacts
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+**/.pytest_cache/
+.pytest-temp/
+**/.pytest-temp/
+
+# Node.js & Frontend Artifacts
+node_modules/
+**/node_modules/
+frontend/dist/
+dist/
+.npm/
+
+# Git & Repository Metadata
+.git/
+**/.git/
+.gitignore
+
+# OS & Editor Files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
