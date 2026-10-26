@@ -1,6 +1,8 @@
-// Signal Script PWA Service Worker
-const CACHE_NAME = 'signalscript-v2';
-const PRECACHE_URLS = [
+// SignalScript PWA Service Worker — Interface Shell Cache Only
+// CRITICAL: Market data, Binance feeds, and Trading APIs are STRICTLY REAL-TIME and NEVER cached.
+
+const CACHE_NAME = 'signalscript-shell-v3';
+const SHELL_PRECACHE_URLS = [
   '/',
   '/index.html',
   '/manifest.json',
@@ -12,7 +14,7 @@ const PRECACHE_URLS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(PRECACHE_URLS);
+      return cache.addAll(SHELL_PRECACHE_URLS);
     })
   );
   self.skipWaiting();
@@ -34,32 +36,47 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
-
-  // Pass API and WebSocket calls directly to network
-  if (event.request.url.includes('/api/') || event.request.url.startsWith('ws')) {
+  // Only handle standard GET requests
+  if (event.request.method !== 'GET') {
     return;
   }
 
-  // DEV-режим (Vite): никогда не кешировать исходники и зависимости —
-  // иначе вкладка получает устаревшие модули после правок и падает с пустым root.
+  const url = new URL(event.request.url);
+
+  // 1. STRICT REAL-TIME BYPASS: Trading APIs, WebSockets, and Exchange Data
+  const isApiOrMarketData =
+    url.pathname.startsWith('/api') ||
+    url.pathname.includes('/klines') ||
+    url.pathname.includes('/depth') ||
+    url.pathname.includes('/trades') ||
+    url.pathname.includes('/recorder') ||
+    url.protocol.startsWith('ws') ||
+    url.hostname.includes('binance') ||
+    url.hostname.includes('tradingview');
+
+  if (isApiOrMarketData) {
+    // Pass straight to network without Service Worker interception
+    return;
+  }
+
+  // 2. Vite Dev-mode bypass: do not cache hot-reload modules
   if (
     url.pathname.startsWith('/src/') ||
     url.pathname.startsWith('/node_modules/') ||
     url.pathname.startsWith('/@') ||
-    url.pathname === '/index.html'
+    url.search.includes('t=')
   ) {
     event.respondWith(fetch(event.request));
     return;
   }
 
+  // 3. Stale-while-revalidate / cache-first for static UI assets (JS/CSS/Fonts/Icons)
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
         return cachedResponse;
       }
       return fetch(event.request).then((response) => {
-        // Cache static shell assets (prod build only)
         if (response && response.status === 200 && response.type === 'basic') {
           const responseToCache = response.clone();
           caches.open(CACHE_NAME).then((cache) => {
@@ -68,7 +85,11 @@ self.addEventListener('fetch', (event) => {
         }
         return response;
       }).catch(() => {
-        return caches.match('/');
+        // Fallback for navigation requests
+        if (event.request.mode === 'navigate') {
+          return caches.match('/index.html') || caches.match('/');
+        }
+        return Promise.reject(new Error('Network error and asset not cached'));
       });
     })
   );

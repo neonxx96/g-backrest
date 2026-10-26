@@ -1,33 +1,58 @@
+# ==============================================================================
+# SignalScript Backend Dockerfile (Python 3.11-slim, Non-Root, Healthcheck)
+# ==============================================================================
 FROM python:3.11-slim
+
+# System setup & security
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    BACKEND_HOST=0.0.0.0 \
+    BACKEND_PORT=8000 \
+    TEMP=/app/.pytest-temp \
+    TMP=/app/.pytest-temp
 
 WORKDIR /app
 
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
-
-# Install system dependencies if needed
+# Install system dependencies (curl for healthcheck & network diagnostics)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy backend requirements
+# Create non-root user and group
+RUN groupadd -r -g 1000 appgroup && \
+    useradd -r -u 1000 -g appgroup -d /app -s /sbin/nologin appuser
+
+# Install Python dependencies from requirements.txt
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir fastapi "uvicorn[standard]" aiogram aiosqlite sqlalchemy aiohttp pydantic python-dotenv websockets greenlet
+    pip install --no-cache-dir -r requirements.txt
 
-# Copy project files
-COPY backend/ ./backend/
-COPY engine/ ./engine/
-COPY strategies/ ./strategies/
-COPY .env.example .env
+# Create runtime directories with proper non-root ownership
+RUN mkdir -p /app/data /app/data/recorded /app/.pytest-temp && \
+    chown -R appuser:appgroup /app
 
-# Data folder for SQLite
-RUN mkdir -p /app/data
+# Copy application source code, modules, configs, tests, and frontend contracts
+COPY --chown=appuser:appgroup backend/ ./backend/
+COPY --chown=appuser:appgroup engine/ ./engine/
+COPY --chown=appuser:appgroup strategies/ ./strategies/
+COPY --chown=appuser:appgroup recorder/ ./recorder/
+COPY --chown=appuser:appgroup config/ ./config/
+COPY --chown=appuser:appgroup frontend/ ./frontend/
+COPY --chown=appuser:appgroup scripts/ ./scripts/
+COPY --chown=appuser:appgroup pytest.ini ./
 
+# Ensure scripts have execute permissions
+RUN chmod +x scripts/*.sh 2>/dev/null || true
+
+# Switch to non-root user
+USER appuser
+
+# FastAPI port
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+# Healthcheck validating /api/health endpoint
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
   CMD curl -f http://localhost:8000/api/health || exit 1
 
+# Launch single FastAPI backend process
 CMD ["python", "backend/main.py"]
