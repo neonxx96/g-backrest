@@ -238,6 +238,14 @@ async def get_ai_model_chain_status():
     }
 
 
+@router.get("/analytics/post-mortem")
+async def get_post_mortem_analytics(period: str = "all", symbol: Optional[str] = None):
+    """Пост-мортем анализ закрытых сделок: причины потерь, MFE/MAE, Fee Burden, рекомендации."""
+    from backend.app.services.trade_postmortem_service import analyze_from_db
+    periods = {"today": 86_400_000, "24h": 86_400_000, "7d": 7 * 86_400_000, "30d": 30 * 86_400_000}
+    return await analyze_from_db(periods.get(period), symbol)
+
+
 @router.get("/closed-trades")
 @router.get("/history")
 async def get_paper_closed_trades(

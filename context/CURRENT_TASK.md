@@ -28,7 +28,8 @@
 - [x] **Этап 4**: Миграция схемы `paper_trade_records` в SQLite (`signals.db`), адаптация `paper_trading.py` и `live_paper_runner.py` для раздельного хранения плеча биржи и effective_leverage, расчет `mfe_r`, `mae_r`, `realized_r`, `expected_r`
 - [x] **Этап 5**: Отображение Net Expectancy ($E_R$) в `TradeHistoryWidget.jsx`
 - [ ] **Этап 6**: Сравнительный бэктест/демо-тест старой и новой версии на одинаковых рыночных данных
-- [ ] **Этап 7**: Пост-мортем анализатор закрытых сделок (`trade_postmortem_service.py`) с детальной MFE/MAE аналитикой
+- [x] **Этап 7**: Пост-мортем анализатор закрытых сделок (`trade_postmortem_service.py`) с детальной MFE/MAE аналитикой
 
 ## Execution Log
 - 2026-10-26 Задача 008: Завершена реализация квантового ядра терминала. Реализован `backend/app/services/risk_engine.py` и `backend/app/services/regime_classifier.py`. Интегрированы в `live_paper_runner.py` и `paper_trading.py`. Проведена безопасная миграция `data/signals.db` с сохранением всех 82 сделок. Добавлены 10 модульных тестов `test_risk_engine_and_regime.py`. Единый шлюз качества `scripts/check.ps1` успешно пройден (0 ошибок).
+- 2026-10-27 Этап 7: добавлен backend/app/services/trade_postmortem_service.py (классификация потерь FEE_DRAG/MFE_REVERSAL/STALE_TIME_OUT/ADVERSE_EXIT/BAD_ENTRY/STOP_OUT, MFE/MAE, Fee Burden Index, рекомендации по ТФ/стратегии), эндпоинт GET /api/paper-trading/analytics/post-mortem?period=&symbol=, тесты test_trade_postmortem.py (4). На реальной БД (82 сделки): WR 36.6%, FBI 0.87, главная причина потерь STOP_OUT (30), затем FEE_DRAG (10).
