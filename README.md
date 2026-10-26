@@ -1,136 +1,73 @@
-# 🚀 Signal Script: Торговый терминал, Сканер Binance Futures и Telegram-Алерты
+# 🚀 Signal Script: Торговый терминал, Сканер Binance Futures и Quant Engine
 
-Профессиональное MVP приложение для крипто-фьючерсного трейдера:
+> **ЕДИНЫЙ ИСТОЧНИК ПРАВИЛ:** Все правила архитектуры, стек, регламент Git и шлюз качества зафиксированы в [AGENTS.md](file:///d:/AI_agent_space/gemini/AGENTS.md).
+
+Профессиональное приложение для крипто-фьючерсного трейдинга и алго-исследований:
 - Сканирует рынок **Binance USDT-M Futures** (топ-150 пар по объему).
-- Рассчитывает индикаторы в реальном времени: **EMA(20) кросс, всплеск объема (xN), RSI экстремумы, CVD (Cumulative Volume Delta) и волатильность**.
-- Учитывает **24ч изменение цены, Open Interest, сумму ликвидаций** (через живой WebSocket) и **рыночную капитализацию** (CoinGecko).
-- Шлёт карточки сигналов в **Telegram бот** со ссылкой на интерактивный график.
-- Легкий веб-интерфейс на **React + Vite** с графиком **KLineChart** (удобное рисование уровней, лучей, фибо, прямоугольников с сохранением в профиль) и **живым стаканом (L2 Depth)** с подсветкой плотностей и таймером жизни заявки.
+- Рассчитывает индикаторы в реальном времени: **EMA(20/50), всплеск объема (xN), RSI, CVD (Cumulative Volume Delta), ATR, волатильность**.
+- Квантовый риск-движок: **Net Expectancy ($E_R$), Market Regime Classifier (5m/15m), Microstructure Gate (L2 depth + CVD absorption), Portfolio Heat (1.25%)**.
+- Высокоскоростной веб-интерфейс на **React 19 + Vite + Dockview**: многооконная мозаика, график **KLineCharts v9**, Canvas 2D стакан (L2 Depth) с подсветкой плотностей, лента сделок Time & Sales, журнал решений (Decision Journal).
+- Интеграция с **OpenRouter AI Copilot / Sentinel** для контекстного анализа ситуаций.
 
 ---
 
-## 🛠️ Стек технологий
-- **Backend:** Python 3.11+, FastAPI, asyncio, aiogram 3, SQLite (SQLAlchemy + aiosqlite), pandas/numpy
-- **Frontend:** React + Vite, KLineChart (v9.8.12), Tailwind CSS, Lucide Icons
-- **Данные:** Публичный Binance Futures API (REST + WebSocket), CoinGecko API (с кэшированием)
-- **Деплой:** Docker, Docker Compose, Proxmox VE, Cloudflare Tunnel
+## 🛠️ Стек технологий и порты
+
+- **Backend:** Python 3.11+, FastAPI (`uvicorn`), SQLite (`SQLAlchemy 2.0` + `aiosqlite`), Pandas/Numpy/PyArrow.
+  - **Порт бэкенда:** строго `http://127.0.0.1:8000`
+  - **База данных:** `data/signals.db`
+- **Frontend:** React 19, Vite, KLineCharts v9.8.12, Dockview React, Tailwind CSS 4, Zustand 5.
+  - **Порт фронтенда:** строго `http://localhost:7100` (`http://127.0.0.1:7100`)
+- **Данные:** Публичный Binance Futures API (REST + WebSocket), локальный OrderFlow Parquet Lake (`data/lake/`, `data/recorded/`).
 
 ---
 
-## ⚙️ Переменные окружения (`.env`)
+## 💻 Быстрый запуск
 
-Все секреты и параметры хранятся в файле `.env` в корне проекта (образец в `.env.example`):
-
-| Переменная | Описание | Значение по умолчанию |
-|---|---|---|
-| `BINANCE_API_KEY` | API-ключ Binance (опционально, публичные данные работают без него) | `your_binance_api_key_here` |
-| `BINANCE_API_SECRET` | Секретный ключ Binance | `your_binance_api_secret_here` |
-| `TELEGRAM_BOT_TOKEN` | Токен Telegram-бота от @BotFather | `123456789:ABCDefGh...` |
-| `OPENROUTER_API_KEY` | Ключ OpenRouter для AI Copilot (опционально) | `sk-or-v1-...` |
-| `BACKEND_HOST` | Хост для запуска FastAPI сервера | `127.0.0.1` |
-| `BACKEND_PORT` | Порт бэкенда | `8000` |
-| `FRONTEND_URL` | Адрес фронтенда (для формирования ссылок в боте) | `http://localhost:5173` |
-| `DATABASE_URL` | Путь к базе SQLite | `sqlite+aiosqlite:///./data/signals.db` |
-| `LOG_LEVEL` | Уровень логирования (`INFO` / `DEBUG`) | `INFO` |
-
----
-
-## 💻 Быстрый запуск на Windows в 1 клик
-
-Для максимального удобства подготовлен готовый PowerShell-скрипт запуска:
-
+### 1-клик запуск (Windows PowerShell)
 ```powershell
 cd d:\AI_agent_space\gemini
 .\run_app.ps1
 ```
+*Запускает FastAPI на порту 8000, Vite на порту 7100 и открывает браузер.*
 
-* **Что делает скрипт:**
-  1. Автоматически запускает FastAPI бэкенд на `http://127.0.0.1:8000`.
-  2. Запускает React Vite фронтенд на `http://localhost:5173`.
-  3. Открывает браузер с терминалом.
-
-* **Для быстрой остановки:**
+Остановка:
 ```powershell
 .\stop_app.ps1
 ```
 
----
-
-## 💻 Ручной запуск (по шагам)
-
-### Шаг 1: Клонирование репозитория и окружение
+### Ручной запуск (в двух терминалах)
 ```powershell
-cd d:\AI_agent_space\gemini
-
-# Создание виртуального окружения (если еще не создано)
-python -m venv .venv
-.\.venv\Scripts\activate
-
-# Установка зависимостей бэкенда
-pip install -r requirements.txt
-pip install fastapi "uvicorn[standard]" aiogram aiosqlite sqlalchemy aiohttp pydantic python-dotenv websockets greenlet pytest pyarrow
-```
-
-### Шаг 2: Установка зависимостей фронтенда
-```powershell
-cd frontend
-npm install
-cd ..
-```
-
----
-
-### Шаг 3: Запуск Бэкенда (Терминал 1)
-В первом окне PowerShell:
-```powershell
-cd d:\AI_agent_space\gemini
+# Терминал 1 (Бэкенд):
 .\.venv\Scripts\python.exe backend/main.py
+
+# Терминал 2 (Фронтенд):
+cd frontend
+npm run dev -- --host 127.0.0.1 --port 7100
 ```
-* Бэкенд запустится на `http://127.0.0.1:8000`.
-* Автоматически подключится стрим ликвидаций Binance WebSocket `!forceOrder@arr`.
-* Запустится Telegram-бот (начнет слушать команды `/start`, `/status`, `/filters`).
-* Запустится периодический сканер рынка (каждую минуту).
 
 ---
 
-### Шаг 4: Запуск Веб-Интерфейса (Терминал 2)
-Во втором окне PowerShell:
+## 🛡️ Единый шлюз качества (Pre-Commit Verification)
+
+Перед любым коммитом обязателен запуск проверочного шлюза:
 ```powershell
-cd d:\AI_agent_space\gemini\frontend
-npm run dev
+powershell -ExecutionPolicy Bypass -File scripts/check.ps1
 ```
-* Фронтенд запустится на **`http://localhost:5173`**.
-* Откройте этот адрес в браузере.
+Шлюз проверяет: `pytest backend/tests` (570+ тестов) $\rightarrow$ тесты раскладок Dockview $\rightarrow$ `npm run build` $\rightarrow$ смоук критических модулей (DOM, Chart, Scanner, Recorder, Journal) $\rightarrow$ Playwright UI смоук $\rightarrow$ проверка живого Binance WS.
+
+Коммит разрешен только при получении строки:
+`🎉 ALL QUALITY CHECKS PASSED. READY TO COMMIT.` (Exit Code = 0).
 
 ---
 
-## 🎯 Проверка работы (Критерии MVP)
+## 📚 Документация проекта
 
-1. **Проверка автотестов индикаторов и фильтров:**
-   ```powershell
-   .\.venv\Scripts\python.exe -m pytest backend/tests -v
-   ```
-   *(5 из 5 тестов проходят успешно: EMA cross, Volume spike, RSI, CVD, Cooldown).*
-
-2. **Проверка консольного сканера:**
-   ```powershell
-   .\.venv\Scripts\python.exe test_scanner_cli.py
-   ```
-   *(Подключается к Binance REST, выводит статус и активные настройки).*
-
-3. **Веб-интерфейс `http://localhost:5173`:**
-   * **График KLineChart:** свечи подгружаются с Binance, в реальном времени тикают по WebSocket.
-   * **Таймфреймы:** быстрое переключение `1m, 15m, 30m, 45m, 1h, 4h, 6h` (45m и 6h собираются бэкендом).
-   * **Рисование:** кнопки отрезков, лучей, уровней, прямоугольников и Фибоначчи в верхней панели. Рисунки автоматически сохраняются по монете и ТФ в базу данных при нажатии кнопки сохранения.
-   * **Стакан (Depth L2):** справа отображаются реальные заявки Binance, крупные плотности подсвечиваются золотым/бирюзовым цветом, рядом пишется таймер жизни заявки (`1m 45s`), переключатель `COIN / USDT`.
-   * **Быстрые настройки:** кнопка «Настройки» в шапке открывает окно фильтров. Изменения сохраняются в базу и применяются сканером мгновенно без перезапуска сервера.
-
-4. **Telegram Бот (`@BehanceGoTopPro_bot`):**
-   * Откройте диалог с ботом и нажмите `/start`.
-   * Бот зарегистрирует ваш Telegram ID и пришлет персональную ссылку на веб-терминал.
-   * При срабатывании условий бот присылает уведомление с кнопкой прямого перехода на график монеты.
-
----
-
-## 🐳 Запуск через Docker и Деплой на Proxmox
-Подробная инструкция по развертыванию контейнеров на сервере с Proxmox и безопасной публикации в интернет через Cloudflare Tunnel находится в файле **[`DEPLOY.md`](file:///d:/AI_agent_space/gemini/DEPLOY.md)**.
+- [AGENTS.md](file:///d:/AI_agent_space/gemini/AGENTS.md) — Главная конституция проекта, правила кода и Git.
+- [HANDOFF.md](file:///d:/AI_agent_space/gemini/HANDOFF.md) — Протокол передачи смены между агентами (активные 3 смены).
+- [PROGRESS.md](file:///d:/AI_agent_space/gemini/PROGRESS.md) — Текущий статус подсистем и пройденные вехи.
+- [docs/DECISIONS.md](file:///d:/AI_agent_space/gemini/docs/DECISIONS.md) — Реестр разрешенных противоречий и архитектурных решений.
+- [docs/MODULARIZATION_PLAN.md](file:///d:/AI_agent_space/gemini/docs/MODULARIZATION_PLAN.md) — План модульного рефакторинга бэкенда.
+- [docs/WIN_RATE_IMPROVEMENT_PLAN.md](file:///d:/AI_agent_space/gemini/docs/WIN_RATE_IMPROVEMENT_PLAN.md) — План квантовой оптимизации и расчета Expectancy.
+- [DEPLOY.md](file:///d:/AI_agent_space/gemini/DEPLOY.md) — Развертывание в Docker и Proxmox.
+- `docs/archive/` — Исторический архив старых отчетов, спецификаций и смен.
