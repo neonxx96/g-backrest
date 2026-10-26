@@ -1,6 +1,11 @@
 import json
+import sys
 import urllib.request
 import urllib.error
+
+# Ensure UTF-8 output on Windows console
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 def get(url):
     req = urllib.request.Request(url, headers={'User-Agent': 'NightAudit/1.0'})
@@ -38,8 +43,9 @@ try:
     events_data = get('http://127.0.0.1:8000/api/overnight-pilot/events?limit=20')
     events = events_data.get('events', [])
     print(f"Total events retrieved: {len(events)}")
-    for ev in events[:10]:
-        print(f"  [{ev.get('timestamp')}] {ev.get('symbol', 'N/A'):8s} | {ev.get('source'):10s} | {ev.get('event_type'):20s} | {ev.get('reason_code')}: {ev.get('reason')}")
+    for ev in events[:15]:
+        reason_txt = str(ev.get('reason', ''))[:80]
+        print(f"  [{ev.get('timestamp')}] {ev.get('symbol', 'N/A'):8s} | {ev.get('source'):10s} | {ev.get('event_type'):20s} | {ev.get('reason_code')}: {reason_txt}")
 except Exception as e:
     print('Failed to get events:', e)
 
@@ -49,6 +55,9 @@ try:
     logs = journal.get('logs', [])
     print(f"Total journal logs retrieved: {len(logs)}")
     for l in logs:
-        print(f"  [{l.get('created_at')}] {l.get('symbol', 'N/A'):8s} | {l.get('strategy', 'N/A'):18s} | {l.get('signal_action', 'N/A')} | PnL: {l.get('pnl', 'N/A')} | Reason: {l.get('primary_reason', '')[:60]}")
+        action = l.get('signal_action', 'N/A')
+        pnl = l.get('pnl', 'N/A')
+        reason = str(l.get('primary_reason', ''))[:60]
+        print(f"  [{l.get('created_at')}] {l.get('symbol', 'N/A'):8s} | {l.get('strategy', 'N/A'):18s} | {action} | PnL: {pnl} | Reason: {reason}")
 except Exception as e:
     print('Failed to get journal logs:', e)

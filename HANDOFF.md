@@ -2,6 +2,38 @@
 
 > Перед началом работы: прочитать `AGENTS.md` и этот файл, выполнить `git status`, затем запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. Агенты работают строго последовательно.
 
+## Antigravity — 20 пар, динамический риск 0.5%/1.0%, вариативное плечо 1x-25x и фикс ошибки сохранения (2026-10-26, 04:05 Киев)
+
+- **Ветка:** `agent/antigravity/chart-engine-footprint`
+- **Статус качества:** `🎉 ALL QUALITY CHECKS PASSED. READY TO COMMIT.` (Шлюз `scripts/check.ps1`, 6/6 стадий PASSED, 559 pytest passed, 0 failed, npm build, critical smoke, Playwright blocking + live на порту 7100).
+- **Сделано по прямому указанию пользователя**:
+  1. **Устранение «Ошибки сохранения» (Save Error)**:
+     - В `frontend/src/stores/layoutStore.js`:
+       - Добавлен retry при кратковременном сетевом сбое или таймауте прокси (повторная попытка через 500мс).
+       - В блоке `catch`: статус `saveStatus: 'error'` автоматически очищается и сбрасывается в `'idle'` через 3.0 секунды. Красная зависшая плашка больше не остаётся на экране вечно.
+       - В `loadWorkspaceDetail`: при откате на дефолтный пресет статус устанавливается в `'idle'` вместо ошибочного `'error'`.
+     - В `backend/app/routers/workspaces.py`:
+       - Сохранение воркспейсов обёрнуто в безопасный блок `try/except` с немедленным `db.rollback()` при конфликтах блокировки SQLite WAL, предотвращая сбои транзакций.
+  2. **Вариативное плечо (1x–25x) и динамический сайзинг (1.0% сильный / 0.5% слабый сигнал)**:
+     - В `backend/app/services/paper_trading.py`:
+       - `place_order`, `execute_trade_signal` и `execute_unified_signal` обновлены для сквозной передачи `risk_pct` и `leverage`.
+       - Расчет бюджета риска учитывает точный `risk_pct` для каждого отдельного сетапа от общего баланса счета ($1,000.00).
+     - В `backend/app/services/live_paper_runner.py`:
+       - Внедрен расчет вариативного плеча в диапазоне 1.0x–25.0x: `calculated_leverage = float(min(25.0, max(1.0, round(0.10 / max(0.004, sl_pct_dist)))))`. Это удерживает маржинальные требования на уровне ~5-10% депозита на любую позицию независимо от волатильности монеты.
+       - Внедрена классификация силы сигнала:
+         - Сильный / стандартный сигнал: `1.0%` риска ($10 от баланса $1,000).
+         - Слабый сигнал (AI confidence < 0.70, confluence score < 0.65 или expected R:R < 1.6): `0.5%` риска ($5 от баланса $1,000).
+  3. **Расширение портфеля до полных 20 пар (Binance Futures USDT-M)**:
+     - Протестированы и добавлены 2 наиболее результативные пары:
+       - `TIAUSDT` (cvd_absorption, 15m) — WinRate 68.4%, Profit Factor 6.01, Net PnL +$69.64.
+       - `TRXUSDT` (cluster_volume_bounce, 5m) — WinRate 52.9%, Profit Factor 1.30, Net PnL +$10.36.
+     - Полный состав 20 монет: `BTCUSDT`, `ETHUSDT`, `SOLUSDT`, `BNBUSDT`, `XRPUSDT`, `DOGEUSDT`, `AVAXUSDT`, `SUIUSDT`, `NEARUSDT`, `LINKUSDT`, `ADAUSDT`, `ARBUSDT`, `OPUSDT`, `WLDUSDT`, `ENAUSDT`, `UNIUSDT`, `DOTUSDT`, `ZECUSDT`, `TIAUSDT`, `TRXUSDT`.
+  4. **Успешный запуск и мониторинг (`scripts/launch_overnight_20pairs.py` & `scripts/night_audit.py`)**:
+     - Префлайт пройден 20/20.
+     - Все 20 раннеров активны (`run=True`, `data=connected`), баланс общего пула строго $1,000.00, PnL $0.00, 0 ошибок.
+
+---
+
 ## Antigravity — Фиксация единого порта Frontend 7100 (http://localhost:7100/) и оптимизация стратегий по винрейту (2026-10-26, 03:50 Киев)
 
 - **Ветка:** `agent/antigravity/chart-engine-footprint` (коммит `db0d8e3`)

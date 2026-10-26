@@ -118,7 +118,7 @@ export const useLayoutStore = create((set, get) => {
         return data;
       } catch (err) {
         console.warn(`Error loading workspace ${id}, using default fallback:`, err);
-        set({ activePresetId: 'default_classic', saveStatus: 'error' });
+        set({ activePresetId: 'default_classic', saveStatus: 'idle' });
         return null;
       }
     },
@@ -163,17 +163,29 @@ export const useLayoutStore = create((set, get) => {
             is_default: activeId === 'default_classic'
           };
 
-          const res = await fetch(API_BASE, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
+          let res = null;
+          try {
+            res = await fetch(API_BASE, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+          } catch (netErr) {
+            // Retry once after 500ms on network blip
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            res = await fetch(API_BASE, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+          }
 
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
           set({
             saveStatus: 'saved',
-            lastSavedAt: Date.now()
+            lastSavedAt: Date.now(),
+            errorMessage: null
           });
 
           // Reset status to idle after 2.5s
@@ -185,6 +197,12 @@ export const useLayoutStore = create((set, get) => {
         } catch (err) {
           console.warn('Autosave failed:', err);
           set({ saveStatus: 'error', errorMessage: err.message });
+          // Auto-clear error status after 3s so the UI does not stay locked in red
+          setTimeout(() => {
+            if (get().saveStatus === 'error') {
+              set({ saveStatus: 'idle', errorMessage: null });
+            }
+          }, 3000);
         }
       }, 400);
     },

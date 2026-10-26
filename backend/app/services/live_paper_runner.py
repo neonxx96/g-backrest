@@ -852,7 +852,42 @@ class LivePaperRunner:
                 )
                 return
 
-        # 7. Execute virtual order into Paper Trading Session
+        # 7. Dynamic Variable Leverage (1x to 25x) & Dynamic Risk Sizing (0.5% vs 1.0%)
+        entry_price = float(candidate_signal["entry_price"])
+        stop_loss = float(candidate_signal["sl"])
+        sl_pct_dist = abs(entry_price - stop_loss) / max(entry_price, 1e-9)
+
+        # Dynamic variable leverage from 1.0x to 25.0x
+        # Scaled based on distance to SL: tight stops (~0.4-0.8%) scale up to ~12-25x;
+        # wider stops (~2.0-4.0%) scale down to ~2-5x.
+        # This keeps margin required bounded (~5-10% of portfolio equity) across all 20 coins.
+        calculated_leverage = float(min(25.0, max(1.0, round(0.10 / max(0.004, sl_pct_dist)))))
+        effective_leverage = calculated_leverage
+
+        # Dynamic risk percent:
+        # Standard/strong signal: 1.0% ($10 on $1,000 portfolio)
+        # Weak signal: 0.5% ($5 on $1,000 portfolio) if:
+        # - AI confidence < 0.70
+        # - Confluence score < 0.65
+        # - Expected R:R < 1.6
+        ai_conf = ai_eval.get("confidence", 1.0) if (self.ai_control and 'ai_eval' in locals() and isinstance(ai_eval, dict)) else 1.0
+        confluence_score = candidate_signal.get("confluence_score")
+
+        is_weak_signal = False
+        if ai_conf < 0.70:
+            is_weak_signal = True
+        elif confluence_score is not None and confluence_score < 0.65:
+            is_weak_signal = True
+        elif candidate_signal.get("expected_rr", 2.0) < 1.6:
+            is_weak_signal = True
+
+        effective_risk_pct = min(self.risk_per_trade_pct, 0.5) if is_weak_signal else self.risk_per_trade_pct
+
+        self._add_log(
+            "DYNAMIC_SIZING",
+            f"Динамический сайзинг {self.symbol}: риск {effective_risk_pct:.1f}% ({'слабый сетап' if is_weak_signal else 'сильный сетап'}), плечо {effective_leverage:.0f}x (SL {sl_pct_dist*100:.2f}%)",
+        )
+
         signal_obj = UnifiedTradeSignal(
             symbol=self.symbol,
             timeframe=self.timeframe,
@@ -864,8 +899,10 @@ class LivePaperRunner:
             tp1=candidate_signal["tp1"],
             tp2=candidate_signal.get("tp2"),
             expected_rr=candidate_signal["expected_rr"],
-            leverage=self.leverage,
-            risk_pct=self.risk_per_trade_pct,
+            leverage=effective_leverage,
+            risk_pct=effective_risk_pct,
+            confidence=ai_conf,
+            confluence_score=confluence_score,
             strategy_type=self.strategy_type,
             data_source="binance_live_l2_ohlcv",
             context_snapshot={
@@ -874,6 +911,9 @@ class LivePaperRunner:
                 "depth_delta_pct": float(data.orderbook_depth.depth_deltas.get("2.5%").delta_pct) if data.orderbook_depth.depth_deltas.get("2.5%") else 0.0,
                 "indicator_timestamp": self.indicator_last_update,
                 "strategy": self.strategy_type,
+                "dynamic_leverage": effective_leverage,
+                "risk_pct": effective_risk_pct,
+                "is_weak_signal": is_weak_signal,
             },
             reason=candidate_signal["reason"],
         )

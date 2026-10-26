@@ -287,6 +287,7 @@ class PaperTradingSession:
         context_snapshot: Optional[Dict[str, Any]] = None,
         tp2_price: float = 0.0,
         leverage: float = 1.0,
+        risk_pct: Optional[float] = None,
     ) -> dict:
         """
         Create a virtual order. Returns an order info dict.
@@ -317,7 +318,8 @@ class PaperTradingSession:
             effective_leverage = max(1.0, float(leverage))
             stop_distance = abs(float(price) - float(stop_price)) if stop_price > 0 else float(price) * 0.015
             risk_amount = float(quantity) * stop_distance
-            risk_budget = max(0.0, self.initial_balance + self.realized_pnl) * max(0.0, self.risk_per_trade_pct)
+            effective_risk_pct = risk_pct if risk_pct is not None else self.risk_per_trade_pct
+            risk_budget = max(0.0, self.initial_balance + self.realized_pnl) * max(0.0, effective_risk_pct)
             if risk_amount > risk_budget + 1e-9:
                 raise ValueError(f"risk_budget_exceeded: {symbol} ({risk_amount:.4f} > {risk_budget:.4f})")
             required_margin = float(price) * float(quantity) / effective_leverage
@@ -802,6 +804,7 @@ class PaperTradingSession:
         context_snapshot: Optional[Dict[str, Any]] = None,
         tp2_price: float = 0.0,
         leverage: float = 1.0,
+        risk_pct: Optional[float] = None,
     ) -> dict:
         """
         Executes a trade signal applying risk position sizing, stop/target, reason, and margin rules.
@@ -830,7 +833,7 @@ class PaperTradingSession:
             return {"status": "REJECTED", "reason": "toxic_volatility_blocked"}
 
         if quantity is None or quantity <= 0:
-            quantity = self.calculate_position_size(symbol, price, stop_price, leverage=leverage)
+            quantity = self.calculate_position_size(symbol, price, stop_price, risk_pct=risk_pct, leverage=leverage)
 
         if quantity <= 0:
             logger.warning(f"[TRADE] Rejected signal for {symbol}: insufficient margin or zero size | reason='{reason}'")
@@ -850,6 +853,7 @@ class PaperTradingSession:
             context_snapshot=context_snapshot,
             tp2_price=tp2_price,
             leverage=leverage,
+            risk_pct=risk_pct,
         )
 
     def execute_unified_signal(self, signal, regime: Optional[str] = None, quantity: Optional[float] = None) -> dict:
@@ -861,12 +865,15 @@ class PaperTradingSession:
 
         payload = to_paper_order_request(signal, quantity=quantity)
         payload["regime"] = regime
+        raw_risk = getattr(signal, "risk_pct", None)
+        risk_fraction = (raw_risk / 100.0) if (raw_risk is not None and raw_risk > 0.05) else (raw_risk if raw_risk is not None else None)
         return self.execute_trade_signal(
             **payload,
             signal_ts=signal.timestamp,
             context_snapshot=getattr(signal, "context_snapshot", None),
             tp2_price=float(getattr(signal, "tp2", None) or 0.0),
             leverage=max(1.0, float(getattr(signal, "leverage", 1.0) or 1.0)),
+            risk_pct=risk_fraction,
         )
 
     def close_position(
