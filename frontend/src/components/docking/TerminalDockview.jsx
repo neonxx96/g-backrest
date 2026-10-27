@@ -414,7 +414,8 @@ function SignalsDockPanel(props) {
 export default function TerminalDockview({
   chartSharedProps = {},
   domSharedProps = {},
-  signalsSharedProps = {}
+  signalsSharedProps = {},
+  layersProps = null
 }) {
   const dockviewApiRef = useRef(null);
 
@@ -836,7 +837,7 @@ export default function TerminalDockview({
     >
       {/* Top Presets bar */}
       <PresetBar
-        layersProps={props.layersProps}
+        layersProps={layersProps}
         onSwitchPreset={handleSwitchPreset}
         onNewPreset={handleNewPreset}
         onAddTradesPanel={handleAddTradesPanel}
