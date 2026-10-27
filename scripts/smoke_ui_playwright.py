@@ -395,6 +395,11 @@ def run_blocking_part(console_errors: list, page_errors: list) -> bool:
             }"""
         )
         log(f"      canvas report: {canvas_report}")
+        total_canvases = canvas_report.get("total_canvases", 0)
+        if total_canvases < 10:
+            failures.append(f"insufficient canvases mounted: expected >= 10, found {total_canvases}")
+        if page_errors:
+            failures.append(f"early pageerror detected: {page_errors}")
         if not canvas_report["chart_container_canvas"]:
             failures.append("chart canvas is not rendered in the chart container")
         if not canvas_report["chart_api"]:
