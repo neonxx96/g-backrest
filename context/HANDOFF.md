@@ -1,22 +1,33 @@
 # HANDOFF.md — Протокол передачи смены
 
 ## Текущий статус: Ветка `design/shadcn-themes`
-- **Выполненные этапы**:
-  - **Этап 0**: Разведка хардкодов и конфликтов.
-  - **Этап 1**: Установка `clsx`, `tailwind-merge`, `cva`, `tw-animate-css`, `components.json`, `jsconfig.json`, `@theme inline` в `index.css`, `tokens.css`.
-  - **Этап 2**: Единый синглтон `themeBridge`, устранение дублирования старой системы тем (`tokens.css` удален, `themes.js` облегчен до метаданных), динамическая подписка KLineCharts и Canvas (стакан, лента, on-chart DOM, футпринт).
-  - **Этап 3**: Генерация полного каталога плотных примитивов shadcn/ui (`button`, `badge`, `tooltip`, `dialog`, `alert-dialog`, `tabs`, `table`, `input`, `select` и др.), кастомные компоненты `KpiCard`, `EmptyState`, `Kbd`, `StatusDot`, ленивая витрина `/?ui-kit=1`.
-  - **Этап 4**: Оптимизация верхней панели, разделение Emergency Stop через `AlertDialog`, устранение обрезания подписей в DOM и ленте.
-  - **Блоки A-G**: Проверка Docker-совместимости, локальные шрифты `@fontsource`, lazy loading dev-витрины (бандл изолирован), захват скриншотов всех 4 тем (`theme-night.png`, `theme-neon.png`, `theme-mono.png`, `theme-day.png`, `ui-kit-night.png`, `ui-kit-day.png`) в `artifacts/design/`.
+- **Выполненные заходы**:
+  - **Заход 0–4**: Установка shadcn-инфраструктуры, единый синглтон `themeBridge`, каталог примитивов shadcn/ui (`button`, `badge`, `tooltip`, `dialog`, `tabs`, `table`, `input`, `select` и др.), ленивая витрина `/?ui-kit=1`.
   - **Заход A («Стабильность, масштаб, высота рабочей области»)**:
-    - **A1**: Устранено дёргание и лаги при ресайзе окна. Внедрен `rAF` + trailing debounce 120ms в `useChartLifecycle.js`, `TradesWidget.jsx`, `OrderBookCanvasLadder.jsx`, `FootprintCanvasLayer.jsx`, `OnChartDOM.jsx`. Частота аллокаций bitmap снижена с 27.4 до 3.5 операций на жест ресайза. Добавлен гистерезис переключения тиров в `AppTopBar.jsx` (24px) и `ChartToolbar.jsx` (20px).
-    - **A2**: Создана система тиров экранов (`screenTiers.js`: S/M/L/XL/XXL). Внедрен масштаб UI (70%–160%), плотности (`compact`, `standard`, `spacious`) с переменными `--ui-scale`, `--control-h`, `--row-h`, `--space`. Обновлен `AppearanceTab.jsx`. Создана вкладка `VisibilityTab.jsx` с переключением 11 элементов и 3 профилями (Полный/Рабочий/Минимум). Хоткеи: `Alt+=`, `Alt+-`, `Alt+0`, `Alt+Z` (Zen-режим со скрытием шапки и floating pill возврата).
-    - **A3**: Реализован `WorkspaceScroller.jsx` с нижней ручкой `workspace-height-handle` (`ns-resize`, мин. высота по экрану, макс. 8000px), автоскроллом при драге ближе 40px к низу и сохранением высоты в `localStorage` на пресет. В `PresetBar.jsx` встроено меню быстрого выбора высоты (`Авто`, `+25%`, `+50%`, `x2`, `x3`).
-    - **Canvas & WebGL**: Размер строк и шрифты в `OrderBookCanvasLadder`, `TradesWidget`, `FootprintCanvasLayer` динамически масштабируются с `tokens.uiScale`.
-    - **Верификация и скриншоты**: Снято 12 адаптивных скриншотов по 8 десктопным разрешениям (от 1366x768 до 3840x2160, темы night и day, масштабы 70%, 100%, 150%) в `artifacts/design/adaptive/`.
+    - Ресайз с rAF и дебаунсом (аллокации bitmap снижены с 27.4 до 3.5), тиры экранов S/M/L/XL/XXL, масштаб UI 70%–160%, профили видимости интерфейса, нижняя ручка расширения высоты workspace до 8000px.
+  - **Заход B («Шапка графика, DOM, перекрестие, таблицы, старт/стоп по паре»)**:
+    - Двухрядная шапка графика, единые стили кроссхейра, синхронизация DOM-стакана, пер-парные пауза/возобновление/закрытие в бэкенде и UI.
+  - **Заход C («Дефекты со скриншотов, закрепление дизайн-системы, B4»)**:
+    - Устранение дефектов канваса и перекрытий HUD, codify design-систему в правилах (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`), линтер дизайн-системы с храповиком (`design_lint.mjs`).
+  - **Заход D («Верификация, доработка B4, видимый лук Dockview + база, выжигание нарушений»)**:
+    - **D0 (Gate & Регрессии)**: Добавлен шаг [1b] (pytest внутри Linux-контейнера `signalscript_backend`), сохранение UTF-8 BOM в `check.ps1`, guard ресайза канваса в `TradesWidget`, failover Binance Spot WS + REST fallback в `marketDataStore.js`, удаление дублирующего `design/DESIGN_GUIDE.md` (оставлен единый `docs/design/DESIGN_GUIDE.md`). Сняты скриншоты в `artifacts/design/c0/`.
+    - **D1 (B4 Persistence & Pair-level Controls)**: Добавлено восстановление `load_persisted_states()` в `OvernightPilotManager`, 404/409 валидация, флаг `pause_after` в `close_pair()`. В UI: `PairControlRowActions.jsx` (`size="icon-xs"`), таблица пар с бейджами статуса и модалкой закрытия с чекбоксом паузы, кнопки «Пауза для всех» и «Возобновить все». Регрессионные тесты в Docker пройдены.
+    - **D2 (Dockview Theme Overrides & Base Styling)**: Переопределение `--dv-*` переменных на `.dockview-theme-dark`: высота табов строго 28px, нижний 2px акцентный индикатор активного таба, 1px разделители и сэши с 6px grab zone, 12% акцентный drag overlay, 8px скроллбары, `tabular-nums` для таблиц, `SectionHeader`. Проверено на всех 4 темах (night, day, neon, mono) и разрешениях (1920x1080, 1366x768). Скриншоты в `artifacts/design/d/dockview_*`.
+    - **D3 (Выжигание нарушений и храповик)**: Разработан скрипт `scripts/codemod_design_tokens.mjs`. Устранено 998 нарушений сырых цветов Tailwind в 4 пачки: настройки/модалки, dockview-виджеты, тулбар/оверлеи графика, остальные компоненты. Бейзлайн снижен с 2029 до 1031.
+    - **D4 (Замена инпутов, чекбоксов и модалок)**:
+      - `D4-inputs`: создан `NumberInput.jsx`, мигрированы инпуты в бэктесте, истории сделок, вкладках настроек.
+      - `D4-checkboxes`: замена сырых чекбоксов на shadcn `Checkbox` (`onCheckedChange`) в бэктесте, таблицах, авто-селекте.
+      - `D4-modals`: стандартный оверлей `bg-black/80 backdrop-blur-xs`, контейнер `bg-card text-foreground border-border`, кнопки shadcn `Button` и токенизированные табы в `SettingsModal.jsx`, `DecisionJournalModal.jsx`, `IndicatorsModal.jsx`.
 
 ## Шлюз качества check.ps1
-- `🎉 ALL QUALITY CHECKS PASSED. READY TO COMMIT.` (EXIT_CODE=0: 611 pytest, prebuild unit-тесты, Vite build, smoke критических систем, Playwright UI blocking & live).
+- `🎉 ALL QUALITY CHECKS PASSED. READY TO COMMIT.` (EXIT_CODE=0):
+  - [1/6] Pytest хоста: 616 passed.
+  - [1b] Pytest Linux Docker-контейнера: 616 passed.
+  - [2/6] Vite frontend build: built in 681ms.
+  - [3b] Design System Linter: 1031 violations across 73 files (0 regressions against ratchet).
+  - [4/6] Smoke critical parts (DOM, Chart, Scanner, Recorder, Journal, Presets, Settings, Quarantine): PASSED.
+  - [5/6] Playwright UI smoke (canvases rect*dpr, no console errors, topbar 1366px fit, symbol switch): PASSED.
+  - [6/6] Binance Live WebSocket check: frames received, PASSED.
 
 ## Как собрать и запустить в Docker
 ```powershell
