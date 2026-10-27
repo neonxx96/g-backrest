@@ -257,7 +257,7 @@ FIRST_RUN_DEFAULTS = {
     "circuit_daily_loss_limit_pct": -1.25,
     "circuit_weekly_loss_limit_pct": -3.5,
     "max_consecutive_losses": 3,
-    "duration_hours": 8.0,
+    "duration_hours": 2.0,  # Short diagnostic run
     "ai_control": False,
 }
 
@@ -293,11 +293,20 @@ def main():
     try:
         print("[1/3] Проверка отсутствия активных сессий...")
         current_status = get_json(f"{BACKEND_BASE}/status")
-        running_symbols = [
-            str(session.get("symbol", "unknown"))
-            for session in current_status.get("sessions", [])
-            if session.get("running") or (session.get("paper") or {}).get("is_running")
-        ]
+        # Sessions is a dict, not a list - key is symbol, value is session dict
+        sessions = current_status.get("sessions", {})
+        if isinstance(sessions, dict):
+            running_symbols = [
+                str(sym)
+                for sym, sess in sessions.items()
+                if sess.get("running") or (sess.get("paper") or {}).get("is_running")
+            ]
+        else:
+            running_symbols = [
+                str(session.get("symbol", "unknown"))
+                for session in sessions
+                if session.get("running") or (session.get("paper") or {}).get("is_running")
+            ]
         if running_symbols:
             print(f"  -> Запуск отменён: активны paper-сессии {', '.join(running_symbols)}. Остановите их явно и повторите.")
             return
@@ -336,16 +345,31 @@ def main():
     time.sleep(2.0)
     try:
         st = get_json(f"{BACKEND_BASE}/status")
-        running_cnt = sum(1 for s in st.get("sessions", []) if s.get("running"))
-        print("-" * 70)
-        print(f"🎉 МАРАФОН АКТИВЕН! Работает сессий: {running_cnt}/8")
-        print(f"Баланс пула: ${st.get('aggregate', {}).get('paper', {}).get('balance', 1000.0):,.2f}")
-        for s in st.get("sessions", []):
-            sym = s.get("symbol")
-            tf = s.get("config", {}).get("timeframe")
-            strat = s.get("config", {}).get("strategy_type")
-            status = "RUNNING" if s.get("running") else "STOPPED"
-            print(f"  • {sym:10s} [{status}] TF: {tf:3s} | Стратегия: {strat}")
+        # Sessions is a dict, not a list
+        sessions = st.get("sessions", {})
+        if isinstance(sessions, dict):
+            running_cnt = sum(1 for s in sessions.values() if s.get("running"))
+            print("-" * 70)
+            print(f"🎉 МАРАФОН АКТИВЕН! Работает сессий: {running_cnt}/8")
+            print(f"Баланс пула: ${st.get('aggregate', {}).get('paper', {}).get('balance', 1000.0):,.2f}")
+            for sym, sess in sessions.items():
+                sym_upper = sym.upper()
+                sess_config = sess.get("config", {})
+                tf = sess_config.get("timeframe")
+                strat = sess_config.get("strategy_type")
+                status = "RUNNING" if sess.get("running") else "STOPPED"
+                print(f"  • {sym_upper:10s} [{status}] TF: {tf:3s} | Стратегия: {strat}")
+        else:
+            running_cnt = sum(1 for s in sessions if s.get("running"))
+            print("-" * 70)
+            print(f"🎉 МАРАФОН АКТИВЕН! Работает сессий: {running_cnt}/8")
+            print(f"Баланс пула: ${st.get('aggregate', {}).get('paper', {}).get('balance', 1000.0):,.2f}")
+            for s in sessions:
+                sym = s.get("symbol")
+                tf = s.get("config", {}).get("timeframe")
+                strat = s.get("config", {}).get("strategy_type")
+                status = "RUNNING" if s.get("running") else "STOPPED"
+                print(f"  • {sym:10s} [{status}] TF: {tf:3s} | Стратегия: {strat}")
         print("=" * 70)
     except Exception as e:
         print(f"  -> Ошибка статуса: {e}")
