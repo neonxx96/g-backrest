@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import {
   Minus,
   MoveRight,
@@ -19,7 +20,8 @@ import {
   Layers,
   ChevronDown,
   SkipForward,
-  Settings
+  Settings,
+  MoreHorizontal
 } from 'lucide-react';
 
 import { TPO_SETTINGS_DEFAULTS, WALL_SETTINGS_DEFAULTS } from './useChartOverlays.js';
@@ -97,12 +99,32 @@ export default function ChartToolbar({
   const settingsSelect = 'bg-[#0c1017] border border-[#1f2937] rounded text-[10px] text-[#e2e8f0] px-1 py-0.5';
   const settingsPanel = 'absolute top-full right-0 mt-1 w-60 bg-[#0f1420] border border-[#2a3449] rounded shadow-2xl z-50 py-1';
 
+  const toolbarRef = useRef(null);
+  const [toolbarWidth, setToolbarWidth] = useState(1000);
+
+  useEffect(() => {
+    if (!toolbarRef.current) return;
+    const obs = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect) {
+          setToolbarWidth(entry.contentRect.width);
+        }
+      }
+    });
+    obs.observe(toolbarRef.current);
+    return () => obs.disconnect();
+  }, []);
+
+  const isCompact = toolbarWidth < 900;
+  const isNarrow = toolbarWidth < 720;
+
   return (
       <div
-        className="flex items-center justify-between flex-wrap px-2 py-1 border-b border-border/60 bg-card/90 text-xs gap-1 shrink-0 text-foreground"
+        ref={toolbarRef}
+        className="flex items-center justify-between px-2 py-0.5 border-b border-border/60 bg-card/90 text-xs gap-1 shrink-0 text-foreground h-[28px] overflow-hidden"
       >
         {/* Drawing Tools */}
-        <div className="flex items-center flex-wrap gap-0.5 shrink-0">
+        <div className="flex items-center gap-0.5 shrink-0 overflow-hidden">
           {titlePrefix && (
             <div className="flex items-center space-x-1 mr-1 shrink-0 font-mono">
               <span className="px-1.5 py-0.2 rounded bg-[#182030] text-[#38bdf8] font-bold text-[10px] border border-[#2b3955]">
@@ -656,6 +678,9 @@ export default function ChartToolbar({
             )}
           </div>
           
+          {/* Loose Quick Buttons: Visible when width >= 720, or in Layers Hub dropdown */}
+          {!isNarrow && (
+            <>
           <button
             data-testid="btn-toolbar-toggle-heatmap"
             title="Тепловая карта плотностей стакана во времени"
@@ -663,7 +688,6 @@ export default function ChartToolbar({
               const next = !showHeatmap;
               setShowHeatmap(next);
               localStorage.setItem('chart_heatmap', next ? 'true' : 'false');
-              // Состояние ещё старое — форсируем загрузку/очистку точек (задача 4.5)
               if (next) loadHeatmap(true);
             }}
             className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition flex items-center ${showHeatmap ? 'bg-[#ff980022] text-[#ff9800] border border-[#ff980050]' : 'text-[#60697b] hover:text-white'}`}
@@ -867,6 +891,47 @@ export default function ChartToolbar({
           >
             MACD
           </button>
+            </>
+          )}
+
+          {isNarrow && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  data-testid="btn-toolbar-narrow-more"
+                  className="px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer shrink-0"
+                  title="Быстрые слои и индикаторы"
+                >
+                  <MoreHorizontal size={11} />
+                  <span>Ещё</span>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48 p-1 font-mono text-xs">
+                <DropdownMenuItem onClick={() => { const next = !showLiquidations; setShowLiquidations(next); localStorage.setItem('chart_liquidations', next ? 'true' : 'false'); }}>
+                  💥 Ликвидации {showLiquidations ? '✓' : ''}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { const next = !showWalls; setShowWalls(next); localStorage.setItem('chart_walls', next ? 'true' : 'false'); }}>
+                  🧲 Стенки стакана {showWalls ? '✓' : ''}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { const next = !showHeatmap; setShowHeatmap(next); localStorage.setItem('chart_heatmap', next ? 'true' : 'false'); if (next) loadHeatmap(true); }}>
+                  🔥 Плотности {showHeatmap ? '✓' : ''}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { const next = !showFootprint; setShowFootprint(next); localStorage.setItem('chart_footprint', next ? 'true' : 'false'); }}>
+                  👣 Footprint {showFootprint ? '✓' : ''}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { const next = !showTpo; setShowTpo(next); localStorage.setItem('chart_tpo', next ? 'true' : 'false'); }}>
+                  📊 TPO Профиль {showTpo ? '✓' : ''}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={toggleVolatilityCone}>
+                  📐 Конус волатильности {isConeActive ? '✓' : ''}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => toggleIndicator('vwap')}>
+                  📈 VWAP {showVwap ? '✓' : ''}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
 
           {onCloseWidget && (
             <button
