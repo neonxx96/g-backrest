@@ -35,10 +35,11 @@ export default function AssistantHUD({
   onToggleWalls = null,
   isConeActive = false,
   onToggleCone = null,
+  className = "",
 }) {
   const [isExpanded, setIsExpanded] = useState(() => {
     try {
-      return localStorage.getItem('assistant_hud_expanded') === 'true';
+      return localStorage.getItem('signalscript_tactical_hud_collapsed_v2') === 'expanded';
     } catch (_) {
       return false;
     }
@@ -47,7 +48,7 @@ export default function AssistantHUD({
   const toggleExpanded = (val) => {
     setIsExpanded(val);
     try {
-      localStorage.setItem('assistant_hud_expanded', val ? 'true' : 'false');
+      localStorage.setItem('signalscript_tactical_hud_collapsed_v2', val ? 'expanded' : 'collapsed');
     } catch (_) {}
   };
   const [monitoringData, setMonitoringData] = useState(null);
@@ -203,7 +204,7 @@ export default function AssistantHUD({
   return (
     <div
       data-testid="assistant-hud"
-      className="absolute top-2.5 right-20 z-20 pointer-events-auto select-none font-mono transition-all duration-200"
+      className={`pointer-events-auto select-none font-mono transition-all duration-200 ${className}`}
     >
       {/* Minimized Pill Mode */}
       {!isExpanded ? (

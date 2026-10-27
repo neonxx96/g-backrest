@@ -1,3 +1,4 @@
+import SymbolLink from './ui/SymbolLink.jsx';
 import React, { useState, useEffect, useCallback } from 'react';
 import { X, Download, RefreshCw, BookOpen, Brain, CheckCircle2, SkipForward, Flag, PlusCircle } from 'lucide-react';
 
@@ -512,7 +513,7 @@ export default function DecisionJournalModal({
                       </td>
 
                       <td style={{ padding: '8px 6px', fontWeight: 700, fontFamily: 'monospace' }}>
-                        <span style={{ color: '#f8fafc' }}>{row.symbol}</span>
+                        <SymbolLink symbol={row.symbol} />
                         <span
                           style={{
                             marginLeft: '5px',

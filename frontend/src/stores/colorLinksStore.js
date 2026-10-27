@@ -80,6 +80,16 @@ export const useColorLinksStore = create(
     }));
   },
 
+  focusSymbol: (symbol, targetChannel = 'c1') => {
+    if (!symbol) return;
+    const cleanSym = symbol.toUpperCase().trim();
+    const st = get();
+    st.setChannelSymbol(targetChannel, cleanSym);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('signalscript:focus-symbol', { detail: { symbol: cleanSym } }));
+    }
+  },
+
   // Change or remove a widget's channel binding
   setPanelChannel: (panelId, channelId) => {
     set((state) => ({

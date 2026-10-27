@@ -1429,11 +1429,14 @@ try {
             baseline: 'middle'
           },
           styles: {
-            color: '#ffffff',
-            backgroundColor: color,
+            color: color,
+            backgroundColor: 'rgba(15, 20, 30, 0.92)',
+            borderColor: color,
+            borderSize: 1,
             size: 10,
+            family: 'var(--font-mono)',
             padding: 3,
-            borderRadius: 2
+            borderRadius: 3
           },
           ignoreEvent: true
         }

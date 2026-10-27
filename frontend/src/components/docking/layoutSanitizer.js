@@ -9,11 +9,27 @@ function sanitizeNode(node, panelIds) {
   if (node.type === 'leaf') {
     const views = (node.data?.views || []).filter((id) => panelIds.has(id));
     if (!views.length) return null;
-    return { ...node, data: { ...node.data, views, activeView: views.includes(node.data?.activeView) ? node.data.activeView : views[0] } };
+    const cleanNode = {
+      ...node,
+      data: {
+        ...node.data,
+        views,
+        activeView: views.includes(node.data?.activeView) ? node.data.activeView : views[0]
+      }
+    };
+    if (cleanNode.size === null || (cleanNode.size !== undefined && typeof cleanNode.size !== 'number' && (!cleanNode.size || typeof cleanNode.size !== 'object' || !cleanNode.size.type))) {
+      delete cleanNode.size;
+    }
+    return cleanNode;
   }
   if (node.type === 'branch') {
     const data = (node.data || []).map((child) => sanitizeNode(child, panelIds)).filter(Boolean);
-    return data.length ? { ...node, data } : null;
+    if (!data.length) return null;
+    const cleanNode = { ...node, data };
+    if (cleanNode.size === null || (cleanNode.size !== undefined && typeof cleanNode.size !== 'number' && (!cleanNode.size || typeof cleanNode.size !== 'object' || !cleanNode.size.type))) {
+      delete cleanNode.size;
+    }
+    return cleanNode;
   }
   return null;
 }
@@ -37,5 +53,9 @@ export function sanitizeDockviewLayout(layout) {
   }
   const panelIds = new Set(Object.keys(panels));
   const root = sanitizeNode(layout.grid.root, panelIds);
-  return root ? { ...layout, panels, grid: { ...layout.grid, root } } : null;
+  if (!root) return null;
+  const grid = { ...layout.grid, root };
+  if (grid.width === null) delete grid.width;
+  if (grid.height === null) delete grid.height;
+  return { ...layout, panels, grid };
 }

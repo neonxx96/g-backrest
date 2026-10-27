@@ -52,7 +52,10 @@ export function buildChartStyles(uiConfig = {}) {
     },
     candle: {
       type: 'candle_solid',
-      tooltip: { text: { color: tokens.foreground || DARK.text, size: 11, family: 'var(--font-mono)' } },
+      tooltip: {
+        showRule: 'none',
+        text: { color: tokens.foreground || DARK.text, size: 11, family: 'var(--font-mono)' }
+      },
       bar: {
         upColor: upCol,
         downColor: dnCol,
@@ -79,7 +82,10 @@ export function buildChartStyles(uiConfig = {}) {
       }
     },
     indicator: {
-      tooltip: { text: { color: tokens.foreground || DARK.text, size: 11, family: 'var(--font-mono)' } },
+      tooltip: {
+        showRule: 'none',
+        text: { color: tokens.foreground || DARK.text, size: 11, family: 'var(--font-mono)' }
+      },
       bars: [{
         style: 'fill',
         borderStyle: 'solid',

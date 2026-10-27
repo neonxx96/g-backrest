@@ -26,7 +26,8 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Settings,
-  MoreHorizontal
+  MoreHorizontal,
+  Pin
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -94,6 +95,25 @@ export default function AppTopBar({
   });
   const tierRef = useRef(modeTier);
   tierRef.current = modeTier;
+
+  const [pinnedWidgets, setPinnedWidgets] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('signalscript_topbar_pinned') || '[]');
+      if (Array.isArray(saved) && saved.length > 0) return saved;
+    } catch (_) {}
+    return ['ai-copilot', 'journal', 'backtest', 'dom'];
+  });
+
+  const togglePin = (widgetId, e) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    setPinnedWidgets((prev) => {
+      const next = prev.includes(widgetId)
+        ? prev.filter((id) => id !== widgetId)
+        : [...prev, widgetId];
+      localStorage.setItem('signalscript_topbar_pinned', JSON.stringify(next));
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (!headerRef.current) return;
@@ -251,13 +271,17 @@ export default function AppTopBar({
     },
   ];
 
-  // Responsive threshold with hysteresis tier:
-  // tier 2 (>= 1720px): show all
-  // tier 1 (1440px - 1719px): show priority >= 4 (up to Tape)
-  // tier 0 (< 1440px): show priority >= 6 (Widgets, Focus, AI, Journal, Backtest)
-  const minPriorityVisible = modeTier === 2 ? 0 : modeTier === 1 ? 4 : 6;
-  const visibleModes = allModes.filter(m => m.priority >= minPriorityVisible);
-  const overflowModes = allModes.filter(m => m.priority < minPriorityVisible);
+  // Pinned favorites + responsive visibility
+  // By default, 4 pinned favorites (AI, Journal, Backtest, DOM) + Focus are visible.
+  // On wide screens (tier 2), unpinned items also show up to capacity.
+  const visibleModes = allModes.filter(m => {
+    if (m.id === 'focus') return true;
+    if (pinnedWidgets.includes(m.id)) return true;
+    if (modeTier === 2 && m.priority >= 3) return true;
+    if (modeTier === 1 && m.priority >= 5) return true;
+    return false;
+  });
+  const overflowModes = allModes.filter(m => !visibleModes.some(v => v.id === m.id));
   const hasActiveOverflow = overflowModes.some(m => m.active);
 
   return (

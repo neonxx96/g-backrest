@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useMemo } from 'react';
 import themeBridge from '../../theme/themeBridge';
+import { layoutLabels, formatLabelAmount } from '../chart/labelLayout.js';
 
 /**
  * ChartCanvasOverlay
@@ -109,23 +110,34 @@ export default function ChartCanvasOverlay({
         validLevels.push({ ...lvl, y });
       });
 
-      // Group levels with close Y (within 14px) to avoid overlapping text
-      validLevels.sort((a, b) => b.intensity - a.intensity);
-      const displayedBadges = [];
-      const occupiedY = [];
+      // Group levels with close Y to avoid overlapping text using shared labelLayout module
+      const rawCandidates = validLevels.map((lvl) => ({
+        id: `liq-${lvl.price}`,
+        price: lvl.price,
+        y: lvl.y,
+        type: 'liq',
+        valueUsd: lvl.usd_amount || 0,
+        amount_str: lvl.amount_str,
+        intensity: lvl.intensity,
+        is_max: lvl.is_max,
+        rawLevel: lvl,
+      }));
 
-      validLevels.forEach((lvl) => {
-        const isTooClose = occupiedY.some((oy) => Math.abs(oy - lvl.y) < 16);
-        if (!isTooClose) {
-          displayedBadges.push(lvl);
-          occupiedY.push(lvl.y);
-        }
+      const laidOut = layoutLabels(rawCandidates, {
+        height,
+        topMargin: 28,
+        bottomMargin: 24,
+        maxLabels,
+        showAll: showAllLabels,
+        minGap: 16,
       });
 
-      // Limit to top-N (default 6) unless showAllLabels is requested
-      const labelAllowedSet = new Set(
-        (showAllLabels ? displayedBadges : displayedBadges.slice(0, maxLabels)).map((l) => l.price)
-      );
+      const labelMap = new Map();
+      laidOut.forEach((l) => {
+        if (!l.hidden) {
+          labelMap.set(l.price, l.y);
+        }
+      });
 
       // Render Heatmap glow & 1px lines
       validLevels.forEach((lvl) => {
@@ -155,16 +167,28 @@ export default function ChartCanvasOverlay({
           ctx.stroke();
           ctx.setLineDash([]);
 
-          // Right edge badge (Top-N only, no collision)
-          if (labelAllowedSet.has(lvl.price)) {
-            const formattedAmt = formatAmount(lvl.amount_str, lvl.usd_amount);
+          // Right edge badge (Top-N only, no collision via labelLayout)
+          if (labelMap.has(lvl.price)) {
+            const adjustedY = labelMap.get(lvl.price);
+            const formattedAmt = formatLabelAmount(lvl.usd_amount || lvl.amount_str);
             const badgeText = `${formattedAmt}`;
             ctx.font = '10px "IBM Plex Mono", monospace';
             const textW = ctx.measureText(badgeText).width;
             const badgeX = width - 74 - textW - 8;
-            const badgeY = y - 7;
+            const badgeY = adjustedY - 7;
 
-            // Badge Background
+            // Dotted connector if label was shifted
+            if (Math.abs(adjustedY - y) > 2) {
+              ctx.beginPath();
+              ctx.setLineDash([2, 2]);
+              ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+              ctx.moveTo(width - 76, y);
+              ctx.lineTo(badgeX + textW + 6, adjustedY);
+              ctx.stroke();
+              ctx.setLineDash([]);
+            }
+
+            // Badge Background (bg-popover/80 border style)
             ctx.fillStyle = 'rgba(11, 14, 20, 0.88)';
             ctx.fillRect(badgeX, badgeY, textW + 6, 14);
             ctx.strokeStyle = `rgba(56, 189, 248, ${Math.max(alpha, 0.4)})`;
@@ -173,7 +197,7 @@ export default function ChartCanvasOverlay({
 
             // Badge Text
             ctx.fillStyle = lvl.is_max ? '#38bdf8' : '#94a3b8';
-            ctx.fillText(badgeText, badgeX + 3, y + 4);
+            ctx.fillText(badgeText, badgeX + 3, adjustedY + 4);
           }
         }
       });

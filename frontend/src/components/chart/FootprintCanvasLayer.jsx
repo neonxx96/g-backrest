@@ -254,7 +254,7 @@ export default function FootprintCanvasLayer({ engine, symbol, timeframe = '15m'
         const isBuyDelta = lvl.delta >= 0;
 
         // Фоновая заливка ячейки по дельте и доле объема
-        const baseColor = isBuyDelta ? st.buyColor : st.sellColor;
+        const baseColor = isBuyDelta ? (tokensRef.current.bull || st.buyColor) : (tokensRef.current.bear || st.sellColor);
         const alpha = Math.min(0.9, st.opacity * (0.18 + 0.52 * share));
         ctx.fillStyle = hexToRgba(baseColor, alpha);
 

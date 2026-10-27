@@ -1,3 +1,4 @@
+import SymbolLink from './ui/SymbolLink.jsx';
 import React, { useEffect, useState } from 'react';
 import { useBacktestStore } from '../stores/backtestStore';
 import {
@@ -571,7 +572,7 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
                         <span className={`px-1 rounded text-[7.5px] font-bold ${pos.side === 'LONG' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
                           {pos.side}
                         </span>
-                        <span className="font-bold text-neutral-200">{pos.symbol}</span>
+                        <SymbolLink symbol={pos.symbol} />
                         <span className="text-neutral-500">Qty: {pos.qty}</span>
                       </div>
                       <div className="text-[8px] text-neutral-400 mt-0.5">

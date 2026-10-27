@@ -1,3 +1,4 @@
+import { crosshairBus } from '../../services/crosshairBus';
 /**
  * High-Performance Time & Sales (Trades Tape) Widget
  * Virtualized Canvas 2D engine capable of rendering 500+ prints/sec at 60 FPS without DOM lag.
@@ -123,6 +124,8 @@ export default function TradesWidget(props) {
 
   // Frozen snapshot if paused
   const frozenTradesRef = useRef([]);
+  const syncPriceRef = useRef(null);
+
   useEffect(() => {
     if (!isPaused) {
       frozenTradesRef.current = filteredTrades;
@@ -212,6 +215,15 @@ export default function TradesWidget(props) {
         ctx.fillStyle = i % 2 === 0 ? '#0b0f17' : '#080a0f';
       }
       ctx.fillRect(0, rowY, cssWidth, ROW_HEIGHT);
+
+      // Crosshair sync highlight
+      if (syncPriceRef.current && Math.abs(trade.price - syncPriceRef.current) < (trade.price * 0.0005)) {
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.65)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 2]);
+        ctx.strokeRect(1, rowY + 1, cssWidth - 2, ROW_HEIGHT - 2);
+        ctx.setLineDash([]);
+      }
 
       // 2. Mini volume bar in Size column (institutional tape visual)
       const barRatio = Math.min(1, trade.usd / Math.max(maxVisibleUsd, 10000));
@@ -335,6 +347,14 @@ export default function TradesWidget(props) {
       if (debounceTimer) clearTimeout(debounceTimer);
       if (rafId) cancelAnimationFrame(rafId);
     };
+  }, [renderCanvas]);
+
+  // Crosshair sync subscription
+  useEffect(() => {
+    return crosshairBus.subscribe(({ price }) => {
+      syncPriceRef.current = price;
+      requestAnimationFrame(() => renderCanvas());
+    });
   }, [renderCanvas]);
 
   // Theme subscription

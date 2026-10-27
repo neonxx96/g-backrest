@@ -1,3 +1,4 @@
+import { crosshairBus } from '../../services/crosshairBus';
 import { useEffect } from 'react';
 import { fetchKlinesDualSource, TF_MS } from '../../services/marketDataFetcher';
 import { createKLineChartsV9Adapter } from './engine/KLineChartsV9Adapter.js';
@@ -83,9 +84,11 @@ const HISTORY_FLOOR_DAYS = {
     // Crosshair Sync: subscribe to mouse crosshair movement
     chart.subscribeAction('onCrosshairChange', (data) => {
       const ts = data?.kLineData?.timestamp || null;
+      const price = data?.kLineData?.close ?? null;
       window.dispatchEvent(new CustomEvent('crosshair-sync', {
-        detail: { chartId, timestamp: ts }
+        detail: { chartId, timestamp: ts, kLineData: data?.kLineData || null }
       }));
+      crosshairBus.publish({ timestamp: ts, price, sourceId: chartId });
     });
 
     // Zoom Clamping 3..60px вынесен в KLineChartsV9Adapter.mount() (barSpaceMin/Max).

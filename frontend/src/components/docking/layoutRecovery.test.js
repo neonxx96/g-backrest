@@ -52,3 +52,35 @@ test('chart timeframe is isolated per panel and invalid saved values fall back s
   values.set('signalscript_chart_timeframes', JSON.stringify({ chart_main: '2d' }));
   assert.equal(readChartPanelTimeframe('chart_main', storage), '15m');
 });
+
+import { sanitizeDockviewLayout } from './layoutSanitizer.js';
+
+test('sanitizeDockviewLayout removes null size to prevent dockview fromJSON crash', () => {
+  const layoutWithNullSizes = {
+    grid: {
+      root: {
+        type: 'branch',
+        size: null,
+        data: [
+          {
+            type: 'leaf',
+            size: null,
+            data: { views: ['chart_main'], activeView: 'chart_main' }
+          }
+        ]
+      },
+      width: null,
+      height: null
+    },
+    panels: {
+      chart_main: { contentComponent: 'chart' }
+    }
+  };
+
+  const sanitized = sanitizeDockviewLayout(layoutWithNullSizes);
+  assert.ok(sanitized);
+  assert.equal(sanitized.grid.root.size, undefined);
+  assert.equal(sanitized.grid.root.data[0].size, undefined);
+  assert.equal(sanitized.grid.width, undefined);
+  assert.equal(sanitized.grid.height, undefined);
+});

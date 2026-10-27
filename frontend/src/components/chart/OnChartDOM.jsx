@@ -1,3 +1,4 @@
+import { crosshairBus } from '../../services/crosshairBus.js';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Settings2, X } from 'lucide-react';
 import { useLiquidityWallStore } from '../../stores/liquidityWallStore.js';
@@ -20,7 +21,7 @@ const ENABLED_KEY = 'signalscript:onchart-dom-enabled';
 const MIN_ROW_PX = 9;
 
 export const DEFAULT_DOM_SETTINGS = {
-  lengthPx: 150,
+  lengthPx: 130,
   opacity: 0.55,
   bidColor: '#26a69a',
   askColor: '#ef5350',
@@ -71,6 +72,14 @@ export default function OnChartDOM({ engine, symbol }) {
   const [hud, setHud] = useState('');
   const settingsRef = useRef(settings);
   const tokensRef = useRef(themeBridge.getTokens());
+  const syncPriceRef = useRef(null);
+
+  useEffect(() => {
+    return crosshairBus.subscribe(({ price }) => {
+      syncPriceRef.current = price;
+      requestAnimationFrame(() => drawRef.current());
+    });
+  }, []);
 
 
   settingsRef.current = settings;
@@ -98,7 +107,7 @@ export default function OnChartDOM({ engine, symbol }) {
 
     const dpr = Math.max(1, window.devicePixelRatio || 1);
     const axisW = Math.max(0, parent.clientWidth - vp.width); // ширина правой ценовой шкалы
-    const w = Math.min(st.lengthPx, vp.width);
+    const w = Math.min(140, Math.min(st.lengthPx, vp.width));
     const h = vp.height;
     const pw = Math.round(w * dpr);
     const ph = Math.round(h * dpr);
@@ -162,7 +171,11 @@ export default function OnChartDOM({ engine, symbol }) {
       if (!Number.isFinite(yc) || yc < -rowH || yc > h + rowH) continue;
       const len = barLength(b.usd, maxUsd, w, st.logScale);
       const y = yc - rowH / 2;
-      ctx.fillStyle = hexToRgba(b.side === 'bid' ? (tokensRef.current.bull || st.bidColor) : (tokensRef.current.bear || st.askColor), alpha * (0.35 + 0.65 * (len / w)));
+      const baseColor = b.side === 'bid' ? (tokensRef.current.bull || st.bidColor) : (tokensRef.current.bear || st.askColor);
+      const grad = ctx.createLinearGradient(w, 0, w - len, 0);
+      grad.addColorStop(0, hexToRgba(baseColor, alpha * 0.85));
+      grad.addColorStop(1, hexToRgba(baseColor, alpha * 0.15));
+      ctx.fillStyle = grad;
       ctx.fillRect(w - len, y, len, Math.max(1, rowH - 1));
       rows += 1;
     }
@@ -199,6 +212,22 @@ export default function OnChartDOM({ engine, symbol }) {
       ctx.setLineDash([]);
       if (st.showText) { ctx.fillStyle = '#fb7185'; ctx.textAlign = 'left'; ctx.fillText('SPOOF', 4, yc); }
     }
+    
+    // Crosshair Sync pointer line
+    if (syncPriceRef.current && Number.isFinite(syncPriceRef.current)) {
+      const sy = yPrice(syncPriceRef.current);
+      if (sy >= 0 && sy <= h) {
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.8)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 2]);
+        ctx.beginPath();
+        ctx.moveTo(0, sy);
+        ctx.lineTo(w, sy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+
     statsRef.current = { ms: performance.now() - t0, rows };
   }, [engine, symbol]);
 

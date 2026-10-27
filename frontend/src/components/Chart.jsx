@@ -25,6 +25,7 @@ import AssistantHUD from './AssistantHUD';
 import DepthHeatmapGL from './DepthHeatmapGL';
 import LiquidationHeatmapGL from './chart/LiquidationHeatmapGL';
 import ChartToolbar from './chart/ChartToolbar.jsx';
+import ChartLegend from './chart/ChartLegend.jsx';
 import ChartContextMenu, { useChartContextMenu } from './chart/ChartContextMenu.jsx';
 import { useChartDrawings } from './chart/useChartDrawings.js';
 
@@ -49,7 +50,14 @@ export default function Chart({
   uiConfig = null,
   chartIndicators = null,
   onOpenIndicators = null,
-  onCloseWidget = null
+  onCloseWidget = null,
+  handleQuickBt = null,
+  isBacktesting: propIsBacktesting = null,
+  activeBtResult: propActiveBtResult = null,
+  isCurrentSymbolResult = null,
+  showTradesOnChart: propShowTradesOnChart = null,
+  setShowTradesOnChart: propSetShowTradesOnChart = null,
+  activeSetup = null,
 }) {
   const channelSymbol = useColorLinksStore((s) => chartId ? s.getPanelSymbol(chartId, propSymbol) : null);
   const symbol = (channelSymbol || propSymbol || "BTCUSDT").toUpperCase();
@@ -66,15 +74,33 @@ export default function Chart({
   const [localPositionSetup, setLocalPositionSetup] = useState(null);
   const [klinesVersion, setKlinesVersion] = useState(0);
   const [btTooltip, setBtTooltip] = useState(null);
+  const [hoverCandle, setHoverCandle] = useState(null);
+
+  useEffect(() => {
+    const handleCandleHover = (e) => {
+      const { chartId: srcId, kLineData } = e.detail || {};
+      if (srcId === chartId) {
+        setHoverCandle(kLineData || null);
+      }
+    };
+    window.addEventListener('crosshair-sync', handleCandleHover);
+    return () => window.removeEventListener('crosshair-sync', handleCandleHover);
+  }, [chartId]);
 
   // Market Regime: Toxic Volatility state
 
 
   // Synchronize with quantitative Backtest Store
-  const activeBtResult = useBacktestStore((s) => s.activeResult);
-  const showTradesOnChart = useBacktestStore((s) => s.showTradesOnChart);
-  const isBacktesting = useBacktestStore((s) => s.isRunning);
+  const storeActiveBtResult = useBacktestStore((s) => s.activeResult);
+  const storeShowTradesOnChart = useBacktestStore((s) => s.showTradesOnChart);
+  const storeSetShowTradesOnChart = useBacktestStore((s) => s.setShowTradesOnChart);
+  const storeIsBacktesting = useBacktestStore((s) => s.isRunning);
   const runQuickBacktest = useBacktestStore((s) => s.runQuickBacktest);
+
+  const activeBtResult = propActiveBtResult || storeActiveBtResult;
+  const showTradesOnChart = propShowTradesOnChart ?? storeShowTradesOnChart;
+  const setShowTradesOnChart = propSetShowTradesOnChart || storeSetShowTradesOnChart;
+  const isBacktesting = propIsBacktesting ?? storeIsBacktesting;
 
   const effectiveBacktestSignals = backtestSignals || (activeBtResult?.symbol === symbol.toUpperCase() ? activeBtResult : null);
   const effectiveShowBtSignals = showBacktestSignals && showTradesOnChart;
@@ -413,6 +439,13 @@ export default function Chart({
         isConeActive={isConeActive}
         toggleIndicator={toggleIndicator}
         showVwap={showVwap}
+        isBacktesting={isBacktesting}
+        handleQuickBt={handleQuickBt || handleQuickBacktestCurrentSetup}
+        activeBtResult={activeBtResult}
+        isCurrentSymbolResult={isCurrentSymbolResult ?? (activeBtResult && activeBtResult.symbol === symbol.toUpperCase())}
+        showTradesOnChart={showTradesOnChart}
+        setShowTradesOnChart={setShowTradesOnChart}
+        activeSetup={activeSetup}
       />
 
       {/* Chart Canvas Area */}
@@ -454,42 +487,53 @@ export default function Chart({
         {/* Footprint Canvas Layer: кластеры объёмов Bid x Ask, дельта, POC и Naked POC (Canvas 2D) */}
         {chartEngine && <FootprintCanvasLayer engine={chartEngine} symbol={symbol} timeframe={timeframe} />}
 
-        {/* Tactical Assistant HUD: Floating Predictive & Market Regime Overlay (Stage 5) */}
-        <AssistantHUD
+        {/* TradingView-style OHLC Legend & Indicator Stack */}
+        <ChartLegend
           symbol={symbol}
           timeframe={timeframe}
-          lastPrice={currentKlines.current?.length ? currentKlines.current[currentKlines.current.length - 1].close : 0}
-          showWalls={showWalls}
-          onToggleWalls={() => {
-            const next = !showWalls;
-            setShowWalls(next);
-            localStorage.setItem('chart_walls', next ? 'true' : 'false');
-          }}
-          isConeActive={isConeActive}
-          onToggleCone={toggleVolatilityCone}
+          activeCandle={hoverCandle || (currentKlines.current?.length ? currentKlines.current[currentKlines.current.length - 1] : null)}
+          activeIndicators={activeIndicators}
+          onToggleVisibility={handleToggleVisibility}
+          onOpenSettings={setSettingsDialogIndId}
+          onRemove={handleRemoveIndicator}
         />
 
-        {/* Market Regime: Toxic Volatility Warning Overlay — chart/ToxicVolatilityOverlay.jsx (слайс 6.4o) */}
+        {/* Market Regime: Toxic Volatility Warning Overlay */}
         <ToxicVolatilityOverlay
           isToxicRegime={isToxicRegime}
           isToxicDismissed={isToxicDismissed}
           onDismiss={setIsToxicDismissed}
         />
 
-        {/* ТАКТ 2.1: Interactive Position Setup HUD Overlay (Entry / SL / TP1 / TP2 / R:R) */}
-        <PositionSetupHUD
-          effectivePositionSetup={effectivePositionSetup}
-          handleQuickBacktestCurrentSetup={handleQuickBacktestCurrentSetup}
-          isBacktesting={isBacktesting}
-          handleAskSecondOpinion={handleAskSecondOpinion}
-          isAskingOpinion={isAskingOpinion}
-          setLocalPositionSetup={setLocalPositionSetup}
-          secondOpinionData={secondOpinionData}
-          setSecondOpinionData={setSecondOpinionData}
-          symbol={symbol}
-          timeframe={timeframe}
-          handleDecisionFromOpinion={handleDecisionFromOpinion}
-        />
+        {/* Unified Overlay Stack (Top Right, non-overlapping) */}
+        <div className="absolute top-2 right-16 flex flex-col items-end gap-1.5 pointer-events-none z-20">
+          <AssistantHUD
+            symbol={symbol}
+            timeframe={timeframe}
+            lastPrice={currentKlines.current?.length ? currentKlines.current[currentKlines.current.length - 1].close : 0}
+            showWalls={showWalls}
+            onToggleWalls={() => {
+              const next = !showWalls;
+              setShowWalls(next);
+              localStorage.setItem('chart_walls', next ? 'true' : 'false');
+            }}
+            isConeActive={isConeActive}
+            onToggleCone={toggleVolatilityCone}
+          />
+          <PositionSetupHUD
+            effectivePositionSetup={effectivePositionSetup}
+            handleQuickBacktestCurrentSetup={handleQuickBacktestCurrentSetup}
+            isBacktesting={isBacktesting}
+            handleAskSecondOpinion={handleAskSecondOpinion}
+            isAskingOpinion={isAskingOpinion}
+            setLocalPositionSetup={setLocalPositionSetup}
+            secondOpinionData={secondOpinionData}
+            setSecondOpinionData={setSecondOpinionData}
+            symbol={symbol}
+            timeframe={timeframe}
+            handleDecisionFromOpinion={handleDecisionFromOpinion}
+          />
+        </div>
 
         {/* Backtest marker & trade tooltip — chart/BtTooltipOverlay.jsx (слайс 6.4o) */}
         <BtTooltipOverlay btTooltip={btTooltip} chartContainerRef={chartContainerRef} />

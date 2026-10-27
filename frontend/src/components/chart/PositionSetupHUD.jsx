@@ -11,12 +11,13 @@ export default function PositionSetupHUD({
   effectivePositionSetup, handleQuickBacktestCurrentSetup, isBacktesting,
   handleAskSecondOpinion, isAskingOpinion, setLocalPositionSetup,
   secondOpinionData, setSecondOpinionData, symbol, timeframe, handleDecisionFromOpinion,
+  className = "",
 }) {
   return (<>
         {effectivePositionSetup && Number(effectivePositionSetup.entry_price) > 0 && (
           <div
             data-testid="chart-position-hud"
-            className="absolute top-2 left-3 z-20 pointer-events-auto flex flex-wrap items-center gap-1.5 px-2 py-1 rounded bg-popover/90 border border-border/80 shadow-md backdrop-blur-xs font-mono text-[10px] text-foreground"
+            className={`pointer-events-auto flex flex-wrap items-center gap-1.5 px-2 py-1 rounded bg-popover/95 border border-border shadow-md backdrop-blur-xs font-mono text-[10px] text-foreground ${className}`}
           >
             <span
               data-testid="chart-badge-entry"

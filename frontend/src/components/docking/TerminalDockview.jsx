@@ -105,96 +105,13 @@ function ChartDockPanel(props) {
   };
 
   return (
-    <div className="h-full w-full flex flex-col overflow-hidden bg-[#0c0e12]">
-      {/* Mini header toolbar with Channel Selector */}
-      <div className="h-6 px-2 bg-[#0d1017] border-b border-[#1b2130] flex items-center justify-between text-[10px] shrink-0 font-mono">
-        <div className="flex items-center space-x-2">
-          <span className="font-bold text-white text-[11px]">{currentSymbol}</span>
-          <div className="flex items-center space-x-0.5 bg-[#07090f] rounded border border-[#1e2536] p-0.5">
-            {['1m', '5m', '15m', '1h', '4h'].map((tf) => (
-              <button
-                key={tf}
-                type="button"
-                data-testid={`chart-timeframe-${panelId}-${tf}`}
-                onClick={() => selectTimeframe(tf)}
-                className={`px-1 rounded text-[9.5px] transition cursor-pointer ${
-                  timeframe === tf ? 'bg-[#2563eb] text-white font-bold' : 'text-[#787f91] hover:text-white'
-                }`}
-              >
-                {tf}
-              </button>
-            ))}
-          </div>
-
-          {/* Quick Backtest 1-Click Trigger */}
-          <div className="flex items-center space-x-1 pl-1">
-            <button
-              type="button"
-              data-testid={`btn-quick-backtest-${panelId}`}
-              onClick={handleQuickBt}
-              disabled={isBacktesting}
-              className={`px-1.5 py-0.5 rounded border transition cursor-pointer flex items-center gap-1 text-[9px] font-mono ${
-                isCurrentSymbolResult
-                  ? 'bg-[#0f2e22] text-[#34d399] border-[#10b98150] hover:bg-[#134431]'
-                  : 'bg-[#161d2e] hover:bg-[#2563eb] text-[#38bdf8] hover:text-white border-[#2563eb40]'
-              }`}
-              title={`Запустить 1-click бэктест на истории ${currentSymbol} (${timeframe})`}
-            >
-              {isBacktesting ? (
-                <Loader2 size={10} className="animate-spin" />
-              ) : (
-                <Zap size={10} className={isCurrentSymbolResult ? 'text-[#34d399]' : 'text-yellow-400'} />
-              )}
-              <span>
-                {isBacktesting
-                  ? 'Счет...'
-                  : activeSetup?.entry_price > 0
-                  ? `Бэктест R:R (1:${activeSetup.rr_ratio || '?'})`
-                  : 'Бэктест'}
-              </span>
-            </button>
-
-            {isCurrentSymbolResult && (
-              <div className="flex items-center space-x-1 bg-[#10141e] border border-[#1e293b] px-1 py-0.5 rounded text-[8.5px]">
-                <span className="text-[#34d399] font-bold">Win {activeBtResult.win_rate}%</span>
-                <span className="text-[#64748b]">|</span>
-                <span className={(activeBtResult.net_profit_usd ?? 0) >= 0 ? 'text-[#34d399]' : 'text-[#f87171]'}>
-                  {(activeBtResult.net_profit_usd ?? 0) >= 0 ? '+' : ''}${activeBtResult.net_profit_usd}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setShowTradesOnChart(!showTradesOnChart)}
-                  className="text-[#94a3b8] hover:text-white ml-0.5 cursor-pointer"
-                  title={showTradesOnChart ? 'Скрыть сделки с графика' : 'Показать сделки на графике'}
-                >
-                  {showTradesOnChart ? <Eye size={10} className="text-[#38bdf8]" /> : <EyeOff size={10} />}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="flex items-center space-x-1.5">
-          {onOpenIndicators && (
-            <button
-              type="button"
-              onClick={() => onOpenIndicators(panelId)}
-              className="px-1.5 py-0.5 rounded bg-[#161d2e] hover:bg-[#2563eb] text-[#38bdf8] hover:text-white border border-[#2563eb40] transition cursor-pointer flex items-center gap-1 text-[9px]"
-              title="Каталог индикаторов (расчет на сервере)"
-            >
-              <SlidersHorizontal size={10} />
-              <span>Индикаторы</span>
-            </button>
-          )}
-          <ChannelSelector panelId={panelId} />
-        </div>
-      </div>
-
+    <div className="h-full w-full flex flex-col overflow-hidden bg-background">
       <div className="flex-1 min-h-0 relative" ref={containerRef}>
         <Chart
           chartId={panelId}
           symbol={currentSymbol}
           timeframe={timeframe}
+          onTimeframeChange={selectTimeframe}
           userId="0"
           strategyLevels={strategyLevels || []}
           activePositionSetup={activePositionSetup}
@@ -202,6 +119,13 @@ function ChartDockPanel(props) {
           showBacktestSignals={showBtSignals}
           uiConfig={uiConfig}
           onOpenIndicators={onOpenIndicators}
+          handleQuickBt={handleQuickBt}
+          isBacktesting={isBacktesting}
+          activeBtResult={activeBtResult}
+          isCurrentSymbolResult={isCurrentSymbolResult}
+          showTradesOnChart={showTradesOnChart}
+          setShowTradesOnChart={setShowTradesOnChart}
+          activeSetup={activeSetup}
         />
         {showLiqLayers && currentPrice != null && dimensions.width > 0 && dimensions.height > 0 && (
           <ChartCanvasOverlay
@@ -524,8 +448,6 @@ export default function TerminalDockview({
         position: { referencePanel: watchlistPanel, direction: 'right' }
       });
       api.addPanel({ id: 'tradehistory_main', component: 'tradehistory', title: 'Демо-торговля & Сделки (20 пар)', position: { referencePanel: chartPanel, direction: 'below' } });
-      ({
-      });
 
       const domPanel = api.addPanel({
         id: 'orderbook_main',

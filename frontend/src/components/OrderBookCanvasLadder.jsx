@@ -1,3 +1,4 @@
+import { crosshairBus } from '../services/crosshairBus';
 import React, { useRef, useEffect, useCallback } from 'react';
 import { useTradeOverlayStore } from '../stores/tradeOverlayStore';
 import { themeBridge } from '../theme/themeBridge';
@@ -42,6 +43,7 @@ export default function OrderBookCanvasLadder({
   const fSz = (px, bold = false) => `${bold ? 'bold ' : ''}${Math.round(px * scale * 10) / 10}px monospace`;
   const canvasRef = useRef(null);
   const hoverIdxRef = useRef(-1);
+  const syncPriceRef = useRef(null);
 
 
 
@@ -408,6 +410,14 @@ export default function OrderBookCanvasLadder({
     fmtUsd,
     fmtQty
   ]);
+
+  // Crosshair sync subscription
+  useEffect(() => {
+    return crosshairBus.subscribe(({ price }) => {
+      syncPriceRef.current = price;
+      requestAnimationFrame(() => renderFrame());
+    });
+  }, [renderFrame]);
 
   // Theme subscription
   useEffect(() => {
