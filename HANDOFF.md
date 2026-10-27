@@ -1,103 +1,43 @@
-## Antigravity — Заход B: Шапка графика, DOM, Crosshair Bus, таблицы, план B4 (2026-10-27, 03:52)
+# HANDOFF.md — Active State & Next Agent Onboarding Snapshot
 
-- **Ветка:** design/shadcn-themes (коммит 5df97a4)
-- **Статус качества:** 🎉 ALL QUALITY CHECKS PASSED. READY TO COMMIT. (Шлюз scripts/check.ps1: 583 pytest passed, 89 node tests passed, npm build 800ms, smoke test 8/8 OK, Playwright blocking + live UI OK).
-- **Сделано:**
-  1. **B1 (Шапка графика и оверлеи)**: Устранены 4 стопки строк, тулбар сокращен до строго 2 рядов по 28px, KLineCharts нативный tooltip отключен, создана TradingView-легенда OHLC и активных индикаторов с hover-кнопками (ChartLegend.jsx). Оверлеи объединены в правый стек, PositionSetupHUD и AssistantHUD оптимизированы. Реализован модуль раздвижки подписей (labelLayout.js) с top-N=6. В AppTopBar добавлено закрепление 4 избранных виджетов.
-  2. **B2 (DOM & Crosshair Bus)**: Реализована шина crosshairBus.js (rAF, без петлевых эхо) с синхронизацией графика, OnChartDOM (ширина <= 140px, градиент), стакана и ленты сделок.
-  3. **B3 (Колонки таблиц и SymbolLink)**: Хук useTableColumns.js, заголовок DataTableHeader.jsx с drag reorder/resize/visibility persistence, компонент SymbolLink.jsx с фокусом тикера в цветовом канале c1.
-  4. **B4 (Архитектурный план)**: Подготовлен и зафиксирован детальный план per-pair Start/Pause/Stop для paper-марафона (бэкенд НЕ трогался согласно правилу ожидания подтверждения).
-  5. **Исправление в Dockview Layout Sanitizer**: Исправлена ошибка TypeError: Cannot read properties of null (reading 'type') при десериализации сохраненных раскладок с размером 
-ull.
-- **Следующий шаг:** Дождаться подтверждения пользователя («ок») для реализации B4 (эндпоинты и логика паузы/стопа по отдельной паре в бэкенде).
+> **PROTOCOL:** This file represents the canonical real-time handoff snapshot. The active agent must read this file upon start and update it before completing their shift.
 
 ---
 
-## Antigravity — Запуск Docker-стека, 1-клик автоподбор стратегий и ночной paper-марафон (2026-10-27, 02:12 Киев)
+## 1. Environment & Repository State Snapshot
 
-- **Ветка:** gent/antigravity/postmortem-analyzer
-- **Статус качества:** 🎉 ALL QUALITY CHECKS PASSED. READY TO COMMIT. (Шлюз scripts/check.ps1: 611 pytest passed, 0 failed, npm build в 1.18s, critical smoke 8/8, Playwright blocking + live OK).
-- **Сделано:**
-  1. **Docker-окружение**: Ветка gent/antigravity/docker слита, контейнеры запущены и здоровы (signalscript_backend :8000, signalscript_frontend :7100).
-  2. **1-клик сценарий автоподбора**: Реализован POST /api/overnight-pilot/auto-select и UI-панель AutoSelectPanel.jsx. Зафиксировано в AGENTS.md (§10).
-  3. **Исправление в Microstructure Gate**: В live_paper_runner.py устранена ошибка отсутствия поля .qty у объектов OrderBookLevel (добавлен fallback на .size).
-  4. **Ночной марафон**: Марафон активен в Docker со статусом connected на валидированных монетах.
-
----
-
-﻿# HANDOFF.md â€” ÐŸÑ€Ð¾Ñ‚Ð¾ÐºÐ¾Ð» Ð¿ÐµÑ€ÐµÐ´Ð°Ñ‡Ð¸ ÐºÐ¾Ð½Ñ‚ÐµÐºÑÑ‚Ð° Ð¼ÐµÐ¶Ð´Ñƒ Ð°Ð³ÐµÐ½Ñ‚Ð°Ð¼Ð¸
-
-> **Ð•Ð”Ð˜ÐÐ«Ð™ Ð˜Ð¡Ð¢ÐžÐ§ÐÐ˜Ðš ÐŸÐ ÐÐ’Ð˜Ð›:** ÐžÑÐ½Ð¾Ð²Ð½Ñ‹Ðµ Ð°Ñ€Ñ…Ð¸Ñ‚ÐµÐºÑ‚ÑƒÑ€Ð½Ñ‹Ðµ, Ð¸Ð½Ð¶ÐµÐ½ÐµÑ€Ð½Ñ‹Ðµ Ð¿Ñ€Ð°Ð²Ð¸Ð»Ð°, ÑÑ‚ÐµÐº Ñ‚ÐµÑ…Ð½Ð¾Ð»Ð¾Ð³Ð¸Ð¹, Ð¿Ñ€Ð°Ð²Ð¸Ð»Ð° Git Ð¸ ÑˆÐ»ÑŽÐ· ÐºÐ°Ñ‡ÐµÑÑ‚Ð²Ð° Ð¾Ð¿Ñ€ÐµÐ´ÐµÐ»ÐµÐ½Ñ‹ Ð² [AGENTS.md](file:///d:/AI_agent_space/gemini/AGENTS.md). Ð’ÑÐµ Ñ‚Ñ€ÐµÐ±Ð¾Ð²Ð°Ð½Ð¸Ñ Ð¾Ð±ÑÐ·Ð°Ñ‚ÐµÐ»ÑŒÐ½Ñ‹ Ðº Ð¸ÑÐ¿Ð¾Ð»Ð½ÐµÐ½Ð¸ÑŽ.
-> ÐŸÐµÑ€ÐµÐ´ Ð½Ð°Ñ‡Ð°Ð»Ð¾Ð¼ Ð»ÑŽÐ±Ð¾Ð¹ ÑÐµÑÑÐ¸Ð¸: Ð¿Ñ€Ð¾Ñ‡Ð¸Ñ‚Ð°Ñ‚ÑŒ [AGENTS.md](file:///d:/AI_agent_space/gemini/AGENTS.md) Ð¸ ÑÑ‚Ð¾Ñ‚ Ñ„Ð°Ð¹Ð», Ð²Ñ‹Ð¿Ð¾Ð»Ð½Ð¸Ñ‚ÑŒ `git status`, Ð·Ð°Ñ‚ÐµÐ¼ Ð·Ð°Ð¿ÑƒÑÑ‚Ð¸Ñ‚ÑŒ `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`. ÐÐ³ÐµÐ½Ñ‚Ñ‹ Ñ€Ð°Ð±Ð¾Ñ‚Ð°ÑŽÑ‚ **ÑÑ‚Ñ€Ð¾Ð³Ð¾ Ð¿Ð¾ÑÐ»ÐµÐ´Ð¾Ð²Ð°Ñ‚ÐµÐ»ÑŒÐ½Ð¾** Ð¸ Ð½Ð¸ÐºÐ¾Ð³Ð´Ð° Ð¾Ð´Ð½Ð¾Ð²Ñ€ÐµÐ¼ÐµÐ½Ð½Ð¾.
-> ÐŸÐ¾Ð»Ð½Ñ‹Ð¹ Ð¸ÑÑ‚Ð¾Ñ€Ð¸Ñ‡ÐµÑÐºÐ¸Ð¹ Ð°Ñ€Ñ…Ð¸Ð² Ð¿ÐµÑ€ÐµÐ´Ð°Ñ‡ ÑÐ¼ÐµÐ½ Ñ…Ñ€Ð°Ð½Ð¸Ñ‚ÑÑ Ð² [docs/archive/HANDOFF_20261018_20261026.md](file:///d:/AI_agent_space/gemini/docs/archive/HANDOFF_20261018_20261026.md).
-
----
-
-## Antigravity â€” Post-mortem Ð°Ð½Ð°Ð»Ð¸Ñ‚Ð¸ÐºÐ° Ð¸ ÑÐµÐ»ÐµÐºÑ‚Ð¾Ñ€ ÑÑ‚Ñ€Ð°Ñ‚ÐµÐ³Ð¸Ð¹ Ð¿Ð¾ Ð¿Ð°Ñ€Ð°Ð¼ (2026-10-27, 01:10 ÐšÐ¸ÐµÐ²)
-
-- **Ð’ÐµÑ‚ÐºÐ°:** `agent/antigravity/postmortem-analyzer` (ÐºÐ¾Ð¼Ð¼Ð¸Ñ‚Ñ‹ b2842fa, 596edb6, 2f0f2b7 + docs)
-- **Ð¡Ð´ÐµÐ»Ð°Ð½Ð¾:** `trade_postmortem_service.py` + `GET /api/paper-trading/analytics/post-mortem`; Ð²ÐºÐ»Ð°Ð´ÐºÐ° Â«ÐÐ½Ð°Ð»Ð¸Ñ‚Ð¸ÐºÐ° & Ð’Ð¸Ð½Ñ€ÐµÐ¹Ñ‚Â»; `scripts/select_pair_strategies.py` (TRAIN/OOS). Ð¢ÐµÑÑ‚Ñ‹: test_trade_postmortem.py, test_select_pair_strategies.py.
-- **Ð¤Ð°ÐºÑ‚Ñ‹:** 82 ÑÑ‚Ð°Ñ€Ñ‹Ðµ ÑÐ´ÐµÐ»ÐºÐ¸: WR 36.6%, PF 0.52, FBI 0.87, Ð¾ÑÐ½Ð¾Ð²Ð½Ð°Ñ Ð¿Ñ€Ð¸Ñ‡Ð¸Ð½Ð° Ð¿Ð¾Ñ‚ÐµÑ€ÑŒ STOP_OUT. Ð¡ÐµÐ»ÐµÐºÑ‚Ð¾Ñ€: Ð¿Ð¾Ð´Ñ‚Ð²ÐµÑ€Ð¶Ð´ÐµÐ½Ð° OOS Ñ‚Ð¾Ð»ÑŒÐºÐ¾ ZECUSDT.
-- **Ð Ð¸ÑÐºÐ¸ / ÑÐ»ÐµÐ´ÑƒÑŽÑ‰ÐµÐ¼Ñƒ Ð°Ð³ÐµÐ½Ñ‚Ñƒ:** (1) Docker-ÐºÐ¾Ð½Ñ‚ÐµÐ¹Ð½ÐµÑ€Ñ‹ Ð½ÑƒÐ¶Ð½Ð¾ Ð¿ÐµÑ€ÐµÑÐ¾Ð±Ñ€Ð°Ñ‚ÑŒ, Ñ‡Ñ‚Ð¾Ð±Ñ‹ ÑƒÐ²Ð¸Ð´ÐµÑ‚ÑŒ Ð½Ð¾Ð²Ñ‹Ð¹ API/UI (Ð½Ðµ Ð¿ÐµÑ€ÐµÐ·Ð°Ð¿ÑƒÑÐºÐ°Ð» â€” compose Ð² main Ñ€Ð°ÑÑ…Ð¾Ð´Ð¸Ñ‚ÑÑ Ñ Ñ€Ð°Ð±Ð¾Ñ‚Ð°ÑŽÑ‰Ð¸Ð¼). (2) ÐŸÐ¸Ð»Ð¾Ñ‚ ÑÐµÐ¹Ñ‡Ð°Ñ 14 Ð¿Ð°Ñ€ Ð½Ð° ema_trend, 13 Ð¸Ð· Ð½Ð¸Ñ… verdict BLOCK â€” Ñ€ÐµÐºÐ¾Ð¼ÐµÐ½Ð´Ð¾Ð²Ð°Ð½Ð¾ Ð¾ÑÑ‚Ð°Ð²Ð¸Ñ‚ÑŒ Ñ‚Ð¾Ð»ÑŒÐºÐ¾ SELECT-Ð¿Ð°Ñ€Ñ‹. (3) Ð­Ñ‚Ð°Ð¿ 6 (A/B ÑÑ‚Ð°Ñ€Ð¾Ð¹/Ð½Ð¾Ð²Ð¾Ð¹ Ð²ÐµÑ€ÑÐ¸Ð¸) Ð¶Ð´Ñ‘Ñ‚ >= 30 Ð·Ð°ÐºÑ€Ñ‹Ñ‚Ñ‹Ñ… ÑÐ´ÐµÐ»Ð¾Ðº Ð½Ð¾Ð²Ð¾Ð¹ Ð²ÐµÑ€ÑÐ¸Ð¸.
-
-## Antigravity â€” Ð£Ð¿Ð°ÐºÐ¾Ð²ÐºÐ° SignalScript Ð² Docker-ÐºÐ¾Ð½Ñ‚ÐµÐ¹Ð½ÐµÑ€Ñ‹ Ð¸ One-Click PWA Launcher (2026-10-27, 00:22 ÐšÐ¸ÐµÐ²)
-
-- **Ð’ÐµÑ‚ÐºÐ°:** `agent/antigravity/docker` (Ð°ÐºÑ‚ÑƒÐ°Ð»ÑŒÐ½Ñ‹Ð¹ ÐºÐ¾Ð¼Ð¼Ð¸Ñ‚ `f197bac`)
-- **Ð¡Ñ‚Ð°Ñ‚ÑƒÑ ÐºÐ°Ñ‡ÐµÑÑ‚Ð²Ð°:** `ðŸŽ‰ ALL QUALITY CHECKS PASSED. READY TO COMMIT.` (Ð¨Ð»ÑŽÐ· `scripts/check.ps1` Ð·ÐµÐ»Ñ‘Ð½Ñ‹Ð¹: 573 pytest passed, 6 layout tests, production build OK, 8/8 critical components smoke OK, Playwright blocking + live UI OK). Ð’Ð½ÑƒÑ‚Ñ€Ð¸ Linux-ÐºÐ¾Ð½Ñ‚ÐµÐ¹Ð½ÐµÑ€Ð° `check.sh --backend-only`: 601 passed, 0 failed.
-- **Ð¡Ð´ÐµÐ»Ð°Ð½Ð¾**:
-  1. **Ð˜Ð½Ð²ÐµÐ½Ñ‚Ð°Ñ€Ð¸Ð·Ð°Ñ†Ð¸Ñ Ð¸ Ð°ÑƒÐ´Ð¸Ñ‚**: ÑÑ„Ð¾Ñ€Ð¼Ð¸Ñ€Ð¾Ð²Ð°Ð½ [docs/DOCKER_AUDIT.md](docs/DOCKER_AUDIT.md) Ñ Ð¿Ð¾Ð»Ð½Ñ‹Ð¼ ÑÐ¿Ð¸ÑÐºÐ¾Ð¼ PowerShell/Windows-Ð·Ð°Ð²Ð¸ÑÐ¸Ð¼Ð¾ÑÑ‚ÐµÐ¹, Ð¿Ð¾Ñ€Ñ‚Ð¾Ð² (:8000, :7100), Ñ‚Ð¾Ð¼Ð¾Ð² (`data/`), Ð¸ Ð¾Ð±Ð¾ÑÐ½Ð¾Ð²Ð°Ð½Ð¸ÐµÐ¼ Ð°Ñ€Ñ…Ð¸Ñ‚ÐµÐºÑ‚ÑƒÑ€Ñ‹ Nginx.
-  2. **Dockerfile Ð±ÑÐºÐµÐ½Ð´Ð°**: `python:3.11-slim`, non-root Ð¿Ð¾Ð»ÑŒÐ·Ð¾Ð²Ð°Ñ‚ÐµÐ»ÑŒ `appuser` (UID 1000), Ð·Ð°Ð²Ð¸ÑÐ¸Ð¼Ð¾ÑÑ‚Ð¸ Ð¸Ð· `requirements.txt`, healthcheck `/api/health`.
-  3. **Dockerfile Ñ„Ñ€Ð¾Ð½Ñ‚ÐµÐ½Ð´Ð° & Nginx**: multi-stage ÑÐ±Ð¾Ñ€ÐºÐ° Vite, Ð»ÐµÐ³ÐºÐ¾Ð²ÐµÑÐ½Ð°Ñ Ñ€Ð°Ð·Ð´Ð°Ñ‡Ð° Ñ‡ÐµÑ€ÐµÐ· Nginx Alpine Ð½Ð° Ð¿Ð¾Ñ€Ñ‚Ñƒ 7100 Ñ Ð¾Ð±Ñ€Ð°Ñ‚Ð½Ñ‹Ð¼ Ð¿Ñ€Ð¾ÐºÑÐ¸Ñ€Ð¾Ð²Ð°Ð½Ð¸ÐµÐ¼ `/api/` Ð¸ `/ws/` Ð½Ð° Ð±ÑÐºÐµÐ½Ð´.
-  4. **docker-compose.yml**: 2 ÑÐµÑ€Ð²Ð¸ÑÐ° (`signalscript_backend`, `signalscript_frontend`), bridge-ÑÐµÑ‚ÑŒ `signalscript_net`, Ñ‚Ð¾Ð¼ `./data:/app/data`, `restart: unless-stopped`, `env_file: .env.example`.
-  5. **.dockerignore**: ÑÑ‚Ñ€Ð¾Ð³Ð¾ Ð¸ÑÐºÐ»ÑŽÑ‡ÐµÐ½Ñ‹ `.env`, `data/`, `.venv`, `node_modules`, `.git`, ÐºÑÑˆÐ¸. Ð¡ÐµÐºÑ€ÐµÑ‚Ñ‹ Ð¸ Ð±Ð°Ð·Ð° Ð½Ðµ Ð·Ð°Ð¿ÐµÐºÐ°ÑŽÑ‚ÑÑ Ð² Ð¾Ð±Ñ€Ð°Ð·.
-  6. **PWA & Service Worker**: `manifest.json` Ð² Ñ€ÐµÐ¶Ð¸Ð¼Ðµ standalone, `sw.js` ÐºÐµÑˆÐ¸Ñ€ÑƒÐµÑ‚ Ñ‚Ð¾Ð»ÑŒÐºÐ¾ UI-Ð¾Ð±Ð¾Ð»Ð¾Ñ‡ÐºÑƒ Ð¸ ÑÑ‚Ñ€Ð¾Ð³Ð¾ Ð¾Ð±Ñ…Ð¾Ð´Ð¸Ñ‚ real-time Ñ€Ñ‹Ð½Ð¾Ñ‡Ð½Ñ‹Ðµ Ð´Ð°Ð½Ð½Ñ‹Ðµ, ÑÑ‚Ð°ÐºÐ°Ð½, ÑÐ´ÐµÐ»ÐºÐ¸ Ð¸ WebSocket Binance.
-  7. **One-Click Launcher & ÑÑ€Ð»Ñ‹Ðº**: `start_terminal.bat` (Ð¿Ñ€Ð¾Ð²ÐµÑ€ÐºÐ°/ÑÑ‚Ð°Ñ€Ñ‚ Docker Desktop, `docker compose up -d`, Ð¾Ð¿Ñ€Ð¾Ñ :7100, Ð·Ð°Ð¿ÑƒÑÐº Ð¾ÐºÐ½Ð° `msedge --app=http://localhost:7100`). Ð¡Ð¾Ð·Ð´Ð°Ð½ ÑÑ€Ð»Ñ‹Ðº Ð½Ð° Ñ€Ð°Ð±Ð¾Ñ‡ÐµÐ¼ ÑÑ‚Ð¾Ð»Ðµ `SignalScript Terminal.lnk` Ñ Ð¸ÐºÐ¾Ð½ÐºÐ¾Ð¹ `assets/terminal.ico`.
-  8. **check.sh**: Linux/ÐºÐ¾Ð½Ñ‚ÐµÐ¹Ð½ÐµÑ€Ð½Ñ‹Ð¹ Ð°Ð½Ð°Ð»Ð¾Ð³ `scripts/check.ps1`.
-  9. **Ð”Ð¾ÐºÑƒÐ¼ÐµÐ½Ñ‚Ð°Ñ†Ð¸Ñ**: [docs/DOCKER.md](docs/DOCKER.md) Ñ ÐºÐ¾Ð¼Ð°Ð½Ð´Ð°Ð¼Ð¸ Ð·Ð°Ð¿ÑƒÑÐºÐ°, Ð»Ð¾Ð³Ð¾Ð², Ð¾ÑÑ‚Ð°Ð½Ð¾Ð²ÐºÐ¸, Ð¾Ð±Ð½Ð¾Ð²Ð»ÐµÐ½Ð¸Ñ Ð¸ Ð±ÑÐºÐ°Ð¿Ð°.
----
-
-## Antigravity â€” Ð¦ÐµÐ»ÐµÐ²Ð¾Ð¹ Ð°ÑƒÐ´Ð¸Ñ‚ Ð¸ ÐºÐ²Ð°Ð½Ñ‚Ð¾Ð²Ð°Ñ Ð²ÐµÑ€Ð¸Ñ„Ð¸ÐºÐ°Ñ†Ð¸Ñ Ñ€Ð¸ÑÐº-ÑÐ´Ñ€Ð° (2026-10-26, 23:25 ÐšÐ¸ÐµÐ²)
-
-- **Ð’ÐµÑ‚ÐºÐ°:** `agent/antigravity/chart-engine-footprint` (ÐºÐ¾Ð¼Ð¼Ð¸Ñ‚ `777f498`)
-- **Ð¡Ñ‚Ð°Ñ‚ÑƒÑ ÐºÐ°Ñ‡ÐµÑÑ‚Ð²Ð°:** `ðŸŽ‰ ALL QUALITY CHECKS PASSED. READY TO COMMIT.` (Ð¨Ð»ÑŽÐ· `scripts/check.ps1`: 573 pytest passed, 0 failed, 85 layout/pilot passed, Vite build OK, 8/8 critical smoke passed, Playwright blocking + live OK).
-- **Ð¡Ð´ÐµÐ»Ð°Ð½Ð¾**:
-  1. **ÐÑƒÐ´Ð¸Ñ‚ Ñ‚Ð¾Ñ‡ÐµÐº Ð²Ñ‹Ð·Ð¾Ð²Ð° ÐºÐ²Ð°Ð½Ñ‚Ð¾Ð²Ñ‹Ñ… Ð¼Ð¾Ð´ÑƒÐ»ÐµÐ¹**:
-     - `LivePaperRunner` L980-L1130 Ð²Ñ‹Ð·Ñ‹Ð²Ð°ÐµÑ‚ `classify_market_regime`, `microstructure_gate`, `calc_position_by_risk`, `can_open_position` Ð¸ `check_circuit_breaker`. Ð‘Ð»Ð¾ÐºÐ¸Ñ€Ð¾Ð²ÐºÐ¸ Ð»Ð¾Ð³Ð¸Ñ€ÑƒÑŽÑ‚ ÑÑ‚Ñ€ÑƒÐºÑ‚ÑƒÑ€Ð¸Ñ€Ð¾Ð²Ð°Ð½Ð½Ñ‹Ð¹ `veto_reason` (`REGIME_VETO`, `MICROSTRUCTURE_VETO`, `PORTFOLIO_HEAT_VETO`).
-  2. **Ð¡Ñ‚Ð¾Ð¿Ñ‹ Ð¸ Trailing**:
-     - ÐŸÐ¾Ð´Ñ‚Ð²ÐµÑ€Ð¶Ð´ÐµÐ½Ð¾: ÑÑ‚Ð°Ñ€Ñ‹Ð¹ Ð¿ÐµÑ€ÐµÐ½Ð¾Ñ SL Ð½Ð° +0.4R Ð¿Ð¾Ð»Ð½Ð¾ÑÑ‚ÑŒÑŽ Ð¾Ñ‚ÐºÐ»ÑŽÑ‡ÐµÐ½.
-     - Dynamic Breakeven ÑÑ€Ð°Ð±Ð°Ñ‚Ñ‹Ð²Ð°ÐµÑ‚ Ð¿Ñ€Ð¸ $+1.0R$ ÑÐ¾ ÑÐ¼ÐµÑ‰ÐµÐ½Ð¸ÐµÐ¼ Ð½Ð° Ð¿Ð¾ÐºÑ€Ñ‹Ñ‚Ð¸Ðµ Ð´Ð²Ð¾Ð¹Ð½Ð¾Ð¹ ÐºÐ¾Ð¼Ð¸ÑÑÐ¸Ð¸ ($2 \times Fee + 1\,tick$).
-     - Ð¡Ñ‚ÑƒÐ¿ÐµÐ½Ñ‡Ð°Ñ‚Ñ‹Ð¹ Ñ‚Ñ€ÐµÐ¹Ð»Ð¸Ð½Ð³ Ð·Ð°ÐºÑ€ÐµÐ¿Ð»ÐµÐ½ Ð² `EarlyExitEngine` (Step-Lock 1.2R / 1.8R, Ñ‡Ð°ÑÑ‚Ð¸Ñ‡Ð½Ñ‹Ð¹ ÑÐ±Ñ€Ð¾Ñ 50% Ð¿Ñ€Ð¸ Ð²ÑÑ‚Ñ€ÐµÑ‡Ð½Ð¾Ð¹ Ð°Ð±ÑÐ¾Ñ€Ð±Ñ†Ð¸Ð¸ Ð¾Ñ‚ 0.7R).
-     - ÐÑƒÐ»ÐµÐ²Ð¾Ð¹ Ð²Ð½ÑƒÑ‚Ñ€Ð¸ÑÐ²ÐµÑ‡Ð½Ð¾Ð¹ look-ahead Ð¿Ð¾Ð´Ñ‚Ð²ÐµÑ€Ð¶Ð´ÐµÐ½ Ñ‚Ð¸ÐºÐ¾Ð²Ñ‹Ð¼ ÑÐ¸Ð¼ÑƒÐ»ÑÑ‚Ð¾Ñ€Ð¾Ð¼.
-  3. **Ð¡Ð°Ð¹Ð·Ð¸Ð½Ð³ Ð¸ Portfolio Heat Ñ ÑƒÑ‡ÐµÑ‚Ð¾Ð¼ Ð²Ð¸ÑÑÑ‰Ð¸Ñ… Ð»Ð¸Ð¼Ð¸Ñ‚Ð½Ñ‹Ñ… Ð¾Ñ€Ð´ÐµÑ€Ð¾Ð²**:
-     - Ð’ Ñ„Ð¾Ñ€Ð¼ÑƒÐ»Ñƒ ÑÐ°Ð¹Ð·Ð¸Ð½Ð³Ð° Ð²ÐºÐ»ÑŽÑ‡ÐµÐ½Ñ‹ $2 \times Fee$ Ð¸ Ð¿Ñ€Ð¾ÑÐºÐ°Ð»ÑŒÐ·Ñ‹Ð²Ð°Ð½Ð¸Ðµ Ð² Ñ‚Ð¸ÐºÐ°Ñ…; ÐºÐ¾Ð»Ð¸Ñ‡ÐµÑÑ‚Ð²Ð¾ Ð¾ÐºÑ€ÑƒÐ³Ð»ÑÐµÑ‚ÑÑ Ð²Ð½Ð¸Ð· (`floor`) Ð¿Ð¾ ÑˆÐ°Ð³Ñƒ Ð¸Ð½ÑÑ‚Ñ€ÑƒÐ¼ÐµÐ½Ñ‚Ð°.
-     - Ð’ `can_open_position` Ð¿ÐµÑ€ÐµÐ´Ð°ÑŽÑ‚ÑÑ `pending_orders`: Ð·Ð°Ñ€ÐµÐ·ÐµÑ€Ð²Ð¸Ñ€Ð¾Ð²Ð°Ð½Ð½Ñ‹Ð¹ Ñ€Ð¸ÑÐº Ð»Ð¸Ð¼Ð¸Ñ‚Ð¾Ðº ÑÑƒÐ¼Ð¼Ð¸Ñ€ÑƒÐµÑ‚ÑÑ Ñ Ð¾Ñ‚ÐºÑ€Ñ‹Ñ‚Ñ‹Ð¼Ð¸ Ð¿Ð¾Ð·Ð¸Ñ†Ð¸ÑÐ¼Ð¸ Ð² Ð±ÑŽÐ´Ð¶ÐµÑ‚Ð°Ñ… 1.25% (Ð¿Ð¾Ñ€Ñ‚Ñ„ÐµÐ»ÑŒ) Ð¸ 0.75% (Ð½Ð°Ð¿Ñ€Ð°Ð²Ð»ÐµÐ½Ð¸Ðµ).
-  4. **Ð–ÑƒÑ€Ð½Ð°Ð» Ð¸ Expectancy**:
-     - `initial_risk_usd` Ñ„Ð¸ÐºÑÐ¸Ñ€ÑƒÐµÑ‚ÑÑ Ð¿Ñ€Ð¸ Ð²Ñ…Ð¾Ð´Ðµ Ð¸ Ð¿Ñ€Ð¾Ð¿Ð¾Ñ€Ñ†Ð¸Ð¾Ð½Ð°Ð»ÑŒÐ½Ð¾ ÑƒÐ¼ÐµÐ½ÑŒÑˆÐ°ÐµÑ‚ÑÑ Ð¿Ñ€Ð¸ Ñ‡Ð°ÑÑ‚Ð¸Ñ‡Ð½Ñ‹Ñ… Ð²Ñ‹Ñ…Ð¾Ð´Ð°Ñ….
-     - Ð¡Ñ…ÐµÐ¼Ð° Ð±Ð°Ð·Ñ‹ `signals.db` Ð¼Ð¸Ð³Ñ€Ð¸Ñ€Ð¾Ð²Ð°Ð½Ð°: Ð½Ð¾Ð²Ñ‹Ðµ ÐºÐ¾Ð»Ð¾Ð½ÐºÐ¸ Ð¸Ð¼ÐµÑŽÑ‚ `NULL` Ð¿Ð¾ ÑƒÐ¼Ð¾Ð»Ñ‡Ð°Ð½Ð¸ÑŽ (Ð±ÐµÐ· Ñ„Ð°Ð»ÑŒÑÐ¸Ñ„Ð¸ÐºÐ°Ñ†Ð¸Ð¸ Ð½ÑƒÐ»ÑÐ¼Ð¸). Ð’ UI Ð²Ñ‹Ð²Ð¾Ð´Ð¸Ñ‚ÑÑ ÐºÐ¾Ð»Ð¸Ñ‡ÐµÑÑ‚Ð²Ð¾ ÑÐ´ÐµÐ»Ð¾Ðº Ð¸ Ð¿ÐµÑ€Ð¸Ð¾Ð´.
+- **Active Branch:** `chore/codex-handoff`
+- **Base Commit:** `cb2705d` (`docs: update HANDOFF.md with completed Stage D milestones`)
+- **Working Tree:** Clean (all temporary screenshots and logs organized into `artifacts/screenshots` and `logs/`).
+- **Quality Gate:** `🎉 ALL QUALITY CHECKS PASSED. READY TO COMMIT.`
+  - Host Pytest: 616 passed.
+  - Docker Linux Pytest: 616 passed (`docker exec signalscript_backend pytest backend/tests`).
+  - Frontend Build: Vite build successful, 75 pilot/math unit tests passed.
+  - Design Linter: 1031 violations across 73 files (0 regressions against ratchet baseline).
+  - Critical Parts Smoke: 8/8 passed (DOM, Chart, Scanner, Recorder, Journal, Presets, Settings, Quarantine).
+  - Playwright UI Smoke: 16 visible canvases match `rect * dpr`, 0 console errors, topbar fits 1366px, symbol switch works.
+  - Live WebSocket: Binance WebSocket connected and receiving frames.
+- **Running Services:**
+  - Docker stack: `signalscript_backend` on `http://127.0.0.1:8000`, `signalscript_frontend` on `http://127.0.0.1:7100`.
+  - Paper Marathon: Running on 7 coins (`ZECUSDT` SELECT, `BNBUSDT`, `ENAUSDT`, `WLDUSDT`, `UNIUSDT`, `TIAUSDT`, `TRXUSDT` EXPLORE) on $1,000 capital with 0.35% / 0.15% risk.
 
 ---
 
-## Antigravity â€” Ð ÐµÐ°Ð»Ð¸Ð·Ð°Ñ†Ð¸Ñ ÐºÐ²Ð°Ð½Ñ‚Ð¾Ð²Ð¾Ð¹ Ñ‚Ñ€Ð°Ð½ÑÑ„Ð¾Ñ€Ð¼Ð°Ñ†Ð¸Ð¸: Expectancy-Ð¾Ñ€Ð¸ÐµÐ½Ñ‚Ð¸Ñ€Ð¾Ð²Ð°Ð½Ð½Ñ‹Ð¹ Ñ€Ð¸ÑÐº-Ð´Ð²Ð¸Ð¶Ð¾Ðº, ÐºÐ»Ð°ÑÑÐ¸Ñ„Ð¸ÐºÐ°Ñ‚Ð¾Ñ€ Ñ€ÐµÐ¶Ð¸Ð¼Ð¾Ð² Ð¸ Ð¼Ð¸ÐºÑ€Ð¾ÑÑ‚Ñ€ÑƒÐºÑ‚ÑƒÑ€Ð½Ñ‹Ð¹ Ñ„Ð¸Ð»ÑŒÑ‚Ñ€ (2026-10-26, 23:05 ÐšÐ¸ÐµÐ²)
+## 2. Invariants & Critical Operating Rules for the Incoming Agent
 
-- **Ð’ÐµÑ‚ÐºÐ°:** `agent/antigravity/chart-engine-footprint` (ÐºÐ¾Ð¼Ð¼Ð¸Ñ‚ `759c472`)
-- **Ð¡Ñ‚Ð°Ñ‚ÑƒÑ ÐºÐ°Ñ‡ÐµÑÑ‚Ð²Ð°:** `ðŸŽ‰ ALL QUALITY CHECKS PASSED. READY TO COMMIT.`
-- **Ð¡Ð´ÐµÐ»Ð°Ð½Ð¾**:
-  1. Ð¡Ð¼ÐµÐ½Ð° Ñ†ÐµÐ»ÐµÐ²Ð¾Ð¹ Ð¼ÐµÑ‚Ñ€Ð¸ÐºÐ¸ Ð½Ð° Net Expectancy ($E_R$).
-  2. Ð ÐµÐ°Ð»Ð¸Ð·Ð¾Ð²Ð°Ð½ Ð¼Ð¾Ð´ÑƒÐ»ÑŒ `risk_engine.py` (ÑÐ°Ð¹Ð·Ð¸Ð½Ð³ Ð¾Ñ‚ SL, ÐºÐ¾Ñ€Ñ€ÐµÐ»ÑÑ†Ð¸Ð¾Ð½Ð½Ñ‹Ð¹ ÑˆÑ‚Ñ€Ð°Ñ„, Ð»Ð¸Ð¼Ð¸Ñ‚Ñ‹ heat, circuit breaker).
-  3. Ð ÐµÐ°Ð»Ð¸Ð·Ð¾Ð²Ð°Ð½ Ð¼Ð¾Ð´ÑƒÐ»ÑŒ `regime_classifier.py` (Ð´Ð²ÑƒÑ…Ñ‚Ð°Ð¹Ð¼Ñ„Ñ€ÐµÐ¹Ð¼Ð¾Ð²Ñ‹Ð¹ CI-14, Ð¿ÐµÑ€Ñ†ÐµÐ½Ñ‚Ð¸Ð»Ð¸ Ð²Ð¾Ð»Ð°Ñ‚Ð¸Ð»ÑŒÐ½Ð¾ÑÑ‚Ð¸).
-  4. ÐœÐ¸ÐºÑ€Ð¾ÑÑ‚Ñ€ÑƒÐºÑ‚ÑƒÑ€Ð½Ñ‹Ð¹ Ð³ÐµÐ¹Ñ‚ Ð´Ð¸ÑÐ±Ð°Ð»Ð°Ð½ÑÐ° ÑÑ‚Ð°ÐºÐ°Ð½Ð° Ð¸ Ð°Ð±ÑÐ¾Ñ€Ð±Ñ†Ð¸Ð¸ CVD.
-  5. Ð Ð°Ð·Ð´ÐµÐ»ÐµÐ½Ð¸Ðµ Ð±Ð¸Ñ€Ð¶ÐµÐ²Ð¾Ð³Ð¾ Ð¿Ð»ÐµÑ‡Ð° Ð¸ ÑÑ„Ñ„ÐµÐºÑ‚Ð¸Ð²Ð½Ð¾Ð³Ð¾ Ð¿Ð»ÐµÑ‡Ð°.
-  6. Ð‘ÐµÐ·Ð¾Ð¿Ð°ÑÐ½Ð°Ñ Ð¼Ð¸Ð³Ñ€Ð°Ñ†Ð¸Ñ Ð±Ð°Ð·Ñ‹ SQLite `data/signals.db`.
-  7. Ð¡ÐºÑ€Ð¸Ð¿Ñ‚ Ð·Ð°Ð¿ÑƒÑÐºÐ° Ñ‚Ð¾Ð¿-8 Ð»Ð¸ÐºÐ²Ð¸Ð´Ð½Ñ‹Ñ… Ð¿Ð°Ñ€ `scripts/launch_overnight_8pairs.py`.
+1. **Strictly Advisory/Paper Trading:** No real order execution logic is present or permitted.
+2. **Strictly Sequential Agent Work:** Never run multiple agents simultaneously.
+3. **Mandatory Quality Gate:** Always run `powershell -ExecutionPolicy Bypass -File scripts/check.ps1` before any commit.
+4. **Design System Token Discipline:** Do not introduce raw Tailwind colors (`bg-gray-800`). Use tokens from `docs/design/DESIGN_GUIDE.md` and keep violations $\le 1031$.
+5. **Local `backend.log` File Lock:** While the local Python backend is active, `backend.log` is locked by the Windows OS. Do not attempt to move or rename it.
 
 ---
 
-## Antigravity â€” ÐŸÐ»Ð°Ð½ ÑÐ¸Ñ‚ÑƒÐ°Ñ†Ð¸Ð¾Ð½Ð½Ð¾Ð³Ð¾ Ð°Ð½Ð°Ð»Ð¸Ð·Ð° Ñ€Ñ‹Ð½ÐºÐ° Ð¸ Ð°Ð´Ð°Ð¿Ñ‚Ð¸Ð²Ð½Ð¾Ð³Ð¾ Ð¿Ð¾Ð²Ñ‹ÑˆÐµÐ½Ð¸Ñ Ð²Ð¸Ð½Ñ€ÐµÐ¹Ñ‚Ð° (2026-10-26, 18:05 ÐšÐ¸ÐµÐ²)
+## 3. Recommended First Steps for Codex (Immediate Priorities from ROADMAP)
 
-- **Ð’ÐµÑ‚ÐºÐ°:** `agent/antigravity/chart-engine-footprint` (ÐºÐ¾Ð¼Ð¼Ð¸Ñ‚ `c1f0cc3`)
-- **Ð¡Ñ‚Ð°Ñ‚ÑƒÑ ÐºÐ°Ñ‡ÐµÑÑ‚Ð²Ð°:** `ðŸŽ‰ ALL QUALITY CHECKS PASSED. READY TO COMMIT.`
-- **Ð¡Ð´ÐµÐ»Ð°Ð½Ð¾**:
-  1. Ð”Ð¸Ð°Ð³Ð½Ð¾ÑÑ‚Ð¸ÐºÐ° Ñ‚ÐµÐ»ÐµÐ¼ÐµÑ‚Ñ€Ð¸Ð¸ Ð¿ÐµÑ€Ð²Ñ‹Ñ… 60+ Ð·Ð°ÐºÑ€Ñ‹Ñ‚Ñ‹Ñ… ÑÐ´ÐµÐ»Ð¾Ðº (Ð²Ñ‹ÑÐ²Ð»ÐµÐ½Ñ‹ Fee Drag, MFE Bleed, Regime Mismatch, Adverse Order Flow).
-  2. Ð Ð°Ð·Ñ€Ð°Ð±Ð¾Ñ‚Ð°Ð½ Ð°Ñ€Ñ…Ð¸Ñ‚ÐµÐºÑ‚ÑƒÑ€Ð½Ñ‹Ð¹ Ð´Ð¾ÐºÑƒÐ¼ÐµÐ½Ñ‚ [docs/WIN_RATE_IMPROVEMENT_PLAN.md](file:///d:/AI_agent_space/gemini/docs/WIN_RATE_IMPROVEMENT_PLAN.md).
-  3. Ð¡Ñ„Ð¾Ñ€Ð¼Ð¸Ñ€Ð¾Ð²Ð°Ð½Ð° Ð¸Ð·Ð¾Ð»Ð¸Ñ€Ð¾Ð²Ð°Ð½Ð½Ð°Ñ Ð·Ð°Ð´Ð°Ñ‡Ð° [tasks/008-situation-analysis-and-winrate-boost.md](file:///d:/AI_agent_space/gemini/tasks/008-situation-analysis-and-winrate-boost.md).
-  4. ÐžÐ±Ð½Ð¾Ð²Ð»ÐµÐ½ Ð¼Ð°ÑÑ‚ÐµÑ€-ÐºÐ¾Ð½Ñ‚ÐµÐºÑÑ‚ [context/CURRENT_TASK.md](file:///d:/AI_agent_space/gemini/context/CURRENT_TASK.md).
+1. **Step 1: Fill in `docs/AGENT_ROUTING.md`**
+   - Populate the model routing table in `docs/AGENT_ROUTING.md` based on your available OpenAI / Codex models (e.g. `o3-mini`, `gpt-4o`, `gpt-4.5`) and reasoning effort levels.
+2. **Step 2: Task `NEXT-01` (Design System Violation Elimination)**
+   - Continue eliminating the remaining 1031 design system violations in the 73 files and ratchet down `design/lint-baseline.json`. Use `scripts/codemod_design_tokens.mjs` or targeted component updates.
+3. **Step 3: Task `NEXT-02` (A/B Performance Verification)**
+   - Run a comparative backtest on the historical Parquet lake slice comparing v1.0 (raw win rate) vs v2.0 (quantum risk engine & expectancy).

@@ -173,9 +173,18 @@ if (-not $SkipBuild) {
     node (Join-Path $ProjectRoot "scripts\design_lint.mjs")
     if ($LASTEXITCODE -ne 0) {
         Write-Host "`n❌ [FAIL] Design system lint failed (regressions or unbaselined violations detected). Commit rejected." -ForegroundColor Red
+
         exit 1
     }
     Write-Host "✅ [PASS] Design system rules verified (no regressions)." -ForegroundColor Green
+    # 3c. Documentation & CodeMap Integrity Check
+    Write-Host "`n[3c] Checking Documentation integrity and CodeMap freshness (python scripts/check_docs.py)..." -ForegroundColor Yellow
+    & $pytestCmd (Join-Path $ProjectRoot "scripts\check_docs.py")
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "`n❌ [FAIL] Documentation integrity check failed. Commit rejected." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "✅ [PASS] Documentation rules and CodeMap verified." -ForegroundColor Green
 } else {
     Write-Host "`n[3/6] Skipping Frontend build (-SkipBuild specified)." -ForegroundColor DarkGray
 }

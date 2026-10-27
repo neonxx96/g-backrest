@@ -1,275 +1,105 @@
-# AGENTS.md — Единый источник правил для AI-агентов (SignalScript)
+# AGENTS.md — Canonical Agent Operating Constitution
 
-> **ГЛАВНОЕ ПРАВИЛО:** Проект предназначен для поочередной работы двух агентов (Antigravity и Cline) с разными моделями (от легких/дешевых до флагманских). Агенты **НИКОГДА** не работают одновременно. Перед началом любой сессии агент **ОБЯЗАН** прочитать `HANDOFF.md`, выполнить `git status` и запустить проверку `scripts/check.ps1`.
+> **CORE PROTOCOL:** SignalScript relies on sequential, non-concurrent execution across AI agents (Codex, Antigravity, Cline, Kimi). Before writing any code: read `HANDOFF.md`, run `git status`, and run `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`.
 
 ---
 
-## 1. Стек технологий и фактические версии
+## 1. Project Overview & Architecture
+SignalScript is a 24/7 crypto-futures advisory and paper-trading terminal with an integrated quantum risk engine.
+- **Strictly Advisory/Paper:** Pure market analysis, paper execution, and alerting. Real order submission to exchanges is **strictly forbidden**.
+- **Quantum Core:** Net Expectancy ($E_R > 0$), Market Regime Classifier (5m/15m Choppiness Index + ATR/BBW percentiles), Microstructure Gate (L2 depth + CVD absorption), Risk Sizing from Stop Loss (Portfolio Heat 1.25%, Directional 0.75%).
+- **UI Architecture:** High-density desktop workspace on React 19 + Vite + Dockview React (28px tab headers, multi-panel mosaic) + KLineCharts v9 + Canvas 2D OrderBook DOM & Footprint.
 
-| Компонент | Технология | Версия | Особенности и ограничения |
+---
+
+## 2. Tech Stack & Environment Invariants
+
+| Layer | Technology | Actual Version | Key Constraints & Invariants |
 |---|---|---|---|
-| **Frontend Core** | React | `19.2.8` | Использовать React 19 хуки, Zustand 5, чистые функциональные компоненты |
-| **Frontend Bundler** | Vite | `8.3.4` | Сборка через `@tailwindcss/vite`, ES Modules |
-| **Чарт-библиотека** | KLineCharts | `9.8.12` | **СТРОГО v9 API** (`chart.createOverlay`, `chart.overrideOverlay`, `chart.applyNewData`). Не использовать устаревшие API v8 или несовместимые v10 |
-| **Оконная мозаика** | dockview-react | `8.6.0` | Управление плавающими и док-панелями (графики, DOM, лента сделок, скринер) |
-| **Стейт-менеджер** | Zustand | `5.0.15` | Транзиентные обновления через `useStore.getState()` для Canvas без лишних ре-рендеров React |
-| **Стилизация** | Tailwind CSS | `4.3.3` | Темы (`tealstreet`, `tiger`, `bloomberg`), CSS-переменные |
-| **Backend Core** | Python | `3.11.9` | Асинхронный FastAPI `0.143.3` на `uvicorn` |
-| **База данных** | SQLite (Async) | SQLAlchemy `2.1.5` + aiosqlite `0.22.1` | Файл базы: `data/signals.db`. Миграции через `init_db()` |
-| **Валидация схем** | Pydantic | `2.13.5` | Строгие Pydantic v2 схемы с `Field` |
-| **Внешние биржи** | Binance Futures | REST + WS | Публичный контрактный API USDT-M (`fapi.binance.com`, `fstream.binance.com`) |
+| **Backend** | Python / FastAPI (`uvicorn`) | `3.11.9` / `0.143.3` | Port **`8000`** strictly. Asynchronous REST + WebSocket. |
+| **Database** | SQLite (`SQLAlchemy` + `aiosqlite`) | `2.1.5` / `0.22.1` | Path **`data/signals.db`** strictly. Zero data loss on schema migration. |
+| **Frontend** | React / Vite / Tailwind CSS | `19.2.8` / `8.3.4` / `4.3.3` | Port **`7100`** strictly. Functional components, Zustand 5 stores. |
+| **Charts** | KLineCharts | `9.8.12` | **Strictly v9 API** (`createOverlay`, `overrideOverlay`, `applyNewData`). |
+| **Docking** | dockview-react | `8.6.0` | Multi-pane grid with tab headers fixed at 28px (`--dv-*` overrides). |
+| **Design** | shadcn/ui + CSS tokens | Custom density | Strictly semantic tokens (`bg-card`, `text-bull`, etc.). No raw colors. |
+| **Exchange** | Binance Futures USDT-M | Public REST/WS | Public contract endpoints (`fapi.binance.com`, `fstream.binance.com`). |
 
 ---
 
-## 2. Карта проекта и зоны ответственности
+## 3. Essential Commands (Exact & Copyable)
 
-```
-d:\AI_agent_space\gemini\
-├── AGENTS.md                          # Этот файл — единая конституция для всех агентов
-├── HANDOFF.md                         # Текущий протокол передачи смены и активный агент
-├── tasks/                             # Изолированные задачи (tasks/TEMPLATE.md)
-├── docs/                              # Архитектурная документация и MODULARIZATION_PLAN.md
-├── scripts/
-│   ├── check.ps1                      # ЕДИНЫЙ ШЛЮЗ КАЧЕСТВА: pytest + npm build + smoke
-│   ├── smoke_critical_parts.py        # Быстрый смоук критичных частей (DOM, Chart, Scanner, Recorder, Journal)
-│   ├── stress_test_stage0.py          # Стресс-тест WebSocket и памяти
-│   └── verify_stages_1_2_3.py         # E2E Playwright верификация
-│
-├── backend/
-│   ├── main.py                        # Входная точка FastAPI, фоновые демоны (сканер, ликвидации, рекордер)
-│   ├── app/
-│   │   ├── config.py                  # Переменные окружения (.env), пути, настройки квот
-│   │   ├── db/
-│   │   │   ├── database.py            # Async engine, init_db()
-│   │   │   └── models.py              # Модели: UserSetting, DecisionLog, StrategyPreset, SignalHistory, Workspace
-│   │   ├── services/
-│   │   │   ├── binance_service.py     # Асинхронные REST-запросы и сокет ликвидаций
-│   │   │   ├── scanner.py             # Сканер рынка по 150 монетам, автозапись сигналов в журнал
-│   │   │   ├── recorder.py            # Запись тиков и стаканов в 100GB кольцевой буфер
-│   │   │   ├── indicators.py          # Расчет индикаторов (EMA, RSI, CVD, ATR, VWAP)
-│   │   │   └── orderflow_backtester.py# Ядро бэктестера с комиссиями, проскальзыванием и Монте-Карло
-│   │   ├── routers/
-│   │   │   ├── backtest.py            # API запуска бэктеста /api/backtest/run
-│   │   │   ├── journal.py             # API журнала решений /api/journal (логи, второе мнение, пресеты, CSV)
-│   │   │   ├── ai_copilot.py          # API NLP стратегий, конуса волатильности и Liquidity Magnet
-│   │   │   ├── data_routes.py         # Эндпоинты стакана L2, тепловой карты и рекордера
-│   │   │   └── workspaces.py          # Сохранение раскладок dockview в SQLite
-│   │   └── tests/                     # Юнит-тесты бэкенда (test_indicators_and_filters.py)
-│
-└── frontend/
-    ├── src/
-    │   ├── App.jsx                    # Корневой каркас, верхний бар, hotkeys, модалки
-    │   ├── components/
-    │   │   ├── Chart.jsx              # KLineCharts холст, оверлеи сетапов, уровни, тулбары
-    │   │   ├── OrderBookDOM.jsx       # Скальперский стакан на Canvas 2D с подсветкой плотностей
-    │   │   ├── BacktestPanel.jsx      # Панель параметров бэктеста, 1-клик пресеты, SVG equity
-    │   │   ├── DecisionJournalModal.jsx# Модальное окно журнала решений и экспорта CSV
-    │   │   ├── AICopilotSidebar.jsx   # Консультативный чат и карточки сетапов
-    │   │   ├── SettingsModal.jsx      # Настройки сканера, темы, фильтры
-    │   │   └── docking/
-    │   │       ├── TerminalDockview.jsx# Мозаичный док-контейнер dockview
-    │   │       ├── ScreenerWidget.jsx  # Скринер рынка со спарклайнами
-    │   │       ├── TradesWidget.jsx    # Лента сделок Time & Sales на Canvas
-    │   │       └── WidgetHubModal.jsx  # Модалка «+ Виджеты»
-    │   ├── stores/
-    │   │   ├── backtestStore.js       # Стейт бэктеста, параметров и отображения сделок
-    │   │   ├── colorLinksStore.js     # Привязка тикера по цветовым каналам (c1-c4)
-    │   │   ├── layoutStore.js         # Стейт раскладок и виджетов dockview
-    │   │   └── tradesStore.js         # Буфер принтов ленты сделок
-    │   └── services/
-    │       └── marketDataFetcher.js   # Двухисточниковый сбор свечей (FastAPI -> Binance failover)
-```
-
----
-
-## 3. Как запускать проект и команды проверки
-
-### Запуск серверов (в двух окнах терминала)
+### Launch Development Stack (PowerShell)
 ```powershell
-# Терминал 1 (Бэкенд):
-.\.venv\Scripts\python.exe backend/main.py
-# Запускается на http://127.0.0.1:8000
+# Run both servers with 1-click launcher:
+.\run_app.ps1
 
-# Терминал 2 (Фронтенд):
-cd frontend
-npm run dev -- --host 127.0.0.1 --port 7100
-# Запускается на http://127.0.0.1:7100 (http://localhost:7100)
+# Or manual execution in separate terminals:
+.\.venv\Scripts\python.exe backend/main.py               # http://127.0.0.1:8000
+npm --prefix frontend run dev -- --host 127.0.0.1 --port 7100  # http://localhost:7100
 ```
 
-### ЕДИНЫЙ ШЛЮЗ ПРОВЕРКИ (Запускать перед ЛЮБЫМ коммитом):
+### Production Docker Stack
+```powershell
+docker compose up -d --build
+# Services: signalscript_backend (:8000), signalscript_frontend (:7100)
+```
+
+### Mandatory Quality Gate (Run before ANY commit)
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/check.ps1
 ```
-*Скрипт последовательно выполняет: `pytest backend/tests` $\rightarrow$ `npm run build` $\rightarrow$ `python scripts/smoke_critical_parts.py`. Коммит разрешён только при получении строки:*
-`🎉 ALL QUALITY CHECKS PASSED. READY TO COMMIT.` (EXIT_CODE=0)
+*Gate executes: Pytest (Host & Linux Docker) -> Vite Build & Math Tests -> Design Lint Ratchet -> Docs & CodeMap Check -> Smoke Critical Parts -> Playwright UI Smoke -> Live Binance WebSocket.*
+*Commit is permitted ONLY when the gate exits with code 0 (`ALL QUALITY CHECKS PASSED. READY TO COMMIT`).*
 
 ---
 
-## 4. Разделение задач между моделями («Какие модели для каких задач»)
+## 4. Code Invariants & Strict Prohibitions
 
-> 📌 **Единый источник истины — [`config/model-routing.json`](file:///d:/AI_agent_space/gemini/config/model-routing.json).**
-> Маршрутизатор `scripts/cline-auto.ps1` читает распределение ролей напрямую из JSON-конфигурации. Ручное дублирование таблицы в тексте упразднено во избежание рассинхронизации.
-
-Сводка действующих классов из `config/model-routing.json`:
-- **`routine`** (`google/gemma-2-9b-it:free`): мелкие правки документации, стили Tailwind, шаблонная верстка UI.
-- **`standard`** (`meta-llama/llama-3.1-8b-instruct`): стандартная реализация задач без изменений финансового ядра.
-- **`expert`** (`anthropic/claude-3.5-sonnet`): математика индикаторов, логика бэктеста, расчет рисков, сетевые сокеты и миграции БД.
-- **`review`** (`anthropic/claude-3.5-haiku`): финальное ревью диффов перед коммитом в чувствительных модулях.
-
-При недоступности экспертной модели задача эскалируется на review-модель с маркером `ESCALATE_MODEL`.
+1. **NO Live Order Placement:** Never implement automated real order execution. Terminal is strictly advisory and paper-trading.
+2. **NO Synthetic/Mock Market Feeds:** No `Math.random()` in DOM, charts, or tape. Always handle disconnected status explicitly and reconnect via real REST/WS.
+3. **NO Port or Path Deviations:** Ports `8000` and `7100`, and database `data/signals.db` must never be altered.
+4. **NO Raw Tailwind Palette Colors:** Never use raw colors (`bg-gray-800`, `text-zinc-400`, `border-slate-700`). Use semantic tokens (`bg-background`, `bg-card`, `text-foreground`, `border-border`, `text-bull`, `text-bear`, `bg-primary`).
+5. **NO Unsolicited Giant-File Refactoring:** Do not fragment `Chart.jsx`, `BacktestPanel.jsx`, or `orderflow_backtester.py` without an explicit task spec following [`docs/MODULARIZATION_PLAN.md`](docs/MODULARIZATION_PLAN.md).
+6. **Strict Single Backend Process:** Only one instance of `backend/main.py` may run at any time (`netstat -ano | findstr ":8000"`).
 
 ---
 
-## 5. Правила кода и что ЗАПРЕЩЕНО менять без согласования
+## 5. Repository Map & Where to Look
 
-1. **Запрет на автоторговлю**: Терминал является **строго консультативным**. Любая генерация автоматических реальных ордеров на бирже категорически запрещена.
-2. **Запрет на синтетические котировки**: Никаких `Math.random()` в стакане, ленте или графике. При обрыве связи сокета система обязана честно показывать статус `disconnected` и пытаться восстановить реальный поток через REST/WS.
-3. **Запрет на изменение сетевых портов и путей**:
-   - Бэкенд строго на порту `8000`, фронтенд строго на порту `7100` (`http://localhost:7100/`).
-   - Путь к базе SQLite: строго `data/signals.db` (каталог `data/`).
-4. **Не трогать файлы-гиганты без задачи**: Запрещено самовольно дробить `Chart.jsx`, `BacktestPanel.jsx` или `orderflow_backtester.py` «заодно» с мелкой правкой. Следовать плану [docs/MODULARIZATION_PLAN.md](file:///d:/AI_agent_space/gemini/docs/MODULARIZATION_PLAN.md).
-5. **Сохранение комментариев и чистота diff**: Не удалять существующие пояснения и логику, не относящуюся к задаче.
-
----
-
-## 6. Правила работы с Git
-
-- **Ветки**: Создаются строго по шаблону `agent/<инструмент>/<краткая_задача>`, например:
-  - `agent/antigravity/ui-journal-filter`
-  - `agent/cline/fix-tape-threshold-slider`
-- **Частые атомарные коммиты**: Один логический шаг — один коммит с осмысленным сообщением на русском или английском языке.
-- **Тегирование стабильных точек**: На контрольных вехах ставится тег `stable-YYYYMMDD`, например `stable-20261018`.
-- **Никаких коммитов без проверки**: Перед коммитом запуск `scripts/check.ps1` обязателен.
-- **Строго один backend-процесс**: Одновременная работа двух `backend/main.py` портит Telegram-поллинг, дублирует сканер и пишет в одни Parquet-файлы рекордера. Gate (шаг 0) падает при >1 backend-процессе; `run_app.ps1` сам пропускает запуск, если backend/порт 7100 уже заняты. Перед ручным запуском — `netstat -ano | findstr ":8000"`.
+- `backend/main.py`: FastAPI entrypoint, lifespan startup tasks, WebSocket listeners.
+- `backend/app/services/`: Core logic (`risk_engine.py`, `regime_classifier.py`, `overnight_pilot.py`, `scanner.py`, `recorder.py`, `binance_service.py`).
+- `backend/app/routers/`: HTTP endpoints (`backtest.py`, `journal.py`, `overnight_pilot.py`, `ai_copilot.py`, `data_routes.py`).
+- `frontend/src/App.jsx`: Main UI host, top bar, hotkeys, modals.
+- `frontend/src/components/docking/`: Dockview panels (`TerminalDockview.jsx`, `TradeHistoryWidget.jsx`, `ScreenerWidget.jsx`, `FootprintPanel.jsx`).
+- `frontend/src/components/ui/`: Canonical design system primitives (`button.jsx`, `dialog.jsx`, `checkbox.jsx`, `number-input.jsx`, `tabs.jsx`).
+- `frontend/src/index.css`: Global styles, CSS variable tokens, Dockview `--dv-*` overrides.
+- `scripts/check.ps1`: Single quality gate script (UTF-8 BOM preserved).
+- `tasks/`: Isolated task specifications (`tasks/<id>-<name>.md`, template: `tasks/TEMPLATE.md`).
+- `context/`: Runtime coordination (`CURRENT_TASK.md`, `WORK_QUEUE.md`, `COORDINATION_STATE.json`).
 
 ---
 
-## 7. Формат итогового отчета агента по задаче
-
-Каждое выполненное задание должно завершаться отчетом строго по следующей структуре. **Формулировка «Готово» без вывода команд проверки не засчитывается!**
-
-```markdown
-### 📝 Отчет агента по задаче: [Название задачи]
-- **Агент и модель**: [например: Antigravity (Gemini 2.5 Pro) или Cline (Claude 3.5 Haiku)]
-- **Ветка**: [agent/.../...]
-
-#### 1. Что изменено
-- [Список измененных файлов с кратким объяснением причины изменений]
-
-#### 2. Запущенные проверки (с фактическим выводом)
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/check.ps1
-# Вставить фактический терминальный вывод выполнения скрипта
-```
-
-#### 3. Что НЕ проверялось вручную
-- [Честно перечислить сценарии, которые не были охвачены автотестами]
-
-#### 4. Риски и рекомендации для следующего агента
-- [Возможные сайд-эффекты или на что обратить внимание]
-```
+## 6. Documentation Maintenance Rule
+Any change altering directory structure, public interfaces, data flows, or task status must in the same commit:
+(a) Update [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) on structure/flows changes;
+(b) Run `python scripts/gen_codemap.py` to regenerate [`docs/CODEMAP.md`](docs/CODEMAP.md);
+(c) Update task status in [`docs/ROADMAP.md`](docs/ROADMAP.md);
+(d) Add a chronological entry to [`PROGRESS.md`](PROGRESS.md).
+Enforced automatically in `scripts/check.ps1` via `python scripts/check_docs.py`.
 
 ---
 
-## 8. Экономия токенов
+## 7. Deep Documentation Directory (`docs/`)
 
-Правила обязательны для обоих агентов: они снижают стоимость и время сессии, не ухудшая качество работы.
-
-1. **Одна задача = один чат**: не смешивать несколько задач в одном диалоге. Контекст между сессиями передаётся только через `HANDOFF.md`, а не через историю переписки.
-2. **Не менять модель посреди задачи**: смена модели внутри одной задачи обнуляет кэш промпта и удорожает работу. Модель выбирается один раз на старте задачи (см. Раздел 4).
-3. **Файлы больше 800 строк читать только нужными диапазонами**: целиком такие файлы (`Chart.jsx`, `BacktestPanel.jsx`, `orderflow_backtester.py`) не читать — запрашивать конкретные диапазоны строк.
-4. **Один файл за задачу читать один раз**: не перечитывать уже прочитанный файл без причины (изменился, нужен другой участок). Сохранять результат чтения и переиспользовать его.
-5. **Длинный вывод команд ограничивать**: логи, диффы, вывод тестов и сборки фильтровать (`head`/`tail`, `Select-Object -First/-Last`, `--stat`), чтобы не забивать контекст.
-6. **Полную проверку `check.ps1` запускать в конце шага, а не после каждой правки**: шлюз `scripts/check.ps1` — один раз перед коммитом. Промежуточные проверки делать точечно (`pytest -k`, сборка отдельного модуля).
-
-## 9. Автоматический выбор модели Cline
-
-Для запуска задач используйте маршрутизатор:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/cline-auto.ps1 -TaskFile tasks/003-my-task.md
-```
-
-Маршрутизатор сам определяет класс задачи и запускает Cline с подходящей моделью:
-
-| Класс | Когда используется |
-|---|---|
-| `routine` | Документация, стили, текст, небольшая изолированная UI-правка |
-| `standard` | Обычная реализация без риска для финансового ядра |
-| `expert` | Бэктест, PnL, риск, комиссии, проскальзывание, стакан, WebSocket, БД, архитектура |
-| `review` | Финальная проверка чувствительных финансовых и системных изменений |
-
-Перед запуском можно проверить выбор без вызова модели:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/cline-auto.ps1 -TaskFile tasks/003-my-task.md -DryRun
-```
-
-Модель фиксируется на время одной задачи. Если сложность выросла, агент обязан остановиться с маркером `ESCALATE_MODEL`, а не переключаться посреди работы.
-
-## 10. Команды-намерения пользователя (готовые сценарии)
-
-- **«Настрой оптимальные стратегии / запусти тест на ночь»** -> один вызов:
-  `POST http://127.0.0.1:8000/api/overnight-pilot/auto-select` (тело необязательно; поля: `symbols`, `days`, `include_explore`, `duration_hours`, `start`).
-  Подбирает стратегию/ТФ/SL/TP под каждую монету (TRAIN 70% / OOS 30%), берёт только `SELECT` (риск 0.35%) и `EXPLORE` (риск 0.15%), `SKIP` не торгуется, и запускает paper-марафон. Результат: `data/pair_selection.json`, UI: вкладка «Аналитика & Винрейт».
-  Только подбор без запуска: `"start": false`. CLI-аналог: `.\.venv\Scripts\python.exe scripts/select_pair_strategies.py`.
-- **«Покажи статистику / что пошло не так»** -> `GET /api/paper-trading/analytics/post-mortem?period=24h` (причины потерь, Fee Burden, рекомендации).
-- **Запуск проекта в Docker:** `docker compose up -d --build` (backend :8000, frontend :7100, данные в `./data`).
-- **Правило «не регрессировать»:** любое изменение сначала проходит `scripts/check.ps1`; изменения стратегий принимаются только при подтверждении на OOS/A-B, а не по обучающей выборке.
-
----
-
-## 11. ДИЗАЙН-СИСТЕМА (ОБЯЗАТЕЛЬНО ДЛЯ ВСЕХ АГЕНТОВ)
-
-Полное руководство по дизайн-системе: [docs/design/DESIGN_GUIDE.md](file:///d:/AI_agent_space/gemini/docs/design/DESIGN_GUIDE.md).
-
-### 11.1 Каталог примитивов
-Все базовые компоненты интерфейса берутся СТРОГО из каталога `src/components/ui/`:
-- **Кнопки и контролы**: `Button` (`size="xs"`, `size="icon-xs"`, `variant="outline"|"secondary"|"ghost"|"destructive"`), `Kbd`, `Toggle`, `ToggleGroup`
-- **Формы и ввод**: `Input`, `NumberInput`, `Select`, `Checkbox`, `Switch`, `Slider`
-- **Модальные окна и оверлеи**: `Dialog`, `AlertDialog` (подтверждения), `Popover`, `DropdownMenu`, `Tooltip`
-- **Лейаут и отображение**: `Badge`, `Tabs`, `ScrollArea`, `Table`, `Card`
-
-### 11.2 Запреты
-1. **Запрет на сырые палитровые цвета**: Категорически запрещено использовать прямые Tailwind-цвета (`bg-gray-800`, `text-zinc-400`, `border-slate-700`, `text-amber-500`, `#1a1f2c` в JSX).
-2. **Запрет на самодельные контролы**: Запрещено использовать сырые `<button>`, `<input>`, `<select>` или городить самодельные модалки и всплывашки.
-3. **Запрет на жесткие px**: Никаких жестких `px` для шрифтов и внешних отступов (жесткие `px` допустимы только для 1px border и canvas-буферов).
-4. **Запрет на автоторговлю**: Терминал строго консультативный (paper/advisory). Реальные ордера на биржу слать категорически запрещено.
-
-### 11.3 Правила цвета
-Любой UI-элемент строится **СТРОГО** из CSS-токенов shadcn:
-- `bg-background`, `text-foreground` — основной холст и базовый текст
-- `bg-card`, `text-card-foreground` — карточки, панели, активные табы
-- `bg-muted`, `text-muted-foreground` — фон второстепенных зон, приглушенный текст
-- `bg-popover`, `text-popover-foreground` — всплывающие окна и подсказки
-- `border-border` — границы и разделители
-- `text-bull` / `bg-bull` — бычьи сигналы / рост (green/emerald)
-- `text-bear` / `bg-bear` — медвежьи сигналы / падение (red/rose)
-- `bg-primary`, `text-primary-foreground` — главный акцент
-- `bg-destructive`, `text-destructive-foreground` — опасные действия
-
-### 11.4 Вид контролов
-- Компактная плотность: кнопки `size="xs"` (24px высота, `text-xs`), иконки `size="icon-xs"` (24x24px, иконка 12-14px).
-- Инпуты и селекты: `h-7`, `text-xs`, фокус через `ring-1 ring-ring`.
-- Бейджи: компактные, `text-[10px]`, `py-0.5 px-1.5`.
-
-### 11.5 Масштаб и плотность
-- Размеры и отступы задаются через `rem` или токены плотности (`dense-*`, `h-7`, `p-1.5`, `gap-1.5`).
-- Все Canvas-элементы масштабируются через `devicePixelRatio` и `uiScale` (bitmap = css_rect * dpr).
-- Ширина и высота canvas переприсваиваются только при реальном изменении размера (`if (canvas.width !== targetW || canvas.height !== targetH)`).
-
-### 11.6 Чек-лист «Перед готово»
-Перед объявлением задачи выполненной агент ОБЯЗАН:
-1. Запустить `npm run build` в `frontend/` (0 ошибок).
-2. Запустить `node scripts/design_lint.mjs` (ратчет: число нарушений <= baseline, baseline только вниз).
-3. Запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1` (зеленый гейт).
-4. Проверить в браузере/Playwright отсутствие ошибок в консоли.
-
-### 11.7 Честность отчётов
-- Строго запрещено скрывать skipped тесты, отключенные проверки или неработающие фичи.
-- Каждый коммит должен сопровождаться `git diff --stat` с реальными путями из гита.
-- Формулировка «Готово» разрешена только с прямым доказательством (терминальный вывод, счетчик, скриншот).
-
-### 11.8 Запрет менять бэкенд без согласованного плана
-- Бэкенд, роутеры, модели БД и торговая логика трогаются ТОЛЬКО при наличии явного разрешения и спецификации в текущей задаче.
-- Любые изменения схем данных производятся с нулевой потерей данных и проверкой на реальной БД SQLite.
+- **Design System Guide:** [`docs/design/DESIGN_GUIDE.md`](docs/design/DESIGN_GUIDE.md) (token specifications, component catalog, density rules).
+- **Git & Dev Rules:** [`docs/GIT_AND_DEV_RULES.md`](docs/GIT_AND_DEV_RULES.md) (branch naming, commit hygiene, token economy, report template).
+- **Model Routing:** [`docs/MODEL_ROUTING.md`](docs/MODEL_ROUTING.md) (model tiering, Cline routing, sequential execution).
+- **Agent Routing Stub:** [`docs/AGENT_ROUTING.md`](docs/AGENT_ROUTING.md) (Codex model assignment & reasoning effort template).
+- **History & ADR-Lite:** [`docs/HISTORY.md`](docs/HISTORY.md) (architectural decisions, failed experiments, pitfalls).
+- **Engineering Roadmap:** [`docs/ROADMAP.md`](docs/ROADMAP.md) (real roadmap: done, in progress, next, backlog).
+- **Code Map:** [`docs/CODEMAP.md`](docs/CODEMAP.md) (auto-generated symbols and dependencies map).
+- **User Intent Scenarios:** [`docs/USER_INTENTS.md`](docs/USER_INTENTS.md) (overnight pilot, post-mortem analytics, Docker runs).
+- **Quantum Transformation:** [`docs/WIN_RATE_IMPROVEMENT_PLAN.md`](docs/WIN_RATE_IMPROVEMENT_PLAN.md) (expectancy and risk engine).
+- **Modularization Roadmap:** [`docs/MODULARIZATION_PLAN.md`](docs/MODULARIZATION_PLAN.md) (backend architecture decomposition plan).
+- **Docker Deployment:** [`docs/DOCKER.md`](docs/DOCKER.md) & [`DEPLOY.md`](DEPLOY.md) (container operations, Proxmox/Cloudflare setups).
+- **Architecture Decisions:** [`docs/DECISIONS.md`](docs/DECISIONS.md) (historical decision log).

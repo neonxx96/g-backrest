@@ -52,3 +52,16 @@ scripts/_tmp_*
 calibration_results.json
 check_pilot.py
 context/qa/
+
+# Extra Logs, Process Outputs & Clutter
+logs/
+artifacts/
+*.stdout
+*.stderr
+*.stdout.log
+*.stderr.log
+*.err.log
+*.out.log
+check_fail.log
+vite-debug.log
+NVIDIA Corporation/
