@@ -36,7 +36,20 @@ export default function AssistantHUD({
   isConeActive = false,
   onToggleCone = null,
 }) {
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(() => {
+    try {
+      return localStorage.getItem('assistant_hud_expanded') === 'true';
+    } catch (_) {
+      return false;
+    }
+  });
+
+  const toggleExpanded = (val) => {
+    setIsExpanded(val);
+    try {
+      localStorage.setItem('assistant_hud_expanded', val ? 'true' : 'false');
+    } catch (_) {}
+  };
   const [monitoringData, setMonitoringData] = useState(null);
   const [paperState, setPaperState] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -190,31 +203,34 @@ export default function AssistantHUD({
   return (
     <div
       data-testid="assistant-hud"
-      className="absolute top-2.5 right-16 z-20 pointer-events-auto select-none font-mono transition-all duration-200"
+      className="absolute top-2.5 right-20 z-20 pointer-events-auto select-none font-mono transition-all duration-200"
     >
       {/* Minimized Pill Mode */}
       {!isExpanded ? (
         <div
           data-testid="assistant-hud-minimized"
-          onClick={() => setIsExpanded(true)}
-          className="flex items-center space-x-2 px-2.5 py-1 rounded bg-popover/90 border border-border shadow-md backdrop-blur-md cursor-pointer hover:border-border/80 transition text-[10.5px] text-foreground"
-          title="Развернуть Live Tactical Assistant HUD"
+          onClick={() => toggleExpanded(true)}
+          className="flex items-center space-x-2 px-2.5 py-1 rounded bg-card/95 border border-border shadow-md backdrop-blur-md cursor-pointer hover:border-primary/50 transition text-[10.5px] text-foreground"
+          title="Развернуть Тактический ассистент"
         >
           <span className={`w-2 h-2 rounded-full ${regimeInfo.dot} animate-pulse`} />
-          <span data-testid="assistant-regime-badge" className="font-bold text-white tracking-wide">
+          <span data-testid="assistant-regime-badge" className="font-bold text-foreground tracking-wide">
             {regimeInfo.badge}
+          </span>
+          <span className="text-[10px] text-muted-foreground font-mono">
+            ATR: {tickerStatus?.atr ? Number(tickerStatus.atr).toFixed(2) : (lastPrice ? (lastPrice * 0.005).toFixed(2) : '—')}
           </span>
           {activePosition && (
             <span
               className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
-                activePosition.side === 'LONG' ? 'bg-emerald-950 text-emerald-300' : 'bg-rose-950 text-rose-300'
+                activePosition.side === 'LONG' ? 'bg-emerald-950/70 text-emerald-300 border border-emerald-700/50' : 'bg-rose-950/70 text-rose-300 border border-rose-700/50'
               }`}
             >
               {activePosition.side} ({activePosition.current_pnl_r >= 0 ? '+' : ''}
               {activePosition.current_pnl_r ?? 0}R)
             </span>
           )}
-          <ChevronDown size={13} className="text-neutral-400 hover:text-white" />
+          <ChevronDown size={12} className="text-muted-foreground hover:text-foreground" />
         </div>
       ) : (
         /* Expanded Tactical HUD Card */
@@ -226,15 +242,15 @@ export default function AssistantHUD({
           <div className="flex items-center justify-between pb-1.5 border-b border-neutral-800/80 mb-2">
             <div className="flex items-center space-x-1.5">
               <Compass size={13} className="text-sky-400" />
-              <span className="font-bold text-white text-[11px] tracking-wide">
-                Tactical Assistant · {symbol}
+              <span className="font-bold text-foreground text-[11px] tracking-wide">
+                Тактический ассистент · {symbol}
               </span>
             </div>
             <div className="flex items-center space-x-1">
               <button
                 type="button"
                 data-testid="btn-collapse-assistant"
-                onClick={() => setIsExpanded(false)}
+                onClick={() => toggleExpanded(false)}
                 className="p-0.5 rounded text-neutral-400 hover:text-white hover:bg-neutral-800 transition cursor-pointer"
                 title="Свернуть панель ассистента"
               >
