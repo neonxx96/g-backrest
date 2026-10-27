@@ -350,7 +350,7 @@ export const useMarketDataStore = create((set, get) => {
           scheduleReconnect();
         };
       } catch (err) {
-        console.warn('MiniTicker stream error:', err);
+        console.debug('MiniTicker stream offline/failover:', err);
         set({ isConnected: false });
         scheduleReconnect();
       }

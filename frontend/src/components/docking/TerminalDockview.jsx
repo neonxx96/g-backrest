@@ -395,7 +395,8 @@ export default function TerminalDockview({
       const chartPanel = api.addPanel({
         id: 'chart_ltf',
         component: 'chart',
-        title: 'График LTF (1m)'
+        title: 'График LTF (1m)',
+        minimumWidth: 320,
       });
 
       const domPanel = api.addPanel({
@@ -445,6 +446,7 @@ export default function TerminalDockview({
         id: 'chart_main',
         component: 'chart',
         title: 'График (HTF)',
+        minimumWidth: 320,
         position: { referencePanel: watchlistPanel, direction: 'right' }
       });
       api.addPanel({ id: 'tradehistory_main', component: 'tradehistory', title: 'Демо-торговля & Сделки (20 пар)', position: { referencePanel: chartPanel, direction: 'below' } });

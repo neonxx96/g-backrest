@@ -208,6 +208,12 @@ export default function Chart({
 
   const effectivePositionSetup = activePositionSetup || localPositionSetup;
 
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.__chartCandlesCount = currentKlines.current?.length || 0;
+    }
+  }, [klinesVersion]);
+
   // Аннотации/сигнальные оверлеи (bt/paper/live/whale/AI-уровни/конус/positionSetupBox/strategyLevels/toxic) — логика в chart/useChartAnnotations.js (слайс 6.4m)
   const {
     isToxicRegime, isToxicDismissed, setIsToxicDismissed,
@@ -479,6 +485,7 @@ export default function Chart({
           engine={chartEngine}
           liquidations={liquidationEvents}
           active={showLiquidations && Boolean(chartInstance || chartEngine)}
+          portalTargetId={`liq-heatmap-slot-${chartId || 'main'}`}
         />
 
         {/* On-Chart DOM: плотности L2 у шкалы цен (Canvas, через ChartEngine) + LiquidityWallStore */}
@@ -505,8 +512,26 @@ export default function Chart({
           onDismiss={setIsToxicDismissed}
         />
 
-        {/* Unified Overlay Stack (Top Right, non-overlapping) */}
-        <div className="absolute top-2 right-16 flex flex-col items-end gap-1.5 pointer-events-none z-20">
+        {/* Loading overlay when candles are loading */}
+        {(!chartReady || !currentKlines.current?.length || currentKlines.current.length <= 1) && (
+          <div
+            data-testid="chart-loading-overlay"
+            className="absolute inset-0 flex flex-col items-center justify-center bg-background/60 backdrop-blur-2xs z-15 pointer-events-none font-mono text-xs text-muted-foreground select-none"
+          >
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-card/90 border border-border shadow-md">
+              <span className="w-2 h-2 rounded-full bg-primary animate-ping" />
+              <span>Загрузка данных свечей {symbol}...</span>
+            </div>
+          </div>
+        )}
+
+        {/* Unified Overlay Stack (Top Right, non-overlapping, safe clearance from price scale) */}
+        <div
+          id={`chart-overlay-stack-${chartId || 'main'}`}
+          data-testid="chart-overlay-stack"
+          className="absolute top-2 right-20 flex flex-col items-end gap-1.5 pointer-events-none z-20"
+        >
+          <div id={`liq-heatmap-slot-${chartId || 'main'}`} className="pointer-events-auto" />
           <AssistantHUD
             symbol={symbol}
             timeframe={timeframe}

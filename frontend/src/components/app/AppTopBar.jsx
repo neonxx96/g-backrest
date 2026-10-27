@@ -272,11 +272,11 @@ export default function AppTopBar({
   ];
 
   // Pinned favorites + responsive visibility
-  // By default, 4 pinned favorites (AI, Journal, Backtest, DOM) + Focus are visible.
-  // On wide screens (tier 2), unpinned items also show up to capacity.
+  // When modeTier === 0 (< 1440px), keep 2 pinned favorites (e.g. AI + Journal) so it fits 1280-1366px effortlessly!
+  const effectivePinned = modeTier === 0 ? pinnedWidgets.slice(0, 2) : pinnedWidgets;
   const visibleModes = allModes.filter(m => {
     if (m.id === 'focus') return true;
-    if (pinnedWidgets.includes(m.id)) return true;
+    if (effectivePinned.includes(m.id)) return true;
     if (modeTier === 2 && m.priority >= 3) return true;
     if (modeTier === 1 && m.priority >= 5) return true;
     return false;
@@ -336,10 +336,10 @@ export default function AppTopBar({
           </div>
         </div>
 
-        <div className="h-3 w-px bg-border/60 mx-0.5 shrink-0" />
+        <div className="hidden min-[1440px]:block h-3 w-px bg-border/60 mx-0.5 shrink-0" />
 
         {/* Asset Denomination Toggle: COIN / USDT / USDC */}
-        <div className="flex items-center bg-background rounded p-0.5 border border-border text-[9.5px] font-mono shrink-0">
+        <div className="hidden min-[1440px]:flex items-center bg-background rounded p-0.5 border border-border text-[9.5px] font-mono shrink-0">
           {['COIN', 'USDT', 'USDC'].map((d) => (
             <button
               key={d}

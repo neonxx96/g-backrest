@@ -148,6 +148,18 @@ export default function App() {
       .catch(() => {});
   }, [userId]);
 
+  // Window Height Guard (<480px)
+  const [isTooShort, setIsTooShort] = useState(() => (typeof window !== 'undefined' ? window.innerHeight < 480 : false));
+  const [dismissShortGuard, setDismissShortGuard] = useState(false);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsTooShort(window.innerHeight < 480);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // Zen Mode state (Alt+Z)
   const [zenMode, setZenMode] = useState(() => {
     try {
@@ -817,6 +829,27 @@ export default function App() {
       style={{ backgroundColor: 'var(--bg-root)', color: 'var(--text-main)' }}
       className="flex flex-col h-screen w-screen font-sans overflow-hidden select-none"
     >
+      {isTooShort && !dismissShortGuard && (
+        <div
+          data-testid="short-height-banner"
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center p-4 bg-background/95 backdrop-blur-md text-foreground font-mono text-center select-none animate-in fade-in duration-200"
+        >
+          <div className="max-w-md p-4 rounded-lg border border-border bg-card shadow-2xl flex flex-col items-center gap-2.5">
+            <span className="text-xl">⚠️</span>
+            <div className="font-bold text-sm tracking-wide">Недостаточная высота экрана</div>
+            <div className="text-xs text-muted-foreground leading-relaxed">
+              Высота окна менее 480px. Для корректной работы с графиком, стаканом и панелями терминала рекомендуется развернуть окно на весь экран.
+            </div>
+            <button
+              type="button"
+              onClick={() => setDismissShortGuard(true)}
+              className="mt-1 px-3 py-1 rounded bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition cursor-pointer"
+            >
+              Продолжить всё равно
+            </button>
+          </div>
+        </div>
+      )}
       {zenMode && (
         <button
           type="button"

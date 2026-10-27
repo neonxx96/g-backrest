@@ -41,7 +41,18 @@ export default function ChartCanvasOverlay({
     const canvas = canvasRef.current;
     if (!canvas || !width || !height || !currentPrice) return;
 
+    const dpr = window.devicePixelRatio || 1;
+    const targetW = Math.round(width * dpr);
+    const targetH = Math.round(height * dpr);
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
+    }
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+
     const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
 
     // Compute dynamic price range (+/- 8% around current price for rendering)

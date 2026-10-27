@@ -410,6 +410,87 @@ def run_blocking_part(console_errors: list, page_errors: list) -> bool:
         if not canvas_report["ladder_present"]:
             failures.append("order-book ladder canvas element is missing")
 
+        # Wait 500ms for layout stabilization, then verify canvas bitmap matches rect * dpr within 2px
+        time.sleep(0.5)
+        mismatched_canvases = page.evaluate('''() => {
+            const dpr = window.devicePixelRatio || 1;
+            const canvases = Array.from(document.querySelectorAll('canvas'));
+            const mismatches = [];
+            for (const c of canvases) {
+                const r = c.getBoundingClientRect();
+                const rw = Math.round(r.width);
+                const rh = Math.round(r.height);
+                if (rw <= 0 || rh <= 0) continue;
+                const expectedW = Math.round(r.width * dpr);
+                const expectedH = Math.round(r.height * dpr);
+                const diffW = Math.abs(c.width - expectedW);
+                const diffH = Math.abs(c.height - expectedH);
+                if (diffW > 2 || diffH > 2) {
+                    mismatches.push({
+                        testId: c.getAttribute('data-testid') || c.className || 'unnamed',
+                        bitmap: `${c.width}x${c.height}`,
+                        rect: `${rw}x${rh}`,
+                        expected: `${expectedW}x${expectedH}`,
+                        diff: `${diffW}px, ${diffH}px`
+                    });
+                }
+            }
+            return mismatches;
+        }''')
+        if mismatched_canvases:
+            failures.append(f"Canvas bitmap vs rect*dpr mismatch (>2px): {mismatched_canvases}")
+        else:
+            log("      all visible canvases match rect*dpr within 2px.")
+
+        # Check overlay elements non-overlapping (C0.2)
+        overlap_report = page.evaluate("""() => {
+            const getBox = (sel) => {
+                const el = document.querySelector(sel);
+                if (!el) return null;
+                const r = el.getBoundingClientRect();
+                return { x: r.x, y: r.y, w: r.width, h: r.height, right: r.right, bottom: r.bottom };
+            };
+            const liq = getBox('[data-testid="liq-heatmap-controls"]');
+            const hud = getBox('[data-testid="assistant-hud"]');
+            const pos = getBox('[data-testid="chart-position-hud"]');
+
+            const overlaps = (a, b) => {
+                if (!a || !b) return false;
+                return !(a.right <= b.x || a.x >= b.right || a.bottom <= b.y || a.y >= b.bottom);
+            };
+
+            return {
+                liq_hud_overlap: overlaps(liq, hud),
+                hud_pos_overlap: overlaps(hud, pos),
+                liq_pos_overlap: overlaps(liq, pos),
+                liq, hud, pos
+            };
+        }""")
+        log(f"      overlay non-overlap report: {overlap_report}")
+        if overlap_report["liq_hud_overlap"] or overlap_report["hud_pos_overlap"] or overlap_report["liq_pos_overlap"]:
+            failures.append(f"overlay elements bounding boxes collide: {overlap_report}")
+
+        # Check Topbar on 1366px width (C0.6)
+        page.set_viewport_size({"width": 1366, "height": 768})
+        time.sleep(0.3)
+        topbar_fit = page.evaluate("""() => {
+            const header = document.querySelector('header');
+            if (!header) return null;
+            const r = header.getBoundingClientRect();
+            const rightGroup = header.querySelector('div.ml-auto');
+            const rr = rightGroup ? rightGroup.getBoundingClientRect() : null;
+            return {
+                header_width: r.width,
+                right_edge: rr ? rr.right : r.right,
+                overflow: rr ? rr.right > window.innerWidth : false
+            };
+        }""")
+        log(f"      topbar 1366px fit report: {topbar_fit}")
+        if topbar_fit and topbar_fit.get("overflow"):
+            failures.append(f"topbar right controls overflow 1366px viewport: {topbar_fit}")
+        # Reset back to 1440
+        page.set_viewport_size({"width": 1440, "height": 900})
+
         log("[3/4] Switching symbol (ArrowDown) ...")
         symbol_before = _collect_header_symbol(page)
         page.keyboard.press("ArrowDown")

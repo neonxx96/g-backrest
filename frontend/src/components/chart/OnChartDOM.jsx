@@ -115,19 +115,9 @@ export default function OnChartDOM({ engine, symbol }) {
     canvas.style.height = `${h}px`;
     canvas.style.right = `${axisW}px`;
 
-    if (canvas.width === 0 || canvas.height === 0) {
+    if (canvas.width !== pw || canvas.height !== ph) {
       canvas.width = pw;
       canvas.height = ph;
-    } else if (canvas.width !== pw || canvas.height !== ph) {
-      if (!canvas.__resizeDebounce) {
-        canvas.__resizeDebounce = setTimeout(() => {
-          canvas.__resizeDebounce = null;
-          requestAnimationFrame(() => {
-            if (!canvasRef.current) return;
-            drawRef.current();
-          });
-        }, 120);
-      }
     }
 
     const ctx = canvas.getContext('2d');

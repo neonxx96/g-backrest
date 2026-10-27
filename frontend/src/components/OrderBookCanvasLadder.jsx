@@ -78,25 +78,12 @@ export default function OrderBookCanvasLadder({
     canvas.style.width = `${w}px`;
     canvas.style.height = `${h}px`;
 
-    // Only reallocate buffer if not yet allocated (0) or if settled
+    // Synchronous buffer reallocation matching CSS bounding box * DPR
     const targetW = Math.round(w * dpr);
     const targetH = Math.round(h * dpr);
-    if (canvas.width === 0 || canvas.height === 0) {
+    if (canvas.width !== targetW || canvas.height !== targetH) {
       canvas.width = targetW;
       canvas.height = targetH;
-    } else if (canvas.width !== targetW || canvas.height !== targetH) {
-      if (!canvas.__resizeDebounce) {
-        canvas.__resizeDebounce = setTimeout(() => {
-          canvas.__resizeDebounce = null;
-          requestAnimationFrame(() => {
-            if (!canvasRef.current) return;
-            const currentDpr = window.devicePixelRatio || 1;
-            canvasRef.current.width = Math.round(width * currentDpr);
-            canvasRef.current.height = Math.round(height * currentDpr);
-            renderFrame();
-          });
-        }, 120);
-      }
     }
 
     ctx.save();

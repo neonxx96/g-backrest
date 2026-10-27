@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   PALETTES,
   samplePalette,
@@ -104,6 +105,7 @@ export default function LiquidationHeatmapGL({
   opacity: propOpacity,
   blur: propBlur,
   minUsd: propMinUsd,
+  portalTargetId = null,
 }) {
   const canvasRef = useRef(null);
 
@@ -366,6 +368,159 @@ export default function LiquidationHeatmapGL({
 
   if (!active) return null;
 
+  const targetNode = portalTargetId && typeof document !== 'undefined' ? document.getElementById(portalTargetId) : null;
+
+  const controlContent = (
+    <div data-testid="liq-heatmap-controls" className="pointer-events-auto relative flex items-center gap-1 font-mono text-[10px]">
+      {isMinimized ? (
+        <button
+          type="button"
+          onClick={() => {
+            setIsMinimized(false);
+            localStorage.setItem('chart_liq_minimized', 'false');
+          }}
+          className="px-2 py-0.5 rounded bg-card/90 text-foreground hover:border-primary/50 border border-border shadow backdrop-blur transition cursor-pointer flex items-center gap-1"
+          title={`Развернуть статус ликвидаций (${PALETTES[palette]?.name || 'Magma'}, ${rawPoints.length} pts)`}
+        >
+          <span>🔥</span>
+          <span className="text-[9.5px] font-semibold text-primary">Liq</span>
+        </button>
+      ) : (
+        <div className="flex items-center gap-1 bg-card/90 border border-border rounded px-2 py-0.5 backdrop-blur shadow text-foreground">
+          <button
+            type="button"
+            onClick={() => setShowSettings(!showSettings)}
+            className="text-foreground hover:text-primary font-semibold cursor-pointer flex items-center gap-1"
+            title="Настройки карты ликвидаций (палитра, прозрачность, размытие)"
+          >
+            <span>🔥 Liq: {PALETTES[palette]?.name || 'Magma'}</span>
+            <span className="text-muted-foreground text-[9px]">({rawPoints.length} pts) ⚙</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setIsMinimized(true);
+              setShowSettings(false);
+              localStorage.setItem('chart_liq_minimized', 'true');
+            }}
+            className="text-muted-foreground hover:text-foreground px-0.5 text-[9px] transition cursor-pointer"
+            title="Свернуть индикатор ликвидаций"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {showSettings && !isMinimized && (
+        <div className="absolute top-full right-0 mt-1 p-2.5 rounded bg-popover/95 border border-border shadow-2xl text-popover-foreground w-56 flex flex-col gap-2 z-30">
+          <div className="flex justify-between items-center text-[10px] font-bold text-foreground border-b border-border/80 pb-1">
+            <span>Ликвидации (Alphfractal)</span>
+            <button
+              type="button"
+              onClick={() => setShowSettings(false)}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div>
+            <label className="text-[9px] text-muted-foreground block mb-1">Палитра свечения</label>
+            <div className="grid grid-cols-3 gap-1">
+              {['magma', 'sunset', 'viridis'].map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => {
+                    setPalette(p);
+                    localStorage.setItem('chart_liq_palette', p);
+                    window.dispatchEvent(new CustomEvent('signalscript:chart-settings-changed'));
+                  }}
+                  className={`px-1.5 py-0.5 rounded text-[9.5px] uppercase transition ${
+                    palette === p
+                      ? 'bg-primary/20 text-primary border border-primary/50'
+                      : 'bg-muted text-muted-foreground hover:text-foreground border border-border'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="flex justify-between text-[9px] text-muted-foreground">
+              <span>Прозрачность</span>
+              <span className="text-foreground font-semibold">{Math.round(opacity * 100)}%</span>
+            </div>
+            <input
+              type="range"
+              min="0.2"
+              max="1.0"
+              step="0.05"
+              value={opacity}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setOpacity(val);
+                localStorage.setItem('chart_liq_opacity', String(val));
+                window.dispatchEvent(new CustomEvent('signalscript:chart-settings-changed'));
+              }}
+              className="w-full accent-primary h-1 bg-muted rounded cursor-pointer"
+            />
+          </div>
+
+          <div>
+            <div className="flex justify-between text-[9px] text-muted-foreground">
+              <span>Размытие (Гаусс)</span>
+              <span className="text-foreground font-semibold">{blur.toFixed(1)}x</span>
+            </div>
+            <input
+              type="range"
+              min="0.5"
+              max="2.5"
+              step="0.1"
+              value={blur}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setBlur(val);
+                localStorage.setItem('chart_liq_blur', String(val));
+                window.dispatchEvent(new CustomEvent('signalscript:chart-settings-changed'));
+              }}
+              className="w-full accent-primary h-1 bg-muted rounded cursor-pointer"
+            />
+          </div>
+
+          <div>
+            <div className="flex justify-between text-[9px] text-muted-foreground">
+              <span>Мин. объем ($)</span>
+              <span className="text-foreground font-semibold">${(minUsd / 1000).toFixed(0)}k</span>
+            </div>
+            <div className="grid grid-cols-4 gap-1 mt-1">
+              {[10000, 25000, 50000, 100000].map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => {
+                    setMinUsd(v);
+                    localStorage.setItem('chart_liq_min_usd', String(v));
+                    window.dispatchEvent(new CustomEvent('signalscript:chart-settings-changed'));
+                  }}
+                  className={`py-0.5 rounded text-[8.5px] ${
+                    minUsd === v
+                      ? 'bg-primary/20 text-primary border border-primary/50'
+                      : 'bg-muted text-muted-foreground border border-border'
+                  }`}
+                >
+                  ${v / 1000}k
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <>
       <canvas
@@ -374,154 +529,13 @@ export default function LiquidationHeatmapGL({
         className="absolute inset-0 w-full h-full"
         style={{ pointerEvents: 'none', zIndex: 6 }}
       />
-
-      {/* Интерактивная плашка настроек Liquidation Heatmap в правом верхнем углу */}
-      <div className="absolute top-2 right-2 z-20 flex items-center gap-1 font-mono text-[10px]">
-        {isMinimized ? (
-          <button
-            type="button"
-            onClick={() => {
-              setIsMinimized(false);
-              localStorage.setItem('chart_liq_minimized', 'false');
-            }}
-            className="w-6 h-6 rounded-full bg-[#10141e]/85 text-amber-400 hover:text-amber-300 border border-amber-500/30 backdrop-blur shadow flex items-center justify-center transition cursor-pointer"
-            title={`Развернуть статус ликвидаций (${PALETTES[palette]?.name || 'Magma'}, ${rawPoints.length} pts)`}
-          >
-            🔥
-          </button>
-        ) : (
-          <div className="flex items-center gap-0.5 bg-[#10141e]/90 border border-amber-500/30 rounded px-1.5 py-0.5 backdrop-blur shadow">
-            <button
-              type="button"
-              onClick={() => setShowSettings(!showSettings)}
-              className="text-amber-400 hover:text-amber-300 font-semibold cursor-pointer"
-              title="Настройки карты ликвидаций (палитра, прозрачность, размытие)"
-            >
-              🔥 Liq: {PALETTES[palette]?.name || 'Magma'} ({rawPoints.length} pts) ⚙
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setIsMinimized(true);
-                setShowSettings(false);
-                localStorage.setItem('chart_liq_minimized', 'true');
-              }}
-              className="text-slate-500 hover:text-slate-300 px-0.5 text-[9px] transition cursor-pointer"
-              title="Свернуть индикатор ликвидаций"
-            >
-              ✕
-            </button>
-          </div>
-        )}
-
-        {showSettings && !isMinimized && (
-          <div className="absolute top-7 right-0 p-2.5 rounded bg-[#0d111a] border border-[#1f2638] shadow-2xl text-slate-200 w-56 flex flex-col gap-2">
-            <div className="flex justify-between items-center text-[10px] font-bold text-slate-300 border-b border-[#1f2638] pb-1">
-              <span>Ликвидации (Alphfractal)</span>
-              <button
-                type="button"
-                onClick={() => setShowSettings(false)}
-                className="text-slate-400 hover:text-white"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div>
-              <label className="text-[9px] text-slate-400 block mb-1">Палитра свечения</label>
-              <div className="grid grid-cols-3 gap-1">
-                {['magma', 'sunset', 'viridis'].map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => {
-                      setPalette(p);
-                      localStorage.setItem('chart_liq_palette', p);
-                      window.dispatchEvent(new CustomEvent('signalscript:chart-settings-changed'));
-                    }}
-                    className={`px-1.5 py-0.5 rounded text-[9.5px] uppercase transition ${
-                      palette === p
-                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50'
-                        : 'bg-[#151a26] text-slate-400 hover:text-white border border-[#232a3b]'
-                    }`}
-                  >
-                    {p}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <div className="flex justify-between text-[9px] text-slate-400">
-                <span>Прозрачность</span>
-                <span className="text-amber-300">{Math.round(opacity * 100)}%</span>
-              </div>
-              <input
-                type="range"
-                min="0.2"
-                max="1.0"
-                step="0.05"
-                value={opacity}
-                onChange={(e) => {
-                  const val = Number(e.target.value);
-                  setOpacity(val);
-                  localStorage.setItem('chart_liq_opacity', String(val));
-                  window.dispatchEvent(new CustomEvent('signalscript:chart-settings-changed'));
-                }}
-                className="w-full accent-amber-500 h-1 bg-[#151a26] rounded cursor-pointer"
-              />
-            </div>
-
-            <div>
-              <div className="flex justify-between text-[9px] text-slate-400">
-                <span>Размытие (Гаусс)</span>
-                <span className="text-amber-300">{blur.toFixed(1)}x</span>
-              </div>
-              <input
-                type="range"
-                min="0.5"
-                max="2.5"
-                step="0.1"
-                value={blur}
-                onChange={(e) => {
-                  const val = Number(e.target.value);
-                  setBlur(val);
-                  localStorage.setItem('chart_liq_blur', String(val));
-                  window.dispatchEvent(new CustomEvent('signalscript:chart-settings-changed'));
-                }}
-                className="w-full accent-amber-500 h-1 bg-[#151a26] rounded cursor-pointer"
-              />
-            </div>
-
-            <div>
-              <div className="flex justify-between text-[9px] text-slate-400">
-                <span>Мин. объем ($)</span>
-                <span className="text-amber-300">${(minUsd / 1000).toFixed(0)}k</span>
-              </div>
-              <div className="grid grid-cols-4 gap-1 mt-1">
-                {[10000, 25000, 50000, 100000].map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => {
-                      setMinUsd(v);
-                      localStorage.setItem('chart_liq_min_usd', String(v));
-                      window.dispatchEvent(new CustomEvent('signalscript:chart-settings-changed'));
-                    }}
-                    className={`py-0.5 rounded text-[8.5px] ${
-                      minUsd === v
-                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50'
-                        : 'bg-[#151a26] text-slate-400 border border-[#232a3b]'
-                    }`}
-                  >
-                    ${v / 1000}k
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+      {targetNode ? (
+        createPortal(controlContent, targetNode)
+      ) : (
+        <div className="absolute top-2 right-20 z-20 pointer-events-auto font-mono text-[10px]">
+          {controlContent}
+        </div>
+      )}
     </>
   );
 }

@@ -188,21 +188,25 @@ export default function ChartToolbar({
 
   const enabledIndicatorsCount = activeIndicators.filter((i) => i.enabled !== false).length;
 
-  // Responsive tiering for compact charts
+  // Responsive tiering for compact charts (<650: collapse drawing tools, <500: compact TF select, <380: ultra-compact)
   const toolbarRef = useRef(null);
-  const [isNarrow, setIsNarrow] = useState(false);
+  const [toolbarWidth, setToolbarWidth] = useState(1000);
 
   useEffect(() => {
     if (!toolbarRef.current) return;
     const obs = new ResizeObserver((entries) => {
       for (const entry of entries) {
         if (!entry.contentRect) continue;
-        setIsNarrow(entry.contentRect.width < 760);
+        setToolbarWidth(entry.contentRect.width);
       }
     });
     obs.observe(toolbarRef.current);
     return () => obs.disconnect();
   }, []);
+
+  const isUltraNarrow = toolbarWidth < 380;
+  const isNarrowTf = toolbarWidth < 500;
+  const isCollapseDrawings = toolbarWidth < 650;
 
   // Auto-open style row when drawing tool is chosen
   useEffect(() => {
@@ -227,30 +231,47 @@ export default function ChartToolbar({
             {symbol}
           </span>
 
-          {/* Timeframe ToggleGroup */}
-          <div className="flex items-center space-x-0.5 bg-muted/60 rounded border border-border/60 p-0.5">
-            {['1m', '5m', '15m', '1h', '4h'].map((tf) => (
-              <button
-                key={tf}
-                type="button"
-                data-testid={`chart-timeframe-${chartId}-${tf}`}
-                onClick={() => onTimeframeChange && onTimeframeChange(tf)}
-                className={`px-1.5 py-0.2 rounded text-[10px] transition cursor-pointer ${
-                  timeframe === tf
-                    ? 'bg-primary text-primary-foreground font-bold shadow-xs'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
+          {/* Timeframe ToggleGroup (Select when <500px) */}
+          {!isNarrowTf ? (
+            <div className="flex items-center space-x-0.5 bg-muted/60 rounded border border-border/60 p-0.5">
+              {['1m', '5m', '15m', '1h', '4h'].map((tf) => (
+                <button
+                  key={tf}
+                  type="button"
+                  data-testid={`chart-timeframe-${chartId}-${tf}`}
+                  onClick={() => onTimeframeChange && onTimeframeChange(tf)}
+                  className={`px-1.5 py-0.2 rounded text-[10px] transition cursor-pointer ${
+                    timeframe === tf
+                      ? 'bg-primary text-primary-foreground font-bold shadow-xs'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {tf}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="flex items-center">
+              <select
+                aria-label="Выбор таймфрейма"
+                data-testid={`chart-timeframe-select-${chartId}`}
+                value={timeframe}
+                onChange={(e) => onTimeframeChange && onTimeframeChange(e.target.value)}
+                className="bg-muted text-foreground font-bold rounded px-1.5 py-0.5 border border-border text-[10px] cursor-pointer"
               >
-                {tf}
-              </button>
-            ))}
-          </div>
+                {['1m', '5m', '15m', '1h', '4h', '1d'].map((tf) => (
+                  <option key={tf} value={tf}>{tf}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <ChannelSelector panelId={chartId} />
 
           <div className="h-3.5 w-px bg-border/60 mx-0.5" />
 
-          {/* Drawing Tools */}
+          {/* Drawing Tools (Inline on >=650px, Popover on <650px, Hidden on <380px) */}
+          {!isCollapseDrawings ? (
           <div className="flex items-center space-x-0.5">
             <button
               title="Линия (Alt+T)"
@@ -330,11 +351,11 @@ export default function ChartToolbar({
               onClick={() => handleSelectTool('positionSetupBox')}
               className={`px-1.5 py-0.5 rounded text-[10px] flex items-center transition cursor-pointer ${
                 activeTool === 'positionSetupBox'
-                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-bold'
-                  : 'text-muted-foreground hover:bg-muted hover:text-emerald-400'
+                  ? 'bg-primary/20 text-primary border border-primary/40 font-bold'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
               }`}
             >
-              <TrendingUp size={11} className="mr-0.5 text-emerald-400" />
+              <TrendingUp size={11} className="mr-0.5" />
               <span className="hidden xl:inline">R:R Box</span>
             </button>
 
@@ -351,7 +372,7 @@ export default function ChartToolbar({
             <button
               title="Отменить последнее действие (Ctrl+Z)"
               onClick={handleUndo}
-              className="p-1 rounded text-muted-foreground hover:text-amber-400 hover:bg-amber-400/10 transition cursor-pointer"
+              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
             >
               <RotateCcw size={12} />
             </button>
@@ -359,7 +380,7 @@ export default function ChartToolbar({
             <button
               title="Очистить все рисунки"
               onClick={handleClearDrawings}
-              className="p-1 rounded text-muted-foreground hover:text-rose-400 hover:bg-rose-400/10 transition cursor-pointer"
+              className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/15 transition cursor-pointer"
             >
               <Trash2 size={12} />
             </button>
@@ -367,7 +388,7 @@ export default function ChartToolbar({
             <button
               title="Сохранить рисунки"
               onClick={saveDrawings}
-              className="p-1 rounded text-muted-foreground hover:text-emerald-400 hover:bg-emerald-400/10 transition cursor-pointer"
+              className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/15 transition cursor-pointer"
             >
               <Save size={12} />
             </button>
@@ -446,6 +467,147 @@ export default function ChartToolbar({
               <Palette size={12} />
             </button>
           </div>
+          ) : !isUltraNarrow ? (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  data-testid="btn-drawing-tools-popover"
+                  className={`px-1.5 py-0.5 rounded text-[10px] flex items-center gap-1 border transition cursor-pointer ${
+                    activeTool && activeTool !== 'cursor'
+                      ? 'bg-primary/20 text-primary border-primary/40 font-bold'
+                      : 'border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}
+                  title="Инструменты рисования"
+                >
+                  <Ruler size={11} />
+                  <span>Рисование</span>
+                  <ChevronDown size={10} />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-56 p-2 flex flex-col gap-1.5 font-mono text-xs shadow-xl">
+                <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider pb-1 border-b border-border/80 flex items-center justify-between">
+                  <span>Инструменты</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowStyleRow((v) => !v)}
+                    className="text-primary hover:underline text-[9px]"
+                  >
+                    Стили
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-1 text-[10px]">
+                  <button
+                    type="button"
+                    onClick={() => handleSelectTool('segment')}
+                    className={`px-2 py-1 rounded border text-left flex items-center gap-1.5 ${
+                      activeTool === 'segment' ? 'bg-primary/20 text-primary border-primary/40 font-bold' : 'border-border/40 text-muted-foreground hover:bg-muted hover:text-foreground'
+                    }`}
+                  >
+                    <Minus size={11} />
+                    <span>Линия</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectTool('horizontalStraightLine')}
+                    className={`px-2 py-1 rounded border text-left flex items-center gap-1.5 ${
+                      activeTool === 'horizontalStraightLine' ? 'bg-primary/20 text-primary border-primary/40 font-bold' : 'border-border/40 text-muted-foreground hover:bg-muted hover:text-foreground'
+                    }`}
+                  >
+                    <span>—</span>
+                    <span>Уровень</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectTool('rayLine')}
+                    className={`px-2 py-1 rounded border text-left flex items-center gap-1.5 ${
+                      activeTool === 'rayLine' ? 'bg-primary/20 text-primary border-primary/40 font-bold' : 'border-border/40 text-muted-foreground hover:bg-muted hover:text-foreground'
+                    }`}
+                  >
+                    <MoveRight size={11} />
+                    <span>Луч</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectTool('rect')}
+                    className={`px-2 py-1 rounded border text-left flex items-center gap-1.5 ${
+                      activeTool === 'rect' ? 'bg-primary/20 text-primary border-primary/40 font-bold' : 'border-border/40 text-muted-foreground hover:bg-muted hover:text-foreground'
+                    }`}
+                  >
+                    <Square size={11} />
+                    <span>Зона</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectTool('fibonacciLine')}
+                    className={`px-2 py-1 rounded border text-left flex items-center gap-1.5 ${
+                      activeTool === 'fibonacciLine' ? 'bg-primary/20 text-primary border-primary/40 font-bold' : 'border-border/40 text-muted-foreground hover:bg-muted hover:text-foreground'
+                    }`}
+                  >
+                    <Hash size={11} />
+                    <span>Фибо</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectTool('measure')}
+                    className={`px-2 py-1 rounded border text-left flex items-center gap-1.5 ${
+                      activeTool === 'measure' ? 'bg-primary/20 text-primary border-primary/40 font-bold' : 'border-border/40 text-muted-foreground hover:bg-muted hover:text-foreground'
+                    }`}
+                  >
+                    <Ruler size={11} />
+                    <span>Замер</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectTool('positionSetupBox')}
+                    className={`px-2 py-1 rounded border text-left flex items-center gap-1.5 col-span-2 ${
+                      activeTool === 'positionSetupBox' ? 'bg-primary/20 text-primary border-primary/40 font-bold' : 'border-border/40 text-muted-foreground hover:bg-muted hover:text-foreground'
+                    }`}
+                  >
+                    <TrendingUp size={11} />
+                    <span>Сетап Risk/Reward</span>
+                  </button>
+                </div>
+                <div className="flex items-center justify-between pt-1 border-t border-border/80">
+                  <button
+                    type="button"
+                    onClick={() => setMagnetEnabled(!magnetEnabled)}
+                    className={`px-1.5 py-0.5 rounded text-[9.5px] border ${
+                      magnetEnabled ? 'bg-primary/25 text-primary border-primary/40' : 'border-border/40 text-muted-foreground hover:bg-muted hover:text-foreground'
+                    }`}
+                  >
+                    Магнит {magnetEnabled ? 'ON' : 'OFF'}
+                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={handleUndo}
+                      title="Отменить"
+                      className="p-1 rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                    >
+                      <RotateCcw size={11} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearDrawings}
+                      title="Очистить"
+                      className="p-1 rounded text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={saveDrawings}
+                      title="Сохранить"
+                      className="p-1 rounded text-muted-foreground hover:bg-primary/15 hover:text-primary"
+                    >
+                      <Save size={11} />
+                    </button>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+          ) : null}
         </div>
 
         {/* Center Spacer */}
