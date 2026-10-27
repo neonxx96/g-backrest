@@ -144,13 +144,11 @@ export default function SettingsModal({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ backgroundColor: 'var(--bg-panel)', borderColor: 'var(--border-subtle)', color: 'var(--text-main)' }}
-        className="border rounded-lg w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh] text-xs font-sans"
+        className="border border-border/80 rounded bg-card text-foreground w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh] text-xs font-sans"
       >
         {/* Header */}
         <div
-          style={{ backgroundColor: 'var(--bg-panel-header)', borderColor: 'var(--border-subtle)' }}
-          className="flex items-center justify-between px-4 py-2.5 border-b"
+          className="flex items-center justify-between px-4 py-2.5 border-b border-border/70 bg-card/95"
         >
           <div className="flex items-center space-x-2 font-bold text-white text-xs">
             <Sliders size={14} className="text-[#38bdf8]" />

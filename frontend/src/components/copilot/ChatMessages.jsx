@@ -1,3 +1,30 @@
+
+function renderFormattedText(text) {
+  if (!text || typeof text !== 'string') return text;
+  // Parse **bold** and `code`
+  const parts = [];
+  const regex = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.substring(lastIndex, match.index));
+    }
+    const token = match[0];
+    if (token.startsWith('**') && token.endsWith('**')) {
+      parts.push(<strong key={match.index} className="font-bold text-foreground">{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith('`') && token.endsWith('`')) {
+      parts.push(<code key={match.index} className="px-1 py-0.5 rounded bg-muted font-mono text-[10px] text-accent-foreground border border-border/60">{token.slice(1, -1)}</code>);
+    }
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    parts.push(text.substring(lastIndex));
+  }
+  return parts.length > 0 ? parts : text;
+}
+
 import React from 'react';
 import { RefreshCw } from 'lucide-react';
 
@@ -21,7 +48,7 @@ export default function ChatMessages({ messages, chatLoading, selectedModel, bot
                 : 'bg-[#141822] text-[#e2e8f0] border border-[#222938] rounded-bl-xs'
             }`}
           >
-            {m.content}
+            {renderFormattedText(m.content)}
           </div>
         </div>
       ))}
