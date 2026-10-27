@@ -1398,7 +1398,7 @@ try {
       const isBuy = ext.side === 'BUY' || ext.side === 'bid';
       const volUsd = ext.volume_usd || 0;
       const volFormatted = volUsd >= 1000000 
-        ? `$${(volUsd / 1000000).toFixed(2)}M` 
+        ? `$${(volUsd / 1000000).toFixed(1)}M` 
         : `$${Math.round(volUsd / 1000)}k`;
       const badgeText = isBuy ? `[🧲 BID WALL ${volFormatted}]` : `[🧲 ASK WALL ${volFormatted}]`;
       const color = isBuy ? '#10b981' : '#f43f5e';
@@ -1414,7 +1414,7 @@ try {
           },
           styles: {
             color,
-            size: 1.5,
+            size: 1,
             style: 'solid'
           },
           ignoreEvent: true
@@ -1422,7 +1422,7 @@ try {
         {
           type: 'text',
           attrs: {
-            x: Math.max(100, width - 12),
+            x: Math.max(100, width - 74),
             y: y,
             text: ` ${badgeText} `,
             align: 'right',

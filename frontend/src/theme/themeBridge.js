@@ -171,6 +171,7 @@ class ThemeBridge {
 }
 
 export const themeBridge = new ThemeBridge();
+export default themeBridge;
 
 if (typeof window !== 'undefined') {
   themeBridge.init();

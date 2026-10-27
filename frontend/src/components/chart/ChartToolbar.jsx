@@ -805,11 +805,20 @@ export default function ChartToolbar({
                   </select>
                 </label>
                 <label className={settingsRow}>
-                  <span>Макс. уровней</span>
-                  <select aria-label="Максимум уровней стенок" className={settingsSelect} value={wallSettings.max_walls}
+                  <span>Макс. уровней (N)</span>
+                  <select aria-label="Максимум уровней стенок" className={settingsSelect} value={wallSettings.max_walls || 6}
                     onChange={(e) => updateWallSettings({ max_walls: Number(e.target.value) })}>
-                    {[2, 3, 4, 6].map(v => <option key={v} value={v}>{v}</option>)}
+                    {[2, 4, 6, 8, 12].map(v => <option key={v} value={v}>{v}</option>)}
                   </select>
+                </label>
+                <label className={settingsRow}>
+                  <span>Все подписи</span>
+                  <input
+                    aria-label="Показывать все подписи"
+                    type="checkbox"
+                    checked={Boolean(wallSettings.show_all_labels)}
+                    onChange={(e) => updateWallSettings({ show_all_labels: e.target.checked })}
+                  />
                 </label>
               </div>
             )}

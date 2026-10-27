@@ -206,6 +206,7 @@ function ChartDockPanel(props) {
             width={dimensions.width}
             height={dimensions.height}
             currentPrice={currentPrice}
+            symbol={currentSymbol}
             liqData={unifiedData?.liq_estimates}
             depthData={unifiedData?.orderbook_depth}
             layers={layers}
