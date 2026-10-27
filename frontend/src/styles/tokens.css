@@ -72,6 +72,11 @@
   --ema-2: #f59e0b;
   --ema-3: #a855f7;
   --grid-line: rgba(30, 36, 48, 0.45);
+  --heat-0: rgba(16, 185, 129, 0.0);
+  --heat-1: rgba(16, 185, 129, 0.25);
+  --heat-2: rgba(234, 179, 8, 0.50);
+  --heat-3: rgba(249, 115, 22, 0.75);
+  --heat-4: rgba(244, 63, 94, 0.95);
   --crosshair: #475569;
 
   /* State Alerts */
@@ -162,6 +167,11 @@
   --ema-2: #ffe600;
   --ema-3: #ff007f;
   --grid-line: rgba(0, 229, 255, 0.2);
+  --heat-0: rgba(0, 245, 212, 0.0);
+  --heat-1: rgba(0, 240, 255, 0.30);
+  --heat-2: rgba(255, 230, 0, 0.60);
+  --heat-3: rgba(255, 0, 127, 0.85);
+  --heat-4: rgba(255, 42, 109, 1.0);
   --crosshair: #00e5ff;
 
   /* State Alerts */
@@ -250,6 +260,11 @@
   --ema-2: #f59e0b;
   --ema-3: #71717a;
   --grid-line: rgba(39, 39, 42, 0.4);
+  --heat-0: rgba(228, 228, 231, 0.0);
+  --heat-1: rgba(161, 161, 170, 0.25);
+  --heat-2: rgba(212, 212, 216, 0.50);
+  --heat-3: rgba(245, 158, 11, 0.75);
+  --heat-4: rgba(255, 255, 255, 0.95);
   --crosshair: #71717a;
 
   /* State Alerts */
@@ -337,6 +352,11 @@
   --ema-2: #d97706;
   --ema-3: #7c3aed;
   --grid-line: rgba(226, 232, 240, 0.8);
+  --heat-0: rgba(5, 150, 105, 0.0);
+  --heat-1: rgba(5, 150, 105, 0.25);
+  --heat-2: rgba(217, 119, 6, 0.50);
+  --heat-3: rgba(234, 88, 12, 0.75);
+  --heat-4: rgba(225, 29, 72, 0.90);
   --crosshair: #94a3b8;
 
   /* State Alerts */

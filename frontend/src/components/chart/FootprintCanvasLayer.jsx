@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { themeBridge } from '../../theme/themeBridge.js';
 import { Settings2, X } from 'lucide-react';
 import { TF_MS } from '../../services/marketDataFetcher.js';
 import { fmtVol } from '../docking/footprintGrid.js';
@@ -56,6 +57,14 @@ export default function FootprintCanvasLayer({ engine, symbol, timeframe = '15m'
   const [hud, setHud] = useState('');
 
   const settingsRef = useRef(settings);
+  const tokensRef = useRef(themeBridge.getTokens());
+
+  useEffect(() => {
+    return themeBridge.subscribe((tokens) => {
+      tokensRef.current = tokens;
+      render();
+    });
+  }, [render]);
   settingsRef.current = settings;
 
   const updateSetting = (patch) => setSettings((prev) => {
@@ -247,11 +256,11 @@ export default function FootprintCanvasLayer({ engine, symbol, timeframe = '15m'
           const sellShare = totalVol > 0 ? lvl.sell / totalVol : 0.5;
 
           // Bid плашка слева
-          ctx.fillStyle = hexToRgba(st.sellColor, alpha * (0.3 + 0.7 * sellShare));
+          ctx.fillStyle = hexToRgba(tokensRef.current.bear || st.sellColor, alpha * (0.3 + 0.7 * sellShare));
           ctx.fillRect(left, yTop, halfW - 0.5, rowHeight - 0.5);
 
           // Ask плашка справа
-          ctx.fillStyle = hexToRgba(st.buyColor, alpha * (0.3 + 0.7 * buyShare));
+          ctx.fillStyle = hexToRgba(tokensRef.current.bull || st.buyColor, alpha * (0.3 + 0.7 * buyShare));
           ctx.fillRect(left + halfW + 0.5, yTop, halfW - 0.5, rowHeight - 0.5);
 
           // Текст чисел (Bid x Ask) при достаточном LOD
@@ -295,7 +304,7 @@ export default function FootprintCanvasLayer({ engine, symbol, timeframe = '15m'
 
         // Подсветка имбаланса (Imbalance badge)
         if (lvl.imbalance) {
-          ctx.strokeStyle = lvl.imbalance === 'buy' ? '#10b981' : '#ef4444';
+          ctx.strokeStyle = lvl.imbalance === 'buy' ? (tokensRef.current.bull || '#10b981') : (tokensRef.current.bear || '#ef4444');
           ctx.lineWidth = 1;
           ctx.strokeRect(left, yTop, colWidth, rowHeight - 0.5);
         }

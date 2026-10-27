@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Settings2, X } from 'lucide-react';
 import { useLiquidityWallStore } from '../../stores/liquidityWallStore.js';
+import { themeBridge } from '../../theme/themeBridge.js';
 import {
   estimateTick, niceBinSize, barLength, buildDomBins, hexToRgba, fmtUsdCompact, fmtLife,
 } from './onChartDomMath.js';
@@ -69,6 +70,14 @@ export default function OnChartDOM({ engine, symbol }) {
   const [status, setStatus] = useState('idle'); // idle | loading | live | stale | error
   const [hud, setHud] = useState('');
   const settingsRef = useRef(settings);
+  const tokensRef = useRef(themeBridge.getTokens());
+
+  useEffect(() => {
+    return themeBridge.subscribe((tokens) => {
+      tokensRef.current = tokens;
+      render();
+    });
+  }, [render]);
   settingsRef.current = settings;
 
   const update = (patch) => setSettings((prev) => {
@@ -144,7 +153,7 @@ export default function OnChartDOM({ engine, symbol }) {
       if (!Number.isFinite(yc) || yc < -rowH || yc > h + rowH) continue;
       const len = barLength(b.usd, maxUsd, w, st.logScale);
       const y = yc - rowH / 2;
-      ctx.fillStyle = hexToRgba(b.side === 'bid' ? st.bidColor : st.askColor, alpha * (0.35 + 0.65 * (len / w)));
+      ctx.fillStyle = hexToRgba(b.side === 'bid' ? (tokensRef.current.bull || st.bidColor) : (tokensRef.current.bear || st.askColor), alpha * (0.35 + 0.65 * (len / w)));
       ctx.fillRect(w - len, y, len, Math.max(1, rowH - 1));
       rows += 1;
     }
@@ -156,7 +165,7 @@ export default function OnChartDOM({ engine, symbol }) {
       if (!Number.isFinite(yc) || yc < -rowH || yc > h + rowH) continue;
       const len = barLength(wl.volumeUsd, maxUsd, w, st.logScale);
       const mature = wl.lifetimeSec >= st.matureSec;
-      ctx.strokeStyle = hexToRgba(st.wallColor, mature ? 0.95 : 0.5);
+      ctx.strokeStyle = hexToRgba(tokensRef.current.densityWall || st.wallColor, mature ? 0.95 : 0.5);
       ctx.lineWidth = mature ? 1.5 : 1;
       ctx.strokeRect(w - len + 0.5, yc - rowH / 2 + 0.5, len - 1, Math.max(1, rowH - 2));
       if (st.showText && rowH >= 11) {
