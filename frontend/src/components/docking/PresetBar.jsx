@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useLayoutStore } from '../../stores/layoutStore';
-import { LayoutGrid, Plus, Trash2, Check, RefreshCw, AlertCircle, Save, Zap } from 'lucide-react';
+import { LayoutGrid, Plus, Trash2, Check, RefreshCw, AlertCircle, Save, Zap, Layers } from 'lucide-react';
 
-export default function PresetBar({ onSwitchPreset, onNewPreset, onAddTradesPanel }) {
+export default function PresetBar({ onSwitchPreset, onNewPreset, onAddTradesPanel, layersProps }) {
   const presets = useLayoutStore((s) => s.presets);
   const activePresetId = useLayoutStore((s) => s.activePresetId);
   const saveStatus = useLayoutStore((s) => s.saveStatus);
@@ -43,8 +43,68 @@ export default function PresetBar({ onSwitchPreset, onNewPreset, onAddTradesPane
       data-testid="preset-bar"
       className="h-[28px] bg-card/90 border-b border-border/60 px-2.5 flex items-center justify-between text-xs select-none shrink-0"
     >
-      {/* Left: Presets list */}
+      {/* Left: Layers (if enabled) + Presets list */}
       <div className="flex items-center space-x-1 overflow-x-auto no-scrollbar py-0.5">
+        {layersProps?.showLiqLayers && (
+          <div className="flex items-center space-x-1 shrink-0 mr-1.5">
+            <div className="flex items-center space-x-1 text-muted-foreground text-[10px] uppercase font-mono tracking-wider mr-1 shrink-0">
+              <Layers size={11} className="text-primary" />
+              <span>Слои:</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => layersProps.onLayerToggle ? layersProps.onLayerToggle('liqHeatmap') : layersProps.toggleLayer?.('liqHeatmap')}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition cursor-pointer shrink-0 ${
+                layersProps.layers?.liqHeatmap
+                  ? 'bg-primary/20 text-primary border-primary/50 font-bold'
+                  : 'text-muted-foreground border-border hover:bg-muted'
+              }`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${layersProps.layers?.liqHeatmap ? 'bg-primary' : 'bg-muted-foreground'}`} />
+              <span>Карта ликв.</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => layersProps.onLayerToggle ? layersProps.onLayerToggle('liqLevels') : layersProps.toggleLayer?.('liqLevels')}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition cursor-pointer shrink-0 ${
+                layersProps.layers?.liqLevels
+                  ? 'bg-primary/20 text-primary border-primary/50 font-bold'
+                  : 'text-muted-foreground border-border hover:bg-muted'
+              }`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${layersProps.layers?.liqLevels ? 'bg-primary' : 'bg-muted-foreground'}`} />
+              <span>Уровни ликв.</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => layersProps.onLayerToggle ? layersProps.onLayerToggle('obDepth') : layersProps.toggleLayer?.('obDepth')}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition cursor-pointer shrink-0 ${
+                layersProps.layers?.obDepth
+                  ? 'bg-primary/20 text-primary border-primary/50 font-bold'
+                  : 'text-muted-foreground border-border hover:bg-muted'
+              }`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${layersProps.layers?.obDepth ? 'bg-primary' : 'bg-muted-foreground'}`} />
+              <span>Спот-стены</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => layersProps.onLayerToggle ? layersProps.onLayerToggle('obProfile') : layersProps.toggleLayer?.('obProfile')}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition cursor-pointer shrink-0 ${
+                layersProps.layers?.obProfile
+                  ? 'bg-primary/20 text-primary border-primary/50 font-bold'
+                  : 'text-muted-foreground border-border hover:bg-muted'
+              }`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${layersProps.layers?.obProfile ? 'bg-primary' : 'bg-muted-foreground'}`} />
+              <span>Профиль стакана</span>
+            </button>
+            <span className="px-1.5 py-0.5 rounded text-[9.5px] font-mono bg-muted/60 text-muted-foreground border border-border shrink-0">
+              Стены {layersProps.minWallMultiplier}x
+            </span>
+            <div className="h-3.5 w-px bg-border/60 mx-1 shrink-0" />
+          </div>
+        )}
         <div className="flex items-center space-x-1 text-muted-foreground text-[10px] uppercase font-mono tracking-wider mr-1.5 shrink-0">
           <LayoutGrid size={11} className="text-[#3b82f6]" />
           <span>Раскладки:</span>

@@ -804,26 +804,30 @@ export default function App() {
         onOpenSettings={() => setShowSettings(true)}
       />
 
-      {/* Interactive Layer Toolbar for Spot Walls & Liquidations */}
-      {showLiqLayers && (
-        <LayerToolbar
-          layers={layers}
-          onLayerToggle={toggleLayer}
-          leverages={leverages}
-          onLeverageToggle={toggleLeverage}
-          minWallMultiplier={minWallMultiplier}
-          onMinWallChange={setMinWallMultiplier}
-          wallLineThickness={wallLineThickness}
-          onWallThicknessChange={setWallLineThickness}
-          layerOpacity={layerOpacity}
-          onOpacityChange={setLayerOpacity}
-        />
-      )}
+      {/* Secondary Row: Merged inside PresetBar (maximum 2 bars at top) */}
 
       {/* Main Responsive Workspace Layout with Dockview (dockview-react) */}
       <main className="flex-1 flex overflow-hidden relative min-w-0">
         <div className="flex-1 h-full min-w-0 overflow-hidden relative flex flex-col">
           <TerminalDockview
+            layersProps={{
+              showLiqLayers,
+              layers,
+              onLayerToggle: toggleLayer,
+              toggleLayer,
+              leverages,
+              onLeverageToggle: toggleLeverage,
+              toggleLeverage,
+              minWallMultiplier,
+              onMinWallChange: setMinWallMultiplier,
+              setMinWallMultiplier,
+              wallLineThickness,
+              onWallThicknessChange: setWallLineThickness,
+              setWallLineThickness,
+              layerOpacity,
+              onOpacityChange: setLayerOpacity,
+              setLayerOpacity,
+            }}
             chartSharedProps={{
               uiConfig,
               strategyLevels,

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   TrendingUp,
   Search,
@@ -25,18 +25,20 @@ import {
   Target,
   PanelRightClose,
   PanelRightOpen,
-  Settings
+  Settings,
+  MoreHorizontal
 } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel
+} from '@/components/ui/dropdown-menu';
 import { useAlertsStore } from '../../stores/alertsStore';
 import { useLayoutStore } from '../../stores/layoutStore';
 import { TIMEFRAMES, POPULAR_SYMBOLS, THEME_BADGE } from './constants';
-
-// Верхняя шапка терминала (Velo / Bookmap style) — вынесена из App.jsx (модульный план, п.5).
-// Управляемый презентационный компонент: бренд, активный символ + поиск + watchlist,
-// деноминация (COIN/USDT/USDC), переключатель таймфреймов, проксимити-баннер, алерты,
-// звук, горячие клавиши, дропдаун «+ Add Widget» (сторы useAlertsStore/useLayoutStore —
-// глобальные, импортируются здесь напрямую), тоглы панелей, тема и вход в настройки.
-// Вся логика состояния остаётся в App — сюда прокидываются значения и колбэки.
 
 export default function AppTopBar({
   symbol,
@@ -84,24 +86,171 @@ export default function AppTopBar({
   onCycleTheme,
   onOpenSettings
 }) {
+  const headerRef = useRef(null);
+  const [barWidth, setBarWidth] = useState(1920);
+
+  useEffect(() => {
+    if (!headerRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect) {
+          setBarWidth(entry.contentRect.width);
+        }
+      }
+    });
+    observer.observe(headerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  // Priority-ordered mode buttons
+  // 1: Widgets, 2: Focus, 3: AI Copilot, 4: Journal, 5: Backtest, 6: DOM, 7: Tape, 8: Signals, 9: DualPane, 10: Replay, 11: LiqLayers, 12: LiqPanel
+  const allModes = [
+    {
+      id: 'focus',
+      label: isFocusMode ? 'Выйти [F]' : 'Фокус [F]',
+      title: "Фокус на графике (100% экран, Клавиша 'F')",
+      icon: isFocusMode ? Minimize2 : Maximize2,
+      active: isFocusMode,
+      onClick: onToggleFocusMode,
+      priority: 9,
+      activeClass: 'bg-emerald-950/70 text-emerald-400 border-emerald-500/50 font-bold',
+    },
+    {
+      id: 'ai-copilot',
+      label: 'AI Ассистент [A]',
+      title: "AI Торговый Ассистент & Order Flow (Клавиша 'A')",
+      icon: Sparkles,
+      active: showAICopilot,
+      onClick: onToggleAICopilot,
+      testId: 'btn-toggle-ai-copilot',
+      priority: 8,
+      activeClass: 'bg-primary/20 text-primary border-primary/50 font-bold',
+    },
+    {
+      id: 'journal',
+      label: 'Журнал [J]',
+      title: "Журнал решений, сигналов и второго мнения AI (SQLite + CSV экспорт)",
+      icon: BookOpen,
+      active: showDecisionJournal,
+      onClick: onOpenDecisionJournal,
+      testId: 'btn-open-decision-journal',
+      priority: 7,
+      activeClass: 'bg-teal-950/70 text-teal-300 border-teal-500/50 font-bold',
+    },
+    {
+      id: 'backtest',
+      label: 'Бэктест [B]',
+      title: "Бэктест и Grid Search (Клавиша 'B')",
+      icon: BarChart3,
+      active: showBacktest,
+      onClick: onToggleBacktest,
+      testId: 'btn-toggle-backtest-drawer',
+      priority: 6,
+      activeClass: 'bg-primary/20 text-primary border-primary/50 font-medium',
+    },
+    {
+      id: 'dom',
+      label: 'DOM [O]',
+      title: "Переключить скальперский DOM стакан (Клавиша 'O')",
+      icon: Layers,
+      active: showOrderBook,
+      onClick: onToggleOrderBook,
+      priority: 5,
+      activeClass: 'bg-primary/20 text-primary border-primary/50 font-medium',
+    },
+    {
+      id: 'tape',
+      label: 'Лента [T]',
+      title: "Переключить ленту сделок Time & Sales (Клавиша 'T')",
+      icon: Zap,
+      active: showTape,
+      onClick: onToggleTape,
+      priority: 4,
+      activeClass: 'bg-primary/20 text-primary border-primary/50 font-medium',
+    },
+    {
+      id: 'signals',
+      label: 'Сигн [S]',
+      title: "Переключить сигналы (Клавиша 'S')",
+      icon: Radio,
+      active: showSignals,
+      onClick: onToggleSignals,
+      priority: 3,
+      activeClass: 'bg-primary/20 text-primary border-primary/50 font-medium',
+    },
+    {
+      id: 'dual-pane',
+      label: isDualPane ? '2 Граф [D]' : '1 Граф [D]',
+      title: "Переключить 1 / 2 графика 50/50 (Клавиша 'D')",
+      icon: Columns,
+      active: isDualPane,
+      onClick: onToggleDualPane,
+      priority: 2,
+      activeClass: 'bg-primary/20 text-primary border-primary/50 font-medium',
+    },
+    {
+      id: 'replay',
+      label: 'Реплей',
+      title: "Replay-плеер записанного lake: Play/Pause/Step/скорость",
+      icon: Activity,
+      active: showReplay,
+      onClick: onOpenReplay,
+      testId: 'btn-open-replay',
+      priority: 2,
+      activeClass: 'bg-primary/20 text-primary border-primary/50 font-medium',
+    },
+    {
+      id: 'liq-layers',
+      label: 'Слои стен [L]',
+      title: "Слои спотовых стен и тепловой карты ликвидаций (Клавиша 'L')",
+      icon: Layers,
+      active: showLiqLayers,
+      onClick: onToggleLiqLayers,
+      testId: 'btn-toggle-liq-layers',
+      priority: 1,
+      activeClass: 'bg-primary/20 text-primary border-primary/50 font-bold',
+    },
+    {
+      id: 'liq-panel',
+      label: 'Карантин [Q]',
+      title: "Панель ликвидаций и фиксация в Shadow Quarantine (Клавиша 'Q')",
+      icon: Target,
+      active: showLiqPanel,
+      onClick: onToggleLiqPanel,
+      testId: 'btn-toggle-liq-panel',
+      priority: 1,
+      activeClass: 'bg-primary/20 text-primary border-primary/50 font-bold',
+    },
+  ];
+
+  // Responsive threshold:
+  // >= 1720px: show all
+  // 1440px - 1719px: show priority >= 4 (up to Tape)
+  // < 1440px: show priority >= 6 (Widgets, Focus, AI, Journal, Backtest)
+  const minPriorityVisible = barWidth >= 1720 ? 0 : barWidth >= 1440 ? 4 : 6;
+  const visibleModes = allModes.filter(m => m.priority >= minPriorityVisible);
+  const overflowModes = allModes.filter(m => m.priority < minPriorityVisible);
+  const hasActiveOverflow = overflowModes.some(m => m.active);
+
   return (
     <header
-      className="flex items-center justify-between px-2.5 h-[32px] border-b border-border/70 bg-card/95 z-20 text-xs gap-2 min-w-0 shrink-0 text-foreground"
+      ref={headerRef}
+      className="flex items-center justify-between px-2.5 h-[32px] border-b border-border/70 bg-card/95 z-20 text-xs gap-1.5 min-w-0 shrink-0 text-foreground overflow-hidden"
     >
       {/* Left: Brand, Active Coin, Watchlist pills, Denomination switch */}
-      <div className="flex items-center space-x-2 min-w-0 shrink-0">
-        <div className="flex items-center space-x-1 font-bold text-white tracking-wider text-[11px] shrink-0">
-          <TrendingUp size={13} className="text-[#38bdf8]" />
+      <div className="flex items-center space-x-1.5 min-w-0 shrink-0">
+        <div className="flex items-center space-x-1 font-bold text-foreground tracking-wider text-[11px] shrink-0">
+          <TrendingUp size={13} className="text-primary" />
           <span>
-            Signal<span className="text-[#38bdf8]">Script</span>
+            Signal<span className="text-primary">Script</span>
           </span>
         </div>
 
-        <div className="h-3 w-px bg-neutral-800 mx-0.5 shrink-0" />
+        <div className="h-3 w-px bg-border/60 mx-0.5 shrink-0" />
 
         {/* Active Symbol & Search */}
         <div className="flex items-center space-x-1 font-mono min-w-0">
-          <span className="text-[11px] font-bold text-white bg-[#12161f] px-1.5 py-0.5 rounded border border-neutral-800 shrink-0">
+          <span className="text-[11px] font-bold text-foreground bg-muted/60 px-1.5 py-0.5 rounded border border-border/80 shrink-0">
             {symbol}
           </span>
 
@@ -111,33 +260,36 @@ export default function AppTopBar({
               placeholder="Поиск..."
               value={searchInput}
               onChange={(e) => onSearchInputChange(e.target.value)}
-              className="w-16 xl:w-20 focus:w-24 transition-all duration-150 bg-[#07090b] border border-neutral-800 rounded px-1.5 py-0.5 text-[10px] text-white placeholder-neutral-500 outline-none font-mono focus:border-blue-500"
+              className="w-16 xl:w-20 focus:w-24 transition-all duration-150 bg-background border border-border rounded px-1.5 py-0.5 text-[10px] text-foreground placeholder-muted-foreground outline-none font-mono focus:border-primary"
             />
-            <Search size={10} className="absolute right-1.5 top-1.5 text-neutral-500 pointer-events-none" />
+            <Search size={10} className="absolute right-1.5 top-1.5 text-muted-foreground pointer-events-none" />
           </form>
 
-          {/* Quick Watchlist pills */}
-          <div className="hidden xl:flex items-center space-x-0.5 pl-0.5">
-            {POPULAR_SYMBOLS.map((sym) => (
-              <button
-                key={sym}
-                onClick={() => onSymbolChange(sym)}
-                className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition ${
-                  symbol === sym
-                    ? 'bg-[#2563eb] text-white font-bold'
-                    : 'text-neutral-400 hover:bg-neutral-800 hover:text-white'
-                }`}
-              >
-                {sym.replace('USDT', '')}
-              </button>
-            ))}
-          </div>
+          {/* Quick Watchlist pills (hidden on compact screens) */}
+          {barWidth >= 1480 && (
+            <div className="flex items-center space-x-0.5 pl-0.5">
+              {POPULAR_SYMBOLS.map((sym) => (
+                <button
+                  key={sym}
+                  type="button"
+                  onClick={() => onSymbolChange(sym)}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition cursor-pointer ${
+                    symbol === sym
+                      ? 'bg-primary text-primary-foreground font-bold shadow-xs'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}
+                >
+                  {sym.replace('USDT', '')}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
-        <div className="h-3 w-px bg-neutral-800 mx-0.5 shrink-0" />
+        <div className="h-3 w-px bg-border/60 mx-0.5 shrink-0" />
 
         {/* Asset Denomination Toggle: COIN / USDT / USDC */}
-        <div className="flex items-center bg-[#07090b] rounded p-0.5 border border-neutral-800 text-[9.5px] font-mono shrink-0">
+        <div className="flex items-center bg-background rounded p-0.5 border border-border text-[9.5px] font-mono shrink-0">
           {['COIN', 'USDT', 'USDC'].map((d) => (
             <button
               key={d}
@@ -146,8 +298,8 @@ export default function AppTopBar({
               onClick={() => onDenomination(d)}
               className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
                 denomination === d
-                  ? 'bg-neutral-800 text-white font-bold shadow-sm'
-                  : 'text-neutral-400 hover:text-neutral-200'
+                  ? 'bg-muted text-foreground font-bold shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               {d}
@@ -157,18 +309,19 @@ export default function AppTopBar({
       </div>
 
       {/* Center: Sleek Institutional Timeframe Switcher */}
-      <div className="flex items-center space-x-0.5 bg-[#07090b] p-0.5 rounded border border-neutral-800 font-mono shrink-0">
-        <span className="hidden sm:inline text-[9px] text-neutral-400 px-1 font-semibold uppercase tracking-wider">TF:</span>
+      <div className="flex items-center space-x-0.5 bg-background p-0.5 rounded border border-border font-mono shrink-0">
+        <span className="hidden sm:inline text-[9px] text-muted-foreground px-1 font-semibold uppercase tracking-wider">TF:</span>
         {TIMEFRAMES.map((tf, idx) => (
           <button
             key={tf}
+            type="button"
             data-testid={`timeframe-btn-${tf}`}
             onClick={() => onTimeframe(tf)}
             title={`Клавиша ${idx + 1}`}
             className={`px-1.5 py-0.5 rounded text-[10px] transition cursor-pointer ${
               timeframe === tf
-                ? 'bg-[#2563eb] text-white font-semibold shadow-sm'
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800/60'
+                ? 'bg-primary text-primary-foreground font-semibold shadow-xs'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
             }`}
           >
             {tf}
@@ -176,63 +329,24 @@ export default function AppTopBar({
         ))}
       </div>
 
-      {/* Right: Proximity Banner, Alerts Button, Sound, Hotkeys, + Add Widget Dropdown */}
+      {/* Center-Right Modes Group */}
       <div className="flex items-center space-x-1 shrink-0">
-        {activeProximityAlert && (
-          <div className="hidden 2xl:flex items-center space-x-1 px-1.5 py-0.5 rounded bg-[#ffb30018] border border-[#ffb30060] text-[#ffb300] text-[10px] font-mono animate-pulse">
-            <AlertTriangle size={11} />
-            <span>
-              {activeProximityAlert.symbol}: ${activeProximityAlert.price} ({activeProximityAlert.distPct.toFixed(2)}%)
-            </span>
-          </div>
-        )}
-
-        {/* Quick Price Alert Trigger Button */}
-        <button
-          type="button"
-          data-testid="alerts-toolbar-button"
-          onClick={() => useAlertsStore.getState().openAlertsModal({ symbol })}
-          className="p-1 rounded text-neutral-400 hover:text-white hover:bg-neutral-800/60 transition cursor-pointer"
-          title="Ценовые алерты (Shift+A)"
-        >
-          <Bell size={13} />
-        </button>
-        {activeAiModel && <span title={activeAiModel} className="px-1.5 py-0.5 rounded border border-[#818cf860] bg-[#1e1b4b] text-[#a5b4fc] text-[10px] font-mono truncate max-w-36">AI: {activeAiModel.split('/').pop().replace(':free', '')}{activeAiModel.endsWith(':free') ? ' [FREE]' : ''}</span>}
-
-        <button
-          onClick={onToggleSound}
-          className={`p-1 rounded transition ${
-            isMuted ? 'text-[#ef5350] hover:bg-[#ef535018]' : 'text-[#26a69a] hover:bg-[#26a69a18]'
-          }`}
-          title={isMuted ? 'Звук отключен' : 'Звуковые алерты активны'}
-        >
-          {isMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
-        </button>
-
-        <button
-          onClick={onToggleHotkeyHelp}
-          className="p-1 rounded text-neutral-400 hover:text-white hover:bg-neutral-800/60 transition"
-          title="Горячие клавиши ('?')"
-        >
-          <Keyboard size={13} />
-        </button>
-
         {/* "+ Add Widget" Institutional Dropdown Menu */}
         <div className="relative">
           <button
             data-testid="widgets-menu-button"
+            type="button"
             onClick={onToggleAddWidgetDropdown}
-            className="px-2 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1.5 border transition cursor-pointer bg-[#0e1217] text-neutral-200 border-neutral-700/60 hover:bg-neutral-800 hover:text-white hover:border-neutral-600"
+            className="px-2 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1.5 border transition cursor-pointer bg-background text-foreground border-border hover:bg-muted"
             title="Добавить модуль в рабочую область (каталог виджетов)"
           >
-            <Plus size={11} className="text-blue-400" />
+            <Plus size={11} className="text-primary" />
             <span className="font-medium">+ Виджеты</span>
-            <ChevronDown size={10} className="text-neutral-400" />
+            <ChevronDown size={10} className="text-muted-foreground" />
           </button>
 
           {isAddWidgetDropdownOpen && (
             <>
-              {/* Backdrop closer */}
               <div
                 className="fixed inset-0 z-40"
                 onClick={() => onToggleAddWidgetDropdown(false)}
@@ -241,20 +355,20 @@ export default function AppTopBar({
               <div
                 data-testid="widgets-dropdown"
                 onClick={(e) => e.stopPropagation()}
-                className="absolute right-0 top-7 z-50 w-56 rounded-lg border border-neutral-800 bg-[#0b0e11] shadow-2xl p-1.5 space-y-0.5 font-sans text-xs animate-fadeIn text-[#d1d5db]"
+                className="absolute left-0 top-7 z-50 w-56 rounded-md border border-border bg-popover shadow-xl p-1.5 space-y-0.5 font-sans text-xs animate-in fade-in zoom-in-95 text-popover-foreground"
               >
-                <div className="px-2 py-1 text-[9px] font-mono font-bold uppercase tracking-wider text-neutral-400 border-b border-neutral-800/80 mb-1">
-                  Modules & Widgets
+                <div className="px-2 py-1 text-[9px] font-mono font-bold uppercase tracking-wider text-muted-foreground border-b border-border/80 mb-1">
+                  Модули и виджеты
                 </div>
 
                 {[
-                  { id: 'chart', label: 'Chart (График)', hint: 'Shift+C', icon: LineChart },
+                  { id: 'chart', label: 'График (Chart)', hint: 'Shift+C', icon: LineChart },
                   { id: 'tpo', label: 'TPO / Footprint', hint: 'Shift+P', icon: Layers },
-                  { id: 'orderbook', label: 'Order Book (Стакан)', hint: 'Shift+O', icon: BookOpen },
+                  { id: 'orderbook', label: 'Стакан (Order Book)', hint: 'Shift+O', icon: BookOpen },
                   { id: 'dom', label: 'DOM Ladder', hint: 'Shift+D', icon: Activity },
-                  { id: 'trades', label: 'Trades (Лента)', hint: 'Shift+T', icon: Zap },
-                  { id: 'screener', label: 'Screener (Скринер)', hint: 'Shift+S', icon: BarChart2 },
-                  { id: 'alerts', label: 'Alerts (Алерты)', hint: 'Shift+A', icon: Bell }
+                  { id: 'trades', label: 'Лента сделок (Trades)', hint: 'Shift+T', icon: Zap },
+                  { id: 'screener', label: 'Скринер рынка (Screener)', hint: 'Shift+S', icon: BarChart2 },
+                  { id: 'alerts', label: 'Алерты (Alerts)', hint: 'Shift+A', icon: Bell }
                 ].map((item) => {
                   const Icon = item.icon;
                   return (
@@ -270,27 +384,27 @@ export default function AppTopBar({
                         }
                         onToggleAddWidgetDropdown(false);
                       }}
-                      className="w-full flex items-center justify-between px-2 py-1.5 rounded hover:bg-neutral-800/80 hover:text-white transition cursor-pointer text-left group"
+                      className="w-full flex items-center justify-between px-2 py-1.5 rounded hover:bg-muted text-foreground transition cursor-pointer text-left group"
                     >
-                      <span className="flex items-center space-x-2 text-[11px] text-neutral-300 group-hover:text-white">
-                        <Icon size={12} className="text-neutral-400 group-hover:text-blue-400" />
+                      <span className="flex items-center space-x-2 text-[11px]">
+                        <Icon size={12} className="text-muted-foreground group-hover:text-primary" />
                         <span>{item.label}</span>
                       </span>
-                      <span className="text-[9.5px] font-mono text-neutral-400 group-hover:text-neutral-300">
+                      <span className="text-[9.5px] font-mono text-muted-foreground">
                         {item.hint}
                       </span>
                     </button>
                   );
                 })}
 
-                <div className="pt-1 border-t border-neutral-800/80 mt-1">
+                <div className="pt-1 border-t border-border mt-1">
                   <button
                     type="button"
                     onClick={() => {
                       useLayoutStore.getState().openWidgetHub();
                       onToggleAddWidgetDropdown(false);
                     }}
-                    className="w-full flex items-center justify-between px-2 py-1.5 rounded hover:bg-neutral-800/80 hover:text-white text-[10.5px] font-mono text-blue-400 transition cursor-pointer"
+                    className="w-full flex items-center justify-between px-2 py-1.5 rounded hover:bg-muted text-[10.5px] font-mono text-primary transition cursor-pointer"
                   >
                     <span>Каталог виджетов...</span>
                     <ExternalLink size={10} />
@@ -301,194 +415,155 @@ export default function AppTopBar({
           )}
         </div>
 
-        {/* Workspace Toggle: Dual-Pane 50/50 */}
+        {/* Visible Mode Buttons */}
+        {visibleModes.map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              data-testid={item.testId}
+              onClick={item.onClick}
+              title={item.title}
+              className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition cursor-pointer shrink-0 ${
+                item.active
+                  ? item.activeClass
+                  : 'text-muted-foreground border-transparent hover:bg-muted hover:text-foreground'
+              }`}
+            >
+              <Icon size={11} className={item.id === 'ai-copilot' && item.active ? 'animate-pulse text-primary' : ''} />
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+
+        {/* Overflow Dropdown: "Ещё ▾" when buttons do not fit */}
+        {overflowModes.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                data-testid="topbar-overflow-more"
+                className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition cursor-pointer shrink-0 ${
+                  hasActiveOverflow
+                    ? 'bg-primary/20 text-primary border-primary/50 font-bold'
+                    : 'text-muted-foreground border-border hover:bg-muted hover:text-foreground'
+                }`}
+                title="Дополнительные режимы и панели"
+              >
+                <MoreHorizontal size={11} />
+                <span>Ещё</span>
+                {hasActiveOverflow && <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />}
+                <ChevronDown size={10} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48 p-1 font-mono text-xs">
+              <DropdownMenuLabel className="text-[9.5px] text-muted-foreground uppercase tracking-wider py-1">
+                Режимы терминала
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {overflowModes.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <DropdownMenuItem
+                    key={item.id}
+                    data-testid={item.testId}
+                    onClick={item.onClick}
+                    className={`flex items-center justify-between text-[11px] py-1.5 cursor-pointer ${
+                      item.active ? 'bg-primary/15 text-primary font-bold' : ''
+                    }`}
+                  >
+                    <span className="flex items-center space-x-2">
+                      <Icon size={12} className={item.active ? 'text-primary' : 'text-muted-foreground'} />
+                      <span>{item.label}</span>
+                    </span>
+                    {item.active && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-primary" />
+                    )}
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+
+      {/* Pinned Right Group: Always visible (shrink-0, ml-auto) */}
+      <div className="ml-auto shrink-0 flex items-center space-x-1 pl-1">
+        {activeProximityAlert && barWidth >= 1600 && (
+          <div className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-warning/15 border border-warning/50 text-warning text-[10px] font-mono animate-pulse">
+            <AlertTriangle size={11} />
+            <span>
+              {activeProximityAlert.symbol}: ${activeProximityAlert.price} ({activeProximityAlert.distPct.toFixed(2)}%)
+            </span>
+          </div>
+        )}
+
+        {/* Quick Price Alert Trigger Button */}
         <button
-          onClick={onToggleDualPane}
-          className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition ${
-            isDualPane
-              ? 'bg-[#141720] text-[#38bdf8] border-[#38bdf840]'
-              : 'text-[#60697b] border-transparent hover:bg-[#141720]'
-          }`}
-          title="Переключить 1 / 2 графика 50/50 (Клавиша 'D')"
+          type="button"
+          data-testid="alerts-toolbar-button"
+          onClick={() => useAlertsStore.getState().openAlertsModal({ symbol })}
+          className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+          title="Ценовые алерты (Shift+A)"
         >
-          <Columns size={11} />
-          <span>{isDualPane ? '2 Граф [D]' : '1 Граф [D]'}</span>
+          <Bell size={13} />
         </button>
 
-        {/* Clean Focus / Zen Mode Toggle */}
+        {activeAiModel && barWidth >= 1500 && (
+          <span
+            title={activeAiModel}
+            className="px-1.5 py-0.5 rounded border border-primary/40 bg-primary/10 text-primary text-[10px] font-mono truncate max-w-32"
+          >
+            AI: {activeAiModel.split('/').pop().replace(':free', '')}
+          </span>
+        )}
+
         <button
-          onClick={onToggleFocusMode}
-          className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition ${
-            isFocusMode
-              ? 'bg-[#052e16] text-[#4ade80] border-[#22c55e60] font-bold'
-              : 'text-[#60697b] border-transparent hover:bg-[#141720] hover:text-white'
+          type="button"
+          onClick={onToggleSound}
+          className={`p-1 rounded transition cursor-pointer ${
+            isMuted ? 'text-destructive hover:bg-destructive/15' : 'text-emerald-500 hover:bg-emerald-500/15'
           }`}
-          title="Фокус на графике (100% экран без лишних панелей, Клавиша 'F')"
+          title={isMuted ? 'Звук отключен' : 'Звуковые алерты активны'}
         >
-          {isFocusMode ? <Minimize2 size={11} /> : <Maximize2 size={11} />}
-          <span>{isFocusMode ? 'Выйти [F]' : 'Фокус [F]'}</span>
+          {isMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
         </button>
 
-        {/* AI Copilot Sidebar Toggle */}
         <button
-          data-testid="btn-toggle-ai-copilot"
-          onClick={onToggleAICopilot}
-          className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition cursor-pointer ${
-            showAICopilot
-              ? 'bg-[#1e1b4b] text-[#818cf8] border-[#818cf860] font-bold'
-              : 'text-[#60697b] border-transparent hover:bg-[#141720] hover:text-[#818cf8]'
-          }`}
-          title="AI Торговый Ассистент & Order Flow (Клавиша 'A')"
+          type="button"
+          onClick={onToggleHotkeyHelp}
+          className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
+          title="Горячие клавиши ('?')"
         >
-          <Sparkles size={11} className={showAICopilot ? 'animate-pulse text-[#818cf8]' : ''} />
-          <span>AI Ассистент [A]</span>
-        </button>
-
-        {/* Decision Journal Modal Toggle (Stage 1) */}
-        <button
-          data-testid="btn-open-decision-journal"
-          onClick={onOpenDecisionJournal}
-          className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition cursor-pointer ${
-            showDecisionJournal
-              ? 'bg-[#0f292a] text-[#2dd4bf] border-[#2dd4bf60] font-bold'
-              : 'text-[#2dd4bf] border-[#2dd4bf40] bg-[#101c22] hover:bg-[#162932]'
-          }`}
-          title="Журнал решений, сигналов и второго мнения AI (SQLite + CSV экспорт)"
-        >
-          <span>📓</span>
-          <span>Журнал [J]</span>
-        </button>
-
-        {/* Replay lake player toggle (задача 2.5) */}
-        <button
-          data-testid="btn-open-replay"
-          onClick={onOpenReplay}
-          className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition ${
-            showReplay
-              ? 'bg-[#141720] text-[#38bdf8] border-[#38bdf840]'
-              : 'text-[#60697b] border-transparent hover:bg-[#141720]'
-          }`}
-          title="Replay-плеер записанного lake: Play/Pause/Step/скорость (тики и стакан из recorder'а)"
-        >
-          <span>⏯</span>
-          <span>Replay</span>
-        </button>
-
-        {/* Backtest drawer toggle */}
-        <button
-          data-testid="btn-toggle-backtest-drawer"
-          onClick={onToggleBacktest}
-          className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition ${
-            showBacktest
-              ? 'bg-[#141720] text-[#a78bfa] border-[#a78bfa40]'
-              : 'text-[#60697b] border-transparent hover:bg-[#141720]'
-          }`}
-          title="Бэктест и Grid Search (Клавиша 'B')"
-        >
-          <BarChart3 size={11} />
-          <span>Бэктест [B]</span>
-        </button>
-
-        {/* Panel Toggle: DOM OrderBook */}
-        <button
-          onClick={onToggleOrderBook}
-          className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition ${
-            showOrderBook
-              ? 'bg-[#141720] text-[#38bdf8] border-[#38bdf840]'
-              : 'text-[#60697b] border-transparent hover:bg-[#141720]'
-          }`}
-          title="Переключить скальперский DOM стакан (Клавиша 'O')"
-        >
-          <Layers size={11} />
-          <span>DOM [O]</span>
-        </button>
-
-        {/* Panel Toggle: Tape */}
-        <button
-          onClick={onToggleTape}
-          className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition ${
-            showTape
-              ? 'bg-[#141720] text-[#f59e0b] border-[#f59e0b40]'
-              : 'text-[#60697b] border-transparent hover:bg-[#141720]'
-          }`}
-          title="Переключить ленту сделок Time & Sales (Клавиша 'T')"
-        >
-          <Zap size={11} />
-          <span>Лента [T]</span>
-        </button>
-
-        {/* Panel Toggle: Signals */}
-        <button
-          onClick={onToggleSignals}
-          className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition ${
-            showSignals
-              ? 'bg-[#141720] text-[#26a69a] border-[#26a69a40]'
-              : 'text-[#60697b] border-transparent hover:bg-[#141720]'
-          }`}
-          title="Переключить сигналы (Клавиша 'S')"
-        >
-          <Radio size={11} />
-          <span>Сигн [S]</span>
-        </button>
-
-        {/* Spot Limit Walls & Liq Heatmap Layers Toggle */}
-        <button
-          data-testid="btn-toggle-liq-layers"
-          onClick={onToggleLiqLayers}
-          className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition cursor-pointer ${
-            showLiqLayers
-              ? 'bg-[#1e1b4b] text-[#c084fc] border-[#c084fc60] font-bold'
-              : 'text-[#60697b] border-transparent hover:bg-[#141720] hover:text-[#c084fc]'
-          }`}
-          title="Слои спотовых стен и тепловой карты ликвидаций (Клавиша 'L')"
-        >
-          <Layers size={11} className={showLiqLayers ? 'text-[#c084fc]' : ''} />
-          <span>Слои стен [L]</span>
-        </button>
-
-        {/* Liquidation Analytics & Quarantine Drawer Toggle */}
-        <button
-          data-testid="btn-toggle-liq-panel"
-          onClick={onToggleLiqPanel}
-          className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition cursor-pointer ${
-            showLiqPanel
-              ? 'bg-[#3b0764] text-[#e879f9] border-[#e879f960] font-bold'
-              : 'text-[#60697b] border-transparent hover:bg-[#141720] hover:text-[#e879f9]'
-          }`}
-          title="Панель ликвидаций и фиксация в Shadow Quarantine (Клавиша 'Q')"
-        >
-          <Target size={11} className={showLiqPanel ? 'animate-pulse text-[#e879f9]' : ''} />
-          <span>Карантин [Q]</span>
+          <Keyboard size={13} />
         </button>
 
         {/* Collapse/Expand entire right dock */}
         <button
+          type="button"
           onClick={onToggleRightPanels}
-          className="p-1 rounded text-[#787f91] hover:text-white hover:bg-[#161820] transition"
+          className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
           title={anyRightPanelOpen ? 'Свернуть боковой док (отдать 100% экрану графикам)' : 'Развернуть боковой док'}
         >
           {anyRightPanelOpen ? <PanelRightClose size={13} /> : <PanelRightOpen size={13} />}
         </button>
 
-        {/* Theme Switcher Button (Tealstreet Pro / Tiger Deep Dark / Bloomberg) */}
+        {/* Theme Switcher Button */}
         <button
+          type="button"
           onClick={onCycleTheme}
-          className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border transition ${
-            theme === 'bloomberg'
-              ? 'bg-[#ff9800] text-black font-bold border-[#ff9800]'
-              : theme === 'tiger'
-              ? 'bg-[#0a192f] text-[#00f5d4] font-bold border-[#00e5ff60]'
-              : 'text-[#787f91] border-[#1f2430] hover:text-white bg-[#101217]'
-          }`}
-          title="Переключить цветовую тему (Tealstreet Pro / Tiger Deep Dark / Bloomberg)"
+          className="px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 border border-border bg-background text-foreground hover:bg-muted transition cursor-pointer shrink-0"
+          title="Переключить цветовую тему"
         >
           <span>{THEME_BADGE[theme] || '🌙 TEAL'}</span>
         </button>
 
-        {/* Settings Modal (Gear Icon & ',' hotkey) */}
+        {/* Settings Modal (Gear Icon) */}
         <button
+          type="button"
           onClick={onOpenSettings}
-          className="p-1 rounded text-[#787f91] hover:text-[#38bdf8] hover:bg-[#161820] transition"
+          className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-muted transition cursor-pointer shrink-0"
           title="Центр настроек терминала (Клавиша ',')"
         >
           <Settings size={13} />

@@ -835,6 +835,7 @@ export default function TerminalDockview({
     >
       {/* Top Presets bar */}
       <PresetBar
+        layersProps={props.layersProps}
         onSwitchPreset={handleSwitchPreset}
         onNewPreset={handleNewPreset}
         onAddTradesPanel={handleAddTradesPanel}
