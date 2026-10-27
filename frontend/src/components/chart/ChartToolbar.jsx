@@ -379,7 +379,7 @@ export default function ChartToolbar({
             onClick={handleAskSecondOpinion}
             disabled={isAskingOpinion}
             title="Консультативное второе мнение AI по текущему сетапу и рынку (без автоторговли)"
-            className="px-1.5 py-0.5 rounded text-[10px] font-mono transition flex items-center space-x-1 bg-[#2e1065] hover:bg-[#581c87] text-[#e9d5ff] border border-[#a855f760] mr-0.5 cursor-pointer font-bold"
+            className="px-1.5 py-0.5 rounded text-[10px] font-mono transition flex items-center space-x-1 bg-primary/20 hover:bg-primary/30 text-primary border border-primary/50 mr-0.5 cursor-pointer font-bold"
           >
             <span>🧠</span>
             <span>{isAskingOpinion ? 'Анализ...' : 'Мнение AI'}</span>
@@ -690,7 +690,7 @@ export default function ChartToolbar({
               localStorage.setItem('chart_heatmap', next ? 'true' : 'false');
               if (next) loadHeatmap(true);
             }}
-            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition flex items-center ${showHeatmap ? 'bg-[#ff980022] text-[#ff9800] border border-[#ff980050]' : 'text-[#60697b] hover:text-white'}`}
+            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition flex items-center ${showHeatmap ? 'bg-primary/20 text-primary border border-primary/50' : 'text-[#60697b] hover:text-white'}`}
           >
             <span>🔥</span>
             <span className="hidden xl:inline ml-0.5">Плотн.</span>
@@ -860,7 +860,7 @@ export default function ChartToolbar({
 
           <button 
             onClick={() => toggleIndicator('vwap')}
-            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition ${showVwap ? 'bg-[#1e293b] text-[#ffb300] border border-[#ffb30050]' : 'text-[#60697b] hover:text-white'}`}
+            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition ${showVwap ? 'bg-[#1e293b] text-primary border border-primary/40' : 'text-[#60697b] hover:text-white'}`}
           >
             VWAP
           </button>
@@ -889,14 +889,14 @@ export default function ChartToolbar({
 
           <button 
             onClick={() => toggleIndicator('rsi')}
-            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition ${activeIndicators.some(i => i.id === 'rsi' && i.enabled !== false) ? 'bg-[#1e293b] text-[#a855f7] border border-[#a855f740]' : 'text-[#60697b] hover:text-white'}`}
+            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition ${activeIndicators.some(i => i.id === 'rsi' && i.enabled !== false) ? 'bg-[#1e293b] text-primary border border-primary/40' : 'text-[#60697b] hover:text-white'}`}
           >
             RSI
           </button>
           
           <button 
             onClick={() => toggleIndicator('macd')}
-            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition ${activeIndicators.some(i => i.id === 'macd' && i.enabled !== false) ? 'bg-[#1e293b] text-[#f59e0b] border border-[#f59e0b40]' : 'text-[#60697b] hover:text-white'}`}
+            className={`px-1 py-0.2 rounded text-[9.5px] font-mono transition ${activeIndicators.some(i => i.id === 'macd' && i.enabled !== false) ? 'bg-[#1e293b] text-primary border border-primary/40' : 'text-[#60697b] hover:text-white'}`}
           >
             MACD
           </button>

@@ -166,7 +166,7 @@ export default function PresetBar({ onSwitchPreset, onNewPreset, onAddTradesPane
             data-testid="btn-add-trades-panel"
             onClick={onAddTradesPanel}
             title="Открыть / Переключить на ленту сделок (Tape)"
-            className="flex items-center space-x-1 px-2 py-0.5 rounded text-[10.5px] bg-[#171a23] text-[#eab308] border border-[#2e374d] hover:bg-[#202738] hover:border-[#eab30860] transition cursor-pointer shrink-0"
+            className="flex items-center space-x-1 px-2 py-0.5 rounded text-[10.5px] bg-card text-foreground border border-border hover:bg-muted transition cursor-pointer shrink-0"
           >
             <Zap size={11} />
             <span className="text-[10px] font-mono font-medium">Лента сделок</span>
