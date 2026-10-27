@@ -20,31 +20,31 @@ export default function BacktestTradesTable({ trades, sortField, sortAsc, onSort
           className="sticky top-0 text-[#60697b] text-[8.5px] uppercase select-none z-10"
         >
           <tr>
-            <th onClick={() => onSort('id')} className="text-left px-2 py-1 cursor-pointer hover:text-white">
+            <th onClick={() => onSort('id')} className="text-left px-2 py-1 cursor-pointer hover:text-foreground">
               <span className="flex items-center gap-0.5"># {sortIcon('id')}</span>
             </th>
-            <th onClick={() => onSort('type')} className="text-left px-2 cursor-pointer hover:text-white">
+            <th onClick={() => onSort('type')} className="text-left px-2 cursor-pointer hover:text-foreground">
               <span className="flex items-center gap-0.5">Тип {sortIcon('type')}</span>
             </th>
-            <th onClick={() => onSort('entry_time')} className="text-left px-2 cursor-pointer hover:text-white">
+            <th onClick={() => onSort('entry_time')} className="text-left px-2 cursor-pointer hover:text-foreground">
               <span className="flex items-center gap-0.5">Вход {sortIcon('entry_time')}</span>
             </th>
-            <th onClick={() => onSort('entry_price')} className="text-right px-2 cursor-pointer hover:text-white">
+            <th onClick={() => onSort('entry_price')} className="text-right px-2 cursor-pointer hover:text-foreground">
               <span className="flex items-center justify-end gap-0.5">Цена вх. {sortIcon('entry_price')}</span>
             </th>
-            <th onClick={() => onSort('exit_price')} className="text-right px-2 cursor-pointer hover:text-white">
+            <th onClick={() => onSort('exit_price')} className="text-right px-2 cursor-pointer hover:text-foreground">
               <span className="flex items-center justify-end gap-0.5">Цена вых. {sortIcon('exit_price')}</span>
             </th>
-            <th onClick={() => onSort('gross_pnl_usd')} className="text-right px-2 cursor-pointer hover:text-white">
+            <th onClick={() => onSort('gross_pnl_usd')} className="text-right px-2 cursor-pointer hover:text-foreground">
               <span className="flex items-center justify-end gap-0.5">Gross $ {sortIcon('gross_pnl_usd')}</span>
             </th>
-            <th onClick={() => onSort('fee_paid_usd')} className="text-right px-2 cursor-pointer hover:text-white">
+            <th onClick={() => onSort('fee_paid_usd')} className="text-right px-2 cursor-pointer hover:text-foreground">
               <span className="flex items-center justify-end gap-0.5">Комиссия+Слип {sortIcon('fee_paid_usd')}</span>
             </th>
-            <th onClick={() => onSort('pnl_usd')} className="text-right px-2 cursor-pointer hover:text-white">
+            <th onClick={() => onSort('pnl_usd')} className="text-right px-2 cursor-pointer hover:text-foreground">
               <span className="flex items-center justify-end gap-0.5">Чистый PnL {sortIcon('pnl_usd')}</span>
             </th>
-            <th onClick={() => onSort('reason')} className="text-left px-2 cursor-pointer hover:text-white">
+            <th onClick={() => onSort('reason')} className="text-left px-2 cursor-pointer hover:text-foreground">
               <span className="flex items-center gap-0.5">Выход {sortIcon('reason')}</span>
             </th>
           </tr>
@@ -61,7 +61,7 @@ export default function BacktestTradesTable({ trades, sortField, sortAsc, onSort
                 {t.type}
               </td>
               <td className="px-2 text-[#787f91]">{fmtTime(t.entry_time)}</td>
-              <td className="px-2 text-right text-white">{fmtPrice(t.entry_price)}</td>
+              <td className="px-2 text-right text-foreground">{fmtPrice(t.entry_price)}</td>
               <td className="px-2 text-right text-[#787f91]">{fmtPrice(t.exit_price)}</td>
               <td className="px-2 text-right text-[#cbd5e1]">
                 ${(t.gross_pnl_usd ?? t.pnl_usd).toFixed(2)}

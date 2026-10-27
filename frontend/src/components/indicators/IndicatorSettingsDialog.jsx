@@ -72,7 +72,7 @@ export default function IndicatorSettingsDialog({
         {/* Header */}
         <div className="px-5 py-3.5 border-b border-[#1b2233] flex items-center justify-between bg-[#121824]">
           <div>
-            <h3 className="text-sm font-semibold text-white">
+            <h3 className="text-sm font-semibold text-foreground">
               Настройки: {indicatorDef.shortName}
             </h3>
             <p className="text-[11px] text-[#94a3b8]">{indicatorDef.name}</p>
@@ -81,7 +81,7 @@ export default function IndicatorSettingsDialog({
             type="button"
             data-testid="btn-close-indicator-settings"
             onClick={onClose}
-            className="p-1 rounded-md text-[#64748b] hover:text-white hover:bg-[#1e2638] transition cursor-pointer"
+            className="p-1 rounded-md text-[#64748b] hover:text-foreground hover:bg-[#1e2638] transition cursor-pointer"
           >
             <X size={16} />
           </button>
@@ -96,7 +96,7 @@ export default function IndicatorSettingsDialog({
             className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-medium border-b-2 transition cursor-pointer ${
               activeTab === 'inputs'
                 ? 'border-[#38bdf8] text-[#38bdf8]'
-                : 'border-transparent text-[#94a3b8] hover:text-white'
+                : 'border-transparent text-[#94a3b8] hover:text-foreground'
             }`}
           >
             <Sliders size={13} />
@@ -109,7 +109,7 @@ export default function IndicatorSettingsDialog({
             className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-medium border-b-2 transition cursor-pointer ${
               activeTab === 'style'
                 ? 'border-[#38bdf8] text-[#38bdf8]'
-                : 'border-transparent text-[#94a3b8] hover:text-white'
+                : 'border-transparent text-[#94a3b8] hover:text-foreground'
             }`}
           >
             <Palette size={13} />
@@ -135,7 +135,7 @@ export default function IndicatorSettingsDialog({
                         max={def.max}
                         step={def.step}
                         onChange={(e) => handleInputChange(def.key, parseFloat(e.target.value) || 0)}
-                        className="w-24 px-2 py-1 bg-[#141b29] border border-[#232d42] rounded text-right text-xs text-white font-mono focus:border-[#38bdf8] focus:outline-none transition"
+                        className="w-24 px-2 py-1 bg-[#141b29] border border-[#232d42] rounded text-right text-xs text-foreground font-mono focus:border-[#38bdf8] focus:outline-none transition"
                       />
                     </div>
                   </div>
@@ -199,7 +199,7 @@ export default function IndicatorSettingsDialog({
               type="button"
               data-testid="btn-reset-indicator-settings"
               onClick={handleReset}
-              className="flex items-center space-x-1 text-[11px] text-[#94a3b8] hover:text-white transition cursor-pointer"
+              className="flex items-center space-x-1 text-[11px] text-[#94a3b8] hover:text-foreground transition cursor-pointer"
             >
               <RotateCcw size={12} />
               <span>По умолчанию</span>
@@ -209,14 +209,14 @@ export default function IndicatorSettingsDialog({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[#1a2233] text-[#94a3b8] hover:text-white transition cursor-pointer"
+                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[#1a2233] text-[#94a3b8] hover:text-foreground transition cursor-pointer"
               >
                 Отмена
               </button>
               <button
                 type="submit"
                 data-testid="btn-apply-indicator-settings"
-                className="flex items-center space-x-1 px-3.5 py-1.5 rounded-lg text-xs font-medium bg-[#2563eb] hover:bg-[#1d4ed8] text-white shadow transition cursor-pointer"
+                className="flex items-center space-x-1 px-3.5 py-1.5 rounded-lg text-xs font-medium bg-[#2563eb] hover:bg-[#1d4ed8] text-foreground shadow transition cursor-pointer"
               >
                 <Check size={13} />
                 <span>Применить</span>

@@ -571,12 +571,12 @@ export default function AICopilotSidebar({
             value={inputMsg}
             onChange={(e) => setInputMsg(e.target.value)}
             disabled={chatLoading}
-            className="flex-1 bg-[#090b10] border border-[#222838] focus:border-[#38bdf8] rounded px-2.5 py-1.5 text-[11px] text-white placeholder-[#64748b] outline-none font-sans"
+            className="flex-1 bg-[#090b10] border border-[#222838] focus:border-[#38bdf8] rounded px-2.5 py-1.5 text-[11px] text-foreground placeholder-[#64748b] outline-none font-sans"
           />
           <button
             type="submit"
             disabled={chatLoading || !inputMsg.trim()}
-            className="p-1.5 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-white disabled:opacity-40 transition cursor-pointer"
+            className="p-1.5 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-foreground disabled:opacity-40 transition cursor-pointer"
             title="Отправить (Enter)"
           >
             <Send size={13} />

@@ -349,7 +349,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert, uiConf
         style={{ backgroundColor: 'var(--bg-panel-header)', borderColor: 'var(--border-subtle)' }}
         className="flex items-center justify-between px-2 py-1 border-b"
       >
-        <div className="flex items-center space-x-1 font-bold text-white text-[11px] shrink-0">
+        <div className="flex items-center space-x-1 font-bold text-foreground text-[11px] shrink-0">
           <Layers size={12} className="text-[#38bdf8]" />
           <span>Стакан L2</span>
         </div>
@@ -360,7 +360,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert, uiConf
             <button
               key={mult}
               onClick={() => setTickMultiplier(mult)}
-              className={`px-1 py-0.2 rounded transition ${tickMultiplier === mult ? 'bg-[#2563eb] text-white font-bold' : 'text-[#787f91] hover:text-white'}`}
+              className={`px-1 py-0.2 rounded transition ${tickMultiplier === mult ? 'bg-[#2563eb] text-foreground font-bold' : 'text-[#787f91] hover:text-foreground'}`}
               title={`Агрегация шага цены x${mult}`}
             >
               x{mult}
@@ -376,7 +376,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert, uiConf
               const next = refreshRateMs === 100 ? 500 : (refreshRateMs === 500 ? 1000 : 100);
               setRefreshRateMs(next);
             }}
-            className="px-1 py-0.5 rounded bg-[#161922] hover:bg-[#1f2430] text-[9px] text-[#787f91] hover:text-white transition"
+            className="px-1 py-0.5 rounded bg-[#161922] hover:bg-[#1f2430] text-[9px] text-[#787f91] hover:text-foreground transition"
             title="Частота обновления отрисовки стакана"
           >
             {refreshRateMs}ms
@@ -385,7 +385,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert, uiConf
           {/* Volume unit toggle */}
           <button
             onClick={() => setVolumeMode(v => v === "USDT" ? "COIN" : "USDT")}
-            className="px-1 py-0.5 rounded bg-[#161922] hover:bg-[#1f2430] text-[9px] font-bold text-[#26a69a] hover:text-white transition"
+            className="px-1 py-0.5 rounded bg-[#161922] hover:bg-[#1f2430] text-[9px] font-bold text-[#26a69a] hover:text-foreground transition"
             title="Переключить единицу объема (USDT / COIN)"
           >
             {volumeMode}
@@ -393,7 +393,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert, uiConf
 
           <button
             onClick={() => setShowSettings(!showSettings)}
-            className={`p-1 rounded transition ${showSettings ? 'bg-[#2563eb] text-white' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'}`}
+            className={`p-1 rounded transition ${showSettings ? 'bg-[#2563eb] text-foreground' : 'text-[#787f91] hover:bg-[#161922] hover:text-foreground'}`}
             title="Настройки плотностей, сближения и спуфинга"
           >
             <Settings2 size={12} />
@@ -411,7 +411,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert, uiConf
               step="10000"
               value={densityThresholdUsd}
               onChange={(e) => setDensityThresholdUsd(Math.max(1000, Number(e.target.value)))}
-              className="w-20 bg-[#08090c] border border-[#1f2430] rounded px-1.5 py-0.5 text-right font-mono text-white text-xs"
+              className="w-20 bg-[#08090c] border border-[#1f2430] rounded px-1.5 py-0.5 text-right font-mono text-foreground text-xs"
             />
           </div>
 
@@ -424,7 +424,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert, uiConf
               max="50"
               value={minDistanceBps}
               onChange={(e) => setMinDistanceBps(Math.max(1, Number(e.target.value)))}
-              className="w-20 bg-[#08090c] border border-[#1f2430] rounded px-1.5 py-0.5 text-right font-mono text-white text-xs"
+              className="w-20 bg-[#08090c] border border-[#1f2430] rounded px-1.5 py-0.5 text-right font-mono text-foreground text-xs"
               title="Фильтрует алерт прямо на спреде (5 bps = 0.05%)"
             />
           </div>
@@ -438,7 +438,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert, uiConf
               max="100"
               value={maxProximityBps}
               onChange={(e) => setMaxProximityBps(Math.max(5, Number(e.target.value)))}
-              className="w-20 bg-[#08090c] border border-[#1f2430] rounded px-1.5 py-0.5 text-right font-mono text-white text-xs"
+              className="w-20 bg-[#08090c] border border-[#1f2430] rounded px-1.5 py-0.5 text-right font-mono text-foreground text-xs"
               title="Дистанция срабатывания алерта (25 bps = 0.25%)"
             />
           </div>
@@ -452,7 +452,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert, uiConf
               max="120"
               value={cooldownSec}
               onChange={(e) => setCooldownSec(Math.max(3, Number(e.target.value)))}
-              className="w-20 bg-[#08090c] border border-[#1f2430] rounded px-1.5 py-0.5 text-right font-mono text-white text-xs"
+              className="w-20 bg-[#08090c] border border-[#1f2430] rounded px-1.5 py-0.5 text-right font-mono text-foreground text-xs"
             />
           </div>
 
@@ -479,7 +479,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert, uiConf
                   <button
                     key={mult}
                     onClick={() => setTickMultiplier(mult)}
-                    className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition ${tickMultiplier === mult ? 'bg-[#2563eb] text-white font-bold' : 'bg-[#08090c] text-[#787f91] hover:text-white'}`}
+                    className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition ${tickMultiplier === mult ? 'bg-[#2563eb] text-foreground font-bold' : 'bg-[#08090c] text-[#787f91] hover:text-foreground'}`}
                   >
                     x{mult}
                   </button>
@@ -494,7 +494,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert, uiConf
                   <button
                     key={cnt}
                     onClick={() => setLevelCount(cnt)}
-                    className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition ${levelCount === cnt ? 'bg-[#2563eb] text-white font-bold' : 'bg-[#08090c] text-[#787f91] hover:text-white'}`}
+                    className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition ${levelCount === cnt ? 'bg-[#2563eb] text-foreground font-bold' : 'bg-[#08090c] text-[#787f91] hover:text-foreground'}`}
                   >
                     {cnt}
                   </button>
@@ -514,7 +514,7 @@ export default function OrderBook({ symbol = "BTCUSDT", onProximityAlert, uiConf
                   <button
                     key={m.id}
                     onClick={() => setDisplayMode(m.id)}
-                    className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition ${displayMode === m.id ? 'bg-[#ff9800] text-black font-bold' : 'bg-[#08090c] text-[#787f91] hover:text-white'}`}
+                    className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition ${displayMode === m.id ? 'bg-[#ff9800] text-black font-bold' : 'bg-[#08090c] text-[#787f91] hover:text-foreground'}`}
                   >
                     {m.label}
                   </button>

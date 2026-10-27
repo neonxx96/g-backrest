@@ -10,7 +10,7 @@ export default function ExpectedValueCard({ expectedValue }) {
       className="p-2.5 rounded-lg border border-[#10b98140] bg-[#091515] space-y-2 font-mono text-[10px]"
     >
       <div className="flex items-center justify-between">
-        <span className="font-bold text-white text-[10.5px] flex items-center space-x-1">
+        <span className="font-bold text-foreground text-[10.5px] flex items-center space-x-1">
           <Scale size={13} className="text-[#10b981]" />
           <span>Математическое ожидание (EV)</span>
         </span>

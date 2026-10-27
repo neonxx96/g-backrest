@@ -84,14 +84,14 @@ export function LiveEquityChart({ points = [], initialCapital = 10000 }) {
 
   return (
     <div className="w-full bg-[#0a0d14] border border-[#1b2230] rounded-md p-2.5 shadow-inner">
-      <div className="flex items-center justify-between text-[10px] font-mono text-neutral-400 mb-1 border-b border-neutral-800/60 pb-1">
-        <span className="flex items-center gap-1.5 font-bold text-neutral-200">
-          <Activity size={12} className={isPos ? 'text-emerald-400' : 'text-red-400'} />
+      <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground mb-1 border-b border-border/60 pb-1">
+        <span className="flex items-center gap-1.5 font-bold text-foreground">
+          <Activity size={12} className={isPos ? 'text-bull' : 'text-bear'} />
           Live Equity Curve (В реальном времени)
         </span>
         <span className="flex items-center gap-2">
           <span>Старт: ${initialCapital.toLocaleString()}</span>
-          <span className={`font-bold ${isPos ? 'text-emerald-400' : 'text-red-400'}`}>
+          <span className={`font-bold ${isPos ? 'text-bull' : 'text-bear'}`}>
             Текущий: ${currentEquity.toFixed(2)}
           </span>
         </span>
@@ -186,41 +186,41 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
       <div className="border border-amber-500/30 bg-amber-500/10 rounded-md p-2 text-amber-200">
         <div className="flex items-center justify-between font-bold text-[10px] mb-1">
           <span className="flex items-center gap-1.5 text-amber-300">
-            <Zap size={12} className="text-amber-400" />
+            <Zap size={12} className="text-warning" />
             Честный Live Paper Trading (L2 + Ликвидации)
           </span>
-          <span className={`px-1.5 py-0.2 rounded text-[8px] uppercase font-bold ${isRunning ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-neutral-800 text-neutral-400'}`}>
+          <span className={`px-1.5 py-0.2 rounded text-[8px] uppercase font-bold ${isRunning ? 'bg-bull-soft text-emerald-300 border border-emerald-500/40' : 'bg-muted text-muted-foreground'}`}>
             {isRunning ? '● АКТИВЕН' : '○ ОСТАНОВЛЕН'}
           </span>
         </div>
-        <p className="text-[8.5px] text-neutral-300 font-sans leading-tight">
+        <p className="text-[8.5px] text-foreground/80 font-sans leading-tight">
           Движок опрашивает реальный L2 стакан спота Binance и синтетическую карту ликвидаций. 
           Поиск сетапов перед крупными стенками и авто-исполнение ордеров без риска для реального депозита.
         </p>
       </div>
 
       {errorMsg && (
-        <div className="border border-red-500/40 bg-red-950/40 text-red-300 rounded p-1.5 text-[8.5px]">
+        <div className="border border-red-500/40 bg-bear-soft/40 text-red-300 rounded p-1.5 text-[8.5px]">
           {errorMsg}
         </div>
       )}
 
       {/* Balance & Risk Configuration */}
-      <div className="border border-neutral-800 rounded-md p-2 bg-[#0e1217] space-y-2">
-        <div className="text-[9px] font-bold text-neutral-200 uppercase tracking-wider flex items-center justify-between border-b border-neutral-800 pb-1">
+      <div className="border border-border rounded-md p-2 bg-[#0e1217] space-y-2">
+        <div className="text-[9px] font-bold text-foreground uppercase tracking-wider flex items-center justify-between border-b border-border pb-1">
           <span className="flex items-center gap-1">
-            <DollarSign size={11} className="text-neutral-400" />
+            <DollarSign size={11} className="text-muted-foreground" />
             Депозит & Риск-Менеджмент
           </span>
-          <span className="text-[8px] text-neutral-500">CAPITAL</span>
+          <span className="text-[8px] text-muted-foreground">CAPITAL</span>
         </div>
 
         <div className="grid grid-cols-2 gap-2">
           <label
-            className="flex flex-col text-neutral-400"
+            className="flex flex-col text-muted-foreground"
             title="Виртуальный депозит симулятора. Реальные средства не используются — терминал строго консультативный."
           >
-            <span className="mb-0.5 text-neutral-300">Стартовый баланс ($):</span>
+            <span className="mb-0.5 text-foreground/80">Стартовый баланс ($):</span>
             <input
               type="number"
               min={100}
@@ -229,15 +229,15 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
               disabled={isRunning}
               value={config.initialCapital ?? 10000}
               onChange={(e) => setConfig({ initialCapital: Number(e.target.value) })}
-              className="bg-neutral-950 border border-neutral-800 rounded px-1.5 py-1 text-neutral-100 text-[10px] text-right font-mono outline-none focus:border-neutral-500 disabled:opacity-50"
+              className="bg-background border border-border rounded px-1.5 py-1 text-foreground text-[10px] text-right font-mono outline-none focus:border-neutral-500 disabled:opacity-50"
             />
           </label>
 
           <label
-            className="flex flex-col text-neutral-400"
+            className="flex flex-col text-muted-foreground"
             title="Сколько процентов виртуального депозита теряется при срабатывании стопа. 1% — классический институциональный лимит; больше 2–3% — агрессивно."
           >
-            <span className="mb-0.5 text-neutral-300">Риск на сделку (%):</span>
+            <span className="mb-0.5 text-foreground/80">Риск на сделку (%):</span>
             <input
               type="number"
               min={0.1}
@@ -246,31 +246,31 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
               disabled={isRunning}
               value={config.riskPerTradePct ?? 1.0}
               onChange={(e) => setConfig({ riskPerTradePct: Number(e.target.value) })}
-              className="bg-neutral-950 border border-neutral-800 rounded px-1.5 py-1 text-neutral-100 text-[10px] text-right font-mono outline-none focus:border-neutral-500 disabled:opacity-50"
+              className="bg-background border border-border rounded px-1.5 py-1 text-foreground text-[10px] text-right font-mono outline-none focus:border-neutral-500 disabled:opacity-50"
             />
           </label>
         </div>
       </div>
 
       {/* Strategy & Order Book Filters */}
-      <div className="border border-neutral-800 rounded-md p-2 bg-[#0e1217] space-y-2">
-        <div className="text-[9px] font-bold text-neutral-200 uppercase tracking-wider flex items-center justify-between border-b border-neutral-800 pb-1">
+      <div className="border border-border rounded-md p-2 bg-[#0e1217] space-y-2">
+        <div className="text-[9px] font-bold text-foreground uppercase tracking-wider flex items-center justify-between border-b border-border pb-1">
           <span className="flex items-center gap-1">
-            <Sliders size={11} className="text-neutral-400" />
+            <Sliders size={11} className="text-muted-foreground" />
             Стратегия & L2 Фильтры
           </span>
-          <span className="text-[8px] text-neutral-500">L2 SENTINEL</span>
+          <span className="text-[8px] text-muted-foreground">L2 SENTINEL</span>
         </div>
 
         <div
           title="🧱 Вход перед стенкой — лимитный вход впереди крупной плотности стакана ($500k+). 🧬 Quant Confluence — вход только при совпадении трёх независимых факторов (стенка + ликвидации + дельта)."
         >
-          <span className="text-neutral-400 block mb-0.5">Торговый сетап:</span>
+          <span className="text-muted-foreground block mb-0.5">Торговый сетап:</span>
           <select
             disabled={isRunning}
             value={config.strategyType ?? 'live_density_bounce'}
             onChange={(e) => setConfig({ strategyType: e.target.value })}
-            className="w-full bg-neutral-950 border border-neutral-800 rounded px-1.5 py-1 text-neutral-200 text-[9.5px] outline-none disabled:opacity-50"
+            className="w-full bg-background border border-border rounded px-1.5 py-1 text-foreground text-[9.5px] outline-none disabled:opacity-50"
           >
             <option value="live_density_bounce">🧱 Вход перед крупной стенкой стакана L2 ($500k+)</option>
             <option value="quant_confluence">🧬 Quant Confluence 3 Ядра (Стенка + Ликвидации + Дельта)</option>
@@ -279,10 +279,10 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
 
         <div className="grid grid-cols-2 gap-2">
           <label
-            className="flex flex-col text-neutral-400"
+            className="flex flex-col text-muted-foreground"
             title="Минимальный размер лимитной плотности в стакане (в тысячах $), чтобы сигнал считался валидным. Больше = надёжнее, но реже сигналы."
           >
-            <span className="mb-0.5 text-neutral-300">Мин. стенка ($k):</span>
+            <span className="mb-0.5 text-foreground/80">Мин. стенка ($k):</span>
             <input
               type="number"
               min={50}
@@ -291,15 +291,15 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
               disabled={isRunning}
               value={Math.round((config.minDensityUsd ?? 500000) / 1000)}
               onChange={(e) => setConfig({ minDensityUsd: Number(e.target.value) * 1000 })}
-              className="bg-neutral-950 border border-neutral-800 rounded px-1.5 py-1 text-neutral-100 text-[10px] text-right font-mono outline-none focus:border-neutral-500 disabled:opacity-50"
+              className="bg-background border border-border rounded px-1.5 py-1 text-foreground text-[10px] text-right font-mono outline-none focus:border-neutral-500 disabled:opacity-50"
             />
           </label>
 
           <label
-            className="flex flex-col text-neutral-400"
+            className="flex flex-col text-muted-foreground"
             title="Кредитное плечо виртуальной позиции. Увеличивает требуемую маржу и размер позиции, но не отменяет лимит риска на сделку."
           >
-            <span className="mb-0.5 text-neutral-300">Плечо:</span>
+            <span className="mb-0.5 text-foreground/80">Плечо:</span>
             <input
               type="number"
               min={1}
@@ -307,17 +307,17 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
               disabled={isRunning}
               value={config.leverage ?? 2}
               onChange={(e) => setConfig({ leverage: Number(e.target.value) })}
-              className="bg-neutral-950 border border-neutral-800 rounded px-1.5 py-1 text-neutral-100 text-[10px] text-right font-mono outline-none focus:border-neutral-500 disabled:opacity-50"
+              className="bg-background border border-border rounded px-1.5 py-1 text-foreground text-[10px] text-right font-mono outline-none focus:border-neutral-500 disabled:opacity-50"
             />
           </label>
         </div>
 
         <div className="grid grid-cols-2 gap-2">
           <label
-            className="flex flex-col text-neutral-400"
+            className="flex flex-col text-muted-foreground"
             title="Защитный стоп в % от цены входа. При срабатывании позиция закрывается по рынку с комиссией taker и проскальзыванием."
           >
-            <span className="mb-0.5 text-neutral-300">Stop-Loss (%):</span>
+            <span className="mb-0.5 text-foreground/80">Stop-Loss (%):</span>
             <input
               type="number"
               min={0.1}
@@ -326,15 +326,15 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
               disabled={isRunning}
               value={config.stop_loss_pct ?? 0.8}
               onChange={(e) => setConfig({ stop_loss_pct: Number(e.target.value) })}
-              className="bg-neutral-950 border border-neutral-800 rounded px-1.5 py-1 text-neutral-100 text-[10px] text-right font-mono outline-none focus:border-neutral-500 disabled:opacity-50"
+              className="bg-background border border-border rounded px-1.5 py-1 text-foreground text-[10px] text-right font-mono outline-none focus:border-neutral-500 disabled:opacity-50"
             />
           </label>
 
           <label
-            className="flex flex-col text-neutral-400"
+            className="flex flex-col text-muted-foreground"
             title="Цель фиксации прибыли в % от цены входа. Лимитный ордер — комиссия maker, без проскальзывания."
           >
-            <span className="mb-0.5 text-neutral-300">Take-Profit (%):</span>
+            <span className="mb-0.5 text-foreground/80">Take-Profit (%):</span>
             <input
               type="number"
               min={0.2}
@@ -343,7 +343,7 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
               disabled={isRunning}
               value={config.take_profit_pct ?? 1.6}
               onChange={(e) => setConfig({ take_profit_pct: Number(e.target.value) })}
-              className="bg-neutral-950 border border-neutral-800 rounded px-1.5 py-1 text-neutral-100 text-[10px] text-right font-mono outline-none focus:border-neutral-500 disabled:opacity-50"
+              className="bg-background border border-border rounded px-1.5 py-1 text-foreground text-[10px] text-right font-mono outline-none focus:border-neutral-500 disabled:opacity-50"
             />
           </label>
         </div>
@@ -356,11 +356,11 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
             type="checkbox"
             checked={Boolean(config.aiControl)}
             onChange={(e) => setConfig({ aiControl: e.target.checked })}
-            className="mt-0.5 rounded border-neutral-700 text-purple-600 focus:ring-0 accent-purple-500 cursor-pointer"
+            className="mt-0.5 rounded border-border text-purple-600 focus:ring-0 accent-purple-500 cursor-pointer"
           />
           <div className="flex-1">
             <div className="flex items-center justify-between">
-              <span className="font-bold text-neutral-200 text-[9.5px] flex items-center gap-1">
+              <span className="font-bold text-foreground text-[9.5px] flex items-center gap-1">
                 <Sparkles size={11} className="text-purple-400" />
                 AI Контроль сделок (OpenRouter)
               </span>
@@ -368,9 +368,9 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
                 Бесплатный пул
               </span>
             </div>
-            <p className="text-[8px] text-neutral-400 font-sans mt-0.5 leading-snug">
+            <p className="text-[8px] text-muted-foreground font-sans mt-0.5 leading-snug">
               При обнаружении сетапа скрипт запрашивает оценку риска у нейросети (Llama-3.1-8B / Gemma-2-9B).
-              При ответе <span className="text-red-400 font-bold">VETO: TRUE</span> виртуальная сделка отменяется.
+              При ответе <span className="text-bear font-bold">VETO: TRUE</span> виртуальная сделка отменяется.
             </p>
           </div>
         </label>
@@ -383,7 +383,7 @@ export function LivePaperTradingControls({ symbol = 'BTCUSDT' }) {
             type="button"
             data-testid="btn-stop-live-paper"
             onClick={handleStop}
-            className="w-full py-2 px-3 rounded bg-red-600 hover:bg-red-500 text-white font-bold flex items-center justify-center gap-2 cursor-pointer shadow-lg transition"
+            className="w-full py-2 px-3 rounded bg-red-600 hover:bg-red-500 text-foreground font-bold flex items-center justify-center gap-2 cursor-pointer shadow-lg transition"
           >
             <Square size={13} fill="currentColor" />
             <span>⏹ Остановить Live Paper Trading</span>
@@ -531,17 +531,17 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
     <div className="flex-1 flex flex-col space-y-2.5 overflow-y-auto pr-1">
       {/* Top Real-time KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
-        <div className="border border-neutral-800 rounded-md p-2 bg-[#0d1117] flex flex-col justify-between">
-          <span className="text-[8px] text-neutral-400 font-mono uppercase font-bold">Баланс кошелька</span>
-          <span className="text-[14px] font-mono font-extrabold text-neutral-100">
+        <div className="border border-border rounded-md p-2 bg-[#0d1117] flex flex-col justify-between">
+          <span className="text-[8px] text-muted-foreground font-mono uppercase font-bold">Баланс кошелька</span>
+          <span className="text-[14px] font-mono font-extrabold text-foreground">
             ${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
-          <span className="text-[8px] text-neutral-500 font-mono">Доступный остаток (вирт.)</span>
+          <span className="text-[8px] text-muted-foreground font-mono">Доступный остаток (вирт.)</span>
         </div>
 
         {/* Пополнение виртуального кошелька (paper money) */}
-        <div className="border border-neutral-800 rounded-md p-2 bg-[#0d1117] flex flex-col justify-between space-y-1">
-          <span className="text-[8px] text-neutral-400 font-mono uppercase font-bold">Пополнить (вирт.)</span>
+        <div className="border border-border rounded-md p-2 bg-[#0d1117] flex flex-col justify-between space-y-1">
+          <span className="text-[8px] text-muted-foreground font-mono uppercase font-bold">Пополнить (вирт.)</span>
           <div className="flex items-center space-x-1">
             <input
               type="number"
@@ -550,7 +550,7 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
               value={depositAmount}
               onChange={(e) => setDepositAmount(e.target.value)}
               data-testid="live-deposit-amount"
-              className="w-20 bg-neutral-900 border border-neutral-700 rounded px-1 py-0.5 text-[10px] font-mono text-neutral-100"
+              className="w-20 bg-card border border-border rounded px-1 py-0.5 text-[10px] font-mono text-foreground"
             />
             <button
               type="button"
@@ -563,59 +563,59 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
               {depositBusy ? '…' : '+ $'}
             </button>
           </div>
-          <span className="text-[8px] text-neutral-500 font-mono" data-testid="live-deposit-msg">
+          <span className="text-[8px] text-muted-foreground font-mono" data-testid="live-deposit-msg">
             {depositMsg || 'Paper money · не реальные деньги'}
           </span>
         </div>
 
-        <div className="border border-neutral-800 rounded-md p-2 bg-[#0d1117] flex flex-col justify-between">
-          <span className="text-[8px] text-neutral-400 font-mono uppercase font-bold">Equity (Капитал)</span>
-          <span className={`text-[14px] font-mono font-extrabold ${isPos ? 'text-emerald-400' : 'text-red-400'}`}>
+        <div className="border border-border rounded-md p-2 bg-[#0d1117] flex flex-col justify-between">
+          <span className="text-[8px] text-muted-foreground font-mono uppercase font-bold">Equity (Капитал)</span>
+          <span className={`text-[14px] font-mono font-extrabold ${isPos ? 'text-bull' : 'text-bear'}`}>
             ${currentEquity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
-          <span className="text-[8px] text-neutral-500 font-mono">
+          <span className="text-[8px] text-muted-foreground font-mono">
             {totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(2)} ({totalPnlPct.toFixed(2)}%)
           </span>
         </div>
 
-        <div className="border border-neutral-800 rounded-md p-2 bg-[#0d1117] flex flex-col justify-between">
-          <span className="text-[8px] text-neutral-400 font-mono uppercase font-bold">Реал. PnL</span>
-          <span className={`text-[13px] font-mono font-extrabold ${realizedPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+        <div className="border border-border rounded-md p-2 bg-[#0d1117] flex flex-col justify-between">
+          <span className="text-[8px] text-muted-foreground font-mono uppercase font-bold">Реал. PnL</span>
+          <span className={`text-[13px] font-mono font-extrabold ${realizedPnl >= 0 ? 'text-bull' : 'text-bear'}`}>
             {realizedPnl >= 0 ? '+' : ''}${realizedPnl.toFixed(2)}
           </span>
-          <span className="text-[8px] text-neutral-500 font-mono">Закрытые трейды</span>
+          <span className="text-[8px] text-muted-foreground font-mono">Закрытые трейды</span>
         </div>
 
-        <div className="border border-neutral-800 rounded-md p-2 bg-[#0d1117] flex flex-col justify-between">
-          <span className="text-[8px] text-neutral-400 font-mono uppercase font-bold">Нереал. PnL</span>
-          <span className={`text-[13px] font-mono font-extrabold ${unrealizedPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+        <div className="border border-border rounded-md p-2 bg-[#0d1117] flex flex-col justify-between">
+          <span className="text-[8px] text-muted-foreground font-mono uppercase font-bold">Нереал. PnL</span>
+          <span className={`text-[13px] font-mono font-extrabold ${unrealizedPnl >= 0 ? 'text-bull' : 'text-bear'}`}>
             {unrealizedPnl >= 0 ? '+' : ''}${unrealizedPnl.toFixed(2)}
           </span>
-          <span className="text-[8px] text-neutral-500 font-mono">Плавающий профит</span>
+          <span className="text-[8px] text-muted-foreground font-mono">Плавающий профит</span>
         </div>
 
-        <div className="border border-neutral-800 rounded-md p-2 bg-[#0d1117] flex flex-col justify-between">
-          <span className="text-[8px] text-neutral-400 font-mono uppercase font-bold">Открыто позиций</span>
+        <div className="border border-border rounded-md p-2 bg-[#0d1117] flex flex-col justify-between">
+          <span className="text-[8px] text-muted-foreground font-mono uppercase font-bold">Открыто позиций</span>
           <span className="text-[13px] font-mono font-extrabold text-blue-400">
             {openPositions.length}
           </span>
-          <span className="text-[8px] text-neutral-500 font-mono">{symbol}</span>
+          <span className="text-[8px] text-muted-foreground font-mono">{symbol}</span>
         </div>
 
-        <div className="border border-neutral-800 rounded-md p-2 bg-[#0d1117] flex flex-col justify-between">
-          <span className="text-[8px] text-neutral-400 font-mono uppercase font-bold">Всего сделок</span>
-          <span className="text-[13px] font-mono font-extrabold text-neutral-300">
+        <div className="border border-border rounded-md p-2 bg-[#0d1117] flex flex-col justify-between">
+          <span className="text-[8px] text-muted-foreground font-mono uppercase font-bold">Всего сделок</span>
+          <span className="text-[13px] font-mono font-extrabold text-foreground/80">
             {status?.closed_trades_count ?? closedTrades.length}
           </span>
-          <span className="text-[8px] text-neutral-500 font-mono">Исполнено</span>
+          <span className="text-[8px] text-muted-foreground font-mono">Исполнено</span>
         </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[8px] font-mono">
-        <div className="border border-neutral-800 rounded-md px-2 py-1.5 bg-[#0d1117]"><span className="text-neutral-500 uppercase">Available margin</span><b className="ml-2 text-neutral-200">${Number(availableMargin).toFixed(2)}</b></div>
-        <div className="border border-neutral-800 rounded-md px-2 py-1.5 bg-[#0d1117]"><span className="text-neutral-500 uppercase">Used margin</span><b className="ml-2 text-blue-300">${Number(usedMargin).toFixed(2)}</b></div>
-        <div className="border border-neutral-800 rounded-md px-2 py-1.5 bg-[#0d1117]"><span className="text-neutral-500 uppercase">Funding rate</span><b className="ml-2 text-amber-200">{(Number(fundingRate) * 100).toFixed(4)}%</b></div>
-        <div className="border border-neutral-800 rounded-md px-2 py-1.5 bg-[#0d1117]"><span className="text-neutral-500 uppercase">Data</span><b className={`ml-2 ${status?.data_status === 'connected' ? 'text-emerald-300' : 'text-amber-200'}`}>{status?.data_status || 'unknown'}</b></div>
+        <div className="border border-border rounded-md px-2 py-1.5 bg-[#0d1117]"><span className="text-muted-foreground uppercase">Available margin</span><b className="ml-2 text-foreground">${Number(availableMargin).toFixed(2)}</b></div>
+        <div className="border border-border rounded-md px-2 py-1.5 bg-[#0d1117]"><span className="text-muted-foreground uppercase">Used margin</span><b className="ml-2 text-blue-300">${Number(usedMargin).toFixed(2)}</b></div>
+        <div className="border border-border rounded-md px-2 py-1.5 bg-[#0d1117]"><span className="text-muted-foreground uppercase">Funding rate</span><b className="ml-2 text-amber-200">{(Number(fundingRate) * 100).toFixed(4)}%</b></div>
+        <div className="border border-border rounded-md px-2 py-1.5 bg-[#0d1117]"><span className="text-muted-foreground uppercase">Data</span><b className={`ml-2 ${status?.data_status === 'connected' ? 'text-emerald-300' : 'text-amber-200'}`}>{status?.data_status || 'unknown'}</b></div>
       </div>
 
       {/* Real-time SVG Equity Curve */}
@@ -624,8 +624,8 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
       {/* Split View: Positions & Trades on Left, AI Risk Consilium Logs on Right */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5 flex-1 min-h-[260px]">
         {/* Positions & Closed Trades Tables */}
-        <div className="space-y-2 border border-neutral-800 rounded-md p-2 bg-[#0d1117] flex flex-col">
-          <div className="text-[9.5px] font-bold text-neutral-200 font-mono flex items-center justify-between border-b border-neutral-800 pb-1">
+        <div className="space-y-2 border border-border rounded-md p-2 bg-[#0d1117] flex flex-col">
+          <div className="text-[9.5px] font-bold text-foreground font-mono flex items-center justify-between border-b border-border pb-1">
             <span className="flex items-center gap-1.5">
               <TrendingUp size={12} className="text-blue-400" />
               Открытые позиции ({openPositions.length})
@@ -642,21 +642,21 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
 
           <div className="flex-1 overflow-y-auto space-y-1.5 max-h-[140px]">
             {openPositions.length === 0 ? (
-              <div className="text-center py-5 text-neutral-600 font-mono text-[9px]">
+              <div className="text-center py-5 text-muted-foreground font-mono text-[9px]">
                 {isRunning ? 'Поиск сетапа у стенки стакана…' : 'Симулятор остановлен'}
               </div>
             ) : (
               openPositions.map((pos, idx) => {
                 const uPnl = Number(pos.unrealized_pnl || 0);
                 return (
-                  <div key={idx} className="border border-neutral-800/80 bg-neutral-950/80 rounded p-1.5 font-mono text-[8.5px] flex items-center justify-between gap-2">
+                  <div key={idx} className="border border-border/80 bg-background/80 rounded p-1.5 font-mono text-[8.5px] flex items-center justify-between gap-2">
                     <div>
                       <div className="flex items-center gap-1.5">
-                        <span className={`px-1 rounded text-[7.5px] font-bold ${pos.side === 'LONG' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                        <span className={`px-1 rounded text-[7.5px] font-bold ${pos.side === 'LONG' ? 'bg-bull-soft text-bull' : 'bg-red-500/20 text-bear'}`}>
                           {pos.side}
                         </span>
                         <SymbolLink symbol={pos.symbol} />
-                        <span className="text-neutral-500">Qty: {pos.qty}</span>
+                        <span className="text-muted-foreground">Qty: {pos.qty}</span>
                         {pairStates[pos.symbol] === 'paused' ? (
                           <Badge variant="warning" className="text-[8px] py-0 px-1">paused</Badge>
                         ) : pairStates[pos.symbol] === 'closed' ? (
@@ -665,16 +665,16 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
                           <Badge variant="success" className="text-[8px] py-0 px-1">active</Badge>
                         )}
                       </div>
-                      <div className="text-[8px] text-neutral-400 mt-0.5">
+                      <div className="text-[8px] text-muted-foreground mt-0.5">
                         Вход: ${pos.avg_entry_price} | Маржа: ${pos.margin?.toFixed(2)}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="text-right">
-                        <div className={`font-bold ${uPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        <div className={`font-bold ${uPnl >= 0 ? 'text-bull' : 'text-bear'}`}>
                           {uPnl >= 0 ? '+' : ''}${uPnl.toFixed(2)}
                         </div>
-                        <div className="text-[7.5px] text-neutral-500">
+                        <div className="text-[7.5px] text-muted-foreground">
                           Комиссия: ${pos.fees_paid?.toFixed(3)}
                         </div>
                       </div>
@@ -720,31 +720,31 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
           </div>
 
           {/* Recent Closed Trades */}
-          <div className="text-[9.5px] font-bold text-neutral-200 font-mono flex items-center justify-between border-b border-neutral-800 pt-1 pb-1">
+          <div className="text-[9.5px] font-bold text-foreground font-mono flex items-center justify-between border-b border-border pt-1 pb-1">
             <span className="flex items-center gap-1.5">
-              <CheckCircle2 size={12} className="text-emerald-400" />
+              <CheckCircle2 size={12} className="text-bull" />
               Последние закрытые сделки
             </span>
           </div>
 
           <div className="flex-1 overflow-y-auto space-y-1 max-h-[140px]">
             {closedTrades.length === 0 ? (
-              <div className="text-center py-4 text-neutral-600 font-mono text-[8.5px]">
+              <div className="text-center py-4 text-muted-foreground font-mono text-[8.5px]">
                 Закрытых сделок пока нет
               </div>
             ) : (
               closedTrades.slice(-8).reverse().map((t, idx) => {
                 const isProf = (t.net_pnl || 0) >= 0;
                 return (
-                  <div key={idx} className="border border-neutral-800/60 bg-neutral-950/60 rounded px-1.5 py-1 font-mono text-[8px] flex items-center justify-between">
+                  <div key={idx} className="border border-border/60 bg-background/60 rounded px-1.5 py-1 font-mono text-[8px] flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
-                      <span className={`px-1 rounded text-[7px] font-bold ${t.side === 'LONG' ? 'text-emerald-400' : 'text-red-400'}`}>
+                      <span className={`px-1 rounded text-[7px] font-bold ${t.side === 'LONG' ? 'text-bull' : 'text-bear'}`}>
                         {t.side}
                       </span>
-                      <span className="text-neutral-300">${t.entry_price} → ${t.exit_price}</span>
-                      <span className="text-neutral-500 text-[7.5px]">({t.exit_reason})</span>
+                      <span className="text-foreground/80">${t.entry_price} → ${t.exit_price}</span>
+                      <span className="text-muted-foreground text-[7.5px]">({t.exit_reason})</span>
                     </div>
-                    <div className={`font-bold ${isProf ? 'text-emerald-400' : 'text-red-400'}`}>
+                    <div className={`font-bold ${isProf ? 'text-bull' : 'text-bear'}`}>
                       {isProf ? '+' : ''}${t.net_pnl?.toFixed(2)}
                     </div>
                   </div>
@@ -755,18 +755,18 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
         </div>
 
         {/* AI Decision Log & Order Flow Execution Feed */}
-        <div className="border border-neutral-800 rounded-md p-2 bg-[#0d1117] flex flex-col">
-          <div className="text-[9.5px] font-bold text-neutral-200 font-mono flex items-center justify-between border-b border-neutral-800 pb-1">
+        <div className="border border-border rounded-md p-2 bg-[#0d1117] flex flex-col">
+          <div className="text-[9.5px] font-bold text-foreground font-mono flex items-center justify-between border-b border-border pb-1">
             <span className="flex items-center gap-1.5">
               <Sparkles size={12} className="text-purple-400" />
               AI Риск-Офицер & Лента Сетапов
             </span>
-            <span className="text-[8px] text-neutral-500">DECISION LOG</span>
+            <span className="text-[8px] text-muted-foreground">DECISION LOG</span>
           </div>
 
           <div className="flex-1 overflow-y-auto space-y-1.5 p-1 max-h-[300px]">
             {logs.length === 0 ? (
-              <div className="text-center py-10 text-neutral-600 font-mono text-[9px]">
+              <div className="text-center py-10 text-muted-foreground font-mono text-[9px]">
                 {isRunning ? 'Ожидание событий стакана…' : 'Лента пуста. Запустите симулятор'}
               </div>
             ) : (
@@ -776,42 +776,42 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
                 const isEntry = log.event === 'TRADE_ENTRY';
                 const isExit = log.event === 'TRADE_EXIT';
 
-                let badgeColor = 'bg-neutral-800 text-neutral-400';
+                let badgeColor = 'bg-muted text-muted-foreground';
                 if (isVeto) badgeColor = 'bg-red-500/20 text-red-300 border border-red-500/40';
-                if (isConfirm) badgeColor = 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+                if (isConfirm) badgeColor = 'bg-bull-soft text-emerald-300 border border-emerald-500/40';
                 if (isEntry) badgeColor = 'bg-blue-500/20 text-blue-300 border border-blue-500/40';
-                if (isExit) badgeColor = 'bg-amber-500/20 text-amber-300 border border-amber-500/40';
+                if (isExit) badgeColor = 'bg-amber-500/20 text-amber-300 border border-warning/40';
 
                 return (
-                  <div key={idx} className="border border-neutral-800/80 bg-neutral-950/70 rounded p-1.5 font-mono text-[8px] space-y-0.5">
+                  <div key={idx} className="border border-border/80 bg-background/70 rounded p-1.5 font-mono text-[8px] space-y-0.5">
                     <div className="flex items-center justify-between">
                       <span className={`px-1 py-0.2 rounded font-bold text-[7.5px] ${badgeColor}`}>
                         [{log.event}]
                       </span>
-                      <span className="text-neutral-500 text-[7.5px]">
+                      <span className="text-muted-foreground text-[7.5px]">
                         {new Date(log.time).toLocaleTimeString()}
                       </span>
                     </div>
-                    <div className="text-neutral-200 text-[8.5px] leading-snug">
+                    <div className="text-foreground text-[8.5px] leading-snug">
                       {log.message}
                     </div>
                     {log.meta?.ai_eval && (
-                      <div className="text-[7.5px] font-mono text-neutral-400 flex items-center justify-between pt-0.5 border-t border-neutral-800/40">
+                      <div className="text-[7.5px] font-mono text-muted-foreground flex items-center justify-between pt-0.5 border-t border-border/40">
                         <span className="truncate">
                           Модель: <span className="text-purple-300 font-semibold">{log.meta.ai_eval.model}</span>
                         </span>
                         <div className="flex items-center gap-1 shrink-0">
                           {log.meta.ai_eval.fallback ? (
-                            <span className="text-amber-400 bg-amber-500/10 px-1 rounded border border-amber-500/30 font-bold" title={log.meta.ai_eval.fallback_reason || 'Fallback'}>
+                            <span className="text-warning bg-amber-500/10 px-1 rounded border border-amber-500/30 font-bold" title={log.meta.ai_eval.fallback_reason || 'Fallback'}>
                               Fallback
                             </span>
                           ) : (
-                            <span className="text-emerald-400 bg-emerald-500/10 px-1 rounded border border-emerald-500/30">
+                            <span className="text-bull bg-emerald-500/10 px-1 rounded border border-emerald-500/30">
                               Primary
                             </span>
                           )}
                           {log.meta.ai_eval.latency_ms > 0 && (
-                            <span className="text-neutral-500">{log.meta.ai_eval.latency_ms}ms</span>
+                            <span className="text-muted-foreground">{log.meta.ai_eval.latency_ms}ms</span>
                           )}
                         </div>
                       </div>

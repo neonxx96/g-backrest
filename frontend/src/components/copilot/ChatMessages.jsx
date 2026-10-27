@@ -44,7 +44,7 @@ export default function ChatMessages({ messages, chatLoading, selectedModel, bot
           <div
             className={`max-w-[92%] p-2 rounded-lg text-[10.5px] leading-relaxed whitespace-pre-wrap ${
               m.role === 'user'
-                ? 'bg-[#2563eb] text-white rounded-br-xs'
+                ? 'bg-[#2563eb] text-foreground rounded-br-xs'
                 : 'bg-[#141822] text-[#e2e8f0] border border-[#222938] rounded-bl-xs'
             }`}
           >

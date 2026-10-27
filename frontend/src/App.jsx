@@ -982,13 +982,13 @@ export default function App() {
             <div className="h-9 px-3 border-b border-[#1b2130] flex items-center justify-between bg-[#0e121a] shrink-0 font-mono text-xs">
               <div className="flex items-center space-x-2">
                 <Target size={14} className="text-[#e879f9]" />
-                <span className="font-bold text-white text-xs">Ликвидации & Карантин</span>
+                <span className="font-bold text-foreground text-xs">Ликвидации & Карантин</span>
                 <span className="text-[#38bdf8] font-bold text-xs">{symbol}</span>
               </div>
               <button
                 type="button"
                 onClick={() => setShowLiqPanel(false)}
-                className="p-1 rounded text-[#64748b] hover:text-white hover:bg-[#1f293d] transition cursor-pointer"
+                className="p-1 rounded text-[#64748b] hover:text-foreground hover:bg-[#1f293d] transition cursor-pointer"
                 title="Закрыть панель (Клавиша 'Q')"
               >
                 <X size={14} />

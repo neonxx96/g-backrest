@@ -161,7 +161,7 @@ export default function AppTopBar({
       active: isFocusMode,
       onClick: onToggleFocusMode,
       priority: 9,
-      activeClass: 'bg-emerald-950/70 text-emerald-400 border-emerald-500/50 font-bold',
+      activeClass: 'bg-bull-soft/70 text-bull border-emerald-500/50 font-bold',
     },
     {
       id: 'ai-copilot',
@@ -574,7 +574,7 @@ export default function AppTopBar({
           type="button"
           onClick={onToggleSound}
           className={`p-1 rounded transition cursor-pointer ${
-            isMuted ? 'text-destructive hover:bg-destructive/15' : 'text-emerald-500 hover:bg-emerald-500/15'
+            isMuted ? 'text-destructive hover:bg-destructive/15' : 'text-bull hover:bg-emerald-500/15'
           }`}
           title={isMuted ? 'Звук отключен' : 'Звуковые алерты активны'}
         >

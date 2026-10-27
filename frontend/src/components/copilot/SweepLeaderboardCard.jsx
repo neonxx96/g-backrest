@@ -22,7 +22,7 @@ export default function SweepLeaderboardCard({
       className="p-2.5 rounded-lg border border-[#f59e0b30] bg-[#141007]/90 space-y-1.5"
     >
       <div className="flex items-center justify-between">
-        <span className="font-semibold text-white text-[11px] flex items-center space-x-1">
+        <span className="font-semibold text-foreground text-[11px] flex items-center space-x-1">
           <Trophy size={13} className="text-[#fbbf24]" />
           <span>Quant Sweep Leaderboard</span>
         </span>
@@ -42,7 +42,7 @@ export default function SweepLeaderboardCard({
             data-testid="btn-refresh-sweep"
             onClick={onRefresh}
             disabled={sweepLoading || sweepRunning}
-            className="p-1 rounded text-[#787f91] hover:text-white hover:bg-[#1f2430] transition cursor-pointer disabled:opacity-50"
+            className="p-1 rounded text-[#787f91] hover:text-foreground hover:bg-[#1f2430] transition cursor-pointer disabled:opacity-50"
             title="Обновить лидерборд"
           >
             <RefreshCw size={12} className={sweepLoading ? 'animate-spin' : ''} />
@@ -62,7 +62,7 @@ export default function SweepLeaderboardCard({
       ) : !sweepArtifact ? (
         <div className="space-y-1">
           <div className="p-1.5 rounded bg-[#090c14] border border-[#191f2e] text-[10px] text-[#94a3b8] leading-snug">
-            Прогонов sweep для <span className="text-white font-bold">{symbol} ({timeframe})</span> пока нет —
+            Прогонов sweep для <span className="text-foreground font-bold">{symbol} ({timeframe})</span> пока нет —
             лидерборд не синтезируется, пока не будет реального прогона. Нажмите «▶ Запустить sweep».
           </div>
         </div>
@@ -75,7 +75,7 @@ export default function SweepLeaderboardCard({
               className="p-1.5 rounded bg-[#090c14] border border-[#191f2e] space-y-1"
             >
               <div className="flex items-center justify-between font-mono text-[10px]">
-                <span className="text-white font-bold">
+                <span className="text-foreground font-bold">
                   #{entry.rank} • EMA {entry.params?.fast_period ?? '?'}/{entry.params?.slow_period ?? '?'}
                 </span>
                 <span
@@ -109,7 +109,7 @@ export default function SweepLeaderboardCard({
                 </div>
                 <div className="p-0.5 rounded bg-[#0d1119]">
                   <div className="text-[#64748b]">Сделок</div>
-                  <div className="font-bold text-white">{entry.oos_trade_count ?? '—'}</div>
+                  <div className="font-bold text-foreground">{entry.oos_trade_count ?? '—'}</div>
                 </div>
               </div>
               <button

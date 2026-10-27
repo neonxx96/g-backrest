@@ -69,7 +69,7 @@ export default function ActiveIndicatorStack({
                   : 'bg-[#0a0e17]/70 text-[#64748b] border-[#161f2e]/60 line-through'
               }`}
             >
-              <span className="font-semibold text-white group-hover:text-[#38bdf8] transition">
+              <span className="font-semibold text-foreground group-hover:text-[#38bdf8] transition">
                 {def.shortName}
               </span>
               <span className="text-[9.5px] text-[#94a3b8]">{paramsText}</span>
@@ -85,7 +85,7 @@ export default function ActiveIndicatorStack({
                     onToggleVisibility(item.id);
                   }}
                   title={isVisible ? 'Скрыть индикатор' : 'Показать индикатор'}
-                  className="hover:text-white transition p-0.5 cursor-pointer"
+                  className="hover:text-foreground transition p-0.5 cursor-pointer"
                 >
                   {isVisible ? <Eye size={11} /> : <EyeOff size={11} className="text-[#ef4444]" />}
                 </button>
@@ -99,7 +99,7 @@ export default function ActiveIndicatorStack({
                     onOpenSettings(item.id);
                   }}
                   title="Настроить параметры и стиль"
-                  className="hover:text-white transition p-0.5 cursor-pointer"
+                  className="hover:text-foreground transition p-0.5 cursor-pointer"
                 >
                   <Settings size={11} />
                 </button>
@@ -128,7 +128,7 @@ export default function ActiveIndicatorStack({
           data-testid="btn-stack-open-catalog"
           onClick={onOpenCatalog}
           title="Каталог индикаторов"
-          className="flex items-center space-x-0.5 px-1.5 py-0.5 rounded bg-[#0f1422]/80 hover:bg-[#182337] border border-[#1f2b42]/80 text-[#38bdf8] hover:text-white text-[10.5px] transition cursor-pointer"
+          className="flex items-center space-x-0.5 px-1.5 py-0.5 rounded bg-[#0f1422]/80 hover:bg-[#182337] border border-[#1f2b42]/80 text-[#38bdf8] hover:text-foreground text-[10.5px] transition cursor-pointer"
         >
           <Plus size={11} />
           <span className="text-[10px]">Индикаторы</span>

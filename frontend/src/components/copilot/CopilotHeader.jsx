@@ -31,14 +31,14 @@ export default function CopilotHeader({
             <Sparkles size={14} className="animate-pulse" />
           </div>
           <div>
-            <div className="font-bold text-white text-[11.5px] flex items-center space-x-1.5">
+            <div className="font-bold text-foreground text-[11.5px] flex items-center space-x-1.5">
               <span>AI Торговый Ассистент & Сканер</span>
               <span className="text-[9.5px] px-1.5 py-0.2 rounded font-mono bg-[#2563eb30] text-[#60a5fa] border border-[#2563eb60]">
                 OpenRouter
               </span>
             </div>
             <div className="text-[10px] text-[#787f91] font-mono">
-              Инструмент: <span className="text-white font-semibold">{symbol}</span> ({timeframe})
+              Инструмент: <span className="text-foreground font-semibold">{symbol}</span> ({timeframe})
             </div>
           </div>
         </div>
@@ -50,7 +50,7 @@ export default function CopilotHeader({
             className={`p-1 rounded border text-[10px] font-mono flex items-center gap-1 transition cursor-pointer ${
               apiKey
                 ? 'bg-[#10b98120] text-[#34d399] border-[#10b98150]'
-                : 'bg-[#161a24] text-[#94a3b8] border-[#262c3d] hover:text-white'
+                : 'bg-[#161a24] text-[#94a3b8] border-[#262c3d] hover:text-foreground'
             }`}
             title="Настроить свой OpenRouter API Key"
           >
@@ -60,7 +60,7 @@ export default function CopilotHeader({
           <button
             data-testid="btn-close-ai-sidebar"
             onClick={onClose}
-            className="p-1 rounded text-[#787f91] hover:text-white hover:bg-[#1f2430] transition cursor-pointer"
+            className="p-1 rounded text-[#787f91] hover:text-foreground hover:bg-[#1f2430] transition cursor-pointer"
             title="Закрыть сайдбар (Клавиша 'A')"
           >
             <X size={15} />
@@ -75,7 +75,7 @@ export default function CopilotHeader({
           data-testid="ai-model-selector"
           value={selectedModel}
           onChange={(e) => onModelChange(e.target.value)}
-          className="flex-1 bg-[#080a0f] border border-[#222838] focus:border-[#38bdf8] rounded px-2 py-1 text-[10px] text-white outline-none cursor-pointer"
+          className="flex-1 bg-[#080a0f] border border-[#222838] focus:border-[#38bdf8] rounded px-2 py-1 text-[10px] text-foreground outline-none cursor-pointer"
         >
           {AI_MODELS.map((m) => (
             <option key={m.id} value={m.id}>
@@ -103,14 +103,14 @@ export default function CopilotHeader({
               value={apiKey}
               onChange={(e) => onApiKeyChange(e.target.value)}
               placeholder="sk-or-v1-..."
-              className="flex-1 bg-[#0c0f17] border border-[#1f2430] rounded px-2 py-1 text-white text-[10px] outline-none focus:border-[#38bdf8]"
+              className="flex-1 bg-[#0c0f17] border border-[#1f2430] rounded px-2 py-1 text-foreground text-[10px] outline-none focus:border-[#38bdf8]"
             />
             <button
               type="button"
               data-testid="btn-save-api-key"
               onClick={onValidateAndSaveKey}
               disabled={validatingKey}
-              className="px-2 py-1 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-bold text-[10px] flex items-center gap-1 cursor-pointer"
+              className="px-2 py-1 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-foreground font-bold text-[10px] flex items-center gap-1 cursor-pointer"
             >
               <Check size={11} />
               <span>{validatingKey ? '...' : 'Сохранить'}</span>
@@ -129,7 +129,7 @@ export default function CopilotHeader({
             size={13}
             className={liveSentinelEnabled ? 'text-[#10b981] animate-pulse' : 'text-[#64748b]'}
           />
-          <span className="font-semibold text-white text-[10.5px]">
+          <span className="font-semibold text-foreground text-[10.5px]">
             ⚡ Живой AI-мониторинг рынка
           </span>
         </div>
@@ -141,7 +141,7 @@ export default function CopilotHeader({
           className={`px-2.5 py-0.5 rounded font-mono font-bold text-[9.5px] transition cursor-pointer border ${
             liveSentinelEnabled
               ? 'bg-[#10b981] text-black border-[#34d399]'
-              : 'bg-[#161a24] text-[#94a3b8] border-[#262c3d] hover:text-white'
+              : 'bg-[#161a24] text-[#94a3b8] border-[#262c3d] hover:text-foreground'
           }`}
         >
           {liveSentinelEnabled ? `ACTIVE (${sentinelPulseCount})` : 'OFF'}

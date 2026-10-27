@@ -107,14 +107,14 @@ export default function ConfluenceWeightsEditor() {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <label className="text-white font-bold text-xs flex items-center space-x-1.5">
+        <label className="text-foreground font-bold text-xs flex items-center space-x-1.5">
           <Scale size={12} className="text-[#38bdf8]" />
           <span>Weighted Confluence (M2.3)</span>
         </label>
         <select
           value={symbol}
           onChange={e => setSymbol(e.target.value)}
-          className="bg-[#14171f] border border-[#1f2430] rounded px-2 py-1 text-[11px] text-white"
+          className="bg-[#14171f] border border-[#1f2430] rounded px-2 py-1 text-[11px] text-foreground"
         >
           {SYMBOLS.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
@@ -143,14 +143,14 @@ export default function ConfluenceWeightsEditor() {
               step="0.01"
               value={value}
               onChange={e => updateWeight(name, e.target.value)}
-              className="w-20 bg-[#14171f] border border-[#1f2430] rounded px-1.5 py-0.5 text-[11px] text-right text-white"
+              className="w-20 bg-[#14171f] border border-[#1f2430] rounded px-1.5 py-0.5 text-[11px] text-right text-foreground"
             />
           </div>
         ))}
       </div>
 
       <div className="flex items-center justify-between text-[11px]">
-        <span className={sumOk ? 'text-emerald-400' : 'text-amber-400'}>
+        <span className={sumOk ? 'text-bull' : 'text-warning'}>
           Σ весов = {weightSum.toFixed(4)} {sumOk ? '✓' : '(нужно 1.0000)'}
         </span>
         {!sumOk && (
@@ -169,13 +169,13 @@ export default function ConfluenceWeightsEditor() {
           step="0.01"
           value={threshold}
           onChange={e => setThreshold(Math.min(1, Math.max(0.01, Number(e.target.value) || 0.65)))}
-          className="w-20 bg-[#14171f] border border-[#1f2430] rounded px-1.5 py-0.5 text-[11px] text-right text-white"
+          className="w-20 bg-[#14171f] border border-[#1f2430] rounded px-1.5 py-0.5 text-[11px] text-right text-foreground"
         />
         <span className="text-[10px] text-[#787f91]">(SRS ≈ 0.65)</span>
       </div>
 
       {status && (
-        <div className={`flex items-center space-x-1.5 text-[11px] ${status.type === 'ok' ? 'text-emerald-400' : 'text-amber-400'}`}>
+        <div className={`flex items-center space-x-1.5 text-[11px] ${status.type === 'ok' ? 'text-bull' : 'text-warning'}`}>
           {status.type === 'ok' ? <CheckCircle size={12} /> : <AlertTriangle size={12} />}
           <span>{status.text}</span>
         </div>
@@ -193,7 +193,7 @@ export default function ConfluenceWeightsEditor() {
         <button
           onClick={resetToDefaults}
           disabled={loading}
-          className="flex items-center space-x-1.5 px-3 py-1.5 rounded bg-[#14171f] border border-[#1f2430] text-[#787f91] text-[11px] hover:text-white transition"
+          className="flex items-center space-x-1.5 px-3 py-1.5 rounded bg-[#14171f] border border-[#1f2430] text-[#787f91] text-[11px] hover:text-foreground transition"
         >
           <RotateCcw size={12} />
           <span>SRS-дефолты</span>

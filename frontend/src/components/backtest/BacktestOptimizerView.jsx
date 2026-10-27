@@ -51,11 +51,11 @@ export default function BacktestOptimizerView({
                   </div>
                   <div>
                     <div className="text-[8.5px] text-[#64748b]">WinRate</div>
-                    <div className="text-white font-bold">{beforeOpt.win_rate_pct}%</div>
+                    <div className="text-foreground font-bold">{beforeOpt.win_rate_pct}%</div>
                   </div>
                   <div>
                     <div className="text-[8.5px] text-[#64748b]">Sharpe / PF</div>
-                    <div className="text-white font-bold">
+                    <div className="text-foreground font-bold">
                       {beforeOpt.sharpe_ratio} / {beforeOpt.profit_factor}
                     </div>
                   </div>
@@ -68,11 +68,11 @@ export default function BacktestOptimizerView({
 
               <div
                 data-testid="card-after-opt"
-                className="border border-neutral-700 rounded bg-neutral-950/80 p-2 space-y-1"
+                className="border border-border rounded bg-background/80 p-2 space-y-1"
               >
-                <div className="flex items-center justify-between border-b border-neutral-800 pb-1">
-                  <span className="text-neutral-200 font-bold uppercase text-[9px] flex items-center gap-1">
-                    <Dna size={11} className="text-neutral-400" />
+                <div className="flex items-center justify-between border-b border-border pb-1">
+                  <span className="text-foreground font-bold uppercase text-[9px] flex items-center gap-1">
+                    <Dna size={11} className="text-muted-foreground" />
                     После генетической оптимизации
                   </span>
                   <button
@@ -85,7 +85,7 @@ export default function BacktestOptimizerView({
                 </div>
                 <div className="grid grid-cols-4 gap-1 pt-0.5">
                   <div>
-                    <div className="text-[8.5px] text-neutral-400">Чистый PnL</div>
+                    <div className="text-[8.5px] text-muted-foreground">Чистый PnL</div>
                     <div
                       className={`font-bold ${
                         afterOpt.total_pnl_pct >= 0 ? 'text-[#4ade80]' : 'text-[#ef5350]'
@@ -96,17 +96,17 @@ export default function BacktestOptimizerView({
                     </div>
                   </div>
                   <div>
-                    <div className="text-[8.5px] text-neutral-400">WinRate</div>
-                    <div className="text-white font-bold">{afterOpt.win_rate_pct}%</div>
+                    <div className="text-[8.5px] text-muted-foreground">WinRate</div>
+                    <div className="text-foreground font-bold">{afterOpt.win_rate_pct}%</div>
                   </div>
                   <div>
-                    <div className="text-[8.5px] text-neutral-400">Sharpe / Sortino</div>
-                    <div className="text-neutral-200 font-bold">
+                    <div className="text-[8.5px] text-muted-foreground">Sharpe / Sortino</div>
+                    <div className="text-foreground font-bold">
                       {afterOpt.sharpe_ratio} / {afterOpt.sortino_ratio ?? 0}
                     </div>
                   </div>
                   <div>
-                    <div className="text-[8.5px] text-neutral-400">Max DD</div>
+                    <div className="text-[8.5px] text-muted-foreground">Max DD</div>
                     <div className="text-[#fbbf24] font-bold">-{afterOpt.max_drawdown_pct}%</div>
                   </div>
                 </div>
@@ -126,12 +126,12 @@ export default function BacktestOptimizerView({
                 </span>
               </div>
               {oosOpt.available && oosOpt.metrics ? (
-                <div className="mt-1 grid grid-cols-5 gap-2 text-neutral-300">
-                  <span>Свечи <b className="text-white">{oosOpt.oos_candles}</b></span>
+                <div className="mt-1 grid grid-cols-5 gap-2 text-foreground/80">
+                  <span>Свечи <b className="text-foreground">{oosOpt.oos_candles}</b></span>
                   <span>PnL <b className={oosOpt.metrics.total_pnl_pct >= 0 ? 'text-emerald-300' : 'text-red-300'}>{oosOpt.metrics.total_pnl_pct}%</b></span>
-                  <span>WinRate <b className="text-white">{oosOpt.metrics.win_rate_pct}%</b></span>
-                  <span>PF <b className="text-white">{oosOpt.metrics.profit_factor}</b></span>
-                  <span>Trades <b className="text-white">{oosOpt.metrics.total_trades}</b></span>
+                  <span>WinRate <b className="text-foreground">{oosOpt.metrics.win_rate_pct}%</b></span>
+                  <span>PF <b className="text-foreground">{oosOpt.metrics.profit_factor}</b></span>
+                  <span>Trades <b className="text-foreground">{oosOpt.metrics.total_trades}</b></span>
                 </div>
               ) : (
                 <div className="mt-1 text-amber-200">{oosOpt.warning || 'OOS-проверка недоступна.'}</div>
@@ -143,7 +143,7 @@ export default function BacktestOptimizerView({
           {gridRows.length > 0 && (
             <table className="w-full text-[10px] font-mono-numbers">
               <thead
-                className="sticky top-0 bg-neutral-950 text-neutral-400 text-[8.5px] uppercase border-b border-neutral-800"
+                className="sticky top-0 bg-background text-muted-foreground text-[8.5px] uppercase border-b border-border"
               >
                 <tr>
                   <th className="text-left px-2 py-1">#</th>
@@ -162,10 +162,10 @@ export default function BacktestOptimizerView({
                 {gridRows.slice(0, 15).map((row) => (
                   <tr
                     key={row.rank}
-                    className={`hover:bg-neutral-900/60 ${row.rank === 1 ? 'bg-neutral-800/30' : ''}`}
+                    className={`hover:bg-card/60 ${row.rank === 1 ? 'bg-muted/30' : ''}`}
                   >
-                    <td className="px-2 py-1 font-bold text-neutral-300">#{row.rank}</td>
-                    <td className="px-2 text-right text-white font-mono">{row.stop_loss_pct}%</td>
+                    <td className="px-2 py-1 font-bold text-foreground/80">#{row.rank}</td>
+                    <td className="px-2 text-right text-foreground font-mono">{row.stop_loss_pct}%</td>
                     <td className="px-2 text-right text-[#cbd5e1] font-mono">{row.take_profit_pct}%</td>
                     <td className="px-2 text-right text-[#ffb300] font-mono">
                       ${(row.min_density_usd / 1000).toFixed(0)}k
@@ -183,13 +183,13 @@ export default function BacktestOptimizerView({
                       {row.total_pnl_pct}%
                     </td>
                     <td className="px-2 text-right text-[#ef5350] font-mono">-{row.max_drawdown_pct}%</td>
-                    <td className="px-2 text-right font-bold text-neutral-200 font-mono">
+                    <td className="px-2 text-right font-bold text-foreground font-mono">
                       {row.sharpe_ratio}
                     </td>
                     <td className="px-2 text-center">
                       <button
                         onClick={() => onApplySetup(row)}
-                        className="px-2 py-0.5 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 font-bold text-[9px] transition cursor-pointer"
+                        className="px-2 py-0.5 rounded bg-muted hover:bg-muted/80 text-foreground border border-border font-bold text-[9px] transition cursor-pointer"
                       >
                         Применить
                       </button>
@@ -220,17 +220,17 @@ export default function BacktestOptimizerView({
           <tbody className="divide-y divide-[#13161f]">
             {confluenceMatrix.map((item, idx) => (
               <tr key={idx} className="hover:bg-[#161922]">
-                <td className="px-2 py-1 font-bold text-white truncate max-w-[260px]">
+                <td className="px-2 py-1 font-bold text-foreground truncate max-w-[260px]">
                   {item.condition_name}
                 </td>
                 <td className="px-2 text-right text-[#cbd5e1]">{item.total_trades}</td>
                 <td className="px-2 text-right font-bold text-[#26a69a]">{item.win_rate_pct}%</td>
-                <td className="px-2 text-right text-white">{item.profit_factor}</td>
+                <td className="px-2 text-right text-foreground">{item.profit_factor}</td>
                 <td className="px-2 text-right text-[#38bdf8]">{item.avg_pnl_pct}%</td>
                 <td className="px-2 text-center">
                   <button
                     onClick={() => onApplyConfluenceSetup(item)}
-                    className="px-2 py-0.5 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 font-bold text-[9px] transition cursor-pointer"
+                    className="px-2 py-0.5 rounded bg-muted hover:bg-muted/80 text-foreground border border-border font-bold text-[9px] transition cursor-pointer"
                   >
                     Включить
                   </button>

@@ -158,7 +158,7 @@ export default function Tape({ symbol = "BTCUSDT", uiConfig = null, onClose = nu
         style={{ backgroundColor: 'var(--bg-panel-header)', borderColor: 'var(--border-subtle)' }}
         className="flex items-center justify-between px-2 py-1 border-b"
       >
-        <div className="flex items-center space-x-1 font-bold text-white text-[11px] truncate">
+        <div className="flex items-center space-x-1 font-bold text-foreground text-[11px] truncate">
           <Zap size={12} className="text-[#f59e0b] shrink-0" />
           <span>Лента</span>
         </div>
@@ -199,7 +199,7 @@ export default function Tape({ symbol = "BTCUSDT", uiConfig = null, onClose = nu
                     setMinUsd(preset.value);
                     setShowFilterMenu(false);
                   }}
-                  className={`w-full text-left px-1.5 py-0.5 rounded transition ${minUsd === preset.value ? 'bg-[#2563eb] text-white font-bold' : 'hover:bg-[#161820] text-[#d1d4dc]'}`}
+                  className={`w-full text-left px-1.5 py-0.5 rounded transition ${minUsd === preset.value ? 'bg-[#2563eb] text-foreground font-bold' : 'hover:bg-[#161820] text-[#d1d4dc]'}`}
                 >
                   {preset.label}
                 </button>

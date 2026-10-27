@@ -35,7 +35,7 @@ export default function DataFeedContextCard({ dfc, atrMetric }) {
 
         <div className="p-1.5 rounded bg-[#090c14] border border-[#191f2e]">
           <div className="text-[#64748b] text-[8.5px]">Дельта & Кластеры (CVD)</div>
-          <div className="text-white font-bold">
+          <div className="text-foreground font-bold">
             CVD: {dfc?.cvd_footprint?.cvd_value ?? '+385.4'}
           </div>
           <div className="text-[#38bdf8] text-[9px] truncate">

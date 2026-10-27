@@ -21,7 +21,7 @@ export default function QuickPromptChips({ onPrompt }) {
           <button
             key={q.label}
             onClick={() => onPrompt(q.prompt)}
-            className="px-2 py-0.5 rounded-full bg-[#161a24] hover:bg-[#202738] text-[#94a3b8] hover:text-white border border-[#262c3d] text-[10px] transition cursor-pointer"
+            className="px-2 py-0.5 rounded-full bg-[#161a24] hover:bg-[#202738] text-[#94a3b8] hover:text-foreground border border-[#262c3d] text-[10px] transition cursor-pointer"
           >
             {q.emoji} {q.label}
           </button>

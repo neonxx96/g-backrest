@@ -72,21 +72,21 @@ function Card({ label, value, tone, sub, testId, isLarge = false }) {
       ? 'text-[#f87171]'
       : tone === 'warn'
       ? 'text-[#fbbf24]'
-      : 'text-neutral-100';
+      : 'text-foreground';
   return (
     <div
       data-testid={testId}
-      className={`flex-1 min-w-[90px] border border-neutral-800/90 rounded-md px-2.5 py-1.5 bg-[#0e1217]/90 shadow-sm flex flex-col justify-between transition hover:border-neutral-700 ${
-        isLarge ? 'bg-gradient-to-b from-[#141822] to-[#090c12] border-neutral-700/80 shadow-md ring-1 ring-white/5' : ''
+      className={`flex-1 min-w-[90px] border border-border/90 rounded-md px-2.5 py-1.5 bg-[#0e1217]/90 shadow-sm flex flex-col justify-between transition hover:border-border ${
+        isLarge ? 'bg-gradient-to-b from-[#141822] to-[#090c12] border-border/80 shadow-md ring-1 ring-white/5' : ''
       }`}
     >
-      <div className="text-[8.5px] uppercase text-neutral-400 font-bold tracking-wider truncate flex items-center justify-between">
+      <div className="text-[8.5px] uppercase text-muted-foreground font-bold tracking-wider truncate flex items-center justify-between">
         <span>{label}</span>
       </div>
       <div className={`text-[15px] font-extrabold font-mono leading-snug tracking-tight my-0.5 ${color} truncate`}>
         {value}
       </div>
-      {sub && <div className="text-[8px] text-neutral-500 font-mono truncate">{sub}</div>}
+      {sub && <div className="text-[8px] text-muted-foreground font-mono truncate">{sub}</div>}
     </div>
   );
 }
@@ -1241,36 +1241,36 @@ export default function BacktestPanel({
     <div
       data-testid="backtest-panel"
       style={{ height: 400 }}
-      className="absolute left-0 right-0 bottom-0 z-40 border-t border-neutral-800 bg-[#0B0E11] shadow-[0_-8px_24px_rgba(0,0,0,0.7)] text-xs flex flex-col font-sans"
+      className="absolute left-0 right-0 bottom-0 z-40 border-t border-border bg-[#0B0E11] shadow-[0_-8px_24px_rgba(0,0,0,0.7)] text-xs flex flex-col font-sans"
     >
       {/* Header */}
       <div
-        className="flex items-center justify-between px-3 py-1.5 border-b border-neutral-800 bg-neutral-950 shrink-0"
+        className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-background shrink-0"
       >
-        <div className="flex items-center space-x-2 font-bold text-white text-[11px] min-w-0">
-          <BarChart3 size={13} className="text-neutral-300 shrink-0" />
-          <span className="truncate text-neutral-200">Квант-движок Бэктеста & Монте-Карло</span>
-          <span className="font-mono text-neutral-200 bg-neutral-900 border border-neutral-800 rounded px-1.5 shrink-0">
+        <div className="flex items-center space-x-2 font-bold text-foreground text-[11px] min-w-0">
+          <BarChart3 size={13} className="text-foreground/80 shrink-0" />
+          <span className="truncate text-foreground">Квант-движок Бэктеста & Монте-Карло</span>
+          <span className="font-mono text-foreground bg-card border border-border rounded px-1.5 shrink-0">
             {symbol}
           </span>
 
           {/* Mode Switcher */}
-          <div className="flex items-center bg-neutral-950 p-0.5 rounded border border-neutral-800 font-mono text-[9.5px] ml-2 shrink-0">
+          <div className="flex items-center bg-background p-0.5 rounded border border-border font-mono text-[9.5px] ml-2 shrink-0">
             <button
               data-testid="bt-mode-paper"
               onClick={() => setMode('live_paper')}
               className={`flex items-center space-x-1 px-2 py-0.5 rounded transition cursor-pointer ${
-                mode === 'live_paper' ? 'bg-amber-400 text-neutral-950 font-bold shadow-xs' : 'text-neutral-400 hover:text-white'
+                mode === 'live_paper' ? 'bg-amber-400 text-neutral-950 font-bold shadow-xs' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              <Zap size={10} className={mode === 'live_paper' ? 'text-black' : 'text-amber-400'} />
+              <Zap size={10} className={mode === 'live_paper' ? 'text-black' : 'text-warning'} />
               <span>⚡ Симулятор (Paper)</span>
             </button>
             <button
               data-testid="bt-mode-single"
               onClick={() => setMode('single')}
               className={`flex items-center space-x-1 px-2 py-0.5 rounded transition cursor-pointer ${
-                mode === 'single' ? 'bg-neutral-200 text-neutral-950 font-bold shadow-xs' : 'text-neutral-400 hover:text-white'
+                mode === 'single' ? 'bg-neutral-200 text-neutral-950 font-bold shadow-xs' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               <Sliders size={10} />
@@ -1280,7 +1280,7 @@ export default function BacktestPanel({
               data-testid="bt-mode-optimizer"
               onClick={() => setMode('grid')}
               className={`flex items-center space-x-1 px-2 py-0.5 rounded transition cursor-pointer ${
-                mode === 'grid' ? 'bg-neutral-200 text-neutral-950 font-bold shadow-xs' : 'text-neutral-400 hover:text-white'
+                mode === 'grid' ? 'bg-neutral-200 text-neutral-950 font-bold shadow-xs' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               <Dna size={10} />
@@ -1290,7 +1290,7 @@ export default function BacktestPanel({
               data-testid="bt-mode-ai"
               onClick={() => setMode('ai')}
               className={`flex items-center space-x-1 px-2 py-0.5 rounded transition cursor-pointer ${
-                mode === 'ai' ? 'bg-neutral-200 text-neutral-950 font-bold shadow-xs' : 'text-neutral-400 hover:text-white'
+                mode === 'ai' ? 'bg-neutral-200 text-neutral-950 font-bold shadow-xs' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               <Sparkles size={10} />
@@ -1321,7 +1321,7 @@ export default function BacktestPanel({
               🌙 Мастер Night Pilot
             </button>
         </div>
-        <button onClick={onClose} className="text-neutral-500 hover:text-neutral-200 shrink-0 cursor-pointer" title="Закрыть (B)">
+        <button onClick={onClose} className="text-muted-foreground hover:text-foreground shrink-0 cursor-pointer" title="Закрыть (B)">
           <X size={14} />
         </button>
       </div>
@@ -1329,32 +1329,32 @@ export default function BacktestPanel({
       <div className="flex-1 flex overflow-hidden min-w-0">
         {/* Left Settings Column */}
         <div
-          className="w-[450px] 2xl:w-[490px] shrink-0 p-2.5 border-r border-neutral-800 space-y-2 overflow-y-auto bg-neutral-950/60 select-none"
+          className="w-[450px] 2xl:w-[490px] shrink-0 p-2.5 border-r border-border space-y-2 overflow-y-auto bg-background/60 select-none"
         >
           {mode === 'live_paper' ? (
-            <div className="space-y-3 text-xs"><h2 className="font-semibold text-cyan-200">Настройка paper-торговли</h2><p className="text-neutral-400">Выберите монеты, стратегии, депозит и риск. Проверьте историю и прогноз перед запуском.</p><button className="rounded border border-cyan-700 bg-cyan-950 px-3 py-2 text-cyan-100" onClick={() => setShowOvernightPilot(true)}>Открыть мастер запуска</button><details><summary className="cursor-pointer text-neutral-500">Предыдущий одноинструментный симулятор</summary><LivePaperTradingControls symbol={symbol} /></details></div>
+            <div className="space-y-3 text-xs"><h2 className="font-semibold text-cyan-200">Настройка paper-торговли</h2><p className="text-muted-foreground">Выберите монеты, стратегии, депозит и риск. Проверьте историю и прогноз перед запуском.</p><button className="rounded border border-cyan-700 bg-cyan-950 px-3 py-2 text-cyan-100" onClick={() => setShowOvernightPilot(true)}>Открыть мастер запуска</button><details><summary className="cursor-pointer text-muted-foreground">Предыдущий одноинструментный симулятор</summary><LivePaperTradingControls symbol={symbol} /></details></div>
           ) : mode === 'ai' ? (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold text-neutral-200 uppercase tracking-wider flex items-center gap-1">
-                  <Sparkles size={11} className="text-neutral-400" /> AI Ассистент стратегий
+                <span className="text-[10px] font-bold text-foreground uppercase tracking-wider flex items-center gap-1">
+                  <Sparkles size={11} className="text-muted-foreground" /> AI Ассистент стратегий
                 </span>
                 <span className="text-[11px] text-muted-foreground font-mono">NLP v2</span>
               </div>
 
               <label className="flex flex-col text-[11px] text-muted-foreground font-mono">
-                <span className="mb-1 text-neutral-300">Опишите торговый сетап:</span>
+                <span className="mb-1 text-foreground/80">Опишите торговый сетап:</span>
                 <textarea
                   value={aiPrompt}
                   onChange={(e) => setAiPrompt(e.target.value)}
                   placeholder="например: Консервативный сетап для скальпинга BTC на 5m с низким риском..."
                   rows={3}
-                  className="w-full bg-neutral-950 border border-neutral-800 focus:border-neutral-500 focus:ring-1 focus:ring-neutral-500/30 rounded p-1.5 text-neutral-100 text-[10px] font-mono outline-none resize-none leading-relaxed"
+                  className="w-full bg-background border border-border focus:border-neutral-500 focus:ring-1 focus:ring-neutral-500/30 rounded p-1.5 text-foreground text-[10px] font-mono outline-none resize-none leading-relaxed"
                 />
               </label>
 
               <div className="space-y-1">
-                <div className="text-[8.5px] uppercase tracking-wider text-neutral-400 font-bold">Быстрые пресеты:</div>
+                <div className="text-[8.5px] uppercase tracking-wider text-muted-foreground font-bold">Быстрые пресеты:</div>
                 <div className="flex flex-col space-y-1">
                   {PRESET_CHIPS.map((chip) => (
                     <button
@@ -1364,7 +1364,7 @@ export default function BacktestPanel({
                         setAiPrompt(chip.text);
                         runAiCopilot(chip.text);
                       }}
-                      className="text-left text-[9px] bg-neutral-950 hover:bg-neutral-900 border border-neutral-800 hover:border-neutral-600 text-neutral-400 hover:text-white rounded px-2 py-1 font-mono transition truncate cursor-pointer"
+                      className="text-left text-[9px] bg-background hover:bg-card border border-border hover:border-neutral-600 text-muted-foreground hover:text-foreground rounded px-2 py-1 font-mono transition truncate cursor-pointer"
                     >
                       {chip.label}
                     </button>
@@ -1484,9 +1484,9 @@ export default function BacktestPanel({
                       disabled={loading || isLiveOnlyStrategy || !paramValidation.isValid}
                       className={`w-full flex items-center justify-center space-x-2 py-2.5 rounded-md font-extrabold text-[12px] transition shadow-md border ${
                         isLiveOnlyStrategy
-                          ? 'opacity-40 bg-neutral-900 text-neutral-500 border-neutral-800 cursor-not-allowed'
+                          ? 'opacity-40 bg-card text-muted-foreground border-border cursor-not-allowed'
                           : !paramValidation.isValid
-                          ? 'opacity-50 bg-neutral-900 text-neutral-400 border-neutral-800 cursor-not-allowed'
+                          ? 'opacity-50 bg-card text-muted-foreground border-border cursor-not-allowed'
                           : 'text-neutral-950 bg-white hover:bg-neutral-200 cursor-pointer border-neutral-200'
                       }`}
                       title={
@@ -1517,7 +1517,7 @@ export default function BacktestPanel({
                     {(loading || optProgress === 100) && (
                       <div
                         data-testid="genetic-progress-bar"
-                        className="w-full h-1.5 bg-neutral-900 rounded overflow-hidden border border-neutral-800"
+                        className="w-full h-1.5 bg-card rounded overflow-hidden border border-border"
                       >
                         <div
                           style={{ width: `${optProgress}%` }}
@@ -1534,9 +1534,9 @@ export default function BacktestPanel({
                       disabled={loading || isLiveOnlyStrategy || !paramValidation.isValid}
                       className={`flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-md font-extrabold text-[11.5px] transition shadow-md border ${
                         isLiveOnlyStrategy
-                          ? 'opacity-40 bg-neutral-900 text-neutral-500 border-neutral-800 cursor-not-allowed'
+                          ? 'opacity-40 bg-card text-muted-foreground border-border cursor-not-allowed'
                           : !paramValidation.isValid
-                          ? 'opacity-50 bg-neutral-900 text-neutral-400 border-neutral-800 cursor-not-allowed'
+                          ? 'opacity-50 bg-card text-muted-foreground border-border cursor-not-allowed'
                           : 'text-neutral-950 bg-white hover:bg-neutral-200 cursor-pointer border-neutral-200'
                       }`}
                       title={
@@ -1569,13 +1569,13 @@ export default function BacktestPanel({
                       type="button"
                       onClick={runForecast}
                       disabled={forecastLoading}
-                      className="flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-md disabled:opacity-60 text-neutral-100 font-bold text-[11.5px] bg-neutral-800 hover:bg-neutral-700 hover:text-white transition shadow-sm cursor-pointer border border-neutral-700"
+                      className="flex items-center justify-center space-x-1.5 py-2.5 px-3 rounded-md disabled:opacity-60 text-foreground font-bold text-[11.5px] bg-muted hover:bg-muted/80 hover:text-foreground transition shadow-sm cursor-pointer border border-border"
                       title="Спроецировать интрадей прогнозный конус волатильности (±1σ / ±2σ) на график"
                     >
                       {forecastLoading ? (
-                        <Loader2 size={14} className="animate-spin text-neutral-300" />
+                        <Loader2 size={14} className="animate-spin text-foreground/80" />
                       ) : (
-                        <TrendingUp size={14} className="text-emerald-400" />
+                        <TrendingUp size={14} className="text-bull" />
                       )}
                       <span>{forecastLoading ? 'Проекция…' : 'Прогноз (Forecast)'}</span>
                     </button>
@@ -1584,9 +1584,9 @@ export default function BacktestPanel({
                 {!paramValidation.isValid && (
                   <div
                     data-testid="param-validation-warning"
-                    className="mt-1.5 text-[8.5px] font-mono text-amber-400 bg-amber-950/30 border border-amber-800/50 rounded px-2 py-1 flex items-center space-x-1"
+                    className="mt-1.5 text-[8.5px] font-mono text-warning bg-amber-950/30 border border-amber-800/50 rounded px-2 py-1 flex items-center space-x-1"
                   >
-                    <AlertTriangle size={11} className="shrink-0 text-amber-400" />
+                    <AlertTriangle size={11} className="shrink-0 text-warning" />
                     <span>{paramValidation.firstIssue}</span>
                   </div>
                 )}
@@ -1597,16 +1597,16 @@ export default function BacktestPanel({
           {error && (
             <div
               data-testid="backtest-error-banner"
-              className="flex items-start space-x-1.5 text-[10px] text-red-400 bg-red-950/40 border border-red-700/50 rounded-md p-2 font-mono"
+              className="flex items-start space-x-1.5 text-[10px] text-bear bg-bear-soft/40 border border-red-700/50 rounded-md p-2 font-mono"
             >
-              <AlertTriangle size={13} className="mt-0.5 shrink-0 text-red-400" />
+              <AlertTriangle size={13} className="mt-0.5 shrink-0 text-bear" />
               <div className="flex-1 min-w-0">
                 <span className="break-words font-medium">{error}</span>
               </div>
               <button
                 type="button"
                 onClick={() => setError(null)}
-                className="text-neutral-500 hover:text-neutral-300 text-[10px] ml-1 px-1 cursor-pointer"
+                className="text-muted-foreground hover:text-foreground/80 text-[10px] ml-1 px-1 cursor-pointer"
                 title="Закрыть"
               >
                 ✕
@@ -1628,7 +1628,7 @@ export default function BacktestPanel({
           >
             <div className="truncate">
               <span className="text-[#64748b] uppercase block text-[8px]">Стакан & Плотности</span>
-              <span className="text-white font-bold">
+              <span className="text-foreground font-bold">
                 {hasL2History ? 'Available' : 'No data (OHLCV only)'}
               </span>{' '}
               <span className="text-[#26a69a]">
@@ -1672,7 +1672,7 @@ export default function BacktestPanel({
                   type="button"
                   data-testid="btn-project-setup-chart"
                   onClick={() => projectSetupOntoTerminal(result.active_position_setup)}
-                  className="px-1.5 py-0.5 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 font-bold text-[8.5px] shrink-0 cursor-pointer transition-colors"
+                  className="px-1.5 py-0.5 rounded bg-muted hover:bg-muted/80 text-foreground border border-border font-bold text-[8.5px] shrink-0 cursor-pointer transition-colors"
                   title="Отрисовать Entry / SL / TP1 / TP2 на графике и в стакане"
                 >
                   🎯 На график
@@ -1682,7 +1682,7 @@ export default function BacktestPanel({
           </div>
 
           {!s && !loading && !aiLoading && (
-            <div className="flex-1 flex items-center justify-center text-neutral-500 text-[11px] font-mono">
+            <div className="flex-1 flex items-center justify-center text-muted-foreground text-[11px] font-mono">
               {mode === 'ai'
                 ? 'Опишите торговую стратегию и нажмите «✨ Сгенерировать и протестировать»'
                 : mode === 'grid'
@@ -1692,9 +1692,9 @@ export default function BacktestPanel({
           )}
 
           {(loading || aiLoading) && (
-            <div className="flex-1 flex flex-col items-center justify-center text-neutral-300 text-[11px] font-mono space-y-2">
+            <div className="flex-1 flex flex-col items-center justify-center text-foreground/80 text-[11px] font-mono space-y-2">
               <div className="flex items-center">
-                <Loader2 size={16} className="animate-spin mr-2 text-neutral-300" />
+                <Loader2 size={16} className="animate-spin mr-2 text-foreground/80" />
                 <span>
                   {aiLoading
                     ? '🤖 AI парсит требования, подбирает фильтры Order Flow и проводит бэктест…'
@@ -1711,10 +1711,10 @@ export default function BacktestPanel({
               {/* Institutional Context & State Header (Stage 5) */}
               <div
                 data-testid="backtest-result-context-badge"
-                className="flex items-center justify-between px-2.5 py-1 rounded bg-[#0e131f] border border-[#1e293b] font-mono text-[9px] text-neutral-300 shrink-0"
+                className="flex items-center justify-between px-2.5 py-1 rounded bg-[#0e131f] border border-[#1e293b] font-mono text-[9px] text-foreground/80 shrink-0"
               >
                 <div className="flex items-center space-x-2">
-                  <span className="px-1.5 py-0.2 rounded bg-neutral-800 text-sky-400 font-bold border border-sky-500/30">
+                  <span className="px-1.5 py-0.2 rounded bg-muted text-sky-400 font-bold border border-sky-500/30">
                     HISTORICAL BACKTEST
                   </span>
                   <span
@@ -1723,19 +1723,19 @@ export default function BacktestPanel({
                   >
                     SOURCE: OHLCV
                   </span>
-                  <span className="font-bold text-white tracking-wide">
+                  <span className="font-bold text-foreground tracking-wide">
                     {result?.symbol || symbol}
                   </span>
-                  <span className="text-neutral-500">•</span>
-                  <span className="text-neutral-300">
+                  <span className="text-muted-foreground">•</span>
+                  <span className="text-foreground/80">
                     {result?.timeframe || timeframe}
                   </span>
-                  <span className="text-neutral-500">•</span>
-                  <span className="text-emerald-400">
+                  <span className="text-muted-foreground">•</span>
+                  <span className="text-bull">
                     {STRATEGIES.find((st) => st.id === (result?.meta?.strategy_type || strategy))?.name || result?.meta?.strategy_type || strategy}
                   </span>
                 </div>
-                <div className="flex items-center space-x-2 text-neutral-500">
+                <div className="flex items-center space-x-2 text-muted-foreground">
                   <span>Свечей: {result?.meta?.candles || 0} ({result?.meta?.requested_days || days}д)</span>
                   <span>•</span>
                   <span>{new Date(result?.meta?.to_time || Date.now()).toLocaleTimeString()} UTC</span>
@@ -1744,7 +1744,7 @@ export default function BacktestPanel({
 
               {verdict && (
                 <div data-testid="research-verdict" className={`flex items-center justify-between px-2.5 py-1 rounded border font-mono text-[9px] ${
-                  verdict.level === 'READY' ? 'bg-emerald-950/30 border-emerald-700/50 text-emerald-300' : verdict.level === 'BLOCK' ? 'bg-red-950/30 border-red-700/50 text-red-300' : 'bg-amber-950/30 border-amber-700/50 text-amber-300'
+                  verdict.level === 'READY' ? 'bg-bull-soft/30 border-emerald-700/50 text-emerald-300' : verdict.level === 'BLOCK' ? 'bg-bear-soft/30 border-red-700/50 text-red-300' : 'bg-amber-950/30 border-amber-700/50 text-amber-300'
                 }`}>
                   <span className="font-bold">{verdict.label}</span>
                   <span>Regime: {currentRegime} · Fee Drag: {feeDragPct.toFixed(2)}% · {verdict.l2Label}</span>
@@ -1796,8 +1796,8 @@ export default function BacktestPanel({
                   onClick={onToggleSignals}
                   className={`flex flex-col items-center justify-center px-2.5 rounded-md border text-[10px] font-mono shrink-0 transition cursor-pointer ${
                     showSignals
-                      ? 'bg-neutral-800 text-neutral-200 border-neutral-600'
-                      : 'text-neutral-500 border-neutral-800 hover:text-white'
+                      ? 'bg-muted text-foreground border-neutral-600'
+                      : 'text-muted-foreground border-border hover:text-foreground'
                   }`}
                   title="Показать / скрыть сигналы на графике"
                 >
@@ -1807,7 +1807,7 @@ export default function BacktestPanel({
               </div>
 
               {/* Sub-navigation Tabs: Equity & Monte Carlo | Genetic Optimizer Before/After | Trades | Confluence Matrix */}
-              <div className="flex items-center justify-between py-0.5 border-b border-neutral-800 shrink-0">
+              <div className="flex items-center justify-between py-0.5 border-b border-border shrink-0">
                 <div className="flex items-center space-x-1 font-mono text-[9.5px]">
                   <button
                     data-testid="tab-equity-mc"
@@ -1815,7 +1815,7 @@ export default function BacktestPanel({
                     className={`px-2 py-0.5 rounded transition cursor-pointer flex items-center gap-1 ${
                       viewTab === 'equity'
                         ? 'bg-neutral-200 text-neutral-950 font-bold shadow-xs'
-                        : 'text-neutral-400 hover:text-white bg-neutral-900 border border-neutral-800/80'
+                        : 'text-muted-foreground hover:text-foreground bg-card border border-border/80'
                     }`}
                   >
                     <TrendingUp size={10} />
@@ -1829,7 +1829,7 @@ export default function BacktestPanel({
                       className={`px-2 py-0.5 rounded transition cursor-pointer flex items-center gap-1 ${
                         viewTab === 'optimizer'
                           ? 'bg-neutral-200 text-neutral-950 font-bold shadow-xs'
-                          : 'text-neutral-400 hover:text-white bg-neutral-900 border border-neutral-800/80'
+                          : 'text-muted-foreground hover:text-foreground bg-card border border-border/80'
                       }`}
                     >
                       <Dna size={10} />
@@ -1843,7 +1843,7 @@ export default function BacktestPanel({
                     className={`px-2 py-0.5 rounded transition cursor-pointer ${
                       viewTab === 'trades'
                         ? 'bg-neutral-200 text-neutral-950 font-bold shadow-xs'
-                        : 'text-neutral-400 hover:text-white bg-neutral-900 border border-neutral-800/80'
+                        : 'text-muted-foreground hover:text-foreground bg-card border border-border/80'
                     }`}
                   >
                     📋 Сделки ({allTrades.length})
@@ -1855,7 +1855,7 @@ export default function BacktestPanel({
                     className={`px-2 py-0.5 rounded transition cursor-pointer flex items-center gap-1 ${
                       viewTab === 'matrix'
                         ? 'bg-neutral-200 text-neutral-950 font-bold shadow-xs'
-                        : 'text-neutral-400 hover:text-white bg-neutral-900 border border-neutral-800/80'
+                        : 'text-muted-foreground hover:text-foreground bg-card border border-border/80'
                     }`}
                   >
                     <span>🧩 Матрица связок ({confluenceMatrix.length})</span>
@@ -1885,7 +1885,7 @@ export default function BacktestPanel({
                     onClick={handleExportPDF}
                     disabled={pdfExporting}
                     title="Скачать PDF-отчёт: сводка, Монте-Карло, тепловая карта по дням/часам"
-                    className="px-2 py-0.5 rounded font-mono font-bold text-[9.5px] border transition cursor-pointer bg-neutral-900 text-neutral-300 border-neutral-700 hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                    className="px-2 py-0.5 rounded font-mono font-bold text-[9.5px] border transition cursor-pointer bg-card text-foreground/80 border-border hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                   >
                     {pdfExporting ? <Loader2 size={10} className="animate-spin" /> : <Download size={10} />}
                     <span>PDF отчёт</span>
@@ -1898,7 +1898,7 @@ export default function BacktestPanel({
                     onClick={handleExportHTML}
                     disabled={htmlExporting}
                     title="Открыть HTML-отчёт в новой вкладке: сводка, equity, Монте-Карло, тепловая карта"
-                    className="px-2 py-0.5 rounded font-mono font-bold text-[9.5px] border transition cursor-pointer bg-neutral-900 text-neutral-300 border-neutral-700 hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                    className="px-2 py-0.5 rounded font-mono font-bold text-[9.5px] border transition cursor-pointer bg-card text-foreground/80 border-border hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                   >
                     {htmlExporting ? <Loader2 size={10} className="animate-spin" /> : <FileCode2 size={10} />}
                     <span>HTML отчёт</span>
@@ -1935,7 +1935,7 @@ export default function BacktestPanel({
                       >
                         <div className="space-y-1">
                           <div className="flex items-center justify-between border-b border-[#191f2e] pb-1">
-                            <span className="font-bold text-white flex items-center gap-1">
+                            <span className="font-bold text-foreground flex items-center gap-1">
                               <ShieldCheck size={12} className="text-[#38bdf8]" />
                               Стресс-тест Монте-Карло ({mc.simulations_count})
                             </span>
@@ -2001,16 +2001,16 @@ export default function BacktestPanel({
                 {viewTab === 'trades' && (
                   <div className="flex flex-col h-full">
                     {/* Action Toolbar for Trades Log */}
-                    <div className="flex items-center justify-between px-2 py-1 bg-neutral-950 border-b border-neutral-800 text-[9px] shrink-0 font-mono">
+                    <div className="flex items-center justify-between px-2 py-1 bg-background border-b border-border text-[9px] shrink-0 font-mono">
                       <div className="flex items-center space-x-2">
                         <span className="text-[#34d399] font-bold flex items-center gap-1">
                           <span className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />
                           Historical Flow & Volume Engine
                         </span>
-                        <span className="text-neutral-600">|</span>
-                        <span className="text-neutral-400">Сделок: {allTrades.length}</span>
-                        <span className="text-neutral-600">|</span>
-                        <span className="text-neutral-500">Maker 0.02% / Taker 0.05%</span>
+                        <span className="text-muted-foreground">|</span>
+                        <span className="text-muted-foreground">Сделок: {allTrades.length}</span>
+                        <span className="text-muted-foreground">|</span>
+                        <span className="text-muted-foreground">Maker 0.02% / Taker 0.05%</span>
                       </div>
 
                       <button
@@ -2018,7 +2018,7 @@ export default function BacktestPanel({
                         data-testid="btn-export-csv"
                         onClick={handleExportCSV}
                         disabled={allTrades.length === 0}
-                        className="px-2 py-0.5 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700 flex items-center gap-1 transition cursor-pointer text-[9px]"
+                        className="px-2 py-0.5 rounded bg-muted hover:bg-muted/80 text-foreground border border-border flex items-center gap-1 transition cursor-pointer text-[9px]"
                         title="Экспортировать весь журнал сделок в CSV"
                       >
                         <Download size={10} />
@@ -2050,7 +2050,7 @@ export default function BacktestPanel({
           )}
         </div>
       </div>
-      {showOvernightPilot && <Suspense fallback={<div role="status" className="absolute inset-0 z-50 bg-neutral-950 p-4 text-cyan-200">Загрузка Night Pilot…</div>}><PilotDialog onClose={() => setShowOvernightPilot(false)} /></Suspense>}
+      {showOvernightPilot && <Suspense fallback={<div role="status" className="absolute inset-0 z-50 bg-background p-4 text-cyan-200">Загрузка Night Pilot…</div>}><PilotDialog onClose={() => setShowOvernightPilot(false)} /></Suspense>}
     </div>
   );
 }

@@ -56,9 +56,9 @@ function rowPaperFloatingPnl(row) {
 }
 
 const VERDICT_STYLES = {
-  PASS: 'border-emerald-700 bg-emerald-950/60 text-emerald-300',
+  PASS: 'border-emerald-700 bg-bull-soft/60 text-emerald-300',
   WARNING: 'border-amber-700 bg-amber-950/60 text-amber-300',
-  BLOCK: 'border-red-700 bg-red-950/60 text-red-300'
+  BLOCK: 'border-red-700 bg-bear-soft/60 text-red-300'
 };
 
 function VerdictBadge({ verdict }) {
@@ -76,7 +76,7 @@ function VerdictBadge({ verdict }) {
 }
 
 function Metric({ label, value }) {
-  return <div className="rounded border border-neutral-800 bg-neutral-950/70 p-2"><div className="text-[11px] text-muted-foreground">{label}</div><div className="font-mono text-[11px] text-neutral-100">{value ?? '—'}</div></div>;
+  return <div className="rounded border border-border bg-background/70 p-2"><div className="text-[11px] text-muted-foreground">{label}</div><div className="font-mono text-[11px] text-foreground">{value ?? '—'}</div></div>;
 }
 
 function BacktestQuality({ backtest }) {
@@ -90,10 +90,10 @@ function BacktestQuality({ backtest }) {
     ? 'Недостаточно сделок для устойчивой статистики (нужно минимум 30).'
     : backtest?.monte_carlo?.reason;
   return (
-    <div className="space-y-1 rounded border border-neutral-800 bg-neutral-950/50 px-2 py-1.5 text-[8px] text-neutral-500">
+    <div className="space-y-1 rounded border border-border bg-background/50 px-2 py-1.5 text-[8px] text-muted-foreground">
       <div className="flex flex-wrap gap-x-3 gap-y-1">
-        <span>Сделки <b className="text-neutral-200">{trades}</b></span>
-        <span>Средняя <b className="text-neutral-200">${avg.toFixed(2)}</b></span>
+        <span>Сделки <b className="text-foreground">{trades}</b></span>
+        <span>Средняя <b className="text-foreground">${avg.toFixed(2)}</b></span>
         <span>Источник <b className="text-cyan-300">{source}</b></span>
       </div>
       {warning && <div className="text-amber-200">⚠ {warning}</div>}
@@ -122,17 +122,17 @@ function RecentBacktestTrades({ backtest }) {
     const minutes = Math.round(ms / 60000);
     return minutes >= 60 ? `${Math.floor(minutes / 60)}ч ${minutes % 60}м` : `${minutes}м`;
   };
-  if (!trades.length) return <div className="rounded border border-neutral-800 bg-neutral-950/50 px-2 py-1.5 text-[8px] text-neutral-600">Сделок за выбранный период нет.</div>;
+  if (!trades.length) return <div className="rounded border border-border bg-background/50 px-2 py-1.5 text-[8px] text-muted-foreground">Сделок за выбранный период нет.</div>;
   return (
-    <div className="rounded border border-neutral-800 bg-neutral-950/50 px-2 py-1.5 text-[8px]" data-testid="overnight-backtest-trades">
-      <div className="mb-1 font-bold uppercase tracking-wide text-neutral-500">Последние сделки · вход → выход</div>
+    <div className="rounded border border-border bg-background/50 px-2 py-1.5 text-[8px]" data-testid="overnight-backtest-trades">
+      <div className="mb-1 font-bold uppercase tracking-wide text-muted-foreground">Последние сделки · вход → выход</div>
       <div className="space-y-1">
         {trades.map((trade, index) => {
           const pnl = Number(trade.pnl_usd || 0);
-          return <div key={`${trade.id || index}-${trade.entry_time}`} className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-2 text-neutral-400">
+          return <div key={`${trade.id || index}-${trade.entry_time}`} className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-2 text-muted-foreground">
             <span className={trade.direction === 'LONG' ? 'text-emerald-300' : 'text-red-300'}>{trade.direction || trade.type || '—'}</span>
             <span className="truncate" title={`${trade.entry_reason || '—'} → ${trade.exit_reason || '—'}`}>{formatTime(trade.entry_time)} → {formatTime(trade.exit_time)} · {duration(trade.entry_time, trade.exit_time)} · {trade.exit_reason || 'Выход'}</span>
-            <span className="text-neutral-200">{Number(trade.entry_price || 0).toFixed(4)} → {Number(trade.exit_price || 0).toFixed(4)}</span>
+            <span className="text-foreground">{Number(trade.entry_price || 0).toFixed(4)} → {Number(trade.exit_price || 0).toFixed(4)}</span>
             <span className={pnl >= 0 ? 'text-emerald-300' : 'text-red-300'}>{pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}</span>
           </div>;
         })}
@@ -161,13 +161,13 @@ function PaperTradeTimeline({ paper }) {
     return minutes >= 60 ? `${Math.floor(minutes / 60)}ч ${minutes % 60}м` : `${minutes}м`;
   };
   return (
-    <div className="space-y-1 rounded border border-emerald-900/50 bg-emerald-950/10 px-2 py-1.5 text-[8px]" data-testid="overnight-paper-trades">
+    <div className="space-y-1 rounded border border-emerald-900/50 bg-bull-soft/10 px-2 py-1.5 text-[8px]" data-testid="overnight-paper-trades">
       <div className="flex items-center justify-between gap-2">
         <div className="font-bold uppercase tracking-wide text-emerald-300">Paper journal · виртуальные исполнения</div>
-        <div className="text-neutral-500">open {positions.length} · closed {trades.length}</div>
+        <div className="text-muted-foreground">open {positions.length} · closed {trades.length}</div>
       </div>
       {trades.length === 0 && positions.length === 0 ? (
-        <div className="text-neutral-600">Сделок пока нет. Forecast не открывает позицию автоматически без подтверждённого сигнала.</div>
+        <div className="text-muted-foreground">Сделок пока нет. Forecast не открывает позицию автоматически без подтверждённого сигнала.</div>
       ) : (
         <div className="space-y-1">
           {trades.map((trade, index) => {
@@ -175,10 +175,10 @@ function PaperTradeTimeline({ paper }) {
             const exit = trade.exit_ts ?? trade.exit_time;
             const pnl = Number(trade.net_pnl ?? trade.pnl_usd ?? 0);
             const reason = `${trade.entry_reason || 'Вход'} → ${trade.reason || trade.exit_reason || 'Выход'}`;
-            return <div key={`${trade.symbol || index}-${entry}-${exit}`} className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-2 text-neutral-400">
+            return <div key={`${trade.symbol || index}-${entry}-${exit}`} className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-2 text-muted-foreground">
               <span className={trade.side === 'LONG' ? 'text-emerald-300' : 'text-red-300'}>{trade.side || '—'}</span>
               <span className="truncate" title={reason}>{time(entry)} → {time(exit)} · {duration(entry, exit)} · {reason}</span>
-              <span className="text-neutral-200">{Number(trade.entry_price || 0).toFixed(4)} → {Number(trade.exit_price || 0).toFixed(4)}</span>
+              <span className="text-foreground">{Number(trade.entry_price || 0).toFixed(4)} → {Number(trade.exit_price || 0).toFixed(4)}</span>
               <span className={pnl >= 0 ? 'text-emerald-300' : 'text-red-300'}>{pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}</span>
             </div>;
           })}
@@ -220,24 +220,24 @@ function ForecastCard({ forecast }) {
     <div className="space-y-1 rounded border border-cyan-900/50 bg-cyan-950/10 p-2" data-testid="overnight-forecast-card">
       <div className="flex items-center justify-between text-[9px]">
         <span className="font-bold uppercase tracking-wide text-cyan-300">Live forecast</span>
-        <span className={`font-mono font-bold ${direction === 'LONG' ? 'text-emerald-300' : direction === 'SHORT' ? 'text-red-300' : 'text-neutral-400'}`}>{direction}</span>
+        <span className={`font-mono font-bold ${direction === 'LONG' ? 'text-emerald-300' : direction === 'SHORT' ? 'text-red-300' : 'text-muted-foreground'}`}>{direction}</span>
       </div>
-      <div className="grid grid-cols-5 gap-1 text-[8px] text-neutral-500">
-        <span>Entry <b className="block text-neutral-200">{level(signal.entry_price || idea.entry_price)}</b></span>
+      <div className="grid grid-cols-5 gap-1 text-[8px] text-muted-foreground">
+        <span>Entry <b className="block text-foreground">{level(signal.entry_price || idea.entry_price)}</b></span>
         <span>SL <b className="block text-red-300">{level(signal.sl || idea.sl_price)}</b></span>
         <span>TP1 <b className="block text-emerald-300">{level(signal.tp1 || idea.tp1_price)}</b></span>
         <span>TP2 <b className="block text-emerald-300">{level(signal.tp2 || idea.tp2_price)}</b></span>
         <span>BE <b className="block text-amber-200">{level(idea.breakeven_price)}</b></span>
       </div>
-      <div className="flex flex-wrap gap-x-2 text-[8px] text-neutral-500">
+      <div className="flex flex-wrap gap-x-2 text-[8px] text-muted-foreground">
         <span>Regime <b className="text-violet-300">{base.market_regime || forecast?.market_regime || '—'}</b></span>
-        <span>Confidence <b className="text-white">{signal.confidence != null ? `${(Number(signal.confidence) * 100).toFixed(0)}%` : '—'}</b></span>
-        <span>R:R <b className="text-white">{hasTradeSignal ? (signal.expected_rr || idea.risk_reward_ratio || '—') : '—'}</b></span>
+        <span>Confidence <b className="text-foreground">{signal.confidence != null ? `${(Number(signal.confidence) * 100).toFixed(0)}%` : '—'}</b></span>
+        <span>R:R <b className="text-foreground">{hasTradeSignal ? (signal.expected_rr || idea.risk_reward_ratio || '—') : '—'}</b></span>
         <span>Data <b className="text-cyan-300">{forecast?.data_status || 'unknown'}</b></span>
-        <span>Updated <b className="text-white">{forecast?.updated_at ? new Date(forecast.updated_at).toLocaleTimeString() : '—'}</b></span>
+        <span>Updated <b className="text-foreground">{forecast?.updated_at ? new Date(forecast.updated_at).toLocaleTimeString() : '—'}</b></span>
       </div>
-      {!hasTradeSignal && <div className="rounded bg-neutral-950/60 px-1.5 py-1 text-[8px] text-amber-200">Ожидание подтверждения: уровни входа и выхода не являются ордером.</div>}
-      {reason.length > 0 && <div className="truncate text-[8px] text-neutral-400" title={reason.join(' · ')}>{reason.join(' · ')}</div>}
+      {!hasTradeSignal && <div className="rounded bg-background/60 px-1.5 py-1 text-[8px] text-amber-200">Ожидание подтверждения: уровни входа и выхода не являются ордером.</div>}
+      {reason.length > 0 && <div className="truncate text-[8px] text-muted-foreground" title={reason.join(' · ')}>{reason.join(' · ')}</div>}
       {!hasTradeSignal && diagnostic.failed_checks?.length > 0 && <div className="truncate text-[8px] text-amber-300" title={diagnostic.failed_checks.join(' · ')}>Не прошли фильтры: {diagnostic.failed_checks.join(' · ')}</div>}
     </div>
   );
@@ -245,7 +245,7 @@ function ForecastCard({ forecast }) {
 
 function OptimizationResult({ result, onApply, disabled }) {
   if (result?.status === 'error' || result?.status === 'unavailable') {
-    return <div className="rounded border border-red-900/50 bg-red-950/10 px-2 py-1.5 text-[8px] text-red-300" data-testid="overnight-optimization-error">Оптимизатор не завершился: {result.error || 'причина не указана'}. Backtest и forecast остаются доступны.</div>;
+    return <div className="rounded border border-red-900/50 bg-bear-soft/10 px-2 py-1.5 text-[8px] text-red-300" data-testid="overnight-optimization-error">Оптимизатор не завершился: {result.error || 'причина не указана'}. Backtest и forecast остаются доступны.</div>;
   }
   const recommendation = result?.recommendation || {};
   const best = recommendation?.meta?.best_params || recommendation?.after_optimization || {};
@@ -256,19 +256,19 @@ function OptimizationResult({ result, onApply, disabled }) {
   return (
     <div className="space-y-1 rounded border border-violet-900/50 bg-violet-950/10 px-2 py-1.5 text-[8px]" data-testid="overnight-optimization-result">
       <div className="font-bold uppercase tracking-wide text-violet-300">Генетический оптимизатор · pre-run</div>
-      <div className="grid grid-cols-3 gap-1 text-neutral-400">
-        <span>SL <b className="text-white">{Number(best.stop_loss_pct ?? 0).toFixed(2)}%</b></span>
-        <span>TP <b className="text-white">{Number(best.take_profit_pct ?? 0).toFixed(2)}%</b></span>
-        <span>Wall <b className="text-white">${Number(best.min_density_usd ?? 0).toLocaleString()}</b></span>
+      <div className="grid grid-cols-3 gap-1 text-muted-foreground">
+        <span>SL <b className="text-foreground">{Number(best.stop_loss_pct ?? 0).toFixed(2)}%</b></span>
+        <span>TP <b className="text-foreground">{Number(best.take_profit_pct ?? 0).toFixed(2)}%</b></span>
+        <span>Wall <b className="text-foreground">${Number(best.min_density_usd ?? 0).toLocaleString()}</b></span>
       </div>
-      <div className="text-neutral-500">Before: {formatPct(before.total_pnl_pct, 2)} · PF {Number(before.profit_factor || 0).toFixed(2)} · {before.total_trades || 0} trades → <span className="text-emerald-300">After: {formatPct(best.total_pnl_pct, 2)} · PF {Number(best.profit_factor || 0).toFixed(2)} · {best.total_trades || 0} trades</span></div>
+      <div className="text-muted-foreground">Before: {formatPct(before.total_pnl_pct, 2)} · PF {Number(before.profit_factor || 0).toFixed(2)} · {before.total_trades || 0} trades → <span className="text-emerald-300">After: {formatPct(best.total_pnl_pct, 2)} · PF {Number(best.profit_factor || 0).toFixed(2)} · {best.total_trades || 0} trades</span></div>
       {oos?.available && oos.metrics ? (
         <div className="rounded bg-cyan-950/20 px-1.5 py-1 text-cyan-200">OOS: {formatPct(oos.metrics.total_pnl_pct, 2)} · PF {Number(oos.metrics.profit_factor || 0).toFixed(2)} · {oosTrades} trades · {oos.oos_candles} candles {oosTrades < 30 && <span className="text-amber-200">⚠ мало сделок для уверенной OOS-оценки</span>}</div>
       ) : oos?.warning ? (
         <div className="rounded bg-amber-950/20 px-1.5 py-1 text-amber-200">OOS: {oos.warning}</div>
       ) : null}
-      <button disabled={disabled} onClick={() => onApply(best)} className="rounded border border-emerald-400/40 bg-emerald-950/20 px-2 py-1 text-[8px] font-bold text-emerald-200 disabled:opacity-50">Применить лучший набор к следующему запуску</button>
-      <div className="text-neutral-600">Результат консультативный: параметры не применяются автоматически и реальные ордера не создаются.</div>
+      <button disabled={disabled} onClick={() => onApply(best)} className="rounded border border-emerald-400/40 bg-bull-soft/20 px-2 py-1 text-[8px] font-bold text-emerald-200 disabled:opacity-50">Применить лучший набор к следующему запуску</button>
+      <div className="text-muted-foreground">Результат консультативный: параметры не применяются автоматически и реальные ордера не создаются.</div>
     </div>
   );
 }
@@ -301,9 +301,9 @@ function ClientAggregate({ summary }) {
         <div className="text-[8px] text-amber-300">Client-derived · источник строк не смешан</div>
       </div>
       <div className="grid gap-2 text-[11px] text-muted-foreground md:grid-cols-3">
-        <div className="rounded border border-neutral-800 bg-neutral-950/60 p-2"><div className="font-bold text-amber-200">Historical Backtest</div><div>Net PnL <b className="text-white">${btNet.toFixed(2)}</b> · Trades {btTrades}</div><div>Weighted Win {weightedWin.toFixed(1)}%</div></div>
-        <div className="rounded border border-neutral-800 bg-neutral-950/60 p-2"><div className="font-bold text-cyan-200">Live Forecast</div><div>LONG {forecast.LONG} · SHORT {forecast.SHORT} · NO_TRADE {forecast.NO_TRADE}</div><div>Data errors {errors == null ? '—' : errors}</div></div>
-        <div className="rounded border border-neutral-800 bg-neutral-950/60 p-2"><div className="font-bold text-emerald-200">Paper Trading</div><div>Balance {paperStarting == null ? '—' : `$${paperStarting.toFixed(2)}`} → {paperEquity == null ? '—' : `$${paperEquity.toFixed(2)}`}</div><div>Net PnL {paperPnl == null ? '—' : `$${paperPnl.toFixed(2)}`} · No-entry {paperNoEntry == null ? '—' : paperNoEntry}</div></div>
+        <div className="rounded border border-border bg-background/60 p-2"><div className="font-bold text-amber-200">Historical Backtest</div><div>Net PnL <b className="text-foreground">${btNet.toFixed(2)}</b> · Trades {btTrades}</div><div>Weighted Win {weightedWin.toFixed(1)}%</div></div>
+        <div className="rounded border border-border bg-background/60 p-2"><div className="font-bold text-cyan-200">Live Forecast</div><div>LONG {forecast.LONG} · SHORT {forecast.SHORT} · NO_TRADE {forecast.NO_TRADE}</div><div>Data errors {errors == null ? '—' : errors}</div></div>
+        <div className="rounded border border-border bg-background/60 p-2"><div className="font-bold text-emerald-200">Paper Trading</div><div>Balance {paperStarting == null ? '—' : `$${paperStarting.toFixed(2)}`} → {paperEquity == null ? '—' : `$${paperEquity.toFixed(2)}`}</div><div>Net PnL {paperPnl == null ? '—' : `$${paperPnl.toFixed(2)}`} · No-entry {paperNoEntry == null ? '—' : paperNoEntry}</div></div>
       </div>
     </div>
   );
@@ -522,10 +522,10 @@ export default function OvernightPilotPanel({ onClose }) {
   };
 
   return (
-    <div data-testid="overnight-pilot-panel" className="absolute inset-3 z-50 rounded-lg border border-amber-400/30 bg-[#090c10] text-neutral-200 shadow-2xl overflow-auto">
-      <div className="flex items-center justify-between border-b border-neutral-800 px-3 py-2">
+    <div data-testid="overnight-pilot-panel" className="absolute inset-3 z-50 rounded-lg border border-amber-400/30 bg-[#090c10] text-foreground shadow-2xl overflow-auto">
+      <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <div><div className="text-[12px] font-bold text-amber-300">Ночной пилот · 3 стратегии</div><div className="text-[11px] text-muted-foreground">Backtest → Forecast → Paper Trading · реальные ордера отключены</div></div>
-        <button onClick={onClose} className="text-neutral-500 hover:text-white">✕</button>
+        <button onClick={onClose} className="text-muted-foreground hover:text-foreground">✕</button>
       </div>
       <div className="flex items-center justify-between px-3 pt-2">
         <div className="text-[11px] font-semibold text-foreground">Управление парами</div>
@@ -540,8 +540,8 @@ export default function OvernightPilotPanel({ onClose }) {
       </div>
       <div className="grid gap-2 p-3 xl:grid-cols-3">
         {configs.map((config, index) => (
-          <div key={config.symbol} className="space-y-2 rounded border border-neutral-800 bg-[#0d1117] p-2">
-            <div className="flex items-center justify-between gap-2"><SymbolLink symbol={config.symbol} /><label title="Стратегия должна быть поддержана историческим backtest и live paper runner; смена применяется после нового preflight."><select aria-label={`${config.symbol} strategy`} value={config.strategy_type} onChange={(e) => update(index, 'strategy_type', e.target.value)} className="max-w-[190px] rounded bg-neutral-950 px-1 py-0.5 text-[9px] text-amber-300">{STRATEGY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label></div>
+          <div key={config.symbol} className="space-y-2 rounded border border-border bg-[#0d1117] p-2">
+            <div className="flex items-center justify-between gap-2"><SymbolLink symbol={config.symbol} /><label title="Стратегия должна быть поддержана историческим backtest и live paper runner; смена применяется после нового preflight."><select aria-label={`${config.symbol} strategy`} value={config.strategy_type} onChange={(e) => update(index, 'strategy_type', e.target.value)} className="max-w-[190px] rounded bg-background px-1 py-0.5 text-[9px] text-amber-300">{STRATEGY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label></div>
             <div className="flex items-center justify-between gap-1.5 rounded bg-muted/40 px-2 py-1">
               <div className="flex items-center gap-1.5">
                 <span className="text-[10px] text-muted-foreground">Статус:</span>
@@ -588,37 +588,37 @@ export default function OvernightPilotPanel({ onClose }) {
                 </AlertDialog>
               </div>
             </div>
-            <label title="Размер одной свечи. Меньший timeframe даёт больше сигналов, но больше рыночного шума." className="block text-[11px] text-muted-foreground">Timeframe<select value={config.timeframe} onChange={(e) => update(index, 'timeframe', e.target.value)} className="ml-2 rounded bg-neutral-950 px-1 py-0.5 text-neutral-200"><option>5m</option><option>15m</option><option>1h</option></select></label>
+            <label title="Размер одной свечи. Меньший timeframe даёт больше сигналов, но больше рыночного шума." className="block text-[11px] text-muted-foreground">Timeframe<select value={config.timeframe} onChange={(e) => update(index, 'timeframe', e.target.value)} className="ml-2 rounded bg-background px-1 py-0.5 text-foreground"><option>5m</option><option>15m</option><option>1h</option></select></label>
             <div className="grid grid-cols-3 gap-1">
-              <label title="Сколько последних дней полной истории использовать в backtest. При выборе прибыльного участка статистика искажается." className="text-[11px] text-muted-foreground">History days<input type="number" min="1" max="30" step="1" value={config.days} onChange={(e) => update(index, 'days', Number(e.target.value))} className="mt-1 w-full rounded bg-neutral-950 px-1 py-1 text-[10px] text-white" /></label>
-              <label title="Отдельный виртуальный баланс этой стратегии. Реальные средства не используются." className="text-[11px] text-muted-foreground">Paper $<input type="number" min="100" step="100" value={config.initial_capital} onChange={(e) => update(index, 'initial_capital', Number(e.target.value))} className="mt-1 w-full rounded bg-neutral-950 px-1 py-1 text-[10px] text-white" /></label>
-              <label title="Автоматическая остановка paper-сессии. По умолчанию 24 часа; остановить можно вручную раньше." className="text-[11px] text-muted-foreground">Duration h<input type="number" min="0.1" max="168" step="1" value={config.duration_hours} onChange={(e) => update(index, 'duration_hours', Number(e.target.value))} className="mt-1 w-full rounded bg-neutral-950 px-1 py-1 text-[10px] text-white" /></label>
+              <label title="Сколько последних дней полной истории использовать в backtest. При выборе прибыльного участка статистика искажается." className="text-[11px] text-muted-foreground">History days<input type="number" min="1" max="30" step="1" value={config.days} onChange={(e) => update(index, 'days', Number(e.target.value))} className="mt-1 w-full rounded bg-background px-1 py-1 text-[10px] text-foreground" /></label>
+              <label title="Отдельный виртуальный баланс этой стратегии. Реальные средства не используются." className="text-[11px] text-muted-foreground">Paper $<input type="number" min="100" step="100" value={config.initial_capital} onChange={(e) => update(index, 'initial_capital', Number(e.target.value))} className="mt-1 w-full rounded bg-background px-1 py-1 text-[10px] text-foreground" /></label>
+              <label title="Автоматическая остановка paper-сессии. По умолчанию 24 часа; остановить можно вручную раньше." className="text-[11px] text-muted-foreground">Duration h<input type="number" min="0.1" max="168" step="1" value={config.duration_hours} onChange={(e) => update(index, 'duration_hours', Number(e.target.value))} className="mt-1 w-full rounded bg-background px-1 py-1 text-[10px] text-foreground" /></label>
             </div>
             <div className="grid grid-cols-3 gap-1">
-              <label title="Доля виртуального капитала, которую можно потерять при срабатывании стопа." className="text-[11px] text-muted-foreground">Risk %<input type="number" min="0.01" max="10" step="0.25" value={config.risk_per_trade_pct} onChange={(e) => update(index, 'risk_per_trade_pct', Number(e.target.value))} className="mt-1 w-full rounded bg-neutral-950 px-1 py-1 text-[10px] text-white" /></label>
-              <label title="Расстояние защитного стопа от входа в процентах." className="text-[11px] text-muted-foreground">SL %<input type="number" min="0.01" max="50" step="0.05" value={config.stop_loss_pct} onChange={(e) => update(index, 'stop_loss_pct', Number(e.target.value))} className="mt-1 w-full rounded bg-neutral-950 px-1 py-1 text-[10px] text-white" /></label>
-              <label title="Расстояние цели Take Profit от входа в процентах." className="text-[11px] text-muted-foreground">TP %<input type="number" min="0.01" max="200" step="0.1" value={config.take_profit_pct} onChange={(e) => update(index, 'take_profit_pct', Number(e.target.value))} className="mt-1 w-full rounded bg-neutral-950 px-1 py-1 text-[10px] text-white" /></label>
+              <label title="Доля виртуального капитала, которую можно потерять при срабатывании стопа." className="text-[11px] text-muted-foreground">Risk %<input type="number" min="0.01" max="10" step="0.25" value={config.risk_per_trade_pct} onChange={(e) => update(index, 'risk_per_trade_pct', Number(e.target.value))} className="mt-1 w-full rounded bg-background px-1 py-1 text-[10px] text-foreground" /></label>
+              <label title="Расстояние защитного стопа от входа в процентах." className="text-[11px] text-muted-foreground">SL %<input type="number" min="0.01" max="50" step="0.05" value={config.stop_loss_pct} onChange={(e) => update(index, 'stop_loss_pct', Number(e.target.value))} className="mt-1 w-full rounded bg-background px-1 py-1 text-[10px] text-foreground" /></label>
+              <label title="Расстояние цели Take Profit от входа в процентах." className="text-[11px] text-muted-foreground">TP %<input type="number" min="0.01" max="200" step="0.1" value={config.take_profit_pct} onChange={(e) => update(index, 'take_profit_pct', Number(e.target.value))} className="mt-1 w-full rounded bg-background px-1 py-1 text-[10px] text-foreground" /></label>
             </div>
             <div className="grid grid-cols-3 gap-1">
-              <label title="Плечо виртуальной позиции. Увеличивает размер позиции, но не отменяет ограничение риска на сделку." className="text-[11px] text-muted-foreground">Leverage<input type="number" min="1" max="125" step="0.5" value={config.leverage} onChange={(e) => update(index, 'leverage', Number(e.target.value))} className="mt-1 w-full rounded bg-neutral-950 px-1 py-1 text-[10px] text-white" /></label>
-              <label title="Минимальный множитель объёма для фильтра сигнала." className="text-[11px] text-muted-foreground">Vol ×<input type="number" min="0.5" max="20" step="0.1" value={config.volume_multiplier} onChange={(e) => update(index, 'volume_multiplier', Number(e.target.value))} className="mt-1 w-full rounded bg-neutral-950 px-1 py-1 text-[10px] text-white" /></label>
-              <label title="Минимальный размер плотности стакана для кластерной стратегии. В историческом OHLCV-бэктесте L2-фильтр не применяется." className="text-[11px] text-muted-foreground">Density $<input type="number" min="0" step="50000" value={config.min_density_usd} onChange={(e) => update(index, 'min_density_usd', Number(e.target.value))} className="mt-1 w-full rounded bg-neutral-950 px-1 py-1 text-[10px] text-white" /></label>
+              <label title="Плечо виртуальной позиции. Увеличивает размер позиции, но не отменяет ограничение риска на сделку." className="text-[11px] text-muted-foreground">Leverage<input type="number" min="1" max="125" step="0.5" value={config.leverage} onChange={(e) => update(index, 'leverage', Number(e.target.value))} className="mt-1 w-full rounded bg-background px-1 py-1 text-[10px] text-foreground" /></label>
+              <label title="Минимальный множитель объёма для фильтра сигнала." className="text-[11px] text-muted-foreground">Vol ×<input type="number" min="0.5" max="20" step="0.1" value={config.volume_multiplier} onChange={(e) => update(index, 'volume_multiplier', Number(e.target.value))} className="mt-1 w-full rounded bg-background px-1 py-1 text-[10px] text-foreground" /></label>
+              <label title="Минимальный размер плотности стакана для кластерной стратегии. В историческом OHLCV-бэктесте L2-фильтр не применяется." className="text-[11px] text-muted-foreground">Density $<input type="number" min="0" step="50000" value={config.min_density_usd} onChange={(e) => update(index, 'min_density_usd', Number(e.target.value))} className="mt-1 w-full rounded bg-background px-1 py-1 text-[10px] text-foreground" /></label>
             </div>
             <div className="grid grid-cols-2 gap-1">
-              <label title="После частичной фиксации TP1 остаток позиции переводится в безубыток, если включён Multi-TP." className="text-[11px] text-muted-foreground">TP1 R:R<input type="number" min="0.5" max="10" step="0.1" value={config.tp1_rr_ratio} onChange={(e) => update(index, 'tp1_rr_ratio', Number(e.target.value))} className="mt-1 w-full rounded bg-neutral-950 px-1 py-1 text-[10px] text-white" /></label>
-              <label title="Целевое соотношение риск/доходность для второй части позиции после TP1." className="text-[11px] text-muted-foreground">TP2 R:R<input type="number" min="1" max="15" step="0.1" value={config.tp2_rr_ratio} onChange={(e) => update(index, 'tp2_rr_ratio', Number(e.target.value))} className="mt-1 w-full rounded bg-neutral-950 px-1 py-1 text-[10px] text-white" /></label>
+              <label title="После частичной фиксации TP1 остаток позиции переводится в безубыток, если включён Multi-TP." className="text-[11px] text-muted-foreground">TP1 R:R<input type="number" min="0.5" max="10" step="0.1" value={config.tp1_rr_ratio} onChange={(e) => update(index, 'tp1_rr_ratio', Number(e.target.value))} className="mt-1 w-full rounded bg-background px-1 py-1 text-[10px] text-foreground" /></label>
+              <label title="Целевое соотношение риск/доходность для второй части позиции после TP1." className="text-[11px] text-muted-foreground">TP2 R:R<input type="number" min="1" max="15" step="0.1" value={config.tp2_rr_ratio} onChange={(e) => update(index, 'tp2_rr_ratio', Number(e.target.value))} className="mt-1 w-full rounded bg-background px-1 py-1 text-[10px] text-foreground" /></label>
             </div>
             <div className="grid grid-cols-3 gap-1">
-              <label title="Трейлинг-стоп подтягивает защитный стоп за ценой только после достижения порога активации." className="flex items-center gap-1 rounded border border-neutral-800 px-1.5 py-1 text-[11px] text-muted-foreground">
+              <label title="Трейлинг-стоп подтягивает защитный стоп за ценой только после достижения порога активации." className="flex items-center gap-1 rounded border border-border px-1.5 py-1 text-[11px] text-muted-foreground">
                 <input data-testid="overnight-trailing-enabled" type="checkbox" checked={Boolean(config.use_trailing)} onChange={(e) => update(index, 'use_trailing', e.target.checked)} />
                 Трейлинг
               </label>
-              <label title="На сколько процентов от лучшей цены подтягивается trailing stop после активации." className="text-[11px] text-muted-foreground">Trail %<input data-testid="overnight-trailing-pct" type="number" min="0.01" max="20" step="0.05" value={config.trailing_pct} onChange={(e) => update(index, 'trailing_pct', Number(e.target.value))} className="mt-1 w-full rounded bg-neutral-950 px-1 py-1 text-[10px] text-white" /></label>
-              <label title="Минимальное благоприятное движение цены в процентах до включения trailing stop. Не меняет уже запущенную сессию." className="text-[11px] text-muted-foreground">Activate %<input data-testid="overnight-trailing-activation-pct" type="number" min="0" max="20" step="0.05" value={config.trailing_activation_pct ?? 0} onChange={(e) => update(index, 'trailing_activation_pct', Number(e.target.value))} className="mt-1 w-full rounded bg-neutral-950 px-1 py-1 text-[10px] text-white" /></label>
+              <label title="На сколько процентов от лучшей цены подтягивается trailing stop после активации." className="text-[11px] text-muted-foreground">Trail %<input data-testid="overnight-trailing-pct" type="number" min="0.01" max="20" step="0.05" value={config.trailing_pct} onChange={(e) => update(index, 'trailing_pct', Number(e.target.value))} className="mt-1 w-full rounded bg-background px-1 py-1 text-[10px] text-foreground" /></label>
+              <label title="Минимальное благоприятное движение цены в процентах до включения trailing stop. Не меняет уже запущенную сессию." className="text-[11px] text-muted-foreground">Activate %<input data-testid="overnight-trailing-activation-pct" type="number" min="0" max="20" step="0.05" value={config.trailing_activation_pct ?? 0} onChange={(e) => update(index, 'trailing_activation_pct', Number(e.target.value))} className="mt-1 w-full rounded bg-background px-1 py-1 text-[10px] text-foreground" /></label>
             </div>
             <div className="flex flex-wrap gap-1 text-[11px] text-muted-foreground">
               {['use_atr_filter', 'use_cvd_filter', 'use_oi_filter', 'use_rsi_filter', 'use_multi_tp'].map((key) => (
-                <label key={key} title={{ use_atr_filter: 'Фильтровать сделки по волатильности ATR.', use_cvd_filter: 'Подтверждать направление кумулятивной дельтой CVD.', use_oi_filter: 'Подтверждать сигнал изменением открытого интереса OI.', use_rsi_filter: 'Использовать RSI как фильтр экстремумов.', use_multi_tp: 'Разрешить частичную фиксацию TP1 и перевод в breakeven.' }[key]} className="flex items-center gap-1 rounded border border-neutral-800 px-1.5 py-1">
+                <label key={key} title={{ use_atr_filter: 'Фильтровать сделки по волатильности ATR.', use_cvd_filter: 'Подтверждать направление кумулятивной дельтой CVD.', use_oi_filter: 'Подтверждать сигнал изменением открытого интереса OI.', use_rsi_filter: 'Использовать RSI как фильтр экстремумов.', use_multi_tp: 'Разрешить частичную фиксацию TP1 и перевод в breakeven.' }[key]} className="flex items-center gap-1 rounded border border-border px-1.5 py-1">
                   <input type="checkbox" checked={Boolean(config[key])} onChange={(e) => update(index, key, e.target.checked)} />
                   {key.replace('use_', '').replace('_filter', '').replace('_', ' ').toUpperCase()}
                 </label>
@@ -632,24 +632,24 @@ export default function OvernightPilotPanel({ onClose }) {
             <RecentBacktestTrades backtest={status.sessions?.[config.symbol]?.backtest} />
             <PaperTradeTimeline paper={status.sessions?.[config.symbol]?.paper} />
             <ForecastCard forecast={status.sessions?.[config.symbol]?.forecast} />
-            <div className="text-[11px] text-muted-foreground">Data: {status.sessions?.[config.symbol]?.paper?.data_status || status.sessions?.[config.symbol]?.forecast?.data_status || '—'} · Paper: {status.sessions?.[config.symbol]?.paper?.is_running ? 'running' : 'stopped'} · Remaining: <span className="text-amber-200">{formatRemaining(status.sessions?.[config.symbol]?.paper?.duration_remaining_seconds)}</span> · Session: <span className="font-mono text-neutral-400">{status.sessions?.[config.symbol]?.session_id || 'not-created'}</span></div>
-            {status.sessions?.[config.symbol]?.paper?.last_decision_reason && <div className="truncate rounded bg-neutral-950/60 px-1.5 py-1 text-[8px] text-amber-200" title={status.sessions[config.symbol].paper.last_decision_reason}>Decision: {status.sessions[config.symbol].paper.last_decision_reason}</div>}
-            <div className="text-[8px] text-neutral-600">Margin available ${status.sessions?.[config.symbol]?.paper?.available_margin == null ? '—' : Number(status.sessions[config.symbol].paper.available_margin).toFixed(2)} · used ${status.sessions?.[config.symbol]?.paper?.used_margin == null ? '—' : Number(status.sessions[config.symbol].paper.used_margin).toFixed(2)} · funding {(Number(status.sessions?.[config.symbol]?.paper?.funding_rate || 0) * 100).toFixed(4)}%</div>
+            <div className="text-[11px] text-muted-foreground">Data: {status.sessions?.[config.symbol]?.paper?.data_status || status.sessions?.[config.symbol]?.forecast?.data_status || '—'} · Paper: {status.sessions?.[config.symbol]?.paper?.is_running ? 'running' : 'stopped'} · Remaining: <span className="text-amber-200">{formatRemaining(status.sessions?.[config.symbol]?.paper?.duration_remaining_seconds)}</span> · Session: <span className="font-mono text-muted-foreground">{status.sessions?.[config.symbol]?.session_id || 'not-created'}</span></div>
+            {status.sessions?.[config.symbol]?.paper?.last_decision_reason && <div className="truncate rounded bg-background/60 px-1.5 py-1 text-[8px] text-amber-200" title={status.sessions[config.symbol].paper.last_decision_reason}>Decision: {status.sessions[config.symbol].paper.last_decision_reason}</div>}
+            <div className="text-[8px] text-muted-foreground">Margin available ${status.sessions?.[config.symbol]?.paper?.available_margin == null ? '—' : Number(status.sessions[config.symbol].paper.available_margin).toFixed(2)} · used ${status.sessions?.[config.symbol]?.paper?.used_margin == null ? '—' : Number(status.sessions[config.symbol].paper.used_margin).toFixed(2)} · funding {(Number(status.sessions?.[config.symbol]?.paper?.funding_rate || 0) * 100).toFixed(4)}%</div>
             {status.sessions?.[config.symbol]?.error && <div className="text-[9px] text-red-300">{status.sessions[config.symbol].error}</div>}
           </div>
         ))}
       </div>
-      {status.summary?.length > 0 && <div className="mx-3 mb-3 rounded border border-neutral-800 bg-neutral-950/70 p-2"><div className="mb-1 text-[10px] font-bold text-amber-200">Сводка сравнения · Backtest / Forecast / Paper</div><div className="grid gap-1 text-[11px] text-muted-foreground md:grid-cols-3">{status.summary.map((row) => { const floating = rowPaperFloatingPnl(row); return <div key={row.symbol} className="rounded bg-neutral-900 px-2 py-1"><div><SymbolLink symbol={row.symbol} /> <VerdictBadge verdict={row.verdict} /> · BT ROI {formatPct(row.backtest_roi_pct)} · PF {row.backtest_profit_factor} · DD {formatPct(row.backtest_max_drawdown_pct)}</div><div>BT Avg ${Number(row.backtest_average_trade_usd || 0).toFixed(2)} · Best ${Number(row.backtest_best_trade_usd || 0).toFixed(2)} · Worst ${Number(row.backtest_worst_trade_usd || 0).toFixed(2)}</div><div>Forecast {row.forecast_direction || 'NO_TRADE'} · Paper ${row.paper_starting_balance == null ? '—' : Number(row.paper_starting_balance).toFixed(2)} → ${row.paper_equity == null ? '—' : Number(row.paper_equity).toFixed(2)} · Realized {row.paper_pnl == null ? '—' : `$${Number(row.paper_pnl).toFixed(2)}`} · Floating {floating == null ? '—' : `$${floating.toFixed(2)}`}</div><div>Paper ROI {formatPct(row.paper_roi_pct, 3)} · Win {formatPct(row.paper_win_rate_pct, 1)} · PF {row.paper_profit_factor == null ? '—' : Number(row.paper_profit_factor).toFixed(2)} · Risk {row.paper_average_risk_pct == null ? '—' : `${Number(row.paper_average_risk_pct).toFixed(2)}%`}</div><div>Paper Avg ${Number(row.paper_average_trade_usd || 0).toFixed(2)} · Best ${Number(row.paper_best_trade_usd || 0).toFixed(2)} · Worst ${Number(row.paper_worst_trade_usd || 0).toFixed(2)}</div><div>Forecast NO_TRADE {row.forecast_no_trade_count || 0} · Paper no-entry {row.paper_no_trade_count || 0} · errors {row.paper_errors || 0} · data {row.paper_data_status || row.forecast_data_status || 'unknown'} · {row.forecast_backtest_divergence ? <span className="text-amber-300">forecast ≠ last BT</span> : 'forecast aligns'}{row.paper_losing_trade_reasons?.length ? ` · losses: ${row.paper_losing_trade_reasons.map((item) => item.exit_reason).join(', ')}` : ''}</div>{row.paper_last_decision_reason && <div className="truncate text-amber-200" title={row.paper_last_decision_reason}>Last paper decision: {row.paper_last_decision_reason}</div>}</div>; })}</div></div>}
+      {status.summary?.length > 0 && <div className="mx-3 mb-3 rounded border border-border bg-background/70 p-2"><div className="mb-1 text-[10px] font-bold text-amber-200">Сводка сравнения · Backtest / Forecast / Paper</div><div className="grid gap-1 text-[11px] text-muted-foreground md:grid-cols-3">{status.summary.map((row) => { const floating = rowPaperFloatingPnl(row); return <div key={row.symbol} className="rounded bg-card px-2 py-1"><div><SymbolLink symbol={row.symbol} /> <VerdictBadge verdict={row.verdict} /> · BT ROI {formatPct(row.backtest_roi_pct)} · PF {row.backtest_profit_factor} · DD {formatPct(row.backtest_max_drawdown_pct)}</div><div>BT Avg ${Number(row.backtest_average_trade_usd || 0).toFixed(2)} · Best ${Number(row.backtest_best_trade_usd || 0).toFixed(2)} · Worst ${Number(row.backtest_worst_trade_usd || 0).toFixed(2)}</div><div>Forecast {row.forecast_direction || 'NO_TRADE'} · Paper ${row.paper_starting_balance == null ? '—' : Number(row.paper_starting_balance).toFixed(2)} → ${row.paper_equity == null ? '—' : Number(row.paper_equity).toFixed(2)} · Realized {row.paper_pnl == null ? '—' : `$${Number(row.paper_pnl).toFixed(2)}`} · Floating {floating == null ? '—' : `$${floating.toFixed(2)}`}</div><div>Paper ROI {formatPct(row.paper_roi_pct, 3)} · Win {formatPct(row.paper_win_rate_pct, 1)} · PF {row.paper_profit_factor == null ? '—' : Number(row.paper_profit_factor).toFixed(2)} · Risk {row.paper_average_risk_pct == null ? '—' : `${Number(row.paper_average_risk_pct).toFixed(2)}%`}</div><div>Paper Avg ${Number(row.paper_average_trade_usd || 0).toFixed(2)} · Best ${Number(row.paper_best_trade_usd || 0).toFixed(2)} · Worst ${Number(row.paper_worst_trade_usd || 0).toFixed(2)}</div><div>Forecast NO_TRADE {row.forecast_no_trade_count || 0} · Paper no-entry {row.paper_no_trade_count || 0} · errors {row.paper_errors || 0} · data {row.paper_data_status || row.forecast_data_status || 'unknown'} · {row.forecast_backtest_divergence ? <span className="text-amber-300">forecast ≠ last BT</span> : 'forecast aligns'}{row.paper_losing_trade_reasons?.length ? ` · losses: ${row.paper_losing_trade_reasons.map((item) => item.exit_reason).join(', ')}` : ''}</div>{row.paper_last_decision_reason && <div className="truncate text-amber-200" title={row.paper_last_decision_reason}>Last paper decision: {row.paper_last_decision_reason}</div>}</div>; })}</div></div>}
       {!status.aggregate && status.summary?.length > 0 && <ClientAggregate summary={status.summary} />}
       {status.aggregate && <div className="mx-3 mb-3 rounded border border-cyan-900/50 bg-cyan-950/10 p-2" data-testid="overnight-aggregate-report">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><div className="text-[10px] font-bold text-cyan-200">Итоговый отчёт · метрики не смешиваются</div><div className="text-[8px] text-neutral-500">Лучший BT: <span className="text-white">{status.aggregate.best_backtest_symbol || '—'}</span> · Лучший Paper: <span className="text-white">{status.aggregate.best_paper_symbol || '—'}</span></div></div>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><div className="text-[10px] font-bold text-cyan-200">Итоговый отчёт · метрики не смешиваются</div><div className="text-[8px] text-muted-foreground">Лучший BT: <span className="text-foreground">{status.aggregate.best_backtest_symbol || '—'}</span> · Лучший Paper: <span className="text-foreground">{status.aggregate.best_paper_symbol || '—'}</span></div></div>
         <div className="grid gap-2 md:grid-cols-3">
-          <div className="rounded border border-neutral-800 bg-neutral-950/60 p-2 text-[11px] text-muted-foreground"><div className="mb-1 font-bold text-amber-200">Historical Backtest</div><div>Net PnL <b className="text-white">${Number(status.aggregate.backtest.net_pnl_usd || 0).toFixed(2)}</b> · ROI <b className="text-white">{Number(status.aggregate.backtest.roi_pct || 0).toFixed(2)}%</b></div><div>Trades {status.aggregate.backtest.trades} · Win {Number(status.aggregate.backtest.win_rate_pct || 0).toFixed(1)}% · PF {status.aggregate.backtest.profit_factor ?? '—'}</div><div>Max DD {Number(status.aggregate.backtest.max_drawdown_pct || 0).toFixed(2)}%</div></div>
-          <div className="rounded border border-neutral-800 bg-neutral-950/60 p-2 text-[11px] text-muted-foreground"><div className="mb-1 font-bold text-cyan-200">Live Forecast</div><div>LONG {status.aggregate.forecast.direction_counts?.LONG || 0} · SHORT {status.aggregate.forecast.direction_counts?.SHORT || 0} · NO_TRADE {status.aggregate.forecast.direction_counts?.NO_TRADE || 0}</div><div>NO_TRADE events {status.aggregate.forecast.no_trade_count}</div>{Object.entries(status.aggregate.forecast.no_trade_reasons || {}).map(([symbol, reason]) => <div key={symbol} className="truncate text-amber-200" title={reason}>{symbol}: {reason}</div>)}<div>Data errors {status.aggregate.data.error_count} · {Object.entries(status.aggregate.data.statuses || {}).map(([symbol, value]) => `${symbol}: ${value || 'unknown'}`).join(' · ')}</div></div>
-          <div className="rounded border border-neutral-800 bg-neutral-950/60 p-2 text-[11px] text-muted-foreground"><div className="mb-1 font-bold text-emerald-200">Paper Trading</div><div>Balance {status.aggregate.paper.starting_balance == null ? '—' : `$${Number(status.aggregate.paper.starting_balance).toFixed(2)}`} → Equity {status.aggregate.paper.equity == null ? '—' : `$${Number(status.aggregate.paper.equity).toFixed(2)}`}</div><div>Realized PnL {status.aggregate.paper.net_pnl_usd == null ? '—' : `$${Number(status.aggregate.paper.net_pnl_usd).toFixed(2)}`} · Floating {paperFloatingPnl(status.aggregate.paper) == null ? '—' : `$${paperFloatingPnl(status.aggregate.paper).toFixed(2)}`} · ROI {formatPct(status.aggregate.paper.roi_pct, 3)}</div><div>Closed trades {status.aggregate.paper.closed_trades} · Win {Number(status.aggregate.paper.win_rate_pct || 0).toFixed(1)}% · PF {status.aggregate.paper.profit_factor ?? '—'}</div><div>Avg ${Number(status.aggregate.paper.average_trade_usd || 0).toFixed(2)} · Best ${Number(status.aggregate.paper.best_trade_usd || 0).toFixed(2)} · Worst ${Number(status.aggregate.paper.worst_trade_usd || 0).toFixed(2)}</div><div>Risk {status.aggregate.paper.average_risk_pct == null ? '—' : `${Number(status.aggregate.paper.average_risk_pct).toFixed(2)}%`} · Max DD {status.aggregate.paper.max_drawdown_pct == null ? '—' : `${Number(status.aggregate.paper.max_drawdown_pct).toFixed(2)}%`} · NO_TRADE {status.aggregate.paper.no_trade_count}</div>{status.aggregate.paper.losing_trade_reasons?.length > 0 && <div className="truncate text-red-300" title={status.aggregate.paper.losing_trade_reasons.join(', ')}>Loss reasons: {status.aggregate.paper.losing_trade_reasons.join(', ')}</div>}</div>
+          <div className="rounded border border-border bg-background/60 p-2 text-[11px] text-muted-foreground"><div className="mb-1 font-bold text-amber-200">Historical Backtest</div><div>Net PnL <b className="text-foreground">${Number(status.aggregate.backtest.net_pnl_usd || 0).toFixed(2)}</b> · ROI <b className="text-foreground">{Number(status.aggregate.backtest.roi_pct || 0).toFixed(2)}%</b></div><div>Trades {status.aggregate.backtest.trades} · Win {Number(status.aggregate.backtest.win_rate_pct || 0).toFixed(1)}% · PF {status.aggregate.backtest.profit_factor ?? '—'}</div><div>Max DD {Number(status.aggregate.backtest.max_drawdown_pct || 0).toFixed(2)}%</div></div>
+          <div className="rounded border border-border bg-background/60 p-2 text-[11px] text-muted-foreground"><div className="mb-1 font-bold text-cyan-200">Live Forecast</div><div>LONG {status.aggregate.forecast.direction_counts?.LONG || 0} · SHORT {status.aggregate.forecast.direction_counts?.SHORT || 0} · NO_TRADE {status.aggregate.forecast.direction_counts?.NO_TRADE || 0}</div><div>NO_TRADE events {status.aggregate.forecast.no_trade_count}</div>{Object.entries(status.aggregate.forecast.no_trade_reasons || {}).map(([symbol, reason]) => <div key={symbol} className="truncate text-amber-200" title={reason}>{symbol}: {reason}</div>)}<div>Data errors {status.aggregate.data.error_count} · {Object.entries(status.aggregate.data.statuses || {}).map(([symbol, value]) => `${symbol}: ${value || 'unknown'}`).join(' · ')}</div></div>
+          <div className="rounded border border-border bg-background/60 p-2 text-[11px] text-muted-foreground"><div className="mb-1 font-bold text-emerald-200">Paper Trading</div><div>Balance {status.aggregate.paper.starting_balance == null ? '—' : `$${Number(status.aggregate.paper.starting_balance).toFixed(2)}`} → Equity {status.aggregate.paper.equity == null ? '—' : `$${Number(status.aggregate.paper.equity).toFixed(2)}`}</div><div>Realized PnL {status.aggregate.paper.net_pnl_usd == null ? '—' : `$${Number(status.aggregate.paper.net_pnl_usd).toFixed(2)}`} · Floating {paperFloatingPnl(status.aggregate.paper) == null ? '—' : `$${paperFloatingPnl(status.aggregate.paper).toFixed(2)}`} · ROI {formatPct(status.aggregate.paper.roi_pct, 3)}</div><div>Closed trades {status.aggregate.paper.closed_trades} · Win {Number(status.aggregate.paper.win_rate_pct || 0).toFixed(1)}% · PF {status.aggregate.paper.profit_factor ?? '—'}</div><div>Avg ${Number(status.aggregate.paper.average_trade_usd || 0).toFixed(2)} · Best ${Number(status.aggregate.paper.best_trade_usd || 0).toFixed(2)} · Worst ${Number(status.aggregate.paper.worst_trade_usd || 0).toFixed(2)}</div><div>Risk {status.aggregate.paper.average_risk_pct == null ? '—' : `${Number(status.aggregate.paper.average_risk_pct).toFixed(2)}%`} · Max DD {status.aggregate.paper.max_drawdown_pct == null ? '—' : `${Number(status.aggregate.paper.max_drawdown_pct).toFixed(2)}%`} · NO_TRADE {status.aggregate.paper.no_trade_count}</div>{status.aggregate.paper.losing_trade_reasons?.length > 0 && <div className="truncate text-red-300" title={status.aggregate.paper.losing_trade_reasons.join(', ')}>Loss reasons: {status.aggregate.paper.losing_trade_reasons.join(', ')}</div>}</div>
         </div>
       </div>}
-      {error && <div className="mx-3 rounded border border-red-500/30 bg-red-950/20 p-2 text-[10px] text-red-300">{error}</div>}
+      {error && <div className="mx-3 rounded border border-red-500/30 bg-bear-soft/20 p-2 text-[10px] text-red-300">{error}</div>}
       {!pilotRunning && status.sessions && Object.keys(status.sessions).length > 0 && !preflightCurrent && <div data-testid="overnight-preflight-stale" className="mx-3 mb-2 rounded border border-amber-500/30 bg-amber-950/20 p-2 text-[10px] text-amber-200">Конфигурация не проверена или изменилась. Повторите backtest + forecast перед запуском.</div>}
       <div className="flex flex-wrap gap-2 px-3 pb-3"><button data-testid="btn-load-diversified-paper" disabled={busy || pilotRunning} onClick={loadDiversifiedPaper} title="Загрузить BTC EMA, ETH CVD Absorption и SOL Cluster Bounce с отдельными параметрами; активную paper-сессию не изменяет." className="rounded border border-violet-400/50 bg-violet-950/30 px-3 py-1.5 text-[10px] font-bold text-violet-200 disabled:opacity-50">Загрузить 3 стратегии</button><button data-testid="btn-overnight-preflight" disabled={busy || pilotRunning} onClick={preflight} title="Для каждого выбранного символа выполнит исторический backtest, live forecast и генетический поиск параметров с отдельной проверкой OOS." className="rounded border border-cyan-400/50 bg-cyan-950/30 px-3 py-1.5 text-[10px] font-bold text-cyan-200 disabled:opacity-50">{busy ? 'Расчёт…' : pilotRunning ? '1. Сначала остановите paper' : '1. Backtest + forecast + optimize'}</button><button data-testid="btn-overnight-start" disabled={busy || pilotRunning || !preflightCurrent} onClick={start} title={!preflightCurrent ? 'Сначала выполните backtest и forecast для этой конфигурации.' : 'Запустить paper на проверенной конфигурации.'} className="rounded bg-amber-300 px-3 py-1.5 text-[10px] font-bold text-neutral-950 disabled:opacity-50">{pilotRunning ? 'Paper уже запущен' : '2. Запустить paper'}</button><button disabled={busy} onClick={stop} className="rounded border border-red-400/40 px-3 py-1.5 text-[10px] text-red-300 disabled:opacity-50">Остановить все</button></div>
     </div>

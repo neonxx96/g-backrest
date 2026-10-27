@@ -42,7 +42,7 @@ export default function SignalsFeed({ onSelectSignal, onClose = null }) {
     <div className="flex flex-col h-full bg-[#0c0e12] text-[#d1d4dc] border border-[#161922] overflow-hidden text-xs select-none relative font-sans">
       {/* Header (Tealstreet flat minimal) */}
       <div className="flex items-center justify-between px-2.5 py-1 bg-[#101217] border-b border-[#161922]">
-        <div className="flex items-center space-x-1.5 font-bold text-white text-[11px]">
+        <div className="flex items-center space-x-1.5 font-bold text-foreground text-[11px]">
           <Radio size={13} className="text-[#26a69a] animate-pulse" />
           <span>Сигналы ({signals.length})</span>
         </div>
@@ -95,7 +95,7 @@ export default function SignalsFeed({ onSelectSignal, onClose = null }) {
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-1.5 font-bold">
-                    <span className="text-white hover:text-[#38bdf8] flex items-center font-mono">
+                    <span className="text-foreground hover:text-[#38bdf8] flex items-center font-mono">
                       #{sig.symbol}
                       <ExternalLink size={10} className="ml-1 opacity-60" />
                     </span>
@@ -121,7 +121,7 @@ export default function SignalsFeed({ onSelectSignal, onClose = null }) {
                 </div>
 
                 <div className="flex items-center justify-between text-[10px] text-[#60697b] pt-0.5 font-mono">
-                  <span>Цена: <span className="text-white font-mono-numbers">${sig.price}</span></span>
+                  <span>Цена: <span className="text-foreground font-mono-numbers">${sig.price}</span></span>
                   <span className="font-mono-numbers">{sig.created_at.includes(' ') ? sig.created_at.split(' ')[1] : sig.created_at}</span>
                 </div>
               </div>

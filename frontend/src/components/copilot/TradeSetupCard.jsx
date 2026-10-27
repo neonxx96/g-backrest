@@ -14,15 +14,15 @@ export default function TradeSetupCard({
   return (
     <div className="p-2.5 rounded-lg border border-[#38bdf850] bg-[#0c1424] space-y-2">
       <div className="flex items-center justify-between">
-        <span className="font-bold text-white text-[11px] flex items-center space-x-1">
+        <span className="font-bold text-foreground text-[11px] flex items-center space-x-1">
           <Target size={13} className="text-[#38bdf8]" />
           <span>Готовый торговый сетап ({tradingIdea.rr_label || 'R:R 1:2.8'})</span>
         </span>
         <span
           className={`px-1.5 py-0.2 rounded font-mono font-bold text-[10px] ${
             tradingIdea.direction === 'LONG'
-              ? 'bg-[#2563eb] text-white'
-              : 'bg-[#ef5350] text-white'
+              ? 'bg-[#2563eb] text-foreground'
+              : 'bg-[#ef5350] text-foreground'
           }`}
         >
           {tradingIdea.order_type || tradingIdea.direction}
@@ -32,7 +32,7 @@ export default function TradeSetupCard({
       <div className="grid grid-cols-4 gap-1 font-mono text-[10px] bg-[#080d16] p-1.5 rounded border border-[#1f293d]">
         <div>
           <div className="text-[#60a5fa] text-[9px]">ENTRY</div>
-          <div className="font-bold text-white">
+          <div className="font-bold text-foreground">
             ${tradingIdea.entry_price}
           </div>
         </div>
@@ -97,7 +97,7 @@ export default function TradeSetupCard({
             <span className="text-[#ef5350]">{btResultInline.error}</span>
           ) : (
             <div>
-              <div className="font-semibold text-white mb-1 flex items-center justify-between">
+              <div className="font-semibold text-foreground mb-1 flex items-center justify-between">
                 <span>Результат бэктеста:</span>
                 <span className="text-[#38bdf8]">
                   {btResultInline.trades_count || 0} сделок

@@ -10,7 +10,7 @@ export default function VolatilityConeCard({ expectedMoveCone, coneProjected, on
       className="p-2.5 rounded-lg border border-[#38bdf840] bg-[#0a1426] space-y-2 font-mono text-[10px]"
     >
       <div className="flex items-center justify-between">
-        <span className="font-bold text-white text-[10.5px] flex items-center space-x-1">
+        <span className="font-bold text-foreground text-[10.5px] flex items-center space-x-1">
           <TrendingUp size={13} className="text-[#38bdf8]" />
           <span>Конус ожидаемого движения (Expected Move)</span>
         </span>
@@ -22,7 +22,7 @@ export default function VolatilityConeCard({ expectedMoveCone, coneProjected, on
       <div className="grid grid-cols-2 gap-1.5">
         <div className="p-1.5 rounded bg-[#070e1b] border border-[#182642]">
           <div className="text-[#7dd3fc] text-[9px] font-bold">±1σ Диапазон (68.2%)</div>
-          <div className="text-white font-extrabold text-[10.5px]">
+          <div className="text-foreground font-extrabold text-[10.5px]">
             ±{expectedMoveCone.sigma_1s_pct}%
           </div>
           <div className="text-[#64748b] text-[8.5px]">
@@ -32,7 +32,7 @@ export default function VolatilityConeCard({ expectedMoveCone, coneProjected, on
 
         <div className="p-1.5 rounded bg-[#070e1b] border border-[#182642]">
           <div className="text-[#38bdf8] text-[9px] font-bold">±2σ Диапазон (95.4%)</div>
-          <div className="text-white font-extrabold text-[10.5px]">
+          <div className="text-foreground font-extrabold text-[10.5px]">
             ±{expectedMoveCone.sigma_2s_pct}%
           </div>
           <div className="text-[#64748b] text-[8.5px]">

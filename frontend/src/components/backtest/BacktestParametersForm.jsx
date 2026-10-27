@@ -74,18 +74,18 @@ export default function BacktestParametersForm({
   return (
     <>
       {/* A) СЕКЦИЯ: Входные параметры (Strategy & Entry Rules) */}
-      <div className="border border-neutral-800 rounded-md p-2 space-y-1.5 bg-[#0e1217]/90 shadow-xs">
-        <div className="flex items-center justify-between text-[9px] text-neutral-300 font-bold uppercase tracking-wider border-b border-neutral-800/80 pb-1">
+      <div className="border border-border rounded-md p-2 space-y-1.5 bg-[#0e1217]/90 shadow-xs">
+        <div className="flex items-center justify-between text-[9px] text-foreground/80 font-bold uppercase tracking-wider border-b border-border/80 pb-1">
           <span className="flex items-center gap-1.5">
-            <Sliders size={11} className="text-neutral-400" />
+            <Sliders size={11} className="text-muted-foreground" />
             Входные параметры
             <InfoTip text="Выбор базового квант-алгоритма, таймфрейма, механики входа и горизонта тестирования" />
           </span>
-          <span className="text-[8px] text-neutral-500 font-mono">RULES</span>
+          <span className="text-[8px] text-muted-foreground font-mono">RULES</span>
         </div>
 
         <div className="space-y-1.5">
-          <div className="flex items-center text-[8.5px] text-neutral-400">
+          <div className="flex items-center text-[8.5px] text-muted-foreground">
             Стратегия (алгоритм входа)
             <InfoTip text="🟢 Зелёная группа — тестируется на реальной истории свечей. 🟠 Оранжевая — работает только по живому стакану L2 в реальном времени (исторический бэктест невозможен: биржа не хранит книгу заявок задним числом)." />
           </div>
@@ -93,7 +93,7 @@ export default function BacktestParametersForm({
             data-testid="bt-strategy-select"
             value={strategy}
             onChange={(e) => onStrategyChange(e.target.value)}
-            className="w-full bg-neutral-900 border border-neutral-800 rounded px-2 py-1 text-neutral-200 text-[10px] font-mono outline-none focus:border-neutral-500"
+            className="w-full bg-card border border-border rounded px-2 py-1 text-foreground text-[10px] font-mono outline-none focus:border-neutral-500"
           >
             <optgroup label="🟢 Historical Flow & Volume (Реальная история)">
               {STRATEGIES.filter((s) => s.group === 'historical').map((st) => (
@@ -117,14 +117,14 @@ export default function BacktestParametersForm({
               className="bg-amber-950/40 border border-amber-600/60 text-amber-200 text-[9px] p-2 rounded-md leading-relaxed flex flex-col space-y-1 font-mono shadow-xs"
             >
               <div className="flex items-center space-x-1.5 font-bold text-amber-300">
-                <AlertTriangle size={13} className="shrink-0 text-amber-400" />
+                <AlertTriangle size={13} className="shrink-0 text-warning" />
                 <span>Исторический бэктест недоступен (L2 Live)</span>
               </div>
-              <div className="text-neutral-300 text-[8.5px]">
+              <div className="text-foreground/80 text-[8.5px]">
                 Биржа не хранит потиковый стакан L2 в истории. Данная стратегия предназначена исключительно для торговли в реальном времени (Sentinel).
               </div>
               <div className="pt-0.5 flex items-center justify-between">
-                <span className="text-neutral-400 text-[8px]">Для теста на истории:</span>
+                <span className="text-muted-foreground text-[8px]">Для теста на истории:</span>
                 <button
                   type="button"
                   data-testid="btn-switch-cluster-strategy"
@@ -140,7 +140,7 @@ export default function BacktestParametersForm({
           <div className="grid grid-cols-2 gap-2 pt-0.5">
             {/* Timeframe selector */}
             <div>
-              <div className="text-[8.5px] text-neutral-400 font-mono mb-0.5">Таймфрейм (TF):</div>
+              <div className="text-[8.5px] text-muted-foreground font-mono mb-0.5">Таймфрейм (TF):</div>
               <div className="flex space-x-0.5">
                 {TIMEFRAMES.map((tf) => (
                   <button
@@ -149,7 +149,7 @@ export default function BacktestParametersForm({
                     className={`flex-1 py-0.5 rounded text-[9px] font-mono transition cursor-pointer ${
                       timeframe === tf
                         ? 'bg-neutral-200 text-neutral-950 font-bold shadow-xs'
-                        : 'bg-neutral-900 text-neutral-400 hover:text-white border border-neutral-800/80'
+                        : 'bg-card text-muted-foreground hover:text-foreground border border-border/80'
                     }`}
                   >
                     {tf}
@@ -160,7 +160,7 @@ export default function BacktestParametersForm({
 
             {/* Period (Days) */}
             <div>
-              <div className="text-[8.5px] text-neutral-400 font-mono mb-0.5">Период истории:</div>
+              <div className="text-[8.5px] text-muted-foreground font-mono mb-0.5">Период истории:</div>
               <NumField
                 label=""
                 testId="input-days"
@@ -177,7 +177,7 @@ export default function BacktestParametersForm({
 
           {/* Entry Mode select */}
           <div className="pt-0.5">
-            <div className="text-[8.5px] uppercase font-bold text-neutral-300 mb-0.5 flex items-center">
+            <div className="text-[8.5px] uppercase font-bold text-foreground/80 mb-0.5 flex items-center">
               🎯 Режим входа (Entry Mode):
               <InfoTip text="Механика генерации сигнала: лимитный отскок, агрессивный пробой или поглощение дельты CVD" />
             </div>
@@ -185,7 +185,7 @@ export default function BacktestParametersForm({
               data-testid="select-entry-mode"
               value={entryMode}
               onChange={(e) => onEntryModeChange(e.target.value)}
-              className="w-full bg-neutral-900 border border-neutral-800 rounded px-2 py-0.5 text-neutral-200 text-[9.5px] outline-none focus:border-neutral-500"
+              className="w-full bg-card border border-border rounded px-2 py-0.5 text-foreground text-[9.5px] outline-none focus:border-neutral-500"
             >
               <option value="limit_bounce">Лимитный отскок от плотности (Bounce)</option>
               <option value="breakout">Пробой плотности на разъедании (Breakout)</option>
@@ -198,15 +198,15 @@ export default function BacktestParametersForm({
       {/* B) СЕКЦИЯ: Риск-менеджмент (SL, TP, Trailing) */}
       <div
         data-testid="extended-strategy-config"
-        className="border border-neutral-800 rounded-md p-2 space-y-1.5 bg-[#0e1217]/90 shadow-xs"
+        className="border border-border rounded-md p-2 space-y-1.5 bg-[#0e1217]/90 shadow-xs"
       >
-        <div className="flex items-center justify-between text-[9px] text-neutral-300 font-bold uppercase tracking-wider border-b border-neutral-800/80 pb-1">
+        <div className="flex items-center justify-between text-[9px] text-foreground/80 font-bold uppercase tracking-wider border-b border-border/80 pb-1">
           <span className="flex items-center gap-1.5">
-            <ShieldCheck size={11} className="text-neutral-400" />
+            <ShieldCheck size={11} className="text-muted-foreground" />
             Риск-менеджмент
             <InfoTip text="Настройки Stop-Loss, Take-Profit, динамического смещения и размера кредитного плеча" />
           </span>
-          <span className="text-[8px] text-neutral-500 font-mono">RISK</span>
+          <span className="text-[8px] text-muted-foreground font-mono">RISK</span>
         </div>
 
         {mode === 'single' ? (
@@ -237,8 +237,8 @@ export default function BacktestParametersForm({
         )}
 
         {/* Динамический Stop-Loss */}
-        <div className="space-y-1 pt-0.5 border-t border-neutral-800/80">
-          <div className="text-[8.5px] uppercase font-bold text-neutral-300 flex items-center">
+        <div className="space-y-1 pt-0.5 border-t border-border/80">
+          <div className="text-[8.5px] uppercase font-bold text-foreground/80 flex items-center">
             🛡️ Динамический Stop-Loss:
             <InfoTip text="Адаптивный алгоритм защиты: фиксированный %, за лимитную стенку или по волатильности ATR" />
           </div>
@@ -256,7 +256,7 @@ export default function BacktestParametersForm({
                 className={`py-0.5 px-1 rounded border text-[8.5px] truncate transition cursor-pointer ${
                   slMode === opt.id
                     ? 'bg-neutral-200 text-neutral-950 border-neutral-300 font-bold shadow-xs'
-                    : 'bg-neutral-900 text-neutral-400 border-neutral-800 hover:text-white'
+                    : 'bg-card text-muted-foreground border-border hover:text-foreground'
                 }`}
               >
                 {opt.label}
@@ -265,7 +265,7 @@ export default function BacktestParametersForm({
           </div>
           {slMode === 'behind_wall' && (
             <div className="flex items-center justify-between pt-0.5">
-              <span className="text-neutral-400 text-[8.5px]">Отступ за стенку (тиков):</span>
+              <span className="text-muted-foreground text-[8.5px]">Отступ за стенку (тиков):</span>
               <input
                 data-testid="input-wall-sl-offset"
                 type="number"
@@ -273,13 +273,13 @@ export default function BacktestParametersForm({
                 max={50}
                 value={wallSlOffsetTicks}
                 onChange={(e) => onWallSlOffsetChange(e.target.value)}
-                className="w-16 bg-neutral-900 border border-neutral-800 rounded px-1 py-0.5 text-right text-neutral-200 text-[9px] outline-none focus:border-neutral-500"
+                className="w-16 bg-card border border-border rounded px-1 py-0.5 text-right text-foreground text-[9px] outline-none focus:border-neutral-500"
               />
             </div>
           )}
           {slMode === 'atr_volatility' && (
             <div className="flex items-center justify-between pt-0.5">
-              <span className="text-neutral-400 text-[8.5px]">Множитель ATR (1.0x–3.0x):</span>
+              <span className="text-muted-foreground text-[8.5px]">Множитель ATR (1.0x–3.0x):</span>
               <input
                 data-testid="input-atr-sl-mult"
                 type="number"
@@ -288,18 +288,18 @@ export default function BacktestParametersForm({
                 max={3.0}
                 value={atrMultiplier}
                 onChange={(e) => onAtrMultiplierChange(e.target.value)}
-                className="w-16 bg-neutral-900 border border-neutral-800 rounded px-1 py-0.5 text-right text-neutral-200 text-[9px] outline-none focus:border-neutral-500"
+                className="w-16 bg-card border border-border rounded px-1 py-0.5 text-right text-foreground text-[9px] outline-none focus:border-neutral-500"
               />
             </div>
           )}
         </div>
 
         {/* Мульти-Тейк-Профит & Trailing */}
-        <div className="pt-0.5 border-t border-neutral-800/80 space-y-1">
+        <div className="pt-0.5 border-t border-border/80 space-y-1">
           <div className="flex items-center justify-between">
-            <span className="text-[8.5px] uppercase font-bold text-neutral-300">🎯 Multi-TP & Trailing</span>
+            <span className="text-[8.5px] uppercase font-bold text-foreground/80">🎯 Multi-TP & Trailing</span>
             <label
-              className="flex items-center space-x-1 text-[8.5px] font-mono text-neutral-300 cursor-pointer"
+              className="flex items-center space-x-1 text-[8.5px] font-mono text-foreground/80 cursor-pointer"
               title="Multi-TP: закрыть 50% позиции на TP1 и перевести стоп остатка в безубыток — сделка перестаёт быть убыточной после первой цели"
             >
               <input
@@ -313,7 +313,7 @@ export default function BacktestParametersForm({
             </label>
           </div>
           <div className="grid grid-cols-2 gap-1.5">
-            <label className="flex flex-col text-[8.5px] text-neutral-400">
+            <label className="flex flex-col text-[8.5px] text-muted-foreground">
               <span className="flex items-center truncate">
                 TP1 R:R
                 <InfoTip text="Коэффициент Risk/Reward для закрытия первых 50% и перевода стопа в Б/У" />
@@ -326,10 +326,10 @@ export default function BacktestParametersForm({
                 max={4.0}
                 value={tp1RrRatio}
                 onChange={(e) => onTp1RrChange(e.target.value)}
-                className="bg-neutral-900 border border-neutral-800 rounded px-1.5 py-0.5 text-neutral-200 text-right text-[9.5px] outline-none focus:border-neutral-500"
+                className="bg-card border border-border rounded px-1.5 py-0.5 text-foreground text-right text-[9.5px] outline-none focus:border-neutral-500"
               />
             </label>
-            <label className="flex flex-col text-[8.5px] text-neutral-400">
+            <label className="flex flex-col text-[8.5px] text-muted-foreground">
               <span className="flex items-center truncate">
                 TP2 режим
                 <InfoTip text="Стратегия закрытия оставшихся 50%: перед противоположной плотностью или трендовый R:R" />
@@ -338,7 +338,7 @@ export default function BacktestParametersForm({
                 data-testid="select-tp2-mode"
                 value={tp2Mode}
                 onChange={(e) => onTp2ModeChange(e.target.value)}
-                className="bg-neutral-900 border border-neutral-800 rounded px-1.5 py-0.5 text-neutral-200 text-[9px] outline-none focus:border-neutral-500"
+                className="bg-card border border-border rounded px-1.5 py-0.5 text-foreground text-[9px] outline-none focus:border-neutral-500"
               >
                 <option value="opposite_wall">Перед стенкой</option>
                 <option value="trend_rr">По тренду (2.8R)</option>
@@ -349,19 +349,19 @@ export default function BacktestParametersForm({
       </div>
 
       {/* C) СЕКЦИЯ: Фильтры (Volume, Time, Confluence) */}
-      <div className="border border-neutral-800 rounded-md p-2 space-y-1.5 bg-[#0e1217]/90 shadow-xs">
-        <div className="flex items-center justify-between text-[9px] text-neutral-300 font-bold uppercase tracking-wider border-b border-neutral-800/80 pb-1">
+      <div className="border border-border rounded-md p-2 space-y-1.5 bg-[#0e1217]/90 shadow-xs">
+        <div className="flex items-center justify-between text-[9px] text-foreground/80 font-bold uppercase tracking-wider border-b border-border/80 pb-1">
           <span className="flex items-center gap-1.5">
-            <Grid size={11} className="text-neutral-400" />
+            <Grid size={11} className="text-muted-foreground" />
             Фильтры
             <InfoTip text="Порог стакана, защита от спуфинга, Confluence фильтры и реализм биржевых комиссий" />
           </span>
-          <span className="text-[8px] text-neutral-500 font-mono">FILTERS</span>
+          <span className="text-[8px] text-muted-foreground font-mono">FILTERS</span>
         </div>
 
         {/* Honest Historical OHLCV Banner (L2 orderbook filters hidden in history) */}
-        <div className="border border-neutral-800/90 rounded bg-neutral-900/80 p-2 text-[8.5px] font-mono space-y-1.5">
-          <div className="flex items-center justify-between text-amber-400 font-bold text-[9px]">
+        <div className="border border-border/90 rounded bg-card/80 p-2 text-[8.5px] font-mono space-y-1.5">
+          <div className="flex items-center justify-between text-warning font-bold text-[9px]">
             <span className="flex items-center gap-1">
               <span>🛡️ Честный режим OHLCV истории</span>
             </span>
@@ -369,7 +369,7 @@ export default function BacktestParametersForm({
               L2 фильтры скрыты
             </span>
           </div>
-          <p className="text-neutral-400 font-sans leading-tight">
+          <p className="text-muted-foreground font-sans leading-tight">
             Биржа не хранит исторический стакан L2. В истории доступны только свечные индикаторы (ATR, RSI, поглощение объёма).
             Для торговли перед лимитными стенками переключитесь в{' '}
             <button
@@ -380,7 +380,7 @@ export default function BacktestParametersForm({
               ⚡ Симулятор (Paper)
             </button>.
           </p>
-          <div className="pt-1 border-t border-neutral-800/80">
+          <div className="pt-1 border-t border-border/80">
             <NumField
               label="Множитель объёма свечи"
               value={volMult}
@@ -393,13 +393,13 @@ export default function BacktestParametersForm({
         </div>
 
         {/* Confluence Suite */}
-        <div className="pt-1 border-t border-neutral-800/80 space-y-1">
+        <div className="pt-1 border-t border-border/80 space-y-1">
           <div className="flex items-center justify-between text-[8.5px] font-mono">
-            <span className="text-neutral-400 font-bold uppercase tracking-wider flex items-center gap-1">
+            <span className="text-muted-foreground font-bold uppercase tracking-wider flex items-center gap-1">
               Confluence сигналы
               <InfoTip text="Дополнительные условия подтверждения сигналов для отсеивания ложных входов" />
             </span>
-            <span className="text-neutral-500 font-mono">
+            <span className="text-muted-foreground font-mono">
               {[filterCvd, filterOi, filterAtr, filterRsi].filter(Boolean).length}/4 ON
             </span>
           </div>
@@ -422,7 +422,7 @@ export default function BacktestParametersForm({
                 className={`py-0.5 px-1 rounded border text-center transition cursor-pointer ${
                   f.active
                     ? 'bg-neutral-200 text-neutral-950 border-neutral-300 font-bold shadow-xs'
-                    : 'bg-neutral-900 text-neutral-500 border-neutral-800 hover:text-white'
+                    : 'bg-card text-muted-foreground border-border hover:text-foreground'
                 }`}
               >
                 {f.label}: {f.active ? 'ON' : 'OFF'}
@@ -432,8 +432,8 @@ export default function BacktestParametersForm({
         </div>
 
         {/* Fees and Slippage */}
-        <div className="pt-1 border-t border-neutral-800/80">
-          <div className="text-[8.5px] font-mono text-neutral-400 font-bold uppercase tracking-wider mb-0.5">
+        <div className="pt-1 border-t border-border/80">
+          <div className="text-[8.5px] font-mono text-muted-foreground font-bold uppercase tracking-wider mb-0.5">
             Биржевые комиссии & Скольжение:
           </div>
           <div className="grid grid-cols-3 gap-1">

@@ -414,7 +414,7 @@ export default function ScalperTradeDesk({
       <div className="flex items-center justify-between border-b border-[#191e2b] pb-1">
         <div className="flex items-center space-x-1.5">
           <Zap size={11} className="text-[#ffb300]" />
-          <span className="font-bold text-white tracking-tight text-[10.5px] font-sans">
+          <span className="font-bold text-foreground tracking-tight text-[10.5px] font-sans">
             Scalper Trade Desk
           </span>
           <span className="px-1 py-0.2 rounded bg-[#141c2b] text-[#38bdf8] border border-[#38bdf840] text-[8.5px]">
@@ -445,8 +445,8 @@ export default function ScalperTradeDesk({
           onClick={() => setSizingMode('fixed_volume')}
           className={`py-0.5 px-1.5 rounded text-[9.5px] font-sans transition cursor-pointer truncate ${
             sizingMode === 'fixed_volume'
-              ? 'bg-[#2563eb] text-white font-bold shadow-xs'
-              : 'text-[#787f91] hover:text-white'
+              ? 'bg-[#2563eb] text-foreground font-bold shadow-xs'
+              : 'text-[#787f91] hover:text-foreground'
           }`}
         >
           Фиксированный объем ($)
@@ -456,8 +456,8 @@ export default function ScalperTradeDesk({
           onClick={() => setSizingMode('fixed_risk')}
           className={`py-0.5 px-1.5 rounded text-[9.5px] font-sans transition cursor-pointer truncate ${
             sizingMode === 'fixed_risk'
-              ? 'bg-[#d97706] text-white font-bold shadow-xs'
-              : 'text-[#787f91] hover:text-white'
+              ? 'bg-[#d97706] text-foreground font-bold shadow-xs'
+              : 'text-[#787f91] hover:text-foreground'
           }`}
         >
           Фиксированный риск ($ на стоп)
@@ -478,7 +478,7 @@ export default function ScalperTradeDesk({
                 step="100"
                 value={fixedVolumeUsd}
                 onChange={(e) => setFixedVolumeUsd(Math.max(0, Number(e.target.value)))}
-                className="w-20 bg-[#080a0f] border border-[#1f2430] focus:border-[#38bdf8] rounded px-1.5 py-0.5 text-white font-bold text-right outline-none text-[10.5px]"
+                className="w-20 bg-[#080a0f] border border-[#1f2430] focus:border-[#38bdf8] rounded px-1.5 py-0.5 text-foreground font-bold text-right outline-none text-[10.5px]"
               />
             </>
           ) : (
@@ -503,7 +503,7 @@ export default function ScalperTradeDesk({
                     className={`px-1 py-0.5 rounded text-[8.5px] border transition cursor-pointer ${
                       Number(riskPerStopUsd) === r
                         ? 'bg-[#ffb30025] border-[#ffb300] text-[#ffb300] font-bold'
-                        : 'bg-[#0c0f17] border-[#1b202e] text-[#787f91] hover:text-white'
+                        : 'bg-[#0c0f17] border-[#1b202e] text-[#787f91] hover:text-foreground'
                     }`}
                   >
                     ${r}
@@ -526,8 +526,8 @@ export default function ScalperTradeDesk({
               }}
               className={`px-1.5 py-0.5 rounded text-[9px] border transition cursor-pointer ${
                 sizingMode === 'fixed_volume' && Number(fixedVolumeUsd) === preset
-                  ? 'bg-[#2563eb] border-[#38bdf8] text-white font-bold'
-                  : 'bg-[#0c0f17] border-[#1b202e] text-[#94a3b8] hover:text-white hover:border-[#38bdf860]'
+                  ? 'bg-[#2563eb] border-[#38bdf8] text-foreground font-bold'
+                  : 'bg-[#0c0f17] border-[#1b202e] text-[#94a3b8] hover:text-foreground hover:border-[#38bdf860]'
               }`}
             >
               ${preset.toLocaleString('en-US')}
@@ -544,7 +544,7 @@ export default function ScalperTradeDesk({
         <div className="flex items-center space-x-1 truncate">
           <Crosshair size={10} className="text-[#ffb300] shrink-0" />
           <span className="text-[#787f91]">SL за стенкой:</span>
-          <span className="text-white font-semibold" data-testid="sl-wall-price">
+          <span className="text-foreground font-semibold" data-testid="sl-wall-price">
             ${riskCalculation.slPrice.toFixed(priceDecimals)}
           </span>
           <span className="text-[#ffb300]" data-testid="sl-distance-pct">
@@ -575,7 +575,7 @@ export default function ScalperTradeDesk({
           title={`Выставить лимитный LONG перед BID-стенкой $${nearestBidWall.price.toFixed(priceDecimals)}`}
         >
           <span className="truncate">Лимитка перед Wall BID</span>
-          <span className="text-[8.5px] text-white/90 bg-[#26a69a30] px-1 rounded ml-1 shrink-0">
+          <span className="text-[8.5px] text-foreground/90 bg-[#26a69a30] px-1 rounded ml-1 shrink-0">
             ${(nearestBidWall.price + stepSize).toFixed(priceDecimals)}
           </span>
         </button>
@@ -587,7 +587,7 @@ export default function ScalperTradeDesk({
           title={`Выставить лимитный SHORT перед ASK-стенкой $${nearestAskWall.price.toFixed(priceDecimals)}`}
         >
           <span className="truncate">Лимитка перед Wall ASK</span>
-          <span className="text-[8.5px] text-white/90 bg-[#ef535030] px-1 rounded ml-1 shrink-0">
+          <span className="text-[8.5px] text-foreground/90 bg-[#ef535030] px-1 rounded ml-1 shrink-0">
             ${(nearestAskWall.price - stepSize).toFixed(priceDecimals)}
           </span>
         </button>
@@ -598,7 +598,7 @@ export default function ScalperTradeDesk({
         <button
           data-testid="btn-market-buy"
           onClick={handleMarketBuy}
-          className="flex items-center justify-center space-x-1 py-1 px-2 rounded bg-[#26a69a] hover:bg-[#1f8f83] text-white font-bold text-[10px] shadow-xs transition cursor-pointer"
+          className="flex items-center justify-center space-x-1 py-1 px-2 rounded bg-[#26a69a] hover:bg-[#1f8f83] text-foreground font-bold text-[10px] shadow-xs transition cursor-pointer"
           title="Купить по рынку (Горячая клавиша Q)"
         >
           <TrendingUp size={11} />
@@ -608,7 +608,7 @@ export default function ScalperTradeDesk({
         <button
           data-testid="btn-market-sell"
           onClick={handleMarketSell}
-          className="flex items-center justify-center space-x-1 py-1 px-2 rounded bg-[#ef5350] hover:bg-[#dc3c39] text-white font-bold text-[10px] shadow-xs transition cursor-pointer"
+          className="flex items-center justify-center space-x-1 py-1 px-2 rounded bg-[#ef5350] hover:bg-[#dc3c39] text-foreground font-bold text-[10px] shadow-xs transition cursor-pointer"
           title="Продать по рынку (Горячая клавиша W)"
         >
           <TrendingDown size={11} />
@@ -618,7 +618,7 @@ export default function ScalperTradeDesk({
         <button
           data-testid="btn-close-all"
           onClick={handleCloseAll}
-          className="flex items-center justify-center space-x-1 py-1 px-2 rounded bg-[#1e2433] hover:bg-[#ef5350] text-[#cbd5e1] hover:text-white border border-[#2e364d] font-bold text-[9.5px] transition cursor-pointer"
+          className="flex items-center justify-center space-x-1 py-1 px-2 rounded bg-[#1e2433] hover:bg-[#ef5350] text-[#cbd5e1] hover:text-foreground border border-[#2e364d] font-bold text-[9.5px] transition cursor-pointer"
           title="Закрыть открытую позицию и отменить все лимитки (Клавиша E — отмена лимиток)"
         >
           <XCircle size={11} />
@@ -670,14 +670,14 @@ export default function ScalperTradeDesk({
         {position ? (
           <div className="flex items-center justify-between w-full gap-1 flex-wrap">
             <div className="flex items-center space-x-1">
-              <span className="font-bold text-white" data-testid="pos-symbol">
+              <span className="font-bold text-foreground" data-testid="pos-symbol">
                 {position.symbol}
               </span>
               <span className="text-[#475569]">|</span>
               <span
                 data-testid="pos-side"
                 className={`px-1 py-0.1 rounded font-extrabold text-[8.5px] ${
-                  position.side === 'LONG' ? 'bg-[#26a69a] text-white' : 'bg-[#ef5350] text-white'
+                  position.side === 'LONG' ? 'bg-[#26a69a] text-foreground' : 'bg-[#ef5350] text-foreground'
                 }`}
               >
                 {position.side}
@@ -685,7 +685,7 @@ export default function ScalperTradeDesk({
               <span className="text-[#475569]">|</span>
               <span className="text-[#94a3b8]">
                 Вход:{' '}
-                <b className="text-white" data-testid="pos-entry-price">
+                <b className="text-foreground" data-testid="pos-entry-price">
                   ${position.entryPrice.toFixed(priceDecimals)}
                 </b>
               </span>

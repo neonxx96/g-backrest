@@ -25,13 +25,13 @@ export default function PaperTradePanel({ sessionState, onClose = null }) {
     active_orders = [],
   } = sessionState;
 
-  const pnlColor = realized_pnl >= 0 ? 'text-green-400' : 'text-red-400';
-  const unPnlColor = unrealized_pnl >= 0 ? 'text-green-400' : 'text-red-400';
+  const pnlColor = realized_pnl >= 0 ? 'text-bull' : 'text-bear';
+  const unPnlColor = unrealized_pnl >= 0 ? 'text-bull' : 'text-bear';
 
   return (
     <div
       data-testid="paper-trade-panel"
-      className="bg-[#131722] rounded-lg shadow-xl border border-[#2a3a50] p-3 w-full text-white text-[11px] font-sans select-none"
+      className="bg-[#131722] rounded-lg shadow-xl border border-[#2a3a50] p-3 w-full text-foreground text-[11px] font-sans select-none"
     >
       <div className="flex justify-between items-center mb-2">
         <div className="flex items-center gap-1.5">
@@ -43,7 +43,7 @@ export default function PaperTradePanel({ sessionState, onClose = null }) {
           <button
             data-testid="paper-panel-close"
             onClick={onClose}
-            className="text-gray-500 hover:text-white transition-colors"
+            className="text-muted-foreground hover:text-foreground transition-colors"
             aria-label="Close paper trading panel"
           >
             ✕
@@ -53,26 +53,26 @@ export default function PaperTradePanel({ sessionState, onClose = null }) {
 
       <div className="grid grid-cols-2 gap-1.5 mb-2">
         <div className="bg-[#1a2233] rounded p-1.5 border border-[#2a3a50]">
-          <div className="text-gray-500 text-[9px]">BALANCE</div>
+          <div className="text-muted-foreground text-[9px]">BALANCE</div>
           <div className="font-bold text-[13px]">{fmtUsd(balance)}</div>
         </div>
         <div className="bg-[#1a2233] rounded p-1.5 border border-[#2a3a50]">
-          <div className="text-gray-500 text-[9px]">REALIZED PnL</div>
+          <div className="text-muted-foreground text-[9px]">REALIZED PnL</div>
           <div className={`font-bold text-[13px] ${pnlColor}`}>{fmtUsd(realized_pnl)}</div>
         </div>
         <div className="bg-[#1a2233] rounded p-1.5 border border-[#2a3a50]">
-          <div className="text-gray-500 text-[9px]">UNREALIZED PnL</div>
+          <div className="text-muted-foreground text-[9px]">UNREALIZED PnL</div>
           <div className={`font-bold text-[13px] ${unPnlColor}`}>{fmtUsd(unrealized_pnl)}</div>
         </div>
         <div className="bg-[#1a2233] rounded p-1.5 border border-[#2a3a50]">
-          <div className="text-gray-500 text-[9px]">AVAILABLE MARGIN</div>
+          <div className="text-muted-foreground text-[9px]">AVAILABLE MARGIN</div>
           <div className="font-bold text-[13px] text-[#38bdf8]">{fmtUsd(available_margin)}</div>
         </div>
       </div>
 
       {positions.length > 0 && (
         <div className="border-t border-[#2a3a50] pt-1.5 mt-1.5">
-          <div className="text-gray-500 text-[9px] mb-1 uppercase tracking-wide">OPEN POSITIONS</div>
+          <div className="text-muted-foreground text-[9px] mb-1 uppercase tracking-wide">OPEN POSITIONS</div>
           {positions.map((pos) => (
             <div
               key={`${pos.symbol}-${pos.side}`}
@@ -80,13 +80,13 @@ export default function PaperTradePanel({ sessionState, onClose = null }) {
               className="flex justify-between items-center py-0.5"
             >
               <span>
-                <span className={pos.side === 'LONG' ? 'text-green-400' : 'text-red-400'}>
+                <span className={pos.side === 'LONG' ? 'text-bull' : 'text-bear'}>
                   {pos.side}
                 </span>{' '}
-                <span className="text-gray-300">{pos.symbol}</span>
-                <span className="text-gray-500 ml-1">{Number(pos.qty).toFixed(4)}</span>
+                <span className="text-foreground/80">{pos.symbol}</span>
+                <span className="text-muted-foreground ml-1">{Number(pos.qty).toFixed(4)}</span>
               </span>
-              <span className={pos.unrealized_pnl >= 0 ? 'text-green-400' : 'text-red-400'}>
+              <span className={pos.unrealized_pnl >= 0 ? 'text-bull' : 'text-bear'}>
                 {fmtUsd(pos.unrealized_pnl)}
               </span>
             </div>
@@ -96,18 +96,18 @@ export default function PaperTradePanel({ sessionState, onClose = null }) {
 
       {active_orders.length > 0 && (
         <div className="border-t border-[#2a3a50] pt-1.5 mt-1.5">
-          <div className="text-gray-500 text-[9px] mb-1 uppercase tracking-wide">ACTIVE ORDERS</div>
+          <div className="text-muted-foreground text-[9px] mb-1 uppercase tracking-wide">ACTIVE ORDERS</div>
           {active_orders.map((ord) => (
             <div
               key={ord.order_id}
               data-testid="paper-order-row"
-              className="flex justify-between items-center py-0.5 text-gray-300"
+              className="flex justify-between items-center py-0.5 text-foreground/80"
             >
               <span>
-                <span className={ord.side === 'BUY' ? 'text-green-400' : 'text-red-400'}>{ord.side}</span>{' '}
+                <span className={ord.side === 'BUY' ? 'text-bull' : 'text-bear'}>{ord.side}</span>{' '}
                 {Number(ord.quantity).toFixed(4)} @ {Number(ord.price).toFixed(2)}
               </span>
-              <span className="text-gray-500 text-[9px]">
+              <span className="text-muted-foreground text-[9px]">
                 {ord.status} · queue {Number(ord.queue_ahead).toFixed(2)}
               </span>
             </div>
@@ -115,7 +115,7 @@ export default function PaperTradePanel({ sessionState, onClose = null }) {
         </div>
       )}
 
-      <div className="text-gray-600 text-[8px] mt-2 text-right">session: {session_id}</div>
+      <div className="text-muted-foreground text-[8px] mt-2 text-right">session: {session_id}</div>
     </div>
   );
 }

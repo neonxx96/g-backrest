@@ -19,10 +19,10 @@ export default function BacktestPresetsBar({
   return (
     <div
       data-testid="strategy-presets-bar"
-      className="p-1.5 rounded-md bg-[#0e1217] border border-neutral-800 space-y-1 font-mono"
+      className="p-1.5 rounded-md bg-[#0e1217] border border-border space-y-1 font-mono"
     >
       <div className="flex items-center justify-between text-[8.5px]">
-        <span className="font-bold text-neutral-300 uppercase tracking-wider flex items-center">
+        <span className="font-bold text-foreground/80 uppercase tracking-wider flex items-center">
           ⚡ Пресеты (1 клик):
           <InfoTip text="Готовые наборы проверенных квант-параметров для быстрого тестирования в 1 клик" />
         </span>
@@ -30,7 +30,7 @@ export default function BacktestPresetsBar({
           type="button"
           data-testid="btn-open-save-preset"
           onClick={onToggleSaveInput}
-          className="text-neutral-400 hover:text-neutral-200 hover:underline cursor-pointer font-bold transition-colors"
+          className="text-muted-foreground hover:text-foreground hover:underline cursor-pointer font-bold transition-colors"
         >
           {showSavePresetInput ? '✕ Отмена' : '+ Сохранить текущие'}
         </button>
@@ -45,7 +45,7 @@ export default function BacktestPresetsBar({
             title="Имя набора текущих параметров (стратегия, SL/TP, фильтры). Сохраняется в браузере и применяется в 1 клик."
             value={newPresetName}
             onChange={(e) => onNameChange(e.target.value)}
-            className="flex-1 bg-neutral-900 border border-neutral-700 rounded px-1.5 py-0.5 text-[9.5px] text-white outline-none focus:border-neutral-500"
+            className="flex-1 bg-card border border-border rounded px-1.5 py-0.5 text-[9.5px] text-foreground outline-none focus:border-neutral-500"
           />
           <button
             type="button"
@@ -63,7 +63,7 @@ export default function BacktestPresetsBar({
             data-testid="select-strategy-preset"
             value={selectedPresetId}
             onChange={(e) => onSelectPreset(e.target.value)}
-            className="flex-1 bg-neutral-900 border border-neutral-800 rounded px-1.5 py-0.5 text-[9.5px] text-neutral-200 outline-none focus:border-neutral-500"
+            className="flex-1 bg-card border border-border rounded px-1.5 py-0.5 text-[9.5px] text-foreground outline-none focus:border-neutral-500"
           >
             {presets.map((p) => (
               <option key={p.id} value={p.id}>

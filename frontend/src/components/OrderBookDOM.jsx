@@ -478,21 +478,21 @@ export default function OrderBookDOM({
         >
           <span
             data-testid="dom-badge-entry"
-            className="px-1 py-0.2 rounded bg-[#2563eb] text-white font-bold shrink-0"
+            className="px-1 py-0.2 rounded bg-[#2563eb] text-foreground font-bold shrink-0"
             title="Точка входа"
           >
             ENTRY {Number(activePositionSetup.entry_price).toFixed(priceDecimals)}
           </span>
           <span
             data-testid="dom-badge-sl"
-            className="px-1 py-0.2 rounded bg-[#dc2626] text-white font-bold shrink-0"
+            className="px-1 py-0.2 rounded bg-[#dc2626] text-foreground font-bold shrink-0"
             title="Стоп-Лосс"
           >
             SL {Number(activePositionSetup.sl_price).toFixed(priceDecimals)}
           </span>
           <span
             data-testid="dom-badge-tp1"
-            className="px-1 py-0.2 rounded bg-[#059669] text-white font-bold shrink-0"
+            className="px-1 py-0.2 rounded bg-[#059669] text-foreground font-bold shrink-0"
             title="Тейк-Профит 1 (50%)"
           >
             TP1 {Number(activePositionSetup.tp1_price).toFixed(priceDecimals)}
@@ -500,7 +500,7 @@ export default function OrderBookDOM({
           {activePositionSetup.tp2_price && (
             <span
               data-testid="dom-badge-tp2"
-              className="px-1 py-0.2 rounded bg-[#047857] text-white font-bold shrink-0"
+              className="px-1 py-0.2 rounded bg-[#047857] text-foreground font-bold shrink-0"
               title="Тейк-Профит 2 (50%)"
             >
               TP2 {Number(activePositionSetup.tp2_price).toFixed(priceDecimals)}

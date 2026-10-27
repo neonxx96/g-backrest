@@ -89,7 +89,7 @@ export default function AssistantHUD({
         badge: '🔴 TOXIC',
         title: 'Токсичный рынок',
         recommendation: 'Токсичный рынок. Спреды расширены. Входы заблокированы.',
-        bg: 'bg-rose-950/90',
+        bg: 'bg-bear-soft/90',
         border: 'border-rose-500/50',
         badgeBg: 'bg-rose-900/60 text-rose-300 border-rose-500/60',
         dot: 'bg-rose-500',
@@ -102,7 +102,7 @@ export default function AssistantHUD({
         badge: '🟢 TREND',
         title: 'Трендовый режим',
         recommendation: 'Тренд. Рекомендация: Пробойные стратегии, широкие стопы.',
-        bg: 'bg-emerald-950/85',
+        bg: 'bg-bull-soft/85',
         border: 'border-emerald-500/50',
         badgeBg: 'bg-emerald-900/60 text-emerald-300 border-emerald-500/60',
         dot: 'bg-emerald-400',
@@ -145,7 +145,7 @@ export default function AssistantHUD({
         type: 'BE',
         severity: 'success',
         text: '🛡️ Сработал динамический безубыток. Риск сведен к нулю.',
-        highlight: 'text-emerald-400 font-bold',
+        highlight: 'text-bull font-bold',
       };
     }
 
@@ -154,7 +154,7 @@ export default function AssistantHUD({
         type: 'MFE_BLEED',
         severity: 'warning',
         text: `⚠️ Позиция в ${side}: MFE +${mfeR.toFixed(1)}R. Прибыль откатывает к +${pnlR.toFixed(1)}R, рассмотрите подтяжку стопа.`,
-        highlight: 'text-amber-400 font-semibold',
+        highlight: 'text-warning font-semibold',
       };
     }
 
@@ -180,7 +180,7 @@ export default function AssistantHUD({
       type: 'INFO',
       severity: 'neutral',
       text: `Позиция в ${side} (${activePosition.qty} ${symbol}) · PnL: ${pnlUsd >= 0 ? '+' : ''}$${pnlUsd.toFixed(2)} (${pnlR >= 0 ? '+' : ''}${pnlR.toFixed(2)}R)`,
-      highlight: pnlUsd >= 0 ? 'text-emerald-400' : 'text-rose-400',
+      highlight: pnlUsd >= 0 ? 'text-bull' : 'text-bear',
     };
   }, [activePosition, symbol]);
 
@@ -224,7 +224,7 @@ export default function AssistantHUD({
           {activePosition && (
             <span
               className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
-                activePosition.side === 'LONG' ? 'bg-emerald-950/70 text-emerald-300 border border-emerald-700/50' : 'bg-rose-950/70 text-rose-300 border border-rose-700/50'
+                activePosition.side === 'LONG' ? 'bg-bull-soft/70 text-emerald-300 border border-emerald-700/50' : 'bg-bear-soft/70 text-rose-300 border border-rose-700/50'
               }`}
             >
               {activePosition.side} ({activePosition.current_pnl_r >= 0 ? '+' : ''}
@@ -240,7 +240,7 @@ export default function AssistantHUD({
           className="w-80 rounded bg-popover/95 border border-border shadow-xl backdrop-blur-md p-2.5 text-foreground text-[10.5px] font-mono animate-in fade-in zoom-in-95"
         >
           {/* Header with Title & Collapse */}
-          <div className="flex items-center justify-between pb-1.5 border-b border-neutral-800/80 mb-2">
+          <div className="flex items-center justify-between pb-1.5 border-b border-border/80 mb-2">
             <div className="flex items-center space-x-1.5">
               <Compass size={13} className="text-sky-400" />
               <span className="font-bold text-foreground text-[11px] tracking-wide">
@@ -252,7 +252,7 @@ export default function AssistantHUD({
                 type="button"
                 data-testid="btn-collapse-assistant"
                 onClick={() => toggleExpanded(false)}
-                className="p-0.5 rounded text-neutral-400 hover:text-white hover:bg-neutral-800 transition cursor-pointer"
+                className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition cursor-pointer"
                 title="Свернуть панель ассистента"
               >
                 <ChevronUp size={13} />
@@ -281,7 +281,7 @@ export default function AssistantHUD({
 
             <div
               data-testid="assistant-regime-recommendation"
-              className="p-1.5 rounded bg-[#131926]/90 border border-neutral-800/80 text-[10px] text-neutral-200 leading-tight"
+              className="p-1.5 rounded bg-[#131926]/90 border border-border/80 text-[10px] text-foreground leading-tight"
             >
               {regimeInfo.recommendation}
             </div>
@@ -300,7 +300,7 @@ export default function AssistantHUD({
                 </span>
                 <span
                   className={`font-bold ${
-                    (activePosition.unrealized_pnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                    (activePosition.unrealized_pnl ?? 0) >= 0 ? 'text-bull' : 'text-bear'
                   }`}
                 >
                   {(activePosition.unrealized_pnl ?? 0) >= 0 ? '+' : ''}$
@@ -311,16 +311,16 @@ export default function AssistantHUD({
               </div>
 
               {/* Excursion metrics MFE / MAE */}
-              <div className="grid grid-cols-2 gap-1 text-[11px] text-muted-foreground bg-[#090d15] p-1 rounded border border-neutral-800/60 mb-1.5">
+              <div className="grid grid-cols-2 gap-1 text-[11px] text-muted-foreground bg-[#090d15] p-1 rounded border border-border/60 mb-1.5">
                 <div>
                   MFE (макс. профит):{' '}
-                  <span className="text-emerald-400 font-semibold">
+                  <span className="text-bull font-semibold">
                     +{Number(activePosition.mfe_r ?? 0).toFixed(2)}R
                   </span>
                 </div>
                 <div>
                   MAE (макс. просадка):{' '}
-                  <span className="text-rose-400 font-semibold">
+                  <span className="text-bear font-semibold">
                     -{Number(activePosition.mae_r ?? 0).toFixed(2)}R
                   </span>
                 </div>
@@ -330,7 +330,7 @@ export default function AssistantHUD({
               {positionAlert && (
                 <div
                   data-testid="assistant-position-alert"
-                  className={`text-[9.5px] leading-snug p-1 rounded bg-[#141b2b] border border-neutral-700/60 ${positionAlert.highlight}`}
+                  className={`text-[9.5px] leading-snug p-1 rounded bg-[#141b2b] border border-border/60 ${positionAlert.highlight}`}
                 >
                   {positionAlert.text}
                 </div>
@@ -339,14 +339,14 @@ export default function AssistantHUD({
           ) : (
             <div
               data-testid="assistant-no-position"
-              className="mb-2 p-1.5 rounded bg-[#10141e]/60 border border-neutral-800/60 text-[11px] text-muted-foreground text-center"
+              className="mb-2 p-1.5 rounded bg-[#10141e]/60 border border-border/60 text-[11px] text-muted-foreground text-center"
             >
               Нет открытой позиции по {symbol}. Ожидание сигнала алгоритма.
             </div>
           )}
 
           {/* Quick Tactical Controls: Volatility Cone & Magnet Walls */}
-          <div className="grid grid-cols-2 gap-1.5 pt-1.5 border-t border-neutral-800/80">
+          <div className="grid grid-cols-2 gap-1.5 pt-1.5 border-t border-border/80">
             <button
               type="button"
               data-testid="btn-hud-toggle-cone"
@@ -354,11 +354,11 @@ export default function AssistantHUD({
               className={`py-1 px-1.5 rounded text-[9.5px] font-bold flex items-center justify-center space-x-1 transition cursor-pointer border ${
                 isConeActive
                   ? 'bg-sky-600/30 text-sky-300 border-sky-500/60 shadow-xs'
-                  : 'bg-neutral-800/80 hover:bg-neutral-700 text-neutral-300 border-neutral-700'
+                  : 'bg-muted/80 hover:bg-muted/80 text-foreground/80 border-border'
               }`}
               title="Спроецировать вероятностный конус волатильности (±1σ / ±2σ) на следующие 16 баров"
             >
-              <Layers size={11} className={isConeActive ? 'text-sky-300' : 'text-neutral-400'} />
+              <Layers size={11} className={isConeActive ? 'text-sky-300' : 'text-muted-foreground'} />
               <span>{isConeActive ? 'Конус [ВКЛ]' : '📐 Прогноз. конус'}</span>
             </button>
 
@@ -369,11 +369,11 @@ export default function AssistantHUD({
               className={`py-1 px-1.5 rounded text-[9.5px] font-bold flex items-center justify-center space-x-1 transition cursor-pointer border ${
                 showWalls
                   ? 'bg-emerald-600/30 text-emerald-300 border-emerald-500/60 shadow-xs'
-                  : 'bg-neutral-800/80 hover:bg-neutral-700 text-neutral-300 border-neutral-700'
+                  : 'bg-muted/80 hover:bg-muted/80 text-foreground/80 border-border'
               }`}
               title="Отобразить крупнейшие лимитные стенки стакана (depth20) как уровни-магниты"
             >
-              <Magnet size={11} className={showWalls ? 'text-emerald-300' : 'text-neutral-400'} />
+              <Magnet size={11} className={showWalls ? 'text-emerald-300' : 'text-muted-foreground'} />
               <span>{showWalls ? 'Стенки [ВКЛ]' : '🧲 Стенки стакана'}</span>
             </button>
           </div>

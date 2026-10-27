@@ -36,7 +36,7 @@ export default function DOMControlsHeader({
         style={{ backgroundColor: 'var(--bg-panel-header)', borderColor: 'var(--border-subtle)' }}
         className="flex items-center justify-between px-1.5 py-1 border-b gap-1 shrink-0"
       >
-        <div className="flex items-center space-x-1 font-bold text-white text-[10.5px] shrink-0">
+        <div className="flex items-center space-x-1 font-bold text-foreground text-[10.5px] shrink-0">
           <Layers size={11} className="text-[#38bdf8]" />
           <span>DOM</span>
           <span className="text-[8.5px] font-mono px-1 py-0.2 rounded bg-[#141c2b] text-[#26a69a] border border-[#26a69a40]">
@@ -52,8 +52,8 @@ export default function DOMControlsHeader({
               onClick={() => onTickMult(mult)}
               className={`px-1 py-0.2 rounded transition cursor-pointer ${
                 tickMult === mult
-                  ? 'bg-[#2563eb] text-white font-bold'
-                  : 'text-[#787f91] hover:text-white'
+                  ? 'bg-[#2563eb] text-foreground font-bold'
+                  : 'text-[#787f91] hover:text-foreground'
               }`}
               title={`Сжатие шага цены x${mult} (шаг ${(baseTick * mult).toFixed(priceDecimals)})`}
             >
@@ -66,7 +66,7 @@ export default function DOMControlsHeader({
         <div className="flex items-center space-x-0.5 font-mono shrink-0">
           <button
             onClick={onRecenter}
-            className="flex items-center space-x-0.5 px-1 py-0.5 rounded bg-[#161922] hover:bg-[#2563eb] text-[8.5px] text-[#38bdf8] hover:text-white transition border border-[#1f2430] cursor-pointer"
+            className="flex items-center space-x-0.5 px-1 py-0.5 rounded bg-[#161922] hover:bg-[#2563eb] text-[8.5px] text-[#38bdf8] hover:text-foreground transition border border-[#1f2430] cursor-pointer"
             title="Центрировать на спреде (Горячая клавиша Space)"
           >
             <Crosshair size={10} />
@@ -76,7 +76,7 @@ export default function DOMControlsHeader({
           <button
             onClick={onToggleSettings}
             className={`p-1 rounded transition cursor-pointer ${
-              showSettings ? 'bg-[#2563eb] text-white' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'
+              showSettings ? 'bg-[#2563eb] text-foreground' : 'text-[#787f91] hover:bg-[#161922] hover:text-foreground'
             }`}
             title="Настройки плотностей и кластеров DOM"
           >
@@ -108,7 +108,7 @@ export default function DOMControlsHeader({
               step="25000"
               value={densityThresholdUsd}
               onChange={(e) => onDensityThreshold(Math.max(5000, Number(e.target.value)))}
-              className="w-24 bg-[#08090c] border border-[#1f2430] rounded px-1.5 py-0.5 text-right text-white"
+              className="w-24 bg-[#08090c] border border-[#1f2430] rounded px-1.5 py-0.5 text-right text-foreground"
             />
           </div>
           <div className="flex items-center justify-between">
@@ -129,7 +129,7 @@ export default function DOMControlsHeader({
                   key={h}
                   onClick={() => onRowHeight && onRowHeight(h)}
                   className={`px-1.5 py-0.5 rounded text-[9.5px] ${
-                    rowHeight === h ? 'bg-[#2563eb] text-white font-bold' : 'bg-[#08090c] text-[#787f91] hover:text-white'
+                    rowHeight === h ? 'bg-[#2563eb] text-foreground font-bold' : 'bg-[#08090c] text-[#787f91] hover:text-foreground'
                   }`}
                   title={`${h}px высота строки`}
                 >
@@ -150,7 +150,7 @@ export default function DOMControlsHeader({
                   key={pal.id}
                   onClick={() => onVolumePalette && onVolumePalette(pal.id)}
                   className={`px-1.5 py-0.5 rounded text-[9.5px] ${
-                    volumePalette === pal.id ? 'bg-[#2563eb] text-white font-bold' : 'bg-[#08090c] text-[#787f91] hover:text-white'
+                    volumePalette === pal.id ? 'bg-[#2563eb] text-foreground font-bold' : 'bg-[#08090c] text-[#787f91] hover:text-foreground'
                   }`}
                 >
                   {pal.label}
@@ -164,7 +164,7 @@ export default function DOMControlsHeader({
               <button
                 onClick={() => onClusterMode('bid_ask')}
                 className={`px-1.5 py-0.5 rounded text-[9.5px] ${
-                  clusterMode === 'bid_ask' ? 'bg-[#2563eb] text-white font-bold' : 'bg-[#08090c] text-[#787f91]'
+                  clusterMode === 'bid_ask' ? 'bg-[#2563eb] text-foreground font-bold' : 'bg-[#08090c] text-[#787f91]'
                 }`}
               >
                 Bid × Ask
@@ -172,7 +172,7 @@ export default function DOMControlsHeader({
               <button
                 onClick={() => onClusterMode('delta')}
                 className={`px-1.5 py-0.5 rounded text-[9.5px] ${
-                  clusterMode === 'delta' ? 'bg-[#2563eb] text-white font-bold' : 'bg-[#08090c] text-[#787f91]'
+                  clusterMode === 'delta' ? 'bg-[#2563eb] text-foreground font-bold' : 'bg-[#08090c] text-[#787f91]'
                 }`}
               >
                 Сумма / Δ

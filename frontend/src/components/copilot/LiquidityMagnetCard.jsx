@@ -10,7 +10,7 @@ export default function LiquidityMagnetCard({ liquidityMagnet }) {
       className="p-2.5 rounded-lg border border-[#38bdf830] bg-[#0c1322] space-y-2 font-mono text-[10px]"
     >
       <div className="flex items-center justify-between">
-        <span className="font-bold text-white text-[10.5px] flex items-center space-x-1">
+        <span className="font-bold text-foreground text-[10.5px] flex items-center space-x-1">
           <Magnet size={13} className="text-[#38bdf8]" />
           <span>Магнит ликвидности (Liquidity Magnet)</span>
         </span>
