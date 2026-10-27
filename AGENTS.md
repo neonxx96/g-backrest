@@ -216,3 +216,22 @@ powershell -ExecutionPolicy Bypass -File scripts/cline-auto.ps1 -TaskFile tasks/
 - **«Покажи статистику / что пошло не так»** -> `GET /api/paper-trading/analytics/post-mortem?period=24h` (причины потерь, Fee Burden, рекомендации).
 - **Запуск проекта в Docker:** `docker compose up -d --build` (backend :8000, frontend :7100, данные в `./data`).
 - **Правило «не регрессировать»:** любое изменение сначала проходит `scripts/check.ps1`; изменения стратегий принимаются только при подтверждении на OOS/A-B, а не по обучающей выборке.
+
+---
+
+## 11. ДИЗАЙН-СИСТЕМА (ОБЯЗАТЕЛЬНО ДЛЯ ВСЕХ АГЕНТОВ)
+
+1. **Запрет на использование raw Tailwind-цветов**:
+   - Категорически запрещено использовать прямые палитровые цвета (`bg-gray-800`, `text-zinc-400`, `border-slate-700`, `text-amber-500` и т.д.) в компонентах интерфейса.
+   - Исключения: только файлы определения токенов (`src/styles/tokens.css`, `src/theme/`, `tailwind.config.js`).
+2. **Запрет на создание самодельных контролов**:
+   - Запрещено использовать сырые `<button>`, `<input>`, `<select>` или создавать собственные аналоги, если в `src/components/ui/` есть соответствующий компонент (`Button`, `Input`, `Select`, `Dialog`, `AlertDialog`, `Popover`, `DropdownMenu`, `Tabs`, `Slider`, `Checkbox`, `Switch`, `Badge`, `ScrollArea`, `Tooltip`).
+3. **Правило семантических токенов**:
+   - Любой UI-элемент строится **СТРОГО** из CSS-токенов shadcn: `bg-background`, `text-foreground`, `border-border`, `bg-card`, `text-card-foreground`, `bg-popover`, `text-popover-foreground`, `bg-muted`, `text-muted-foreground`, `bg-primary`, `text-primary-foreground`, `bg-accent`, `bg-destructive`, `text-bull`, `text-bear`.
+4. **Правило масштаба и плотности**:
+   - Размеры и отступы задаются через `rem` или токены плотности (`dense-*`, `h-7`, `p-1.5`, `gap-1.5`).
+   - Никаких жестких `px` для шрифтов и внешних отступов (жесткие `px` допустимы только для 1px borders и canvas-буферов).
+   - Все Canvas-элементы обязаны масштабироваться через `devicePixelRatio` и `uiScale` и поддерживать точное равенство bitmap = css_rect * dpr.
+5. **Правило честности**:
+   - В итоговых отчетах строго запрещено скрывать skipped тесты, отключенные проверки или неработающие фичи. Любой пропуск тестов или сетевое ограничение должны быть честно задокументированы с указанием модуля, количества и причины.
+

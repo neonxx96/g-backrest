@@ -1,0 +1,440 @@
+{
+  "frontend/src/App.jsx": {
+    "total": 4,
+    "rawColors": 1,
+    "rawButtons": 3,
+    "rawSelects": 0
+  },
+  "frontend/src/components/AICopilotSidebar.jsx": {
+    "total": 1,
+    "rawColors": 0,
+    "rawButtons": 1,
+    "rawSelects": 0
+  },
+  "frontend/src/components/AIEngineSettings.jsx": {
+    "total": 10,
+    "rawColors": 5,
+    "rawButtons": 5,
+    "rawSelects": 0
+  },
+  "frontend/src/components/app/AppTopBar.jsx": {
+    "total": 22,
+    "rawColors": 8,
+    "rawButtons": 14,
+    "rawSelects": 0
+  },
+  "frontend/src/components/app/ModalsHost.jsx": {
+    "total": 3,
+    "rawColors": 0,
+    "rawButtons": 3,
+    "rawSelects": 0
+  },
+  "frontend/src/components/AssistantHUD.jsx": {
+    "total": 68,
+    "rawColors": 65,
+    "rawButtons": 3,
+    "rawSelects": 0
+  },
+  "frontend/src/components/backtest/BacktestOptimizerView.jsx": {
+    "total": 41,
+    "rawColors": 38,
+    "rawButtons": 3,
+    "rawSelects": 0
+  },
+  "frontend/src/components/backtest/BacktestParametersForm.jsx": {
+    "total": 103,
+    "rawColors": 95,
+    "rawButtons": 5,
+    "rawSelects": 3
+  },
+  "frontend/src/components/backtest/BacktestPresetsBar.jsx": {
+    "total": 19,
+    "rawColors": 15,
+    "rawButtons": 3,
+    "rawSelects": 1
+  },
+  "frontend/src/components/backtest/BacktestTradesTable.jsx": {
+    "total": 1,
+    "rawColors": 1,
+    "rawButtons": 0,
+    "rawSelects": 0
+  },
+  "frontend/src/components/backtest/fields.jsx": {
+    "total": 15,
+    "rawColors": 15,
+    "rawButtons": 0,
+    "rawSelects": 0
+  },
+  "frontend/src/components/BacktestModal.jsx": {
+    "total": 23,
+    "rawColors": 19,
+    "rawButtons": 2,
+    "rawSelects": 2
+  },
+  "frontend/src/components/BacktestPanel.jsx": {
+    "total": 196,
+    "rawColors": 174,
+    "rawButtons": 22,
+    "rawSelects": 0
+  },
+  "frontend/src/components/BacktestTradeTimeline.jsx": {
+    "total": 33,
+    "rawColors": 32,
+    "rawButtons": 1,
+    "rawSelects": 0
+  },
+  "frontend/src/components/chart/ChartContextMenu.jsx": {
+    "total": 8,
+    "rawColors": 0,
+    "rawButtons": 8,
+    "rawSelects": 0
+  },
+  "frontend/src/components/chart/ChartLegend.jsx": {
+    "total": 4,
+    "rawColors": 1,
+    "rawButtons": 3,
+    "rawSelects": 0
+  },
+  "frontend/src/components/chart/ChartToolbar.jsx": {
+    "total": 71,
+    "rawColors": 19,
+    "rawButtons": 46,
+    "rawSelects": 6
+  },
+  "frontend/src/components/chart/FootprintCanvasLayer.jsx": {
+    "total": 27,
+    "rawColors": 20,
+    "rawButtons": 6,
+    "rawSelects": 1
+  },
+  "frontend/src/components/chart/LiquidationHeatmapGL.jsx": {
+    "total": 6,
+    "rawColors": 0,
+    "rawButtons": 6,
+    "rawSelects": 0
+  },
+  "frontend/src/components/chart/OnChartDOM.jsx": {
+    "total": 19,
+    "rawColors": 15,
+    "rawButtons": 4,
+    "rawSelects": 0
+  },
+  "frontend/src/components/chart/PositionSetupHUD.jsx": {
+    "total": 14,
+    "rawColors": 7,
+    "rawButtons": 7,
+    "rawSelects": 0
+  },
+  "frontend/src/components/chart/SaveTemplateModal.jsx": {
+    "total": 3,
+    "rawColors": 0,
+    "rawButtons": 3,
+    "rawSelects": 0
+  },
+  "frontend/src/components/chart/ToxicVolatilityOverlay.jsx": {
+    "total": 9,
+    "rawColors": 8,
+    "rawButtons": 1,
+    "rawSelects": 0
+  },
+  "frontend/src/components/Chart.jsx": {
+    "total": 1,
+    "rawColors": 0,
+    "rawButtons": 1,
+    "rawSelects": 0
+  },
+  "frontend/src/components/ConfluenceWeightsEditor.jsx": {
+    "total": 8,
+    "rawColors": 4,
+    "rawButtons": 3,
+    "rawSelects": 1
+  },
+  "frontend/src/components/copilot/CopilotHeader.jsx": {
+    "total": 5,
+    "rawColors": 0,
+    "rawButtons": 4,
+    "rawSelects": 1
+  },
+  "frontend/src/components/copilot/ExpressAnalysisCard.jsx": {
+    "total": 1,
+    "rawColors": 0,
+    "rawButtons": 1,
+    "rawSelects": 0
+  },
+  "frontend/src/components/copilot/QuickPromptChips.jsx": {
+    "total": 1,
+    "rawColors": 0,
+    "rawButtons": 1,
+    "rawSelects": 0
+  },
+  "frontend/src/components/copilot/SweepLeaderboardCard.jsx": {
+    "total": 3,
+    "rawColors": 0,
+    "rawButtons": 3,
+    "rawSelects": 0
+  },
+  "frontend/src/components/copilot/TradeSetupCard.jsx": {
+    "total": 2,
+    "rawColors": 0,
+    "rawButtons": 2,
+    "rawSelects": 0
+  },
+  "frontend/src/components/copilot/VolatilityConeCard.jsx": {
+    "total": 1,
+    "rawColors": 0,
+    "rawButtons": 1,
+    "rawSelects": 0
+  },
+  "frontend/src/components/DecisionJournalModal.jsx": {
+    "total": 12,
+    "rawColors": 0,
+    "rawButtons": 10,
+    "rawSelects": 2
+  },
+  "frontend/src/components/design-previews/LayerToolbar.jsx": {
+    "total": 7,
+    "rawColors": 0,
+    "rawButtons": 7,
+    "rawSelects": 0
+  },
+  "frontend/src/components/design-previews/LiqAnalyticsPanel.jsx": {
+    "total": 2,
+    "rawColors": 0,
+    "rawButtons": 2,
+    "rawSelects": 0
+  },
+  "frontend/src/components/design-previews/QuantDecisionConsilium.jsx": {
+    "total": 3,
+    "rawColors": 0,
+    "rawButtons": 3,
+    "rawSelects": 0
+  },
+  "frontend/src/components/docking/AlertsModal.jsx": {
+    "total": 108,
+    "rawColors": 97,
+    "rawButtons": 9,
+    "rawSelects": 2
+  },
+  "frontend/src/components/docking/AutoSelectPanel.jsx": {
+    "total": 22,
+    "rawColors": 20,
+    "rawButtons": 2,
+    "rawSelects": 0
+  },
+  "frontend/src/components/docking/ChannelSelector.jsx": {
+    "total": 3,
+    "rawColors": 0,
+    "rawButtons": 3,
+    "rawSelects": 0
+  },
+  "frontend/src/components/docking/FootprintPanel.jsx": {
+    "total": 79,
+    "rawColors": 70,
+    "rawButtons": 9,
+    "rawSelects": 0
+  },
+  "frontend/src/components/docking/PostMortemAnalyticsTab.jsx": {
+    "total": 31,
+    "rawColors": 30,
+    "rawButtons": 1,
+    "rawSelects": 0
+  },
+  "frontend/src/components/docking/PresetBar.jsx": {
+    "total": 14,
+    "rawColors": 0,
+    "rawButtons": 14,
+    "rawSelects": 0
+  },
+  "frontend/src/components/docking/ScreenerWidget.jsx": {
+    "total": 6,
+    "rawColors": 0,
+    "rawButtons": 6,
+    "rawSelects": 0
+  },
+  "frontend/src/components/docking/TradeHistoryWidget.jsx": {
+    "total": 353,
+    "rawColors": 322,
+    "rawButtons": 27,
+    "rawSelects": 4
+  },
+  "frontend/src/components/docking/TradesSettings.jsx": {
+    "total": 10,
+    "rawColors": 0,
+    "rawButtons": 10,
+    "rawSelects": 0
+  },
+  "frontend/src/components/docking/TradesWidget.jsx": {
+    "total": 5,
+    "rawColors": 0,
+    "rawButtons": 5,
+    "rawSelects": 0
+  },
+  "frontend/src/components/docking/WidgetHubModal.jsx": {
+    "total": 2,
+    "rawColors": 0,
+    "rawButtons": 2,
+    "rawSelects": 0
+  },
+  "frontend/src/components/dom/DOMControlsHeader.jsx": {
+    "total": 8,
+    "rawColors": 0,
+    "rawButtons": 8,
+    "rawSelects": 0
+  },
+  "frontend/src/components/ErrorBoundary.jsx": {
+    "total": 14,
+    "rawColors": 12,
+    "rawButtons": 2,
+    "rawSelects": 0
+  },
+  "frontend/src/components/indicators/ActiveIndicatorStack.jsx": {
+    "total": 5,
+    "rawColors": 0,
+    "rawButtons": 5,
+    "rawSelects": 0
+  },
+  "frontend/src/components/indicators/IndicatorSettingsDialog.jsx": {
+    "total": 6,
+    "rawColors": 0,
+    "rawButtons": 6,
+    "rawSelects": 0
+  },
+  "frontend/src/components/indicators/IndicatorsModal.jsx": {
+    "total": 7,
+    "rawColors": 0,
+    "rawButtons": 7,
+    "rawSelects": 0
+  },
+  "frontend/src/components/IndicatorsModal.jsx": {
+    "total": 9,
+    "rawColors": 0,
+    "rawButtons": 9,
+    "rawSelects": 0
+  },
+  "frontend/src/components/LivePaperTradingView.jsx": {
+    "total": 204,
+    "rawColors": 200,
+    "rawButtons": 3,
+    "rawSelects": 1
+  },
+  "frontend/src/components/OrderBook.jsx": {
+    "total": 8,
+    "rawColors": 0,
+    "rawButtons": 8,
+    "rawSelects": 0
+  },
+  "frontend/src/components/OvernightPilotPanel.jsx": {
+    "total": 175,
+    "rawColors": 166,
+    "rawButtons": 7,
+    "rawSelects": 2
+  },
+  "frontend/src/components/PaperTradePanel.jsx": {
+    "total": 24,
+    "rawColors": 23,
+    "rawButtons": 1,
+    "rawSelects": 0
+  },
+  "frontend/src/components/RecorderModal.jsx": {
+    "total": 20,
+    "rawColors": 15,
+    "rawButtons": 5,
+    "rawSelects": 0
+  },
+  "frontend/src/components/ReplayModal.jsx": {
+    "total": 24,
+    "rawColors": 18,
+    "rawButtons": 5,
+    "rawSelects": 1
+  },
+  "frontend/src/components/ScalperTradeDesk.jsx": {
+    "total": 11,
+    "rawColors": 0,
+    "rawButtons": 11,
+    "rawSelects": 0
+  },
+  "frontend/src/components/SessionReviewPanel.jsx": {
+    "total": 2,
+    "rawColors": 0,
+    "rawButtons": 2,
+    "rawSelects": 0
+  },
+  "frontend/src/components/settings/AppearanceTab.jsx": {
+    "total": 4,
+    "rawColors": 0,
+    "rawButtons": 4,
+    "rawSelects": 0
+  },
+  "frontend/src/components/settings/ChartsTab.jsx": {
+    "total": 4,
+    "rawColors": 0,
+    "rawButtons": 4,
+    "rawSelects": 0
+  },
+  "frontend/src/components/settings/OrderflowTab.jsx": {
+    "total": 2,
+    "rawColors": 0,
+    "rawButtons": 2,
+    "rawSelects": 0
+  },
+  "frontend/src/components/settings/ScannerTab.jsx": {
+    "total": 3,
+    "rawColors": 0,
+    "rawButtons": 2,
+    "rawSelects": 1
+  },
+  "frontend/src/components/settings/VisibilityTab.jsx": {
+    "total": 1,
+    "rawColors": 0,
+    "rawButtons": 1,
+    "rawSelects": 0
+  },
+  "frontend/src/components/SettingsModal.jsx": {
+    "total": 4,
+    "rawColors": 0,
+    "rawButtons": 4,
+    "rawSelects": 0
+  },
+  "frontend/src/components/SignalsFeed.jsx": {
+    "total": 2,
+    "rawColors": 0,
+    "rawButtons": 2,
+    "rawSelects": 0
+  },
+  "frontend/src/components/Tape.jsx": {
+    "total": 3,
+    "rawColors": 0,
+    "rawButtons": 3,
+    "rawSelects": 0
+  },
+  "frontend/src/DesignShowcase.jsx": {
+    "total": 4,
+    "rawColors": 0,
+    "rawButtons": 4,
+    "rawSelects": 0
+  },
+  "frontend/src/features/pilot/PilotConfig.jsx": {
+    "total": 27,
+    "rawColors": 22,
+    "rawButtons": 3,
+    "rawSelects": 2
+  },
+  "frontend/src/features/pilot/PilotDashboard.jsx": {
+    "total": 24,
+    "rawColors": 24,
+    "rawButtons": 0,
+    "rawSelects": 0
+  },
+  "frontend/src/features/pilot/PilotResults.jsx": {
+    "total": 31,
+    "rawColors": 29,
+    "rawButtons": 2,
+    "rawSelects": 0
+  },
+  "frontend/src/features/pilot/PilotWorkspace.jsx": {
+    "total": 35,
+    "rawColors": 29,
+    "rawButtons": 6,
+    "rawSelects": 0
+  }
+}

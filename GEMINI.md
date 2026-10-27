@@ -12,6 +12,11 @@
    - Zero Look-Ahead Bias: вычисления на свече $t$ используют только данные $\le t$.
    - Все решения и параметры риска валидируются через [docs/DECISIONS.md](file:///d:/AI_agent_space/gemini/docs/DECISIONS.md) и `backend/app/services/risk_engine.py`.
 
-3. **Шлюз качества и завершение задачи**:
+3. **Дизайн-система и верстка**:
+   - Строго соблюдать Раздел 11 [AGENTS.md](file:///d:/AI_agent_space/gemini/AGENTS.md).
+   - Никаких raw Tailwind-цветов (`bg-gray-800`), только токены shadcn (`bg-card`, `text-foreground`).
+   - Использовать компоненты из `src/components/ui/`, а не нативные теги.
+
+4. **Шлюз качества и завершение задачи**:
    - Перед коммитом запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`.
    - Оформить отчет строго по разделу 7 [AGENTS.md](file:///d:/AI_agent_space/gemini/AGENTS.md).

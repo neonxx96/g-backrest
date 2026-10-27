@@ -1,4 +1,4 @@
-﻿# ==============================================================================
+# ==============================================================================
 # SignalScript Quality Gate Check (scripts/check.ps1)
 # MANDATORY: Every agent must run this script and get a green result before committing.
 # ==============================================================================
@@ -144,6 +144,15 @@ if (-not $SkipBuild) {
         exit 1
     }
     Write-Host "✅ [PASS] Frontend build succeeded." -ForegroundColor Green
+
+    # 3b. Design System Lint (Ratchet)
+    Write-Host "`n[3b] Checking Design System rules & ratchet (node scripts/design_lint.mjs)..." -ForegroundColor Yellow
+    node (Join-Path $ProjectRoot "scripts\design_lint.mjs")
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "`n❌ [FAIL] Design system lint failed (regressions or unbaselined violations detected). Commit rejected." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "✅ [PASS] Design system rules verified (no regressions)." -ForegroundColor Green
 } else {
     Write-Host "`n[3/6] Skipping Frontend build (-SkipBuild specified)." -ForegroundColor DarkGray
 }
