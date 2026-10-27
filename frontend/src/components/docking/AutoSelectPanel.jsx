@@ -1,3 +1,4 @@
+import { Checkbox } from '@/components/ui/checkbox';
 import React, { useEffect, useState, useCallback } from 'react';
 
 const VERDICT_CLS = {

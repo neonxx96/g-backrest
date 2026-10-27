@@ -1,3 +1,4 @@
+import { Checkbox } from '@/components/ui/checkbox';
 import React, { useState, useRef } from 'react';
 import { Columns, RotateCcw, GripVertical } from 'lucide-react';
 import {

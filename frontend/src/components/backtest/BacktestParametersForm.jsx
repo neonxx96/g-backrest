@@ -1,3 +1,4 @@
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { NumberInput } from '@/components/ui/number-input';
 import React from 'react';
@@ -304,12 +305,11 @@ export default function BacktestParametersForm({
               className="flex items-center space-x-1 text-[8.5px] font-mono text-foreground/80 cursor-pointer"
               title="Multi-TP: закрыть 50% позиции на TP1 и перевести стоп остатка в безубыток — сделка перестаёт быть убыточной после первой цели"
             >
-              <input
+              <Checkbox
                 data-testid="toggle-multi-tp"
-                type="checkbox"
                 checked={useMultiTp}
-                onChange={(e) => onMultiTpChange(e.target.checked)}
-                className="w-3 h-3 rounded accent-neutral-200 cursor-pointer"
+                onCheckedChange={(checked) => onMultiTpChange(Boolean(checked))}
+                className="h-3.5 w-3.5 cursor-pointer"
               />
               <span>Включить (50% + Б/У)</span>
             </label>

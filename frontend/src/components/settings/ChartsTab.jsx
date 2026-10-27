@@ -1,3 +1,4 @@
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { NumberInput } from '@/components/ui/number-input';
 import React from 'react';
