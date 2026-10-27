@@ -500,8 +500,8 @@ export default function TradeHistoryWidget(props) {
               <History size={14} />
             </div>
             <div>
-              <span className="font-semibold text-xs tracking-wide text-white">Trade History & Forecasts</span>
-              <span className="ml-2 text-[10px] text-neutral-500 font-mono">Paper Trading ${metrics.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              <span className="font-semibold text-xs tracking-wide text-foreground">История сделок и прогнозы</span>
+              <span className="ml-2 text-[10px] text-muted-foreground font-mono">Бумажная торговля: ${metrics.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               {hasPilotData && (
                 <span
                   data-testid="marathon-summary-chip"
@@ -545,7 +545,7 @@ export default function TradeHistoryWidget(props) {
                     title="Аварийная остановка: отмена заявок, мгновенный выход по рынку, блокировка новых ордеров"
                   >
                     <AlertCircle size={10} />
-                    <span>EMERGENCY STOP</span>
+                    <span>Аварийная остановка</span>
                   </button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
@@ -567,7 +567,7 @@ export default function TradeHistoryWidget(props) {
                 </AlertDialogContent>
               </AlertDialog>
             )}
-            <div className="h-3 w-px bg-border/60 mx-1 shrink-0" />
+            <div className="h-4 w-px bg-border/80 mx-3 shrink-0" />
             <button
               type="button"
               onClick={handleResetWallet}
@@ -737,81 +737,43 @@ export default function TradeHistoryWidget(props) {
           </div>
         </div>
 
-        {/* Tab Switcher */}
-        <div className="flex items-center space-x-1 border-t border-neutral-800/60 pt-1.5 text-[11px]">
-          <button
-            type="button"
-            onClick={() => setActiveTab('trades')}
-            className={`px-2.5 py-1 rounded text-xs font-mono transition cursor-pointer flex items-center space-x-1.5 ${
-              activeTab === 'trades'
-                ? 'bg-neutral-800 text-white font-medium border border-neutral-700'
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800/50'
-            }`}
-          >
-            <History size={12} />
-            <span>Закрытые сделки ({closedTrades.length})</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('positions')}
-            className={`px-2.5 py-1 rounded text-xs font-mono transition cursor-pointer flex items-center space-x-1.5 ${
-              activeTab === 'positions'
-                ? 'bg-neutral-800 text-white font-medium border border-neutral-700'
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800/50'
-            }`}
-          >
-            <Layers size={12} />
-            <span>Активные позиции ({openPositions.length})</span>
-          </button>
-          <button
-            type="button"
-            data-testid="tab-candidates"
-            onClick={() => setActiveTab('candidates')}
-            className={`px-2.5 py-1 rounded text-xs font-mono transition cursor-pointer flex items-center space-x-1.5 ${
-              activeTab === 'candidates'
-                ? 'bg-neutral-800 text-white font-medium border border-neutral-700'
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800/50'
-            }`}
-          >
-            <Target size={12} className={candidateSetups.length > 0 ? 'text-amber-400' : ''} />
-            <span>Претенденты ({candidateSetups.length})</span>
-          </button>
-          <button
-            type="button"
-            data-testid="tab-paper-pairs"
-            onClick={() => setActiveTab('pairs')}
-            className={`px-2.5 py-1 rounded text-xs font-mono transition cursor-pointer flex items-center space-x-1.5 ${
-              activeTab === 'pairs'
-                ? 'bg-neutral-800 text-white font-medium border border-neutral-700'
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800/50'
-            }`}
-          >
-            <Settings2 size={12} />
-            <span>По парам ({paperPairs.length})</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('regimes')}
-            className={`px-2.5 py-1 rounded text-xs font-mono transition cursor-pointer flex items-center space-x-1.5 ${
-              activeTab === 'regimes'
-                ? 'bg-neutral-800 text-white font-medium border border-neutral-700'
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800/50'
-            }`}
-          >
-            <Zap size={12} />
-            <span>Квант-режимы & Прогнозы</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('analytics')}
-            className={`px-2.5 py-1 rounded text-xs font-mono transition cursor-pointer flex items-center space-x-1.5 ${
-              activeTab === 'analytics'
-                ? 'bg-neutral-800 text-white font-medium border border-neutral-700'
-                : 'text-neutral-400 hover:text-white hover:bg-neutral-800/50'
-            }`}
-          >
-            <span>Аналитика & Винрейт</span>
-          </button>
+        {/* Tab Switcher - Single Line */}
+        <div className="flex items-center space-x-1 border-t border-border/60 pt-1.5 text-[11px] overflow-x-auto no-scrollbar whitespace-nowrap shrink-0">
+          {[
+            { id: 'trades', label: 'Сделки', fullLabel: 'Закрытые сделки', count: closedTrades.length, icon: History },
+            { id: 'positions', label: 'Позиции', fullLabel: 'Активные позиции', count: openPositions.length, icon: Layers },
+            { id: 'candidates', label: 'Претенденты', fullLabel: 'Претенденты', count: candidateSetups.length, icon: Target, testId: 'tab-candidates' },
+            { id: 'pairs', label: 'По парам', fullLabel: 'По парам', count: paperPairs.length, icon: Settings2, testId: 'tab-paper-pairs' },
+            { id: 'regimes', label: 'Квант-режимы', fullLabel: 'Квант-режимы & Прогнозы', count: null, icon: Zap },
+            { id: 'analytics', label: 'Аналитика', fullLabel: 'Аналитика & Винрейт', count: null, icon: Sparkles }
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                data-testid={tab.testId}
+                onClick={() => setActiveTab(tab.id)}
+                title={tab.fullLabel}
+                className={`px-2 py-0.5 rounded text-[11px] font-mono transition cursor-pointer flex items-center space-x-1.5 shrink-0 border ${
+                  isActive
+                    ? 'bg-muted text-foreground font-semibold border-border shadow-xs'
+                    : 'text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/60'
+                }`}
+              >
+                <Icon size={12} className={tab.id === 'candidates' && tab.count > 0 ? 'text-amber-400' : ''} />
+                <span className="hidden sm:inline">{tab.label}</span>
+                {tab.count != null && (
+                  <span className={`px-1 py-0.1 text-[9px] rounded-full font-bold tabular-nums ${
+                    isActive ? 'bg-primary/20 text-primary' : 'bg-muted/80 text-muted-foreground'
+                  }`}>
+                    {tab.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -1033,8 +995,8 @@ export default function TradeHistoryWidget(props) {
         {activeTab === 'positions' && (
           <div className="min-w-full">
             {openPositions.length === 0 ? (
-              <div className="h-40 flex flex-col items-center justify-center text-neutral-500 text-xs">
-                <Layers size={24} className="mb-2 text-neutral-600" />
+              <div className="py-3 px-4 flex items-center justify-center space-x-2 text-muted-foreground text-xs font-mono border-b border-border/40 bg-card/20">
+                <Layers size={13} className="text-muted-foreground/60" />
                 <span>Нет открытых позиций в текущем режиме</span>
               </div>
             ) : (
