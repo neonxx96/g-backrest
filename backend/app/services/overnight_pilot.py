@@ -117,6 +117,8 @@ class OvernightPilotManager:
     def __init__(self) -> None:
         self.sessions: Dict[str, PilotSession] = {}
         self.pair_states: Dict[str, str] = {}
+        self.pair_reasons: Dict[str, str] = {}
+        self._emergency_stopped: bool = False
         self._forecast_tasks: Dict[str, asyncio.Task] = {}
         self._optimization_tasks: Dict[str, asyncio.Task] = {}
         self._snapshot_task: Optional[asyncio.Task] = None
@@ -124,6 +126,24 @@ class OvernightPilotManager:
         self.intent_logger = DeepIntentLogger()
         self._persist_lock = asyncio.Lock()
         self._shared_paper_session: Optional[PaperTradingSession] = None
+
+    async def load_persisted_states(self) -> None:
+        """Load durable operational pair states from SQLite on manager startup/restart."""
+        try:
+            from backend.app.db.database import AsyncSessionLocal
+            from backend.app.db.models import PairTradingState
+            from sqlalchemy import select
+            async with AsyncSessionLocal() as db_session:
+                res = await db_session.execute(select(PairTradingState))
+                records = res.scalars().all()
+                for rec in records:
+                    sym = rec.symbol.upper()
+                    self.pair_states[sym] = rec.status
+                    self.pair_reasons[sym] = rec.reason or ""
+                    if rec.status == "paused" and self._shared_paper_session:
+                        self._shared_paper_session.paused_symbols.add(sym)
+        except Exception as e:
+            logger.warning("Could not load persisted pair trading states: %s", e)
 
     def _record_run_event(self, session: PilotSession, *, event_type: str, source: str, reason_code: str, reason: str, payload: Optional[Dict[str, Any]] = None) -> None:
         try:
@@ -1126,6 +1146,7 @@ class OvernightPilotManager:
         async with AsyncSessionLocal() as db:
             result = await db.execute(select(OvernightPilotRun).order_by(OvernightPilotRun.updated_at.desc()))
             rows = result.scalars().all()
+        await self.load_persisted_states()
         restored: Dict[str, PilotSession] = {}
         for row in rows:
             if row.symbol.upper() in restored or len(restored) >= self.MAX_SESSIONS:
@@ -1298,7 +1319,7 @@ class OvernightPilotManager:
 
         return {"symbol": sym, "status": "active"}
 
-    async def close_pair(self, symbol: str, reason: str = "EMERGENCY_CLOSE_USER") -> Dict[str, Any]:
+    async def close_pair(self, symbol: str, pause_after: bool = True, reason: str = "MANUAL_PAIR_CLOSE") -> Dict[str, Any]:
         sym = symbol.upper()
         closed_position = False
         if sym in self.sessions:
@@ -1317,7 +1338,10 @@ class OvernightPilotManager:
                 self._shared_paper_session.close_position(sym, price, order_type="MARKET", reason=reason)
                 closed_position = True
 
-        return {"symbol": sym, "status": "closed", "closed_position": closed_position, "detail": f"Market close executed for {sym}"}
+        if pause_after:
+            await self.pause_pair(sym, close_position=False, reason=reason)
+        status = self.pair_states.get(sym, "paused" if pause_after else "active")
+        return {"symbol": sym, "status": status, "reason": reason, "closed_position": closed_position, "detail": f"Market close executed for {sym}"}
 
     def get_pairs(self) -> List[Dict[str, Any]]:
         pairs = []

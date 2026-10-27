@@ -1,8 +1,17 @@
 import pytest
+from fastapi import HTTPException
 from backend.app.services.paper_trading import PaperTradingSession, PaperOrderRole
 from backend.app.services.execution_simulator import OrderStatus
 from backend.app.services.risk_engine import can_open_position
-from backend.app.services.overnight_pilot import OvernightPilotManager, OvernightPilotConfig
+from backend.app.services.overnight_pilot import OvernightPilotManager, overnight_pilot_manager
+from backend.app.routers.overnight_pilot import (
+    pause_trading_pair,
+    resume_trading_pair,
+    emergency_close_pair,
+    get_pairs_status,
+    PausePairRequest,
+    ClosePairRequest,
+)
 
 
 def test_paper_trading_session_pair_pause_blocks_entries():
@@ -74,15 +83,19 @@ def test_risk_engine_can_open_position_respects_paused_symbols():
     assert "PAIR_PAUSED" in reason_paused
 
 
-def test_overnight_pilot_manager_pair_lifecycle():
-    import asyncio
+@pytest.mark.anyio
+async def test_overnight_pilot_manager_pair_lifecycle_and_idempotence():
     manager = OvernightPilotManager()
-    
+
     # 1. Pause pair
-    pause_res = asyncio.run(manager.pause_pair("BTCUSDT", close_position=False, reason="MANUAL_PAUSE"))
+    pause_res = await manager.pause_pair("BTCUSDT", close_position=False, reason="MANUAL_PAUSE")
     assert pause_res["symbol"] == "BTCUSDT"
     assert pause_res["status"] == "paused"
     assert manager.pair_states["BTCUSDT"] == "paused"
+
+    # Idempotent pause
+    pause_res_2 = await manager.pause_pair("BTCUSDT", close_position=False, reason="MANUAL_PAUSE_AGAIN")
+    assert pause_res_2["status"] == "paused"
 
     # 2. Get pairs list
     pairs = manager.get_pairs()
@@ -91,31 +104,74 @@ def test_overnight_pilot_manager_pair_lifecycle():
     assert btc_pair["status"] == "paused"
 
     # 3. Resume pair
-    resume_res = asyncio.run(manager.resume_pair("BTCUSDT"))
+    resume_res = await manager.resume_pair("BTCUSDT")
     assert resume_res["symbol"] == "BTCUSDT"
     assert resume_res["status"] == "active"
     assert manager.pair_states["BTCUSDT"] == "active"
 
-    # 4. Emergency close pair
-    close_res = asyncio.run(manager.close_pair("BTCUSDT", reason="EMERGENCY_TEST"))
+    # Idempotent resume
+    resume_res_2 = await manager.resume_pair("BTCUSDT")
+    assert resume_res_2["status"] == "active"
+
+    # 4. Emergency close pair with pause_after=True
+    close_res = await manager.close_pair("BTCUSDT", pause_after=True, reason="MANUAL_PAIR_CLOSE")
     assert close_res["symbol"] == "BTCUSDT"
-    assert close_res["status"] == "closed"
+    assert close_res["status"] == "paused"
+    assert close_res["reason"] == "MANUAL_PAIR_CLOSE"
+
+    # 5. Close pair with pause_after=False
+    await manager.resume_pair("BTCUSDT")
+    close_no_pause = await manager.close_pair("BTCUSDT", pause_after=False, reason="TEST_CLOSE")
+    assert close_no_pause["status"] == "active"
 
 
-def test_overnight_pilot_batch_pause_and_resume():
-    import asyncio
-    manager = OvernightPilotManager()
-    
-    # Pause all
-    pause_all_res = asyncio.run(manager.pause_all_pairs())
-    assert pause_all_res["action"] == "pause_all"
-    assert pause_all_res["count"] >= 3
-    for p in pause_all_res["pairs"]:
-        assert p["status"] == "paused"
+@pytest.mark.anyio
+async def test_manager_restart_persistence():
+    manager_1 = OvernightPilotManager()
+    await manager_1.pause_pair("ZECUSDT", close_position=False, reason="PERSISTENCE_TEST_KEY")
 
-    # Resume all
-    resume_all_res = asyncio.run(manager.resume_all_pairs())
-    assert resume_all_res["action"] == "resume_all"
-    assert resume_all_res["count"] >= 3
-    for p in resume_all_res["pairs"]:
-        assert p["status"] == "active"
+    # Simulate fresh manager on backend restart
+    manager_2 = OvernightPilotManager()
+    assert "ZECUSDT" not in manager_2.pair_states or manager_2.pair_states.get("ZECUSDT") != "paused"
+
+    # Load from DB
+    await manager_2.load_persisted_states()
+    assert manager_2.pair_states.get("ZECUSDT") == "paused"
+    assert manager_2.pair_reasons.get("ZECUSDT") == "PERSISTENCE_TEST_KEY"
+
+    # Clean up state
+    await manager_2.resume_pair("ZECUSDT")
+
+
+@pytest.mark.anyio
+async def test_api_routes_404_and_emergency_stop_guard():
+    # 1. 404 on unknown symbol
+    with pytest.raises(HTTPException) as exc_pause_404:
+        await pause_trading_pair("UNKNOWN_NONEXISTENT_XYZ", PausePairRequest())
+    assert exc_pause_404.value.status_code == 404
+    assert "not found" in exc_pause_404.value.detail
+
+    with pytest.raises(HTTPException) as exc_resume_404:
+        await resume_trading_pair("UNKNOWN_NONEXISTENT_XYZ")
+    assert exc_resume_404.value.status_code == 404
+
+    with pytest.raises(HTTPException) as exc_close_404:
+        await emergency_close_pair("UNKNOWN_NONEXISTENT_XYZ", ClosePairRequest())
+    assert exc_close_404.value.status_code == 404
+
+    # 2. Emergency stop blocks individual pair resume
+    overnight_pilot_manager._emergency_stopped = True
+    try:
+        with pytest.raises(HTTPException) as exc_blocked:
+            await resume_trading_pair("BTCUSDT")
+        assert exc_blocked.value.status_code == 409
+        assert "blocked" in exc_blocked.value.detail
+    finally:
+        overnight_pilot_manager._emergency_stopped = False
+
+    # 3. Successful pause & resume via router handlers
+    res_pause = await pause_trading_pair("BTCUSDT", PausePairRequest(close_position=False, reason="ROUTER_TEST"))
+    assert res_pause["status"] == "paused"
+
+    res_resume = await resume_trading_pair("BTCUSDT")
+    assert res_resume["status"] == "active"

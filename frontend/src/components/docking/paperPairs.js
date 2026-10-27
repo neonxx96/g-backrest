@@ -11,7 +11,7 @@ const num = (v) => (v == null || !isFinite(Number(v)) ? null : Number(v));
  * @param liveRunner   runner из /api/paper-trading/live/status (или null)
  * @returns массив строк сводки, отсортированный по symbol
  */
-export function collectPaperPairs(pilotStatus, liveRunner) {
+export function collectPaperPairs(pilotStatus, liveRunner, pairControlStates = null) {
   const pairs = new Map();
 
   for (const [sym, s] of Object.entries(pilotStatus?.sessions || {})) {
@@ -70,6 +70,45 @@ export function collectPaperPairs(pilotStatus, liveRunner) {
         backtestNetUsd: null,
         lastOptimizationAt: null
       });
+    }
+  }
+
+  if (pairControlStates && typeof pairControlStates === 'object') {
+    for (const [sym, ctrl] of Object.entries(pairControlStates)) {
+      if (!sym) continue;
+      const cleanSym = sym.toUpperCase();
+      const existing = pairs.get(cleanSym);
+      const isPaused = Boolean(ctrl.is_paused ?? (ctrl.status === 'paused'));
+      if (existing) {
+        existing.is_paused = isPaused;
+        existing.controlStatus = ctrl.status || (isPaused ? 'paused' : 'active');
+        existing.controlReason = ctrl.pause_reason || ctrl.reason || '';
+        if (ctrl.has_open_position) existing.hasOpenPosition = true;
+      } else {
+        pairs.set(cleanSym, {
+          symbol: cleanSym,
+          sources: ['config'],
+          strategy: ctrl.strategy || 'default',
+          timeframe: ctrl.timeframe || '15m',
+          leverage: 5,
+          aiControl: false,
+          running: ctrl.status === 'active' && !isPaused,
+          is_paused: isPaused,
+          dataStatus: 'connected',
+          equity: 1000.0,
+          realizedPnl: 0,
+          unrealizedPnl: 0,
+          roiPct: 0,
+          openCount: ctrl.has_open_position ? 1 : 0,
+          hasOpenPosition: Boolean(ctrl.has_open_position),
+          closedCount: 0,
+          winRatePct: null,
+          backtestNetUsd: null,
+          lastOptimizationAt: null,
+          controlStatus: ctrl.status || (isPaused ? 'paused' : 'active'),
+          controlReason: ctrl.pause_reason || ctrl.reason || ''
+        });
+      }
     }
   }
 

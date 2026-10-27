@@ -631,10 +631,10 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
               Открытые позиции ({openPositions.length})
             </span>
             <div className="flex items-center gap-1.5">
-              <Button variant="outline" size="dense" disabled={pairBusy} onClick={pauseAllPairs}>
+              <Button variant="outline" size="xs" disabled={pairBusy} onClick={pauseAllPairs}>
                 Пауза все
               </Button>
-              <Button variant="outline" size="dense" disabled={pairBusy} onClick={resumeAllPairs}>
+              <Button variant="outline" size="xs" disabled={pairBusy} onClick={resumeAllPairs}>
                 Старт все
               </Button>
             </div>
@@ -681,7 +681,7 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
                       <div className="flex items-center gap-1">
                         <Button
                           variant="outline"
-                          size="dense"
+                          size="xs"
                           disabled={pairBusy}
                           onClick={() => pairStates[pos.symbol] === 'paused' ? resumePair(pos.symbol) : pausePair(pos.symbol)}
                         >
@@ -689,7 +689,7 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
                         </Button>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                            <Button variant="destructive" size="dense" disabled={pairBusy}>
+                            <Button variant="destructive" size="xs" disabled={pairBusy}>
                               Закрыть
                             </Button>
                           </AlertDialogTrigger>

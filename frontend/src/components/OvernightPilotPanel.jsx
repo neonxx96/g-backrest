@@ -530,10 +530,10 @@ export default function OvernightPilotPanel({ onClose }) {
       <div className="flex items-center justify-between px-3 pt-2">
         <div className="text-[11px] font-semibold text-foreground">Управление парами</div>
         <div className="flex items-center gap-1.5">
-          <Button variant="outline" size="dense" disabled={busy} onClick={pauseAllPairs}>
+          <Button variant="outline" size="xs" disabled={busy} onClick={pauseAllPairs}>
             Приостановить все
           </Button>
-          <Button variant="outline" size="dense" disabled={busy} onClick={resumeAllPairs}>
+          <Button variant="outline" size="xs" disabled={busy} onClick={resumeAllPairs}>
             Возобновить все
           </Button>
         </div>
@@ -556,7 +556,7 @@ export default function OvernightPilotPanel({ onClose }) {
               <div className="flex items-center gap-1">
                 <Button
                   variant="outline"
-                  size="dense"
+                  size="xs"
                   disabled={busy}
                   onClick={() => pairStates[config.symbol] === 'paused' ? resumePair(config.symbol) : pausePair(config.symbol)}
                 >
@@ -564,7 +564,7 @@ export default function OvernightPilotPanel({ onClose }) {
                 </Button>
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button variant="destructive" size="dense" disabled={busy}>
+                    <Button variant="destructive" size="xs" disabled={busy}>
                       Закрыть
                     </Button>
                   </AlertDialogTrigger>

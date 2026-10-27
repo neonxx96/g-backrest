@@ -233,8 +233,21 @@ class PausePairRequest(BaseModel):
     reason: str = "USER_REQUEST"
 
 
+VALID_DEFAULT_PAIRS = {
+    "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT", "ADAUSDT",
+    "ZECUSDT", "ENAUSDT", "WLDUSDT", "UNIUSDT", "TIAUSDT", "TRXUSDT"
+}
+
+def _validate_symbol(sym: str) -> str:
+    clean = sym.upper().strip()
+    known = set(overnight_pilot_manager.sessions.keys()) | set(overnight_pilot_manager.pair_states.keys()) | VALID_DEFAULT_PAIRS
+    if clean not in known:
+        raise HTTPException(status_code=404, detail=f"Trading pair {clean} not found")
+    return clean
+
 class ClosePairRequest(BaseModel):
-    reason: str = "EMERGENCY_CLOSE_USER"
+    reason: str = "MANUAL_PAIR_CLOSE"
+    pause_after: bool = True
 
 
 @router.get("/pairs")
@@ -246,9 +259,10 @@ async def get_pairs_status():
 @router.post("/pairs/{symbol}/pause")
 async def pause_trading_pair(symbol: str, req: PausePairRequest = PausePairRequest()):
     """Pause trading for a single pair: blocks new entries, optionally closes active position."""
+    sym = _validate_symbol(symbol)
     try:
         return await overnight_pilot_manager.pause_pair(
-            symbol=symbol,
+            symbol=sym,
             close_position=req.close_position,
             reason=req.reason,
         )
@@ -259,8 +273,11 @@ async def pause_trading_pair(symbol: str, req: PausePairRequest = PausePairReque
 @router.post("/pairs/{symbol}/resume")
 async def resume_trading_pair(symbol: str, reason: str = "USER_REQUEST"):
     """Resume trading for a single pair."""
+    sym = _validate_symbol(symbol)
+    if overnight_pilot_manager._emergency_stopped:
+        raise HTTPException(status_code=409, detail="Global emergency stop is active; pair resume blocked.")
     try:
-        return await overnight_pilot_manager.resume_pair(symbol=symbol, reason=reason)
+        return await overnight_pilot_manager.resume_pair(symbol=sym, reason=reason)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -268,8 +285,9 @@ async def resume_trading_pair(symbol: str, reason: str = "USER_REQUEST"):
 @router.post("/pairs/{symbol}/close")
 async def emergency_close_pair(symbol: str, req: ClosePairRequest = ClosePairRequest()):
     """Emergency close open position for a single pair by market."""
+    sym = _validate_symbol(symbol)
     try:
-        return await overnight_pilot_manager.close_pair(symbol=symbol, reason=req.reason)
+        return await overnight_pilot_manager.close_pair(symbol=sym, pause_after=req.pause_after, reason=req.reason)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

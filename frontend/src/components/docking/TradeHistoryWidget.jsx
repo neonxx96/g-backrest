@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import PairControlRowActions from './PairControlRowActions';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -169,6 +172,49 @@ export default function TradeHistoryWidget(props) {
   }, []);
 
   // Fetch Overnight Pilot (марафон) status — реальные paper-позиции/сделки по всем парам сессий
+  const [pairControlStates, setPairControlStates] = useState({});
+  const [pairsBusy, setPairsBusy] = useState(false);
+
+  const fetchPairControlStates = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/overnight-pilot/pairs`);
+      if (res.ok) {
+        const data = await res.json();
+        const map = {};
+        (data.pairs || []).forEach((p) => {
+          map[p.symbol] = p;
+        });
+        setPairControlStates(map);
+      }
+    } catch (err) {
+      console.debug('Failed to fetch pair control states:', err);
+    }
+  }, []);
+
+  const handlePauseAllPairs = async () => {
+    setPairsBusy(true);
+    try {
+      await fetch(`${API_BASE}/overnight-pilot/pairs/pause-all`, { method: 'POST' });
+      await Promise.all([fetchPairControlStates(), fetchPilotStatus()]);
+    } catch (err) {
+      console.error('Failed to pause all pairs:', err);
+    } finally {
+      setPairsBusy(false);
+    }
+  };
+
+  const handleResumeAllPairs = async () => {
+    setPairsBusy(true);
+    try {
+      await fetch(`${API_BASE}/overnight-pilot/pairs/resume-all`, { method: 'POST' });
+      await Promise.all([fetchPairControlStates(), fetchPilotStatus()]);
+    } catch (err) {
+      console.error('Failed to resume all pairs:', err);
+    } finally {
+      setPairsBusy(false);
+    }
+  };
+
   const fetchPilotStatus = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/overnight-pilot/status`);
@@ -186,16 +232,18 @@ export default function TradeHistoryWidget(props) {
     fetchMonitoring();
     fetchLiveStatus();
     fetchPilotStatus();
+    fetchPairControlStates();
     fetchClosedHistory();
     const interval = setInterval(() => {
       fetchStatus();
       fetchMonitoring();
       fetchLiveStatus();
       fetchPilotStatus();
+      fetchPairControlStates();
       fetchClosedHistory();
     }, 3000);
     return () => clearInterval(interval);
-  }, [fetchStatus, fetchMonitoring, fetchLiveStatus, fetchPilotStatus, fetchClosedHistory]);
+  }, [fetchStatus, fetchMonitoring, fetchLiveStatus, fetchPilotStatus, fetchPairControlStates, fetchClosedHistory]);
 
   const [marathonBusy, setMarathonBusy] = useState(false);
 
@@ -406,7 +454,7 @@ export default function TradeHistoryWidget(props) {
   const hasMarathon = isMarathonRunning || Boolean(marathonPaperAgg?.available) || marathonSessions.some((s) => s?.paper?.balance != null);
 
   // Единая сводка «по парам»: марафон + live-раннер (источник торговли, стратегия, PnL, статус)
-  const paperPairs = useMemo(() => collectPaperPairs(pilotStatus, liveStatus), [pilotStatus, liveStatus]);
+  const paperPairs = useMemo(() => collectPaperPairs(pilotStatus, liveStatus, pairControlStates), [pilotStatus, liveStatus, pairControlStates]);
 
   // Претенденты и ожидающие заявки (working limit orders + сетапы по волатильностным конусам)
   const candidateSetups = useMemo(
@@ -1327,6 +1375,28 @@ export default function TradeHistoryWidget(props) {
                     <span>{marathonBusy ? 'Запуск…' : '▶ Запустить марафон (20 пар)'}</span>
                   </button>
                 )}
+                <Button
+                  variant="outline"
+                  size="xs"
+                  disabled={pairsBusy}
+                  onClick={handlePauseAllPairs}
+                  className="h-6 text-[10px] font-mono"
+                  title="Поставить все пары на паузу (вход в новые сделки запрещен)"
+                  data-testid="btn-pause-all-pairs"
+                >
+                  Пауза для всех
+                </Button>
+                <Button
+                  variant="outline"
+                  size="xs"
+                  disabled={pairsBusy}
+                  onClick={handleResumeAllPairs}
+                  className="h-6 text-[10px] font-mono"
+                  title="Возобновить торговлю по всем парам"
+                  data-testid="btn-resume-all-pairs"
+                >
+                  Возобновить все
+                </Button>
                 <button
                   type="button"
                   data-testid="btn-toggle-add-pair"
@@ -1589,6 +1659,7 @@ export default function TradeHistoryWidget(props) {
                           )}
                         </div>
                       </th>
+                      <th className="py-1.5 px-2 text-center">Управление</th>
                       <th className="py-1.5 px-2 text-right">Действия</th>
                     </tr>
                   </thead>
@@ -1638,22 +1709,26 @@ export default function TradeHistoryWidget(props) {
                             {pair.winRatePct != null ? `${pair.winRatePct}%` : '—'}
                           </td>
                           <td className="py-1.5 px-2 text-center">
-                            <span
-                              className={`px-1 rounded text-[9px] font-bold border ${
-                                pair.running
-                                  ? (pair.dataStatus === 'stale' || pair.dataStatus === 'disconnected'
-                                      ? 'bg-rose-950 text-rose-300 border-rose-700'
-                                      : 'bg-emerald-950 text-emerald-300 border-emerald-700')
-                                  : 'bg-neutral-800 text-neutral-400 border-neutral-700'
-                              }`}
-                              title={pair.running ? (pair.dataStatus ? `данные: ${pair.dataStatus}` : 'Поток активен') : 'Сессия остановлена'}
-                            >
-                              {pair.running
-                                ? (pair.dataStatus === 'stale' || pair.dataStatus === 'disconnected'
-                                    ? 'DATA!'
-                                    : 'RUNNING')
-                                : 'STOPPED'}
-                            </span>
+                            {pair.is_paused ? (
+                              <Badge variant="warning" className="text-[8.5px] py-0 px-1 font-mono uppercase tracking-wider">
+                                ПАУЗА
+                              </Badge>
+                            ) : (
+                              <Badge variant="success" className="text-[8.5px] py-0 px-1 font-mono uppercase tracking-wider">
+                                АКТИВНА
+                              </Badge>
+                            )}
+                          </td>
+                          <td className="py-1 px-2 text-center whitespace-nowrap">
+                            <PairControlRowActions
+                              symbol={pair.symbol}
+                              isPaused={Boolean(pair.is_paused)}
+                              hasOpenPosition={pair.openCount > 0}
+                              onRefresh={() => {
+                                fetchPairControlStates();
+                                fetchPilotStatus();
+                              }}
+                            />
                           </td>
                           <td className="py-1.5 px-2 text-right whitespace-nowrap">
                             <button
