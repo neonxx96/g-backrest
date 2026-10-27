@@ -153,37 +153,12 @@ export default function DecisionJournalModal({
   );
 
   return (
-    <div
-      data-testid="decision-journal-modal"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 9999,
-        backgroundColor: 'rgba(6, 9, 15, 0.82)',
-        backdropFilter: 'blur(6px)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '20px',
-      }}
+    <div data-testid="decision-journal-modal" className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4 select-none"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div
-        style={{
-          width: 'min(1260px, 96vw)',
-          maxHeight: '90vh',
-          backgroundColor: '#0f141e',
-          border: '1px solid rgba(56, 189, 248, 0.28)',
-          borderRadius: '10px',
-          boxShadow: '0 24px 60px rgba(0, 0, 0, 0.75)',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-          color: '#e2e8f0',
-          fontFamily: 'Inter, system-ui, sans-serif',
-        }}
+      <div className="w-[min(1260px,96vw)] max-h-[90vh] bg-card text-foreground border border-border rounded-lg shadow-2xl flex flex-col overflow-hidden font-sans"
       >
         {/* Header */}
         <div

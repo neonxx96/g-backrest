@@ -246,16 +246,10 @@ export default function IndicatorsModal({
       onClick={onClose}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4 select-none animate-fadeIn"
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          backgroundColor: 'var(--bg-panel, #0f1218)',
-          borderColor: 'var(--border-subtle, #1f2430)'
-        }}
-        className="w-[740px] max-w-[95vw] max-h-[88vh] rounded-xl border shadow-2xl flex flex-col overflow-hidden font-sans text-xs"
+      <div onClick={(e) => e.stopPropagation()} className="w-[740px] max-w-[95vw] max-h-[88vh] rounded-xl border border-border bg-card text-foreground shadow-2xl flex flex-col overflow-hidden font-sans text-xs"
       >
         {/* Header Bar */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[#1f2430] bg-[#131722] shrink-0">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card shrink-0">
           <div className="flex items-center space-x-2.5">
             <div className="p-1.5 rounded-lg bg-[#2563eb20] text-[#38bdf8]">
               <Sliders size={16} />
@@ -280,7 +274,7 @@ export default function IndicatorsModal({
 
         {/* Chart Selector Tabs (HTF vs LTF) */}
         {isDualPane && (
-          <div className="px-4 py-2 border-b border-[#1f2430] bg-[#0c0e12] flex items-center justify-between shrink-0">
+          <div className="px-4 py-2 border-b border-border bg-muted/40 flex items-center justify-between shrink-0">
             <div className="flex items-center space-x-2">
               <span className="text-[#787f91] font-mono text-[10.5px]">Целевой график:</span>
               <div className="flex space-x-1">
@@ -319,7 +313,7 @@ export default function IndicatorsModal({
         )}
 
         {/* Search & Category Filter Bar */}
-        <div className="px-4 py-2.5 border-b border-[#1f2430] bg-[#10131b] flex items-center justify-between gap-3 shrink-0">
+        <div className="px-4 py-2.5 border-b border-border bg-card flex items-center justify-between gap-3 shrink-0">
           {/* Search Input */}
           <div className="relative flex-1 max-w-xs">
             <input
@@ -327,7 +321,7 @@ export default function IndicatorsModal({
               placeholder="Поиск индикатора (CVD, EMA, ATR, Walls)..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-[#090b10] border border-[#222838] focus:border-[#38bdf8] rounded px-3 py-1 text-[11px] text-foreground placeholder-[#64748b] outline-none font-sans pl-7"
+              className="w-full bg-background border border-border focus:border-primary rounded px-3 py-1 text-[11px] text-foreground placeholder-[#64748b] outline-none font-sans pl-7"
             />
             <Search
               size={12}

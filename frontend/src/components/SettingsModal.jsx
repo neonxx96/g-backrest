@@ -12,6 +12,7 @@ import {
   Scale,
   Eye
 } from 'lucide-react';
+import { Button } from './ui/button.jsx';
 import AIEngineSettings from './AIEngineSettings';
 import ConfluenceWeightsEditor from './ConfluenceWeightsEditor';
 import { DEFAULT_UI_CONFIG, applyUiConfigToDOM } from './settings/uiConfig';
@@ -153,24 +154,22 @@ export default function SettingsModal({
           className="flex items-center justify-between px-4 py-2.5 border-b border-border/70 bg-card/95"
         >
           <div className="flex items-center space-x-2 font-bold text-foreground text-xs">
-            <Sliders size={14} className="text-[#38bdf8]" />
+            <Sliders size={14} className="text-primary" />
             <span>Центр настроек терминала SignalScript</span>
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#14171f] text-[#787f91] border border-[#1f2430]">
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border">
               Клавиша [ , ]
             </span>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded hover:bg-[#161820] text-[#787f91] hover:text-foreground transition"
+            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition"
           >
             <X size={15} />
           </button>
         </div>
 
         {/* Tab Navigation */}
-        <div
-          style={{ backgroundColor: 'var(--bg-root)', borderColor: 'var(--border-subtle)' }}
-          className="flex border-b px-2 text-[11px] font-mono overflow-x-auto"
+        <div className="flex border-b border-border bg-muted/40 px-2 text-[11px] font-mono overflow-x-auto"
         >
           {[
             { id: 'appearance', label: 'Внешний вид & Тема', icon: Palette },
@@ -189,8 +188,8 @@ export default function SettingsModal({
                 onClick={() => setActiveTab(tab.id)}
                 className={`flex items-center space-x-1.5 px-3 py-2 border-b-2 font-semibold whitespace-nowrap transition ${
                   active
-                    ? 'border-[#38bdf8] text-[#38bdf8]'
-                    : 'border-transparent text-[#787f91] hover:text-foreground'
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
                 }`}
               >
                 <Icon size={12} />
@@ -232,17 +231,15 @@ export default function SettingsModal({
         </div>
 
         {/* Footer */}
-        <div
-          style={{ backgroundColor: 'var(--bg-panel-header)', borderColor: 'var(--border-subtle)' }}
-          className="flex items-center justify-between px-4 py-2.5 border-t"
+        <div className="flex items-center justify-between px-4 py-2.5 border-t border-border bg-card"
         >
           {saveSuccess ? (
-            <span className="text-[#26a69a] font-semibold flex items-center space-x-1 font-mono text-[11px]">
+            <span className="text-bull font-semibold flex items-center space-x-1 font-mono text-[11px]">
               <CheckCircle size={13} className="mr-1" />
               Сохранено в localStorage и SQLite (user_settings)!
             </span>
           ) : (
-            <span className="text-[#787f91] font-mono text-[10.5px]">
+            <span className="text-muted-foreground font-mono text-[10.5px]">
               Изменения применяются на лету • Синхронизация с SQLite
             </span>
           )}
