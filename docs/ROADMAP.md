@@ -22,6 +22,7 @@
 | `DESIGN-D2`| Dockview theme styling (28px tabs, 1px sashes, global tokens) | `frontend/src/index.css`, `section-header.jsx` | P1 | M | `DONE` |
 | `DESIGN-D3`| Codemod design token migration (-998 violations eliminated) | 75+ JSX files, `lint-baseline.json` | P1 | L | `DONE` |
 | `DESIGN-D4`| Migrate inputs, checkboxes, and modals to shadcn primitives | `number-input.jsx`, `SettingsModal.jsx`, `DecisionJournalModal.jsx` | P1 | M | `DONE` |
+| `CODEX-HANDOFF` | Canonical docs, deterministic CodeMap generator, documentation gate, and repository-hygiene audit | `AGENTS.md`, `docs/`, `scripts/gen_codemap.py`, `scripts/check_docs.py`, `.gitignore` | P0 | M | `DONE` |
 
 ---
 
@@ -30,7 +31,6 @@
 | ID | Description | Affected Files | Priority | Size | Status |
 |---|---|---|---|---|---|
 | `MARATHON-01` | 7-Coin overnight paper-trading marathon in Docker stack | `signalscript_backend`, `data/signals.db` | P0 | M | `IN_PROGRESS` |
-| `CODEX-HANDOFF`| Repository preparation, canonical docs, code map & hygiene | `AGENTS.md`, `docs/`, `scripts/gen_codemap.py` | P0 | S | `IN_PROGRESS` |
 
 ---
 
@@ -60,3 +60,4 @@
 1. **Local backend.log file lock on Windows:** When `backend/main.py` is running locally, `backend.log` is held open by Python `logging.FileHandler`. Do not attempt to move or rename `backend.log` while the process is active.
 2. **Design lint ratchet baseline (1031 violations):** The baseline in `design/lint-baseline.json` is strictly ratchet-down. Any commit introducing a new raw color will fail step `[3b]` of `scripts/check.ps1`.
 3. **PowerShell UTF-8 BOM encoding:** `scripts/check.ps1` must maintain UTF-8 BOM (`\xef\xbb\xbf`) to prevent PowerShell parser syntax anomalies on non-English Windows locales.
+4. **Pytest warnings:** the host suite passes with unawaited-coroutine warnings in `live_paper_runner.py` and an `aiosqlite` worker thread after an event loop closes.

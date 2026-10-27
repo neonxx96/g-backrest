@@ -32,6 +32,8 @@
 ├── data/                     # Persistent storage (SQLite signals.db, Parquet lake, recordings)
 ├── docs/                     # Architectural specs, plans, design guidelines, history
 ├── scripts/                  # Quality gate, smoke tests, automation routers, codemod scripts
+│   ├── gen_codemap.py        # Deterministic AST/regex public-symbol and dependency map generator
+│   └── check_docs.py         # Gate check for required docs, AGENTS limits, and fresh CODEMAP.md
 └── tasks/                    # Isolated agent task specifications following tasks/TEMPLATE.md
 ```
 
@@ -99,13 +101,14 @@
 
 All settings are managed via `backend/app/config.py` loaded from `.env`. Sensitive values are strictly omitted from version control:
 
-- `TELEGRAM_BOT_TOKEN`: Token for alert broadcasting.
-- `TELEGRAM_CHAT_ID`: Destination chat identifier for notifications.
-- `OPENROUTER_API_KEY`: API key for AI Copilot and Sentinel services.
-- `OPENROUTER_MODEL`: Model name for copilot evaluation (default: `anthropic/claude-3.5-sonnet`).
-- `BACKEND_HOST`: Host interface binding (default: `127.0.0.1` or `0.0.0.0` in Docker).
-- `BACKEND_PORT`: Port binding for FastAPI (default: `8000`).
-- `MAX_STORAGE_GB`: Disk storage quota for Parquet lake before FIFO purge (default: `100`).
-- `LOG_LEVEL`: Logging verbosity (`INFO`, `DEBUG`, `WARNING`, `ERROR`).
-- `DATA_DIR`: Directory path for persistent data (default: `./data`).
-- `RECORDED_DATA_DIR`: Directory path for Parquet Lake (default: `./data/recorded`).
+- `BINANCE_API_KEY`, `BINANCE_API_SECRET`
+- `TELEGRAM_BOT_TOKEN`
+- `BACKEND_HOST`, `BACKEND_PORT`, `FRONTEND_URL`, `DATABASE_URL`
+- `MAX_STORAGE_GB`, `FOCUS_SYMBOLS`, `WATCHLIST_SYMBOLS`, `LOG_LEVEL`
+- `OPENROUTER_API_KEY`, `OPENROUTER_PRIMARY_MODEL`, `OPENROUTER_FALLBACK_MODEL`, `OPENROUTER_MODEL`, `OPENROUTER_FREE_MODELS`, `OPENROUTER_DAILY_BUDGET_USD`, `OPENROUTER_TIMEOUT_SEC`
+
+Configuration names only are documented here. Values and `.env` contents are never committed or copied into documentation.
+
+## 6. Documentation Boundary
+
+`docs/ARCHITECTURE.md` describes directory roles and data flow; `docs/CODEMAP.md` is generated from source and identifies public symbols plus direct dependencies. `docs/ROADMAP.md`, `PROGRESS.md`, and `HANDOFF.md` are the task, journal, and shift-state sources of truth. `scripts/check_docs.py` enforces their presence and generated-map freshness from the quality gate.

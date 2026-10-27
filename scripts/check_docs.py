@@ -25,6 +25,7 @@ REQUIRED_DOCS = [
     "docs/ARCHITECTURE.md",
     "docs/ROADMAP.md",
     "docs/HISTORY.md",
+    "docs/AGENT_ROUTING.md",
     "docs/CODEMAP.md",
     "docs/design/DESIGN_GUIDE.md",
 ]

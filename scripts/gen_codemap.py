@@ -1,160 +1,146 @@
 #!/usr/bin/env python3
-"""
-gen_codemap.py — Deterministic Code Map Generator for SignalScript.
-Generates docs/CODEMAP.md mapping files -> public symbols -> imports/calls.
-Supports --check flag for quality gates (exits with 1 if outdated).
-"""
+"""Generate the deterministic SignalScript public-code map."""
+
+from __future__ import annotations
 
 import ast
-import os
 import re
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 OUTPUT_FILE = ROOT_DIR / "docs" / "CODEMAP.md"
-
-PY_DIRS = ["backend/app", "engine", "recorder", "strategies"]
-JS_DIRS = ["frontend/src"]
-
-JS_EXPORT_REGEX = re.compile(
-    r"export\s+(?:default\s+)?(?:function|class|const|let|var)\s+([A-Za-z0-9_]+)",
-    re.MULTILINE
-)
-JS_IMPORT_REGEX = re.compile(
-    r"import\s+(?:[\w\s{},*]+)\s+from\s+['\"]([^'\"]+)['\"]",
-    re.MULTILINE
-)
+PY_DIRS = ("backend/app", "engine", "recorder", "strategies")
+JS_DIRS = ("frontend/src",)
+JS_EXPORT_RE = re.compile(r"\bexport\s+(?:default\s+)?(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)")
+JS_IMPORT_RE = re.compile(r"\bimport\s+(?:[\w\s{},*]+)\s+from\s+['\"]([^'\"]+)['\"]")
+JS_CALL_RE = re.compile(r"\b([A-Za-z_$][\w$]*)\s*\(")
+JS_KEYWORDS = frozenset({"if", "for", "while", "switch", "catch", "function"})
 
 
-def parse_python_file(path: Path) -> dict:
+def relative(path: Path) -> str:
+    return path.relative_to(ROOT_DIR).as_posix()
+
+
+def module_name(path: Path) -> str:
+    return ".".join(path.relative_to(ROOT_DIR).with_suffix("").parts)
+
+
+def call_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return None
+
+
+def parse_python(path: Path) -> dict[str, list[str]]:
     try:
-        content = path.read_text(encoding="utf-8")
-        tree = ast.parse(content, filename=str(path))
-    except Exception:
-        return {"symbols": [], "imports": []}
-
-    symbols = []
-    imports = []
-
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return {"symbols": [], "imports": [], "calls": []}
+    symbols, imports, calls = [], [], []
     for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if not node.name.startswith("_") or node.name.startswith("__"):
-                symbols.append(f"func {node.name}")
-        elif isinstance(node, ast.ClassDef):
-            methods = [
-                m.name for m in node.body
-                if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))
-                and (not m.name.startswith("_") or m.name.startswith("__"))
-            ]
-            method_str = f"({', '.join(methods[:4])}{'...' if len(methods) > 4 else ''})" if methods else ""
-            symbols.append(f"class {node.name} {method_str}".strip())
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and not node.name.startswith("_"):
+            symbols.append(node.name)
         elif isinstance(node, ast.Import):
-            for alias in node.names:
-                imports.append(alias.name)
+            imports.extend(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
-            mod = node.module or ""
-            for alias in node.names:
-                imports.append(f"{mod}.{alias.name}" if mod else alias.name)
+            module = node.module or ""
+            imports.extend(f"{module}.{alias.name}" if module else alias.name for alias in node.names)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            name = call_name(node.func)
+            if name and not name.startswith("_"):
+                calls.append(name)
+    return {"symbols": sorted(set(symbols)), "imports": sorted(set(imports)), "calls": sorted(set(calls))}
 
-    return {
-        "symbols": sorted(symbols),
-        "imports": sorted(set(imports))
-    }
 
-
-def parse_js_file(path: Path) -> dict:
+def parse_js(path: Path) -> dict[str, list[str]]:
     try:
         content = path.read_text(encoding="utf-8")
-    except Exception:
-        return {"symbols": [], "imports": []}
-
-    symbols = [f"export {name}" for name in JS_EXPORT_REGEX.findall(content)]
-    imports = list(set(JS_IMPORT_REGEX.findall(content)))
-
+    except (OSError, UnicodeDecodeError):
+        return {"symbols": [], "imports": [], "calls": []}
     return {
-        "symbols": sorted(set(symbols)),
-        "imports": sorted(imports)
+        "symbols": sorted(set(JS_EXPORT_RE.findall(content))),
+        "imports": sorted(set(JS_IMPORT_RE.findall(content))),
+        "calls": sorted({name for name in JS_CALL_RE.findall(content) if name not in JS_KEYWORDS}),
     }
+
+
+def collect_modules() -> dict[str, dict[str, object]]:
+    modules: dict[str, dict[str, object]] = {}
+    for directory in PY_DIRS:
+        target = ROOT_DIR / directory
+        if target.exists():
+            for path in sorted(target.rglob("*.py")):
+                if "tests" not in path.parts and "__pycache__" not in path.parts:
+                    modules[relative(path)] = {"kind": "Python", "module": module_name(path), **parse_python(path)}
+    for directory in JS_DIRS:
+        target = ROOT_DIR / directory
+        if target.exists():
+            for path in sorted([*target.rglob("*.js"), *target.rglob("*.jsx"), *target.rglob("*.ts"), *target.rglob("*.tsx")]):
+                if ".test." not in path.name and "node_modules" not in path.parts:
+                    modules[relative(path)] = {"kind": "Frontend", "module": relative(path), **parse_js(path)}
+    return modules
+
+
+def importing_callers(modules: dict[str, dict[str, object]]) -> dict[str, list[str]]:
+    callers: dict[str, set[str]] = defaultdict(set)
+    python_modules = {str(data["module"]): path for path, data in modules.items() if data["kind"] == "Python"}
+    for source, data in modules.items():
+        for imported in data["imports"]:
+            for module, target in python_modules.items():
+                if imported == module or imported.startswith(f"{module}."):
+                    callers[target].add(source)
+    return {path: sorted(items) for path, items in callers.items()}
+
+
+def listed(values: list[str], limit: int = 10) -> str:
+    if not values:
+        return "—"
+    suffix = ", …" if len(values) > limit else ""
+    return ", ".join(f"`{value}`" for value in values[:limit]) + suffix
 
 
 def generate_codemap() -> str:
+    modules = collect_modules()
+    callers = importing_callers(modules)
     lines = [
         "# SignalScript Code Map",
         "",
-        "> Generated automatically by `scripts/gen_codemap.py`. Do not edit manually.",
-        "> Run `python scripts/gen_codemap.py` to regenerate.",
+        "> Generated automatically by `scripts/gen_codemap.py`; do not edit manually.",
+        "> Python uses `ast`; JS/TS uses deterministic export/import/call regexes.",
+        "> Run `python scripts/gen_codemap.py`; use `--check` in CI.",
         "",
-        "---",
-        ""
+        "Each entry is `file → public symbols → direct call targets/imports → importing callers`.",
+        "JS/TS call targets are lexical candidates, not a type-resolved call graph.",
+        "",
     ]
-
-    # 1. Python Modules
-    lines.append("## 1. Backend & Quantitative Python Modules\n")
-    for d in PY_DIRS:
-        target_dir = ROOT_DIR / d
-        if not target_dir.exists():
-            continue
-        py_files = sorted(target_dir.rglob("*.py"))
-        for py_file in py_files:
-            if "tests" in py_file.parts or "__pycache__" in py_file.parts:
+    for heading, kind in (("## 1. Python modules", "Python"), ("## 2. Frontend JS/TS modules", "Frontend")):
+        lines.extend([heading, ""])
+        for path, data in modules.items():
+            if data["kind"] != kind:
                 continue
-            rel_path = py_file.relative_to(ROOT_DIR).as_posix()
-            data = parse_python_file(py_file)
-            if not data["symbols"] and not data["imports"]:
-                continue
-
-            lines.append(f"### `{rel_path}`")
-            if data["symbols"]:
-                lines.append(f"- **Symbols:** {', '.join(f'`{s}`' for s in data['symbols'][:10])}")
-            if data["imports"]:
-                lines.append(f"- **Dependencies:** {', '.join(f'`{i}`' for i in data['imports'][:8])}")
+            lines.append(f"### `{path}`")
+            lines.append(f"- **Public symbols:** {listed(data['symbols'])}")
+            lines.append(f"- **Calls / imports:** {listed(data['calls'] or data['imports'])}")
+            lines.append(f"- **Imported by:** {listed(callers.get(path, []), 8)}")
             lines.append("")
-
-    # 2. Frontend Modules
-    lines.append("## 2. Frontend React / Vite Modules\n")
-    for d in JS_DIRS:
-        target_dir = ROOT_DIR / d
-        if not target_dir.exists():
-            continue
-        js_files = sorted(list(target_dir.rglob("*.jsx")) + list(target_dir.rglob("*.js")))
-        for js_file in js_files:
-            if "test" in js_file.name or "node_modules" in js_file.parts:
-                continue
-            rel_path = js_file.relative_to(ROOT_DIR).as_posix()
-            data = parse_js_file(js_file)
-            if not data["symbols"] and not data["imports"]:
-                continue
-
-            lines.append(f"### `{rel_path}`")
-            if data["symbols"]:
-                lines.append(f"- **Exports:** {', '.join(f'`{s}`' for s in data['symbols'][:8])}")
-            if data["imports"]:
-                filtered_imports = [i for i in data["imports"] if not i.endswith(".css")]
-                if filtered_imports:
-                    lines.append(f"- **Imports:** {', '.join(f'`{i}`' for i in filtered_imports[:6])}")
-            lines.append("")
-
-    return "\n".join(lines).strip() + "\n"
+    return "\n".join(lines).rstrip() + "\n"
 
 
-def main():
-    check_mode = "--check" in sys.argv
-    new_content = generate_codemap()
-
-    if check_mode:
-        if not OUTPUT_FILE.exists():
-            print(f"[FAIL] {OUTPUT_FILE} does not exist.")
-            sys.exit(1)
-        current_content = OUTPUT_FILE.read_text(encoding="utf-8")
-        if current_content != new_content:
-            print(f"[FAIL] {OUTPUT_FILE} is outdated. Run 'python scripts/gen_codemap.py' to update.")
-            sys.exit(1)
-        print(f"[PASS] {OUTPUT_FILE} is up to date.")
-        sys.exit(0)
-
-    OUTPUT_FILE.write_text(new_content, encoding="utf-8")
-    print(f"[OK] Generated {OUTPUT_FILE} successfully ({len(new_content.splitlines())} lines).")
+def main() -> None:
+    content = generate_codemap()
+    if "--check" in sys.argv:
+        if OUTPUT_FILE.exists() and OUTPUT_FILE.read_text(encoding="utf-8") == content:
+            print("[PASS] docs/CODEMAP.md is up to date.")
+            return
+        print("[FAIL] docs/CODEMAP.md is outdated. Run 'python scripts/gen_codemap.py'.")
+        raise SystemExit(1)
+    OUTPUT_FILE.write_text(content, encoding="utf-8")
+    print(f"[OK] Generated docs/CODEMAP.md ({len(content.splitlines())} lines).")
 
 
 if __name__ == "__main__":

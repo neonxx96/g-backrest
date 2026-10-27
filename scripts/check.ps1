@@ -149,7 +149,7 @@ if ($dockerAvailable) {
 
 # 2. Frontend layout recovery unit tests
 Write-Host "`n[2/6] Checking frontend layout recovery (node --test)..." -ForegroundColor Yellow
-node --test `
+node --test --test-concurrency=1 `
     (Join-Path $ProjectRoot "frontend\src\components\docking\layoutRecovery.test.js") `
     (Join-Path $ProjectRoot "frontend\src\services\marketTruth.test.js")
 if ($LASTEXITCODE -ne 0) {

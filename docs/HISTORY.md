@@ -30,6 +30,9 @@ This document records the architectural decisions, conventions, discovered pitfa
 - **ADR-08: Dual-Source Market Data Failover**
   - *Context:* Binance Futures WebSocket occasionally experiences connection drops, leaving widgets blank.
   - *Decision:* Frontend implements automated failover: Binance Futures WS -> Binance Spot WS (`wss://stream.binance.com:9443`) -> immediate REST snapshot fallback (`/fapi/v1/ticker/24hr`).
+- **ADR-09: Generated CodeMap Is the Navigation Contract**
+  - *Context:* Manual function maps age immediately in a mixed Python/React codebase.
+  - *Decision:* `scripts/gen_codemap.py` derives public symbols and dependency/caller hints deterministically; `--check` is part of the documentation gate.
 
 ---
 
@@ -51,3 +54,7 @@ This document records the architectural decisions, conventions, discovered pitfa
    - *Attempt:* Adding contracts on continuation signals.
    - *Result:* Pyramiding magnified drawdown during sudden liquidity sweeps.
    - *Remedy:* Set `ENABLE_PYRAMIDING = False` in `risk_engine.py` until verified via comparative A/B backtesting on historical lake data.
+5. **Starting a second backend for a smoke check:**
+   - *Attempt:* Treating the development launch commands as harmless when Docker is already running.
+   - *Result:* The project invariant allows only one `backend/main.py` process and port `8000` may already be owned.
+   - *Remedy:* Inspect listeners first; do not launch the local stack while Docker/local services occupy the mandated ports.

@@ -32,6 +32,8 @@ yarn-error.log*
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+node_modules/
+dist/
 
 # Screenshots & Visual Artifacts
 *.png
@@ -48,6 +50,7 @@ Thumbs.db
 
 # Временные скрипты и отладочный мусор агентов
 scripts/_tmp_*
+terminal_workspace.code-workspace
 моя комора/
 calibration_results.json
 check_pilot.py

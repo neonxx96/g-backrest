@@ -31,6 +31,9 @@
 
 ## 2. Completed Milestones
 
+- **2026-10-27 [Codex] Task CODEX-HANDOFF**:
+  - Refreshed the context documents, recorded real runtime model routing, upgraded the deterministic CodeMap generator with caller/callee hints, and confirmed the documentation gate locally.
+  - Fixed the quality gate's Node worker restriction by running its two frontend tests sequentially; the complete gate now passes (585 passed, 31 skipped; frontend 7/7 and pilot 85/85; build, lint, docs, critical smoke, Playwright, live WebSocket).
 - **2026-10-27 [Antigravity] Task DESIGN-STAGE-D**:
   - Implemented Stage D0-D4: Linux container pytest gate [1b], canvas resize guard in `TradesWidget`, Binance miniTicker failover, per-pair controls (`overnight_pilot.py` + `PairControlRowActions.jsx`), Dockview 28px tabs and theme tokens, codemod migration (-998 raw Tailwind violations eliminated, ratchet locked at 1031), standard Dialog/Tabs/NumberInput migration.
   - Quality gate `scripts/check.ps1`: ALL QUALITY CHECKS PASSED (616 pytest host, 616 pytest Linux Docker, Vite build, UI smoke, live WS).

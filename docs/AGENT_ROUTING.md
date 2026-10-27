@@ -1,29 +1,26 @@
-# Agent Model Routing & Reasoning Effort (Codex & Multi-Agent)
+# Agent Routing for This Codex Runtime
 
-> **NOTICE FOR CODEX:** This document is a structured template. Fill in the specific OpenAI / Codex models (e.g. `o3-mini`, `gpt-4o`, `gpt-4.5`) and reasoning effort levels based on your active runtime configuration.
+## Task → role → model → reasoning effort
 
----
-
-## 1. Task Type to Model Mapping
-
-| Task Category | Role Description | Target Model (Fill in) | Reasoning Effort | Example Scope |
+| Task type | Role | Model | Effort | Escalate when |
 |---|---|---|---|---|
-| **Routine / Formatting** | Quick text, styling & doc edits | `[TO_BE_FILLED_BY_CODEX]` | `low` | Tailwind tokens, markdown docs, comments, small typo fixes. |
-| **Standard Feature** | Non-critical UI & glue code | `[TO_BE_FILLED_BY_CODEX]` | `medium` | Adding new UI components, form inputs, route bindings, data formatting. |
-| **Expert Financial** | Core quant math, PnL & risk | `[TO_BE_FILLED_BY_CODEX]` | `high` | Risk engine, expectancy formulas, slippage model, WebSocket reconnects. |
-| **Review & Security** | Final pre-commit diff review | `[TO_BE_FILLED_BY_CODEX]` | `medium` | Diff reviews on financial and DB migration files. |
+| Search, code reading, concise evidence | Explorer | `gpt-6-luna` | `low` | Two failed targeted checks or financial/architecture scope appears. |
+| Small isolated implementation, docs, tests | Implementer | `gpt-6.1-sol` | `medium` | Two failed implementation/test attempts. |
+| Diff and regression/security review | Reviewer | `gpt-6.1-sol` | `medium` | Risk, migration, or unresolved finding needs design work. |
+| Quant math, migration, concurrency, architecture | Debugger / architect | `gpt-6-astra` | `high` | Only after two concrete failures or an explicitly high-risk decision. |
 
----
+Available in this runtime: `gpt-6.1-sol`, `gpt-6.1-terra`, `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`. The runtime labels Luna as fast/affordable, Sol as workhorse, Astra as frontier; relative pricing, quotas, and `/model` metadata are **UNVERIFIED**.
 
-## 2. Escalation Rules
+## Escalation rules
 
-1. If an assigned routine/standard task encounters unexpected architectural complexity, race conditions, or financial math modifications, halt immediately with the marker `ESCALATE_MODEL`.
-2. Do not switch models mid-step within a single chat session. Close the step cleanly or request escalation.
+1. Use one agent per isolated task; do not overlap files or run concurrent project agents.
+2. Start at the cheapest capable route. Escalate only after two failed checks, not from uncertainty.
+3. Route `S` to Luna/Sol, `M` to Sol, and split `L` into `M` tasks; use Astra only for the defined high-risk exception.
+4. A fresh reviewer examines the diff and verification evidence; it is not the implementation author.
 
----
+## Budget rules
 
-## 3. Budget & Token Conservation Rules
-
-- Maintain focused, single-task sessions.
-- Read large files (>800 lines) by specific line ranges only.
-- Run `scripts/check.ps1` once at the conclusion of a step before commit, rather than after every trivial edit.
+- Return exploration as no more than 15 lines with `file:line` references.
+- Read only the files named by `HANDOFF.md`, `ROADMAP.md`, and `CODEMAP.md`; use line ranges for large files.
+- Run focused checks first and the full gate only before handoff/commit.
+- No project-local Codex profile configuration was created: the supported project schema is **UNVERIFIED** in this runtime. Do not invent a `.codex` format.
