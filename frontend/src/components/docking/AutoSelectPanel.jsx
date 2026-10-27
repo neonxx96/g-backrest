@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
 
 const VERDICT_CLS = {
-  SELECT: 'text-emerald-400',
+  SELECT: 'text-bull',
   EXPLORE: 'text-amber-300',
-  SKIP: 'text-neutral-500',
-  NO_DATA: 'text-neutral-600',
+  SKIP: 'text-muted-foreground',
+  NO_DATA: 'text-muted-foreground',
 };
 const VERDICT_LABEL = { SELECT: 'ПОДТВЕРЖДЕНА', EXPLORE: 'ТЕСТ (мал. риск)', SKIP: 'ПРОПУСК', NO_DATA: 'НЕТ ДАННЫХ' };
 
@@ -46,15 +46,15 @@ export default function AutoSelectPanel() {
 
   const rows = (sel?.results || []).filter((r) => r.best || r.verdict);
   return (
-    <div className="border border-neutral-800 rounded p-2 bg-neutral-900/40" data-testid="auto-select-panel">
+    <div className="border border-border rounded p-2 bg-card/40" data-testid="auto-select-panel">
       <div className="flex flex-wrap items-center gap-2 mb-1">
-        <span className="text-neutral-300 font-semibold">Авто-настройка стратегий под монеты</span>
-        <label className="text-neutral-400 flex items-center gap-1 cursor-pointer">
+        <span className="text-foreground/80 font-semibold">Авто-настройка стратегий под монеты</span>
+        <label className="text-muted-foreground flex items-center gap-1 cursor-pointer">
           <input type="checkbox" checked={includeExplore} onChange={(e) => setIncludeExplore(e.target.checked)} />
           включать тестовые пары (риск 0.15%)
         </label>
         <button type="button" disabled={busy} onClick={() => run(false)}
-          className="px-2 py-0.5 rounded border border-neutral-700 text-neutral-200 hover:bg-neutral-800 disabled:opacity-50 cursor-pointer">
+          className="px-2 py-0.5 rounded border border-border text-foreground hover:bg-muted disabled:opacity-50 cursor-pointer">
           Только подобрать
         </button>
         <button type="button" disabled={busy} onClick={() => run(true)}
@@ -62,19 +62,19 @@ export default function AutoSelectPanel() {
           Подобрать и запустить марафон
         </button>
       </div>
-      <div className="text-[10px] text-neutral-500 mb-1">
+      <div className="text-[10px] text-muted-foreground mb-1">
         Обучение на 70% истории, проверка на невидимых 30% (OOS). Только paper-режим, реальных ордеров нет.
       </div>
       {msg && <div className="text-amber-200/90 mb-1">{msg}</div>}
       {rows.length > 0 && (
         <table className="w-full text-left">
-          <thead className="text-neutral-500">
+          <thead className="text-muted-foreground">
             <tr><th>Пара</th><th>Вердикт</th><th>Стратегия</th><th>ТФ</th><th>SL/TP %</th><th>OOS net</th><th>OOS PF</th></tr>
           </thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.symbol} className="border-t border-neutral-900">
-                <td className="text-neutral-200">{r.symbol}</td>
+                <td className="text-foreground">{r.symbol}</td>
                 <td className={VERDICT_CLS[r.verdict]}>{VERDICT_LABEL[r.verdict] || r.verdict}</td>
                 <td>{r.best?.strategy || '—'}</td>
                 <td>{r.best?.timeframe || '—'}</td>

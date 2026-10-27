@@ -14,7 +14,7 @@ export function CvdPlaceholderWidget({ panelId = 'cvd_placeholder' }) {
       <div className="px-2.5 py-1.5 border-b border-[#1f2638] bg-[#0f1420] flex items-center justify-between shrink-0">
         <div className="flex items-center space-x-1.5">
           <Activity size={12} className="text-[#10b981]" />
-          <span className="font-bold text-[11px] text-white">CVD (Кумулятивная дельта)</span>
+          <span className="font-bold text-[11px] text-foreground">CVD (Кумулятивная дельта)</span>
           <span className="text-[10px] text-[#34d399] font-mono font-semibold">
             {currentSymbol}
           </span>
@@ -27,13 +27,13 @@ export function CvdPlaceholderWidget({ panelId = 'cvd_placeholder' }) {
           <Activity size={24} className="animate-pulse" />
         </div>
         <div className="space-y-1 max-w-sm">
-          <div className="font-bold text-white text-[12px]">
+          <div className="font-bold text-foreground text-[12px]">
             Кумулятивная дельта объема (CVD) в реальном времени
           </div>
           <div className="text-[10.5px] text-[#94a3b8] leading-relaxed">
             Отслеживает суммарную разницу между рыночными покупками и продажами (Market Aggression)
             и сопоставляет её с движением цены для выявления скрытых лимитных айсбергов по{' '}
-            <span className="font-mono text-white font-semibold">{currentSymbol}</span>.
+            <span className="font-mono text-foreground font-semibold">{currentSymbol}</span>.
           </div>
         </div>
         <div className="px-3 py-1 rounded bg-[#064e3b40] text-[#34d399] border border-[#10b98140] text-[9.5px] font-mono">

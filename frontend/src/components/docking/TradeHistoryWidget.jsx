@@ -538,13 +538,13 @@ export default function TradeHistoryWidget(props) {
   return (
     <div
       data-testid="trade-history-widget"
-      className="h-full w-full flex flex-col overflow-hidden bg-[#0B0E11] text-neutral-200 select-none font-sans"
+      className="h-full w-full flex flex-col overflow-hidden bg-[#0B0E11] text-foreground select-none font-sans"
     >
       {/* Top Header & Stat Cards */}
-      <div className="shrink-0 border-b border-neutral-800 bg-[#0E1217] px-3 py-2 flex flex-col gap-2">
+      <div className="shrink-0 border-b border-border bg-[#0E1217] px-3 py-2 flex flex-col gap-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <div className="p-1 rounded bg-neutral-800 text-neutral-300">
+            <div className="p-1 rounded bg-muted text-foreground/80">
               <History size={14} />
             </div>
             <div>
@@ -561,11 +561,11 @@ export default function TradeHistoryWidget(props) {
                 </span>
               )}
               {sessionData?.is_halted ? (
-                <span data-testid="status-halted-badge" className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-rose-950 text-rose-300 border border-rose-700 animate-pulse">
+                <span data-testid="status-halted-badge" className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-bear-soft text-rose-300 border border-rose-700 animate-pulse">
                   HALTED
                 </span>
               ) : (
-                <span data-testid="status-active-badge" className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-700">
+                <span data-testid="status-active-badge" className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-bull-soft text-emerald-300 border border-emerald-700">
                   ACTIVE
                 </span>
               )}
@@ -578,7 +578,7 @@ export default function TradeHistoryWidget(props) {
                 type="button"
                 data-testid="btn-resume-trading"
                 onClick={handleResumeTrading}
-                className="flex items-center space-x-1 px-2.5 py-0.5 rounded bg-emerald-800 hover:bg-emerald-700 text-white border border-emerald-600 text-[10px] font-mono font-bold transition cursor-pointer shadow-sm"
+                className="flex items-center space-x-1 px-2.5 py-0.5 rounded bg-emerald-800 hover:bg-emerald-700 text-foreground border border-emerald-600 text-[10px] font-mono font-bold transition cursor-pointer shadow-sm"
                 title="Возобновить прием сигналов и торговлю"
               >
                 <span>▶ ВОЗОБНОВИТЬ</span>
@@ -646,18 +646,18 @@ export default function TradeHistoryWidget(props) {
             <Zap size={11} className="text-cyan-400 shrink-0" />
             {hasPilotData || Boolean(pilotStatus?.sessions && Object.keys(pilotStatus.sessions).length > 0) ? (
               <>
-                <span className="text-neutral-500 shrink-0">Марафон (20 пар):</span>
+                <span className="text-muted-foreground shrink-0">Марафон (20 пар):</span>
                 <span className="text-cyan-200 font-bold truncate">Мульти-стратегия (Shared $1,000)</span>
-                <span className="text-neutral-600 shrink-0">•</span>
-                <span className="text-white font-bold shrink-0">{marathonSessions.filter(s => s?.paper?.is_running).length}/{marathonSessions.length || 20} пар</span>
-                <span className="text-neutral-600 shrink-0">•</span>
-                <span className="text-neutral-300 shrink-0">Плечо 1x-25x</span>
+                <span className="text-muted-foreground shrink-0">•</span>
+                <span className="text-foreground font-bold shrink-0">{marathonSessions.filter(s => s?.paper?.is_running).length}/{marathonSessions.length || 20} пар</span>
+                <span className="text-muted-foreground shrink-0">•</span>
+                <span className="text-foreground/80 shrink-0">Плечо 1x-25x</span>
                 <span className="text-violet-300 shrink-0">• AI DeepSeek V4.1 Flash</span>
                 <span
                   className={`px-1 rounded text-[9px] font-bold border shrink-0 ${
                     isMarathonRunning
-                      ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
-                      : 'bg-neutral-800 text-neutral-400 border-neutral-700'
+                      ? 'bg-bull-soft text-emerald-300 border-emerald-700'
+                      : 'bg-muted text-muted-foreground border-border'
                   }`}
                 >
                   {isMarathonRunning ? 'RUNNING' : 'STOPPED'}
@@ -665,31 +665,31 @@ export default function TradeHistoryWidget(props) {
               </>
             ) : liveStatus ? (
               <>
-                <span className="text-neutral-500 shrink-0">Стратегия:</span>
+                <span className="text-muted-foreground shrink-0">Стратегия:</span>
                 <span className="text-cyan-200 font-bold truncate" title={liveStatus.strategy_type}>{liveStatus.strategy_type}</span>
-                <span className="text-neutral-600 shrink-0">•</span>
-                <span className="text-white font-bold shrink-0">{liveStatus.symbol}</span>
-                <span className="text-neutral-600 shrink-0">•</span>
-                <span className="text-neutral-300 shrink-0">{liveStatus.timeframe}</span>
+                <span className="text-muted-foreground shrink-0">•</span>
+                <span className="text-foreground font-bold shrink-0">{liveStatus.symbol}</span>
+                <span className="text-muted-foreground shrink-0">•</span>
+                <span className="text-foreground/80 shrink-0">{liveStatus.timeframe}</span>
                 {liveStatus.leverage != null && (
                   <>
-                    <span className="text-neutral-600 shrink-0">•</span>
-                    <span className="text-neutral-300 shrink-0">плечо {liveStatus.leverage}x</span>
+                    <span className="text-muted-foreground shrink-0">•</span>
+                    <span className="text-foreground/80 shrink-0">плечо {liveStatus.leverage}x</span>
                   </>
                 )}
                 {liveStatus.ai_control && <span className="text-violet-300 shrink-0">• AI</span>}
                 <span
                   className={`px-1 rounded text-[9px] font-bold border shrink-0 ${
                     liveStatus.is_running
-                      ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
-                      : 'bg-neutral-800 text-neutral-400 border-neutral-700'
+                      ? 'bg-bull-soft text-emerald-300 border-emerald-700'
+                      : 'bg-muted text-muted-foreground border-border'
                   }`}
                 >
                   {liveStatus.is_running ? 'RUNNING' : 'STOPPED'}
                 </span>
               </>
             ) : (
-              <span className="text-neutral-500">Live-раннер не запущен — стратегия не активна</span>
+              <span className="text-muted-foreground">Live-раннер не запущен — стратегия не активна</span>
             )}
           </div>
           <button
@@ -710,10 +710,10 @@ export default function TradeHistoryWidget(props) {
         {sessionData?.is_halted && (
           <div
             data-testid="paper-trading-halted-banner"
-            className="flex items-center justify-between px-2.5 py-1.5 rounded bg-rose-950/80 border border-rose-600/80 text-rose-200 text-[10px] font-mono"
+            className="flex items-center justify-between px-2.5 py-1.5 rounded bg-bear-soft/80 border border-rose-600/80 text-rose-200 text-[10px] font-mono"
           >
             <div className="flex items-center space-x-2">
-              <AlertCircle size={12} className="text-rose-400 shrink-0" />
+              <AlertCircle size={12} className="text-bear shrink-0" />
               <span>
                 <strong>СИСТЕМА ОСТАНОВЛЕНА (HALTED):</strong> {sessionData.halt_reason || 'Аварийный стоп активен'}.
                 Новые ордера заблокированы.
@@ -722,7 +722,7 @@ export default function TradeHistoryWidget(props) {
             <button
               type="button"
               onClick={handleResumeTrading}
-              className="px-2 py-0.5 rounded bg-rose-800 hover:bg-rose-700 text-white text-[9px] font-bold cursor-pointer transition"
+              className="px-2 py-0.5 rounded bg-rose-800 hover:bg-rose-700 text-foreground text-[9px] font-bold cursor-pointer transition"
             >
               Снять блок
             </button>
@@ -731,53 +731,53 @@ export default function TradeHistoryWidget(props) {
 
         {/* Institutional Metrics Grid */}
         <div className="grid grid-cols-6 gap-2 text-center text-[10px] font-mono">
-          <div className="p-1.5 rounded bg-[#12161E] border border-neutral-800/80 flex flex-col">
+          <div className="p-1.5 rounded bg-[#12161E] border border-border/80 flex flex-col">
             <span className="text-muted-foreground uppercase text-[11px] font-medium">Баланс профиля</span>
             <span className="font-bold text-foreground text-[15px] font-mono tabular-nums">
               ${metrics.balance.toFixed(2)}
             </span>
           </div>
-          <div className="p-1.5 rounded bg-[#12161E] border border-neutral-800/80 flex flex-col">
+          <div className="p-1.5 rounded bg-[#12161E] border border-border/80 flex flex-col">
             <span className="text-muted-foreground uppercase text-[11px] font-medium">Realized PnL</span>
             <span
               className={`font-bold text-[15px] font-mono tabular-nums ${
-                metrics.realizedPnl > 0 ? 'text-[#10b981]' : metrics.realizedPnl < 0 ? 'text-[#ef4444]' : 'text-neutral-300'
+                metrics.realizedPnl > 0 ? 'text-[#10b981]' : metrics.realizedPnl < 0 ? 'text-[#ef4444]' : 'text-foreground/80'
               }`}
             >
               {metrics.realizedPnl > 0 ? '+' : ''}${metrics.realizedPnl.toFixed(2)}
             </span>
           </div>
-          <div className="p-1.5 rounded bg-[#12161E] border border-neutral-800/80 flex flex-col">
+          <div className="p-1.5 rounded bg-[#12161E] border border-border/80 flex flex-col">
             <span className="text-muted-foreground uppercase text-[11px] font-medium">Unrealized PnL</span>
             <span
               className={`font-bold text-[15px] font-mono tabular-nums ${
-                metrics.unrealizedPnl > 0 ? 'text-[#10b981]' : metrics.unrealizedPnl < 0 ? 'text-[#ef4444]' : 'text-neutral-300'
+                metrics.unrealizedPnl > 0 ? 'text-[#10b981]' : metrics.unrealizedPnl < 0 ? 'text-[#ef4444]' : 'text-foreground/80'
               }`}
             >
               {metrics.unrealizedPnl > 0 ? '+' : ''}${metrics.unrealizedPnl.toFixed(2)}
             </span>
           </div>
-          <div className="p-1.5 rounded bg-[#12161E] border border-neutral-800/80 flex flex-col">
+          <div className="p-1.5 rounded bg-[#12161E] border border-border/80 flex flex-col">
             <span className="text-muted-foreground uppercase text-[11px] font-medium">Позиции</span>
             <span className="font-bold text-foreground text-[15px] font-mono tabular-nums">
               {metrics.activePositions}
             </span>
           </div>
-          <div className="p-1.5 rounded bg-[#12161E] border border-neutral-800/80 flex flex-col">
+          <div className="p-1.5 rounded bg-[#12161E] border border-border/80 flex flex-col">
             <span className="text-muted-foreground uppercase text-[11px] font-medium">Win Rate</span>
             <span className="font-bold text-foreground text-[15px] font-mono tabular-nums">
               {metrics.winRate}% <span className="text-[11px] text-muted-foreground">({metrics.totalTrades})</span>
             </span>
           </div>
-          <div className="p-1.5 rounded bg-[#12161E] border border-neutral-800/80 flex flex-col">
+          <div className="p-1.5 rounded bg-[#12161E] border border-border/80 flex flex-col">
             <span className="text-muted-foreground uppercase text-[11px] font-medium">Avg Fee Drag</span>
-            <span className="font-bold text-amber-400 text-[15px] font-mono tabular-nums">-${metrics.avgFee.toFixed(2)}</span>
+            <span className="font-bold text-warning text-[15px] font-mono tabular-nums">-${metrics.avgFee.toFixed(2)}</span>
           </div>
-          <div className="p-1.5 rounded bg-[#12161E] border border-neutral-800/80 flex flex-col">
+          <div className="p-1.5 rounded bg-[#12161E] border border-border/80 flex flex-col">
             <span className="text-muted-foreground uppercase text-[11px] font-medium">Profit Bleed</span>
-            <span className="font-bold text-rose-400 text-[15px] font-mono tabular-nums">{metrics.profitBleedPct.toFixed(0)}%</span>
+            <span className="font-bold text-bear text-[15px] font-mono tabular-nums">{metrics.profitBleedPct.toFixed(0)}%</span>
           </div>
-          <div className="p-1.5 rounded bg-[#12161E] border border-neutral-800/80 flex flex-col">
+          <div className="p-1.5 rounded bg-[#12161E] border border-border/80 flex flex-col">
             <span className="text-muted-foreground uppercase text-[11px] font-medium">Аптайм</span>
             <span className="font-bold text-muted-foreground text-[14px] font-mono tabular-nums">
               {metrics.uptimeStr}
@@ -810,7 +810,7 @@ export default function TradeHistoryWidget(props) {
                     : 'text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/60'
                 }`}
               >
-                <Icon size={12} className={tab.id === 'candidates' && tab.count > 0 ? 'text-amber-400' : ''} />
+                <Icon size={12} className={tab.id === 'candidates' && tab.count > 0 ? 'text-warning' : ''} />
                 <span className="hidden sm:inline">{tab.label}</span>
                 {tab.count != null && (
                   <span className={`px-1 py-0.1 text-[9px] rounded-full font-bold tabular-nums ${
@@ -830,10 +830,10 @@ export default function TradeHistoryWidget(props) {
         {activeTab === 'trades' && (
           <div className="min-w-full flex flex-col">
             {/* Filter, Period & Sort Toolbar */}
-            <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 bg-[#0D1117] border-b border-neutral-800 text-[10px] font-mono">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 bg-[#0D1117] border-b border-border text-[10px] font-mono">
               {/* Period selection */}
               <div className="flex items-center space-x-1">
-                <span className="text-neutral-500 mr-1 flex items-center gap-1">
+                <span className="text-muted-foreground mr-1 flex items-center gap-1">
                   <Calendar size={11} className="text-cyan-400" /> Период:
                 </span>
                 {[
@@ -850,7 +850,7 @@ export default function TradeHistoryWidget(props) {
                     data-testid={`closed-period-${p.id}`} className={`px-2 py-0.5 rounded transition cursor-pointer ${
                       closedPeriod === p.id
                         ? 'bg-cyan-950 text-cyan-300 font-bold border border-cyan-700'
-                        : 'bg-neutral-900 text-neutral-400 hover:text-white hover:bg-neutral-800 border border-neutral-800'
+                        : 'bg-card text-muted-foreground hover:text-foreground hover:bg-muted border border-border'
                     }`}
                   >
                     {p.label}
@@ -861,12 +861,12 @@ export default function TradeHistoryWidget(props) {
               {/* Symbol & Sort Controls */}
               <div className="flex items-center space-x-2">
                 <div className="flex items-center space-x-1">
-                  <span className="text-neutral-500">Пара:</span>
+                  <span className="text-muted-foreground">Пара:</span>
                   <select
                     data-testid="closed-symbol-select"
                     value={closedSymbolFilter}
                     onChange={(e) => setClosedSymbolFilter(e.target.value)}
-                    className="bg-[#161B22] border border-neutral-700 rounded px-1.5 py-0.5 text-neutral-200 text-[10px] focus:outline-none focus:border-cyan-500 cursor-pointer"
+                    className="bg-[#161B22] border border-border rounded px-1.5 py-0.5 text-foreground text-[10px] focus:outline-none focus:border-cyan-500 cursor-pointer"
                   >
                     <option value="ALL">Все монеты ({availableClosedSymbols.length})</option>
                     {availableClosedSymbols.map((sym) => (
@@ -876,12 +876,12 @@ export default function TradeHistoryWidget(props) {
                 </div>
 
                 <div className="flex items-center space-x-1">
-                  <span className="text-neutral-500">Сортировка:</span>
+                  <span className="text-muted-foreground">Сортировка:</span>
                   <select
                     data-testid="closed-sort-select"
                     value={closedSort}
                     onChange={(e) => setClosedSort(e.target.value)}
-                    className="bg-[#161B22] border border-neutral-700 rounded px-1.5 py-0.5 text-neutral-200 text-[10px] focus:outline-none focus:border-cyan-500 cursor-pointer"
+                    className="bg-[#161B22] border border-border rounded px-1.5 py-0.5 text-foreground text-[10px] focus:outline-none focus:border-cyan-500 cursor-pointer"
                   >
                     <option value="date_desc">Дата: новые сначала ↓</option>
                     <option value="date_asc">Дата: старые сначала ↑</option>
@@ -894,27 +894,27 @@ export default function TradeHistoryWidget(props) {
             </div>
 
             {/* Sub-bar with Period Aggregates */}
-            <div className="flex items-center justify-between px-3 py-1 bg-[#10141C] border-b border-neutral-800/80 text-[10px] font-mono">
-              <div className="flex items-center space-x-3 text-neutral-400">
+            <div className="flex items-center justify-between px-3 py-1 bg-[#10141C] border-b border-border/80 text-[10px] font-mono">
+              <div className="flex items-center space-x-3 text-muted-foreground">
                 <span>
-                  Сделок: <strong className="text-white">{periodMetrics.count}</strong>
+                  Сделок: <strong className="text-foreground">{periodMetrics.count}</strong>
                 </span>
                 <span>•</span>
                 <span>
                   PnL:{' '}
-                  <strong className={periodMetrics.netPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                  <strong className={periodMetrics.netPnl >= 0 ? 'text-bull' : 'text-bear'}>
                     {periodMetrics.netPnl >= 0 ? '+' : ''}${periodMetrics.netPnl.toFixed(2)}
                   </strong>
                 </span>
                 <span>•</span>
                 <span>
                   Win Rate:{' '}
-                  <strong className="text-white">{periodMetrics.winRate.toFixed(1)}%</strong>{' '}
-                  <span className="text-neutral-500">({periodMetrics.wins}W / {periodMetrics.losses}L)</span>
+                  <strong className="text-foreground">{periodMetrics.winRate.toFixed(1)}%</strong>{' '}
+                  <span className="text-muted-foreground">({periodMetrics.wins}W / {periodMetrics.losses}L)</span>
                 </span>
                 <span>•</span>
                 <span>
-                  Fee Drag: <strong className="text-amber-400">-${periodMetrics.fees.toFixed(2)}</strong>
+                  Fee Drag: <strong className="text-warning">-${periodMetrics.fees.toFixed(2)}</strong>
                 </span>
                 {periodMetrics.count > 0 && (
                   <>
@@ -925,10 +925,10 @@ export default function TradeHistoryWidget(props) {
                     <span>•</span>
                     <span>
                       Expectancy:{' '}
-                      <strong className={periodMetrics.expectancyR >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                      <strong className={periodMetrics.expectancyR >= 0 ? 'text-bull' : 'text-bear'}>
                         {periodMetrics.expectancyR >= 0 ? '+' : ''}{periodMetrics.expectancyR.toFixed(2)}R
                       </strong>{' '}
-                      <span className="text-neutral-500 text-[9px]">({periodMetrics.count} сдел., {closedPeriod})</span>
+                      <span className="text-muted-foreground text-[9px]">({periodMetrics.count} сдел., {closedPeriod})</span>
                     </span>
                   </>
                 )}
@@ -939,14 +939,14 @@ export default function TradeHistoryWidget(props) {
             </div>
 
             {closedTrades.length === 0 ? (
-              <div className="h-40 flex flex-col items-center justify-center text-neutral-500 text-xs">
-                <Clock size={24} className="mb-2 text-neutral-600" />
+              <div className="h-40 flex flex-col items-center justify-center text-muted-foreground text-xs">
+                <Clock size={24} className="mb-2 text-muted-foreground" />
                 <span>Нет закрытых сделок за выбранный период ({closedPeriod})</span>
               </div>
             ) : (
               <table className="w-full text-left border-collapse text-[11px] font-mono">
                 <thead>
-                  <tr className="border-b border-neutral-800 bg-[#0E1217] text-muted-foreground uppercase text-[11px] font-medium">
+                  <tr className="border-b border-border bg-[#0E1217] text-muted-foreground uppercase text-[11px] font-medium">
                     <th className="py-2 px-3">Дата / Время</th>
                     <th className="py-2 px-3">Монета</th>
                     <th className="py-2 px-3">Сторона</th>
@@ -959,7 +959,7 @@ export default function TradeHistoryWidget(props) {
                     <th className="py-2 px-3">Причина входа / выхода</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-neutral-800/50">
+                <tbody className="divide-y divide-border/50">
                   {closedTrades.map((trade, idx) => {
                     const gross = (trade.exit_price - trade.entry_price) * (trade.side === 'LONG' ? 1 : -1) * trade.qty;
                     const pnlPct = trade.entry_price > 0
@@ -979,9 +979,9 @@ export default function TradeHistoryWidget(props) {
                     })() : '--:--:--';
 
                     return (
-                      <tr key={trade.trade_id || idx} className="hover:bg-neutral-800/40 transition">
-                        <td className="py-2 px-3 text-neutral-400 whitespace-nowrap">{timeStr}</td>
-                        <td className="py-2 px-3 font-bold text-white flex items-center space-x-1">
+                      <tr key={trade.trade_id || idx} className="hover:bg-muted/40 transition">
+                        <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">{timeStr}</td>
+                        <td className="py-2 px-3 font-bold text-foreground flex items-center space-x-1">
                           <span className="w-1.5 h-1.5 rounded-full bg-neutral-600 inline-block" />
                           <span>{trade.symbol}</span>
                           {(trade._source === 'marathon' || trade.source === 'marathon') && (
@@ -1006,24 +1006,24 @@ export default function TradeHistoryWidget(props) {
                             {trade.side}
                           </span>
                         </td>
-                        <td className="py-2 px-3 text-right text-neutral-300 tabular-nums">
-                          <div className="text-white">${((trade.qty ?? 0) * (trade.entry_price ?? 0)).toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
+                        <td className="py-2 px-3 text-right text-foreground/80 tabular-nums">
+                          <div className="text-foreground">${((trade.qty ?? 0) * (trade.entry_price ?? 0)).toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
                           <div className="text-[11px] text-muted-foreground">{trade.qty?.toFixed(4)} {trade.symbol?.replace('USDT', '')}</div>
                         </td>
-                        <td className="py-2 px-3 text-right text-neutral-300 tabular-nums">
+                        <td className="py-2 px-3 text-right text-foreground/80 tabular-nums">
                           ${fmtPx(trade.entry_price)}
                         </td>
-                        <td className="py-2 px-3 text-right text-neutral-300 tabular-nums">
+                        <td className="py-2 px-3 text-right text-foreground/80 tabular-nums">
                           ${fmtPx(trade.exit_price)}
                         </td>
                         <td className={`py-2 px-3 text-right font-bold tabular-nums ${isProfit ? 'text-[#10b981]' : 'text-[#ef4444]'}`}>
                           {isProfit ? '+' : ''}${netPnl.toFixed(2)} ({isProfit ? '+' : ''}{pnlPct.toFixed(2)}%)
                         </td>
                         <td className="py-2 px-3 text-right text-amber-300 tabular-nums">-${feeDrag.toFixed(2)}</td>
-                        <td className="py-2 px-3 text-right text-neutral-300 tabular-nums">
+                        <td className="py-2 px-3 text-right text-foreground/80 tabular-nums">
                           <span className="text-emerald-300">+{Number(trade.mfe ?? 0).toFixed(2)}</span> / <span className="text-rose-300">-{Number(trade.mae ?? 0).toFixed(2)}</span>
                         </td>
-                        <td className="py-2 px-3 text-neutral-400 max-w-[280px]">
+                        <td className="py-2 px-3 text-muted-foreground max-w-[280px]">
                           <div className="truncate text-emerald-200/70" title={trade.entry_reason || trade.reason || 'Signal'}>
                             Вход: {trade.entry_reason || trade.reason || 'Signal'}
                           </div>
@@ -1050,7 +1050,7 @@ export default function TradeHistoryWidget(props) {
             ) : (
               <table className="w-full text-left border-collapse text-[11px] font-mono">
                 <thead>
-                  <tr className="border-b border-neutral-800 bg-[#0E1217] text-muted-foreground uppercase text-[11px] font-medium">
+                  <tr className="border-b border-border bg-[#0E1217] text-muted-foreground uppercase text-[11px] font-medium">
                     <th className="py-2 px-3">Монета</th>
                     <th className="py-2 px-3">Сторона</th>
                     <th className="py-2 px-3 text-right">Объем</th>
@@ -1061,15 +1061,15 @@ export default function TradeHistoryWidget(props) {
                     <th className="py-2 px-3">Причина сделки</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-neutral-800/50">
+                <tbody className="divide-y divide-border/50">
                   {openPositions.map((pos, idx) => {
                     const lastPx = pos.last_price || pos.avg_entry_price;
                     const uPnl = (pos.unrealized_pnl ?? 0);
                     const isProfit = uPnl >= 0;
 
                     return (
-                      <tr key={idx} className="hover:bg-neutral-800/40 transition">
-                        <td className="py-2 px-3 font-bold text-white">
+                      <tr key={idx} className="hover:bg-muted/40 transition">
+                        <td className="py-2 px-3 font-bold text-foreground">
                           <span className="flex items-center space-x-1">
                             <span>{pos.symbol}</span>
                             {pos._source === 'marathon' && (
@@ -1094,19 +1094,19 @@ export default function TradeHistoryWidget(props) {
                             {pos.side}
                           </span>
                         </td>
-                        <td className="py-2 px-3 text-right text-neutral-300 tabular-nums">
-                          <div className="font-medium text-white">
+                        <td className="py-2 px-3 text-right text-foreground/80 tabular-nums">
+                          <div className="font-medium text-foreground">
                             ${((pos.qty ?? 0) * (pos.avg_entry_price ?? 0)).toLocaleString('en-US', { maximumFractionDigits: 0 })}
                           </div>
                           <div className="text-[11px] text-muted-foreground">{pos.qty?.toFixed(4)} {pos.symbol?.replace('USDT', '')}</div>
                         </td>
-                        <td className="py-2 px-3 text-right text-neutral-300 tabular-nums">
+                        <td className="py-2 px-3 text-right text-foreground/80 tabular-nums">
                           ${fmtPx(pos.avg_entry_price)}
                         </td>
-                        <td className="py-2 px-3 text-right text-white font-medium tabular-nums">
+                        <td className="py-2 px-3 text-right text-foreground font-medium tabular-nums">
                           ${fmtPx(lastPx)}
                         </td>
-                        <td className="py-2 px-3 text-right text-neutral-400 text-[10px] tabular-nums">
+                        <td className="py-2 px-3 text-right text-muted-foreground text-[10px] tabular-nums">
                           <span className="text-[#10b981]">${pos.target_price ? fmtPx(pos.target_price) : '-'}</span> /{' '}
                           <span className="text-[#ef4444]">${pos.stop_price ? fmtPx(pos.stop_price) : '-'}</span>
                         </td>
@@ -1118,7 +1118,7 @@ export default function TradeHistoryWidget(props) {
                               : '—'}
                           </div>
                         </td>
-                        <td className="py-2 px-3 text-neutral-400 max-w-[260px] truncate" title={pos.reason}>
+                        <td className="py-2 px-3 text-muted-foreground max-w-[260px] truncate" title={pos.reason}>
                           {pos.reason || 'Confluence Signal'}
                         </td>
                       </tr>
@@ -1132,11 +1132,11 @@ export default function TradeHistoryWidget(props) {
 
         {activeTab === 'candidates' && (
           <div className="min-w-full p-2" data-testid="candidates-panel">
-            <div className="mb-2 bg-[#0E1217] p-2 rounded border border-neutral-800 flex items-center justify-between text-[10.5px] font-mono">
+            <div className="mb-2 bg-[#0E1217] p-2 rounded border border-border flex items-center justify-between text-[10.5px] font-mono">
               <div className="flex items-center space-x-2">
-                <Target size={14} className="text-amber-400" />
-                <span className="font-semibold text-white">Претенденты и ожидающие заявки</span>
-                <span className="text-neutral-500 text-[9.5px]">Лимитные ордера в стакане и сетапы по волатильностным конусам</span>
+                <Target size={14} className="text-warning" />
+                <span className="font-semibold text-foreground">Претенденты и ожидающие заявки</span>
+                <span className="text-muted-foreground text-[9.5px]">Лимитные ордера в стакане и сетапы по волатильностным конусам</span>
               </div>
               <span className="text-[9.5px] px-1.5 py-0.5 rounded bg-amber-950/60 text-amber-300 border border-amber-800 font-bold">
                 Всего: {candidateSetups.length}
@@ -1144,19 +1144,19 @@ export default function TradeHistoryWidget(props) {
             </div>
 
             {candidateSetups.length === 0 ? (
-              <div className="h-40 flex flex-col items-center justify-center text-neutral-500 text-xs">
-                <Target size={24} className="mb-2 text-neutral-600" />
+              <div className="h-40 flex flex-col items-center justify-center text-muted-foreground text-xs">
+                <Target size={24} className="mb-2 text-muted-foreground" />
                 <span>Нет активных лимитных заявок или претендентов на вход.</span>
-                <span className="text-[10px] text-neutral-600 mt-1">
+                <span className="text-[10px] text-muted-foreground mt-1">
                   Системы мониторят рынок на появление сигналов с положительным математическим ожиданием.
                 </span>
               </div>
             ) : (
-              <div className="overflow-x-auto border border-neutral-800 rounded">
+              <div className="overflow-x-auto border border-border rounded">
                 <table className="w-full text-left border-collapse text-[11px] font-mono min-w-[760px]" data-testid="candidates-table">
                   <thead>
-                    <tr className="border-b border-neutral-800 bg-[#0E1217] text-muted-foreground uppercase text-[11px] font-medium">
-                      <th className="py-2 px-3 sticky left-0 bg-[#0E1217] z-20 min-w-[105px] border-r border-neutral-800">Монета</th>
+                    <tr className="border-b border-border bg-[#0E1217] text-muted-foreground uppercase text-[11px] font-medium">
+                      <th className="py-2 px-3 sticky left-0 bg-[#0E1217] z-20 min-w-[105px] border-r border-border">Монета</th>
                       <th className="py-2 px-3">Тип</th>
                       <th className="py-2 px-3">Стратегия / Причина</th>
                       <th className="py-2 px-3 text-right">Вход / Лимит</th>
@@ -1167,14 +1167,14 @@ export default function TradeHistoryWidget(props) {
                       <th className="py-2 px-3 text-right">Действия</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-neutral-800/50">
+                  <tbody className="divide-y divide-border/50">
                     {candidateSetups.map((cand) => {
                       const isLong = cand.side === 'LONG';
                       const isOrder = cand.type === 'ORDER';
 
                       return (
-                        <tr key={cand.id} className="hover:bg-neutral-800/40 transition group">
-                          <td className="py-2 px-3 font-bold text-white sticky left-0 bg-[#0E1217] group-hover:bg-[#161b22] z-10 min-w-[105px] border-r border-neutral-800">
+                        <tr key={cand.id} className="hover:bg-muted/40 transition group">
+                          <td className="py-2 px-3 font-bold text-foreground sticky left-0 bg-[#0E1217] group-hover:bg-[#161b22] z-10 min-w-[105px] border-r border-border">
                             <div className="flex items-center space-x-1.5">
                               <button
                                 type="button"
@@ -1187,8 +1187,8 @@ export default function TradeHistoryWidget(props) {
                               <span
                                 className={`px-1 py-0.2 rounded text-[8.5px] font-bold border ${
                                   isLong
-                                    ? 'bg-emerald-950/60 text-emerald-300 border-emerald-700'
-                                    : 'bg-rose-950/60 text-rose-300 border-rose-700'
+                                    ? 'bg-bull-soft/60 text-emerald-300 border-emerald-700'
+                                    : 'bg-bear-soft/60 text-rose-300 border-rose-700'
                                 }`}
                               >
                                 {cand.side}
@@ -1208,18 +1208,18 @@ export default function TradeHistoryWidget(props) {
                             </span>
                           </td>
 
-                          <td className="py-2 px-3 text-neutral-300 max-w-[200px] truncate" title={cand.reason || cand.strategy}>
-                            <div className="truncate text-white font-medium">{cand.strategy}</div>
+                          <td className="py-2 px-3 text-foreground/80 max-w-[200px] truncate" title={cand.reason || cand.strategy}>
+                            <div className="truncate text-foreground font-medium">{cand.strategy}</div>
                             {cand.reason && (
-                              <div className="truncate text-[9.5px] text-neutral-500">{cand.reason}</div>
+                              <div className="truncate text-[9.5px] text-muted-foreground">{cand.reason}</div>
                             )}
                           </td>
 
-                          <td className="py-2 px-3 text-right text-white font-bold tabular-nums">
+                          <td className="py-2 px-3 text-right text-foreground font-bold tabular-nums">
                             {cand.targetPrice ? `$${cand.targetPrice.toFixed(2)}` : '—'}
                           </td>
 
-                          <td className="py-2 px-3 text-right text-neutral-300 tabular-nums">
+                          <td className="py-2 px-3 text-right text-foreground/80 tabular-nums">
                             {cand.currentPrice ? `$${cand.currentPrice.toFixed(2)}` : '—'}
                           </td>
 
@@ -1227,8 +1227,8 @@ export default function TradeHistoryWidget(props) {
                             <span
                               className={
                                 (cand.distancePct ?? 99) <= 0.3
-                                  ? 'text-emerald-400 font-extrabold'
-                                  : 'text-neutral-400'
+                                  ? 'text-bull font-extrabold'
+                                  : 'text-muted-foreground'
                               }
                             >
                               {cand.distancePct != null ? `${cand.distancePct.toFixed(2)}%` : '—'}
@@ -1249,8 +1249,8 @@ export default function TradeHistoryWidget(props) {
                             <span
                               className={`px-1.5 py-0.5 rounded text-[8.5px] font-bold border ${
                                 (cand.distancePct ?? 99) <= 0.3
-                                  ? 'bg-emerald-950 text-emerald-300 border-emerald-700 animate-pulse'
-                                  : 'bg-neutral-800 text-neutral-400 border-neutral-700'
+                                  ? 'bg-bull-soft text-emerald-300 border-emerald-700 animate-pulse'
+                                  : 'bg-muted text-muted-foreground border-border'
                               }`}
                             >
                               {cand.status}
@@ -1261,7 +1261,7 @@ export default function TradeHistoryWidget(props) {
                             <button
                               type="button"
                               onClick={() => openPairWorkspace(cand.symbol, 'single')}
-                              className="px-1.5 py-0.5 rounded bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-300 text-[9px] font-mono cursor-pointer"
+                              className="px-1.5 py-0.5 rounded bg-muted hover:bg-muted/80 border border-border text-foreground/80 text-[9px] font-mono cursor-pointer"
                               title="Показать пару на графике"
                             >
                               График
@@ -1282,7 +1282,7 @@ export default function TradeHistoryWidget(props) {
                 </table>
               </div>
             )}
-            <div className="mt-2 text-[9.5px] text-neutral-500 font-mono px-1">
+            <div className="mt-2 text-[9.5px] text-muted-foreground font-mono px-1">
               Претенденты обновляются в реальном времени. При подходе цены к лимиту или триггерной зоне система производит автоматический вход согласно правилам стратегии.
             </div>
           </div>
@@ -1291,22 +1291,22 @@ export default function TradeHistoryWidget(props) {
         {activeTab === 'pairs' && (
           <div className="min-w-full p-2">
             {/* Верхняя панель: Поиск, Фильтры, Кнопка добавления пары */}
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-2 bg-[#0E1217] p-2 rounded border border-neutral-800">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2 bg-[#0E1217] p-2 rounded border border-border">
               <div className="flex items-center space-x-2 flex-1 min-w-[200px]">
                 <div className="relative flex-1 max-w-xs">
-                  <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-500" />
+                  <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                   <input
                     type="text"
                     value={pairSearch}
                     onChange={(e) => setPairSearch(e.target.value)}
                     placeholder="Поиск по паре или стратегии..."
-                    className="w-full pl-7 pr-7 py-1 rounded bg-[#12161E] border border-neutral-700/80 text-[10.5px] font-mono text-white placeholder-neutral-500 focus:outline-none focus:border-cyan-500"
+                    className="w-full pl-7 pr-7 py-1 rounded bg-[#12161E] border border-border/80 text-[10.5px] font-mono text-foreground placeholder-neutral-500 focus:outline-none focus:border-cyan-500"
                   />
                   {pairSearch && (
                     <button
                       type="button"
                       onClick={() => setPairSearch('')}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white cursor-pointer"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
                     >
                       <X size={11} />
                     </button>
@@ -1320,8 +1320,8 @@ export default function TradeHistoryWidget(props) {
                     onClick={() => setPairStatusFilter('all')}
                     className={`px-2 py-0.5 rounded cursor-pointer transition ${
                       pairStatusFilter === 'all'
-                        ? 'bg-neutral-700 text-white font-bold'
-                        : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+                        ? 'bg-neutral-700 text-foreground font-bold'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                     }`}
                   >
                     Все ({paperPairs.length})
@@ -1331,8 +1331,8 @@ export default function TradeHistoryWidget(props) {
                     onClick={() => setPairStatusFilter('running')}
                     className={`px-2 py-0.5 rounded cursor-pointer transition ${
                       pairStatusFilter === 'running'
-                        ? 'bg-emerald-950 text-emerald-300 border border-emerald-700 font-bold'
-                        : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+                        ? 'bg-bull-soft text-emerald-300 border border-emerald-700 font-bold'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                     }`}
                   >
                     В работе ({paperPairs.filter((p) => p.running).length})
@@ -1343,7 +1343,7 @@ export default function TradeHistoryWidget(props) {
                     className={`px-2 py-0.5 rounded cursor-pointer transition ${
                       pairStatusFilter === 'active_positions'
                         ? 'bg-cyan-950 text-cyan-300 border border-cyan-700 font-bold'
-                        : 'text-neutral-400 hover:text-white hover:bg-neutral-800'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                     }`}
                   >
                     С позициями ({paperPairs.filter((p) => (p.openCount || 0) > 0).length})
@@ -1357,7 +1357,7 @@ export default function TradeHistoryWidget(props) {
                     type="button"
                     disabled={marathonBusy}
                     onClick={handleStopMarathon}
-                    className="flex items-center space-x-1 px-2.5 py-1 rounded text-[10px] font-mono font-bold bg-rose-950 hover:bg-rose-900 text-rose-200 border border-rose-700 cursor-pointer transition disabled:opacity-50"
+                    className="flex items-center space-x-1 px-2.5 py-1 rounded text-[10px] font-mono font-bold bg-bear-soft hover:bg-rose-900 text-rose-200 border border-rose-700 cursor-pointer transition disabled:opacity-50"
                     title="Остановить марафон по всем 20 парам"
                   >
                     <Square size={10} fill="currentColor" />
@@ -1368,7 +1368,7 @@ export default function TradeHistoryWidget(props) {
                     type="button"
                     disabled={marathonBusy}
                     onClick={handleStartMarathon}
-                    className="flex items-center space-x-1 px-2.5 py-1 rounded text-[10px] font-mono font-bold bg-emerald-950 hover:bg-emerald-900 text-emerald-200 border border-emerald-700 cursor-pointer transition disabled:opacity-50"
+                    className="flex items-center space-x-1 px-2.5 py-1 rounded text-[10px] font-mono font-bold bg-bull-soft hover:bg-emerald-900 text-emerald-200 border border-emerald-700 cursor-pointer transition disabled:opacity-50"
                     title="Запустить марафон по всем 20 парам ($1,000 shared wallet, AI DeepSeek V4.1 Flash)"
                   >
                     <Play size={10} fill="currentColor" />
@@ -1403,7 +1403,7 @@ export default function TradeHistoryWidget(props) {
                   onClick={() => setShowAddPair((prev) => !prev)}
                 className={`flex items-center space-x-1 px-2.5 py-1 rounded text-[10px] font-mono font-bold transition cursor-pointer border ${
                   showAddPair
-                    ? 'bg-cyan-900 text-white border-cyan-600'
+                    ? 'bg-cyan-900 text-foreground border-cyan-600'
                     : 'bg-cyan-950/60 hover:bg-cyan-900/80 text-cyan-200 border-cyan-800'
                 }`}
               >
@@ -1420,14 +1420,14 @@ export default function TradeHistoryWidget(props) {
                 className="mb-2 p-2.5 rounded bg-[#12161E] border border-cyan-900/60 flex flex-col gap-2 font-mono text-[10.5px]"
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-white flex items-center space-x-1.5">
+                  <span className="font-bold text-foreground flex items-center space-x-1.5">
                     <Sparkles size={12} className="text-cyan-400" />
                     <span>Быстрое добавление пары / выбор стратегии для теста</span>
                   </span>
                   <button
                     type="button"
                     onClick={() => setShowAddPair(false)}
-                    className="text-neutral-500 hover:text-white p-0.5 cursor-pointer"
+                    className="text-muted-foreground hover:text-foreground p-0.5 cursor-pointer"
                   >
                     <X size={12} />
                   </button>
@@ -1444,8 +1444,8 @@ export default function TradeHistoryWidget(props) {
                         onClick={() => setNewPairSymbol(sym)}
                         className={`px-1.5 py-0.5 rounded text-[9.5px] border cursor-pointer transition ${
                           newPairSymbol === sym
-                            ? 'bg-cyan-900 text-white border-cyan-500 font-bold'
-                            : 'bg-neutral-800/80 text-neutral-300 border-neutral-700 hover:bg-neutral-700 hover:text-white'
+                            ? 'bg-cyan-900 text-foreground border-cyan-500 font-bold'
+                            : 'bg-muted/80 text-foreground/80 border-border hover:bg-muted/80 hover:text-foreground'
                         }`}
                       >
                         {sym.replace('USDT', '')}
@@ -1455,7 +1455,7 @@ export default function TradeHistoryWidget(props) {
                 </div>
 
                 {/* Настройка: Символ, Стратегия, Таймфрейм и действия */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end pt-1 border-t border-neutral-800">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end pt-1 border-t border-border">
                   <div>
                     <label className="block text-[11px] text-muted-foreground mb-0.5">Тикер (USDT):</label>
                     <input
@@ -1463,7 +1463,7 @@ export default function TradeHistoryWidget(props) {
                       value={newPairSymbol}
                       onChange={(e) => setNewPairSymbol(e.target.value.toUpperCase().trim())}
                       placeholder="e.g. BTCUSDT"
-                      className="w-full px-2 py-1 rounded bg-[#0B0E11] border border-neutral-700 text-white font-bold uppercase focus:outline-none focus:border-cyan-500"
+                      className="w-full px-2 py-1 rounded bg-[#0B0E11] border border-border text-foreground font-bold uppercase focus:outline-none focus:border-cyan-500"
                     />
                   </div>
 
@@ -1472,7 +1472,7 @@ export default function TradeHistoryWidget(props) {
                     <select
                       value={newPairStrategy}
                       onChange={(e) => setNewPairStrategy(e.target.value)}
-                      className="w-full px-2 py-1 rounded bg-[#0B0E11] border border-neutral-700 text-neutral-200 focus:outline-none focus:border-cyan-500"
+                      className="w-full px-2 py-1 rounded bg-[#0B0E11] border border-border text-foreground focus:outline-none focus:border-cyan-500"
                     >
                       {AVAILABLE_STRATEGIES.map((st) => (
                         <option key={st.id} value={st.id}>
@@ -1487,7 +1487,7 @@ export default function TradeHistoryWidget(props) {
                     <select
                       value={newPairTimeframe}
                       onChange={(e) => setNewPairTimeframe(e.target.value)}
-                      className="w-full px-2 py-1 rounded bg-[#0B0E11] border border-neutral-700 text-neutral-200 focus:outline-none focus:border-cyan-500"
+                      className="w-full px-2 py-1 rounded bg-[#0B0E11] border border-border text-foreground focus:outline-none focus:border-cyan-500"
                     >
                       <option value="1m">1m</option>
                       <option value="3m">3m</option>
@@ -1506,7 +1506,7 @@ export default function TradeHistoryWidget(props) {
                         if (!newPairSymbol) return;
                         openPairWorkspace(newPairSymbol, 'single');
                       }}
-                      className="flex-1 py-1 rounded bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-200 font-bold transition disabled:opacity-40 cursor-pointer text-center"
+                      className="flex-1 py-1 rounded bg-muted hover:bg-muted/80 border border-border text-foreground font-bold transition disabled:opacity-40 cursor-pointer text-center"
                       title="Открыть бэктест на графике"
                     >
                       Бэктест
@@ -1530,7 +1530,7 @@ export default function TradeHistoryWidget(props) {
                         if (!newPairSymbol) return;
                         openPairWorkspace(newPairSymbol, 'live_paper');
                       }}
-                      className="flex-1 py-1 rounded bg-cyan-900/70 hover:bg-cyan-800 border border-cyan-600 text-white font-bold transition disabled:opacity-40 cursor-pointer text-center"
+                      className="flex-1 py-1 rounded bg-cyan-900/70 hover:bg-cyan-800 border border-cyan-600 text-foreground font-bold transition disabled:opacity-40 cursor-pointer text-center"
                       title="Настроить и запустить торговлю на paper"
                     >
                       Торговать
@@ -1541,8 +1541,8 @@ export default function TradeHistoryWidget(props) {
             )}
 
             {processedPairs.length === 0 ? (
-              <div className="h-40 flex flex-col items-center justify-center text-neutral-500 text-xs">
-                <Settings2 size={24} className="mb-2 text-neutral-600" />
+              <div className="h-40 flex flex-col items-center justify-center text-muted-foreground text-xs">
+                <Settings2 size={24} className="mb-2 text-muted-foreground" />
                 <span>
                   {paperPairs.length === 0
                     ? 'Нет активных paper-сессий. Выберите монету выше или запустите марафон.'
@@ -1550,12 +1550,12 @@ export default function TradeHistoryWidget(props) {
                 </span>
               </div>
             ) : (
-              <div className="overflow-x-auto border border-neutral-800 rounded">
+              <div className="overflow-x-auto border border-border rounded">
                 <table className="w-full text-left border-collapse text-[11px] font-mono min-w-[760px]" data-testid="paper-pairs-table">
                   <thead>
-                    <tr className="border-b border-neutral-800 bg-[#0E1217] text-muted-foreground uppercase text-[11px] font-medium">
+                    <tr className="border-b border-border bg-[#0E1217] text-muted-foreground uppercase text-[11px] font-medium">
                       <th
-                        className="py-1.5 px-2.5 sticky left-0 bg-[#0E1217] z-20 min-w-[105px] border-r border-neutral-800 cursor-pointer hover:text-white select-none"
+                        className="py-1.5 px-2.5 sticky left-0 bg-[#0E1217] z-20 min-w-[105px] border-r border-border cursor-pointer hover:text-foreground select-none"
                         onClick={() => handleSortClick('symbol')}
                       >
                         <div className="flex items-center space-x-1">
@@ -1563,13 +1563,13 @@ export default function TradeHistoryWidget(props) {
                           {sortField === 'symbol' ? (
                             <span className="text-cyan-400">{sortDir === 'asc' ? '▲' : '▼'}</span>
                           ) : (
-                            <ArrowUpDown size={10} className="text-neutral-600 opacity-60" />
+                            <ArrowUpDown size={10} className="text-muted-foreground opacity-60" />
                           )}
                         </div>
                       </th>
                       <th className="py-1.5 px-2">Источник</th>
                       <th
-                        className="py-1.5 px-2 cursor-pointer hover:text-white select-none"
+                        className="py-1.5 px-2 cursor-pointer hover:text-foreground select-none"
                         onClick={() => handleSortClick('strategy')}
                       >
                         <div className="flex items-center space-x-1">
@@ -1577,12 +1577,12 @@ export default function TradeHistoryWidget(props) {
                           {sortField === 'strategy' ? (
                             <span className="text-cyan-400">{sortDir === 'asc' ? '▲' : '▼'}</span>
                           ) : (
-                            <ArrowUpDown size={10} className="text-neutral-600 opacity-60" />
+                            <ArrowUpDown size={10} className="text-muted-foreground opacity-60" />
                           )}
                         </div>
                       </th>
                       <th
-                        className="py-1.5 px-2 text-right cursor-pointer hover:text-white select-none"
+                        className="py-1.5 px-2 text-right cursor-pointer hover:text-foreground select-none"
                         onClick={() => handleSortClick('equity')}
                       >
                         <div className="flex items-center justify-end space-x-1">
@@ -1590,12 +1590,12 @@ export default function TradeHistoryWidget(props) {
                           {sortField === 'equity' ? (
                             <span className="text-cyan-400">{sortDir === 'asc' ? '▲' : '▼'}</span>
                           ) : (
-                            <ArrowUpDown size={10} className="text-neutral-600 opacity-60" />
+                            <ArrowUpDown size={10} className="text-muted-foreground opacity-60" />
                           )}
                         </div>
                       </th>
                       <th
-                        className="py-1.5 px-2 text-right cursor-pointer hover:text-white select-none"
+                        className="py-1.5 px-2 text-right cursor-pointer hover:text-foreground select-none"
                         onClick={() => handleSortClick('pnl')}
                       >
                         <div className="flex items-center justify-end space-x-1">
@@ -1603,12 +1603,12 @@ export default function TradeHistoryWidget(props) {
                           {sortField === 'pnl' ? (
                             <span className="text-cyan-400">{sortDir === 'asc' ? '▲' : '▼'}</span>
                           ) : (
-                            <ArrowUpDown size={10} className="text-neutral-600 opacity-60" />
+                            <ArrowUpDown size={10} className="text-muted-foreground opacity-60" />
                           )}
                         </div>
                       </th>
                       <th
-                        className="py-1.5 px-2 text-right cursor-pointer hover:text-white select-none"
+                        className="py-1.5 px-2 text-right cursor-pointer hover:text-foreground select-none"
                         onClick={() => handleSortClick('roi')}
                       >
                         <div className="flex items-center justify-end space-x-1">
@@ -1616,12 +1616,12 @@ export default function TradeHistoryWidget(props) {
                           {sortField === 'roi' ? (
                             <span className="text-cyan-400">{sortDir === 'asc' ? '▲' : '▼'}</span>
                           ) : (
-                            <ArrowUpDown size={10} className="text-neutral-600 opacity-60" />
+                            <ArrowUpDown size={10} className="text-muted-foreground opacity-60" />
                           )}
                         </div>
                       </th>
                       <th
-                        className="py-1.5 px-2 text-center cursor-pointer hover:text-white select-none"
+                        className="py-1.5 px-2 text-center cursor-pointer hover:text-foreground select-none"
                         onClick={() => handleSortClick('trades')}
                       >
                         <div className="flex items-center justify-center space-x-1">
@@ -1629,12 +1629,12 @@ export default function TradeHistoryWidget(props) {
                           {sortField === 'trades' ? (
                             <span className="text-cyan-400">{sortDir === 'asc' ? '▲' : '▼'}</span>
                           ) : (
-                            <ArrowUpDown size={10} className="text-neutral-600 opacity-60" />
+                            <ArrowUpDown size={10} className="text-muted-foreground opacity-60" />
                           )}
                         </div>
                       </th>
                       <th
-                        className="py-1.5 px-2 text-center cursor-pointer hover:text-white select-none"
+                        className="py-1.5 px-2 text-center cursor-pointer hover:text-foreground select-none"
                         onClick={() => handleSortClick('winRate')}
                       >
                         <div className="flex items-center justify-center space-x-1">
@@ -1642,12 +1642,12 @@ export default function TradeHistoryWidget(props) {
                           {sortField === 'winRate' ? (
                             <span className="text-cyan-400">{sortDir === 'asc' ? '▲' : '▼'}</span>
                           ) : (
-                            <ArrowUpDown size={10} className="text-neutral-600 opacity-60" />
+                            <ArrowUpDown size={10} className="text-muted-foreground opacity-60" />
                           )}
                         </div>
                       </th>
                       <th
-                        className="py-1.5 px-2 text-center cursor-pointer hover:text-white select-none"
+                        className="py-1.5 px-2 text-center cursor-pointer hover:text-foreground select-none"
                         onClick={() => handleSortClick('status')}
                       >
                         <div className="flex items-center justify-center space-x-1">
@@ -1655,7 +1655,7 @@ export default function TradeHistoryWidget(props) {
                           {sortField === 'status' ? (
                             <span className="text-cyan-400">{sortDir === 'asc' ? '▲' : '▼'}</span>
                           ) : (
-                            <ArrowUpDown size={10} className="text-neutral-600 opacity-60" />
+                            <ArrowUpDown size={10} className="text-muted-foreground opacity-60" />
                           )}
                         </div>
                       </th>
@@ -1663,13 +1663,13 @@ export default function TradeHistoryWidget(props) {
                       <th className="py-1.5 px-2 text-right">Действия</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-neutral-800/50">
+                  <tbody className="divide-y divide-border/50">
                     {processedPairs.map((pair) => {
                       const totalPnl = pairTotalPnl(pair);
                       return (
-                        <tr key={pair.symbol} className="hover:bg-neutral-800/40 transition group">
+                        <tr key={pair.symbol} className="hover:bg-muted/40 transition group">
                           {/* Зафиксированная колонка: Пара */}
-                          <td className="py-1.5 px-2.5 font-bold text-white sticky left-0 bg-[#0E1217] group-hover:bg-[#161b22] z-10 min-w-[105px] border-r border-neutral-800">
+                          <td className="py-1.5 px-2.5 font-bold text-foreground sticky left-0 bg-[#0E1217] group-hover:bg-[#161b22] z-10 min-w-[105px] border-r border-border">
                             <button
                               type="button"
                               className="hover:text-cyan-300 cursor-pointer flex items-center space-x-1 text-left"
@@ -1689,23 +1689,23 @@ export default function TradeHistoryWidget(props) {
                               )}
                             </span>
                           </td>
-                          <td className="py-1.5 px-2 text-neutral-300 max-w-[160px] truncate" title={`${pair.strategy || '—'} · ${pair.timeframe || '—'} · плечо ${pair.leverage ?? '—'}x${pair.aiControl ? ' · AI' : ''}`}>
+                          <td className="py-1.5 px-2 text-foreground/80 max-w-[160px] truncate" title={`${pair.strategy || '—'} · ${pair.timeframe || '—'} · плечо ${pair.leverage ?? '—'}x${pair.aiControl ? ' · AI' : ''}`}>
                             {pair.strategy || '—'}
-                            <span className="text-neutral-600"> {pair.timeframe || ''}{pair.aiControl ? ' · AI' : ''}</span>
+                            <span className="text-muted-foreground"> {pair.timeframe || ''}{pair.aiControl ? ' · AI' : ''}</span>
                           </td>
-                          <td className="py-1.5 px-2 text-right text-neutral-200 tabular-nums">
+                          <td className="py-1.5 px-2 text-right text-foreground tabular-nums">
                             {pair.equity != null ? `$${pair.equity.toFixed(2)}` : '—'}
                           </td>
-                          <td className={`py-1.5 px-2 text-right font-bold tabular-nums ${totalPnl == null ? 'text-neutral-500' : totalPnl >= 0 ? 'text-[#10b981]' : 'text-[#ef4444]'}`}>
+                          <td className={`py-1.5 px-2 text-right font-bold tabular-nums ${totalPnl == null ? 'text-muted-foreground' : totalPnl >= 0 ? 'text-[#10b981]' : 'text-[#ef4444]'}`}>
                             {totalPnl == null ? '—' : `${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`}
                           </td>
-                          <td className={`py-1.5 px-2 text-right tabular-nums ${(pair.roiPct ?? 0) >= 0 ? 'text-neutral-300' : 'text-rose-300'}`}>
+                          <td className={`py-1.5 px-2 text-right tabular-nums ${(pair.roiPct ?? 0) >= 0 ? 'text-foreground/80' : 'text-rose-300'}`}>
                             {pair.roiPct != null ? `${pair.roiPct > 0 ? '+' : ''}${pair.roiPct.toFixed(2)}%` : '—'}
                           </td>
-                          <td className="py-1.5 px-2 text-center text-neutral-300 tabular-nums">
+                          <td className="py-1.5 px-2 text-center text-foreground/80 tabular-nums">
                             {pair.openCount} / {pair.closedCount}
                           </td>
-                          <td className="py-1.5 px-2 text-center text-neutral-300 tabular-nums">
+                          <td className="py-1.5 px-2 text-center text-foreground/80 tabular-nums">
                             {pair.winRatePct != null ? `${pair.winRatePct}%` : '—'}
                           </td>
                           <td className="py-1.5 px-2 text-center">
@@ -1734,7 +1734,7 @@ export default function TradeHistoryWidget(props) {
                             <button
                               type="button"
                               onClick={() => openPairWorkspace(pair.symbol, 'single')}
-                              className="px-1.5 py-0.5 rounded bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-300 text-[9px] font-mono cursor-pointer"
+                              className="px-1.5 py-0.5 rounded bg-muted hover:bg-muted/80 border border-border text-foreground/80 text-[9px] font-mono cursor-pointer"
                               title="Бэктест стратегии на этой паре (график переключится на пару)"
                             >
                               Бэктест
@@ -1764,7 +1764,7 @@ export default function TradeHistoryWidget(props) {
                 </table>
               </div>
             )}
-            <div className="mt-2 text-[9.5px] text-neutral-500 font-mono px-1">
+            <div className="mt-2 text-[9.5px] text-muted-foreground font-mono px-1">
               Единый paper-модуль: подбор стратегии (бэктест / AI) → запуск торговли по паре → позиции и сделки выше. Баланс везде тестовый (paper), реальные деньги не используются.
             </div>
           </div>
@@ -1776,7 +1776,7 @@ export default function TradeHistoryWidget(props) {
           <div className="p-3">
             <div className="mb-2 text-[11px] text-muted-foreground font-mono flex items-center justify-between">
               <span>Адаптивный классификатор режимов рынка (Walk-Forward Adaptive Brain):</span>
-              <span className="text-[9.5px] text-neutral-500">In-Sample 72h • Auto-TP/SL</span>
+              <span className="text-[9.5px] text-muted-foreground">In-Sample 72h • Auto-TP/SL</span>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 font-mono text-[11px]">
               {Object.entries(monitoringData?.statuses || {}).map(([ticker, st]) => {
@@ -1790,67 +1790,67 @@ export default function TradeHistoryWidget(props) {
                     key={ticker}
                     className={`p-2.5 rounded border flex flex-col space-y-1.5 transition ${
                       isToxic
-                        ? 'bg-rose-950/20 border-rose-500/40 shadow-xs shadow-rose-950/50'
+                        ? 'bg-bear-soft/20 border-rose-500/40 shadow-xs shadow-rose-950/50'
                         : isTrend
-                        ? 'bg-emerald-950/15 border-emerald-500/30'
-                        : 'bg-[#12161E] border-neutral-800'
+                        ? 'bg-bull-soft/15 border-emerald-500/30'
+                        : 'bg-[#12161E] border-border'
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-1.5 font-bold text-white">
-                        <span className="text-amber-400 font-mono text-[9px] bg-amber-400/10 px-1 rounded border border-amber-400/20">BINANCE</span>
+                      <div className="flex items-center space-x-1.5 font-bold text-foreground">
+                        <span className="text-warning font-mono text-[9px] bg-amber-400/10 px-1 rounded border border-amber-400/20">BINANCE</span>
                         <span>{ticker}</span>
                       </div>
 
                       {/* Regime Badge */}
                       {isToxic ? (
-                        <span className="text-[9.5px] px-1.5 py-0.5 rounded font-bold bg-rose-500/15 text-rose-400 border border-rose-500/40 flex items-center space-x-1 animate-pulse">
+                        <span className="text-[9.5px] px-1.5 py-0.5 rounded font-bold bg-rose-500/15 text-bear border border-rose-500/40 flex items-center space-x-1 animate-pulse">
                           <span>🔴 TOXIC (Входы заблокированы)</span>
                         </span>
                       ) : isTrend ? (
-                        <span className="text-[9.5px] px-1.5 py-0.5 rounded font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/40 flex items-center space-x-1">
+                        <span className="text-[9.5px] px-1.5 py-0.5 rounded font-bold bg-emerald-500/15 text-bull border border-emerald-500/40 flex items-center space-x-1">
                           <span>🟢 TREND_IMPULSE</span>
                         </span>
                       ) : (
-                        <span className="text-[9.5px] px-1.5 py-0.5 rounded font-bold bg-amber-500/15 text-amber-300 border border-amber-500/40 flex items-center space-x-1">
+                        <span className="text-[9.5px] px-1.5 py-0.5 rounded font-bold bg-amber-500/15 text-amber-300 border border-warning/40 flex items-center space-x-1">
                           <span>🟡 FLAT_DENSE</span>
                         </span>
                       )}
                     </div>
 
                     <div className="text-[11px] text-muted-foreground flex items-center justify-between">
-                      <span className="truncate">Стратегия: <span className="text-neutral-200">{st.regime_name || 'Adaptive Quant'}</span></span>
+                      <span className="truncate">Стратегия: <span className="text-foreground">{st.regime_name || 'Adaptive Quant'}</span></span>
                       {st.regime_metrics && (
-                        <span className="text-neutral-500 text-[9px] tabular-nums">
+                        <span className="text-muted-foreground text-[9px] tabular-nums">
                           ATR: {(st.regime_metrics.norm_atr * 100).toFixed(2)}% • Плотность: {st.regime_metrics.rel_density}x
                         </span>
                       )}
                     </div>
 
-                    <div className="flex items-center justify-between text-[10px] pt-1 border-t border-neutral-800/50">
+                    <div className="flex items-center justify-between text-[10px] pt-1 border-t border-border/50">
                       <div>
-                        <span className="text-neutral-500">7d PnL: </span>
-                        <span className={`font-bold ${st.pnl_pct > 0 ? 'text-[#10b981]' : st.pnl_pct < 0 ? 'text-[#ef4444]' : 'text-neutral-300'}`}>
+                        <span className="text-muted-foreground">7d PnL: </span>
+                        <span className={`font-bold ${st.pnl_pct > 0 ? 'text-[#10b981]' : st.pnl_pct < 0 ? 'text-[#ef4444]' : 'text-foreground/80'}`}>
                           {st.pnl_pct ? `${st.pnl_pct > 0 ? '+' : ''}${st.pnl_pct.toFixed(1)}%` : '0.0%'}
                         </span>
                       </div>
                       <div>
-                        <span className="text-neutral-500">Сигнал: </span>
+                        <span className="text-muted-foreground">Сигнал: </span>
                         <span className={`font-bold ${
                           isToxic
-                            ? 'text-rose-400'
+                            ? 'text-bear'
                             : st.signal === 'LONG'
                             ? 'text-[#10b981]'
                             : st.signal === 'SHORT'
                             ? 'text-[#ef4444]'
-                            : 'text-neutral-400'
+                            : 'text-muted-foreground'
                         }`}>
                           {isToxic ? 'BLOCKED' : (st.signal || 'NEUTRAL')}
                         </span>
                       </div>
                       <div>
-                        <span className="text-neutral-500">Тренд: </span>
-                        <span className="text-neutral-200 font-bold">{st.forecast_trend || 'FLAT'}</span>
+                        <span className="text-muted-foreground">Тренд: </span>
+                        <span className="text-foreground font-bold">{st.forecast_trend || 'FLAT'}</span>
                       </div>
                     </div>
                   </div>

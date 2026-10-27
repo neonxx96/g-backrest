@@ -54,13 +54,13 @@ export default function TradesSettings({
         <div className="px-4 py-2.5 bg-[#121722] border-b border-[#1f2638] flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <Settings2 size={15} className="text-[#38bdf8]" />
-            <span className="font-bold text-white text-[12px]">Настройки ленты сделок (Tape)</span>
+            <span className="font-bold text-foreground text-[12px]">Настройки ленты сделок (Tape)</span>
           </div>
           <button
             type="button"
             data-testid="btn-close-trades-settings"
             onClick={onClose}
-            className="p-1 rounded text-[#94a3b8] hover:text-white hover:bg-[#1e2536] transition cursor-pointer"
+            className="p-1 rounded text-[#94a3b8] hover:text-foreground hover:bg-[#1e2536] transition cursor-pointer"
           >
             <X size={14} />
           </button>
@@ -70,7 +70,7 @@ export default function TradesSettings({
         <div className="p-4 space-y-4 max-h-[75vh] overflow-y-auto">
           {/* Section 1: Size Filter */}
           <div className="space-y-2">
-            <label className="text-[11px] font-bold text-white flex items-center justify-between">
+            <label className="text-[11px] font-bold text-foreground flex items-center justify-between">
               <span>Фильтр минимального объема</span>
               <span className="text-[10px] text-[#38bdf8] font-mono">
                 {settings.minSizeUsd === 0 ? 'Без фильтра' : `≥ $${settings.minSizeUsd.toLocaleString()}`}
@@ -85,8 +85,8 @@ export default function TradesSettings({
                   onClick={() => handleChange('minSizeUsd', preset.value)}
                   className={`py-1 rounded text-[10px] font-mono transition cursor-pointer border ${
                     settings.minSizeUsd === preset.value
-                      ? 'bg-[#2563eb] text-white border-[#3b82f6]'
-                      : 'bg-[#141a27] text-[#94a3b8] border-[#1f2638] hover:bg-[#1a2233] hover:text-white'
+                      ? 'bg-[#2563eb] text-foreground border-[#3b82f6]'
+                      : 'bg-[#141a27] text-[#94a3b8] border-[#1f2638] hover:bg-[#1a2233] hover:text-foreground'
                   }`}
                 >
                   {preset.label}
@@ -104,7 +104,7 @@ export default function TradesSettings({
                   step="1000"
                   value={settings.minSizeUsd}
                   onChange={(e) => handleChange('minSizeUsd', Math.max(0, parseFloat(e.target.value) || 0))}
-                  className="w-full pl-6 pr-2.5 py-1 bg-[#090b10] border border-[#1f2638] rounded text-[11px] font-mono text-white focus:outline-none focus:border-[#38bdf8]"
+                  className="w-full pl-6 pr-2.5 py-1 bg-[#090b10] border border-[#1f2638] rounded text-[11px] font-mono text-foreground focus:outline-none focus:border-[#38bdf8]"
                 />
               </div>
             </div>
@@ -112,7 +112,7 @@ export default function TradesSettings({
 
           {/* Section 2: Display & Highlight */}
           <div className="space-y-2 pt-1 border-t border-[#1b2130]">
-            <div className="text-[11px] font-bold text-white">Визуальное оформление</div>
+            <div className="text-[11px] font-bold text-foreground">Визуальное оформление</div>
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-[10px] text-[#94a3b8] block mb-1">Режим объема:</label>
@@ -122,8 +122,8 @@ export default function TradesSettings({
                     onClick={() => handleChange('sizeDisplayMode', 'USD')}
                     className={`flex-1 py-1 rounded text-[10px] font-mono transition cursor-pointer ${
                       settings.sizeDisplayMode === 'USD'
-                        ? 'bg-[#2563eb] text-white font-bold'
-                        : 'text-[#64748b] hover:text-white'
+                        ? 'bg-[#2563eb] text-foreground font-bold'
+                        : 'text-[#64748b] hover:text-foreground'
                     }`}
                   >
                     USD ($)
@@ -133,8 +133,8 @@ export default function TradesSettings({
                     onClick={() => handleChange('sizeDisplayMode', 'COIN')}
                     className={`flex-1 py-1 rounded text-[10px] font-mono transition cursor-pointer ${
                       settings.sizeDisplayMode === 'COIN'
-                        ? 'bg-[#2563eb] text-white font-bold'
-                        : 'text-[#64748b] hover:text-white'
+                        ? 'bg-[#2563eb] text-foreground font-bold'
+                        : 'text-[#64748b] hover:text-foreground'
                     }`}
                   >
                     COIN (Qty)
@@ -150,7 +150,7 @@ export default function TradesSettings({
                   step="10000"
                   value={settings.highlightThresholdUsd}
                   onChange={(e) => handleChange('highlightThresholdUsd', Math.max(0, parseFloat(e.target.value) || 0))}
-                  className="w-full px-2.5 py-1 bg-[#090b10] border border-[#1f2638] rounded text-[11px] font-mono text-white focus:outline-none focus:border-[#38bdf8]"
+                  className="w-full px-2.5 py-1 bg-[#090b10] border border-[#1f2638] rounded text-[11px] font-mono text-foreground focus:outline-none focus:border-[#38bdf8]"
                 />
               </div>
             </div>
@@ -161,7 +161,7 @@ export default function TradesSettings({
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-1.5">
                 <Sparkles size={13} className="text-[#eab308]" />
-                <span className="text-[11px] font-bold text-white">Звуковой трекер крупных сделок (Whale Tracker)</span>
+                <span className="text-[11px] font-bold text-foreground">Звуковой трекер крупных сделок (Whale Tracker)</span>
               </div>
               <button
                 type="button"
@@ -195,13 +195,13 @@ export default function TradesSettings({
                       step="50000"
                       value={settings.soundLevel1Usd}
                       onChange={(e) => handleChange('soundLevel1Usd', parseFloat(e.target.value) || 0)}
-                      className="w-20 px-1.5 py-0.5 bg-[#0e121a] border border-[#232b3e] rounded text-[10px] font-mono text-white text-right"
+                      className="w-20 px-1.5 py-0.5 bg-[#0e121a] border border-[#232b3e] rounded text-[10px] font-mono text-foreground text-right"
                     />
                     <button
                       type="button"
                       data-testid="btn-test-sound-l1"
                       onClick={() => onTestSound && onTestSound(1)}
-                      className="p-1 rounded bg-[#1e283d] hover:bg-[#2563eb] text-white transition cursor-pointer"
+                      className="p-1 rounded bg-[#1e283d] hover:bg-[#2563eb] text-foreground transition cursor-pointer"
                       title="Прослушать звук Уровня 1"
                     >
                       <Play size={10} />
@@ -224,13 +224,13 @@ export default function TradesSettings({
                       step="100000"
                       value={settings.soundLevel2Usd}
                       onChange={(e) => handleChange('soundLevel2Usd', parseFloat(e.target.value) || 0)}
-                      className="w-20 px-1.5 py-0.5 bg-[#0e121a] border border-[#232b3e] rounded text-[10px] font-mono text-white text-right"
+                      className="w-20 px-1.5 py-0.5 bg-[#0e121a] border border-[#232b3e] rounded text-[10px] font-mono text-foreground text-right"
                     />
                     <button
                       type="button"
                       data-testid="btn-test-sound-l2"
                       onClick={() => onTestSound && onTestSound(2)}
-                      className="p-1 rounded bg-[#1e283d] hover:bg-[#10b981] text-white transition cursor-pointer"
+                      className="p-1 rounded bg-[#1e283d] hover:bg-[#10b981] text-foreground transition cursor-pointer"
                       title="Прослушать звук Уровня 2"
                     >
                       <Play size={10} />
@@ -253,13 +253,13 @@ export default function TradesSettings({
                       step="250000"
                       value={settings.soundLevel3Usd}
                       onChange={(e) => handleChange('soundLevel3Usd', parseFloat(e.target.value) || 0)}
-                      className="w-20 px-1.5 py-0.5 bg-[#0e121a] border border-[#232b3e] rounded text-[10px] font-mono text-white text-right"
+                      className="w-20 px-1.5 py-0.5 bg-[#0e121a] border border-[#232b3e] rounded text-[10px] font-mono text-foreground text-right"
                     />
                     <button
                       type="button"
                       data-testid="btn-test-sound-l3"
                       onClick={() => onTestSound && onTestSound(3)}
-                      className="p-1 rounded bg-[#1e283d] hover:bg-[#f59e0b] text-white transition cursor-pointer"
+                      className="p-1 rounded bg-[#1e283d] hover:bg-[#f59e0b] text-foreground transition cursor-pointer"
                       title="Прослушать звук Уровня 3"
                     >
                       <Play size={10} />
@@ -282,7 +282,7 @@ export default function TradesSettings({
             type="button"
             data-testid="btn-reset-trades-settings"
             onClick={handleReset}
-            className="flex items-center space-x-1 text-[#64748b] hover:text-white transition cursor-pointer text-[10px]"
+            className="flex items-center space-x-1 text-[#64748b] hover:text-foreground transition cursor-pointer text-[10px]"
           >
             <RotateCcw size={11} />
             <span>Сброс настроек</span>
@@ -291,7 +291,7 @@ export default function TradesSettings({
             type="button"
             data-testid="btn-save-trades-settings"
             onClick={onClose}
-            className="px-3.5 py-1 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-bold text-[10.5px] transition cursor-pointer shadow"
+            className="px-3.5 py-1 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-foreground font-bold text-[10.5px] transition cursor-pointer shadow"
           >
             Готово
           </button>

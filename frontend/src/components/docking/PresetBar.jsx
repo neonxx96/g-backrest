@@ -145,8 +145,8 @@ export default function PresetBar({ onSwitchPreset, onNewPreset, onAddTradesPane
               onClick={() => onSwitchPreset(p.id)}
               className={`group flex items-center space-x-1.5 px-2 py-0.5 rounded text-[10.5px] font-medium transition cursor-pointer border shrink-0 ${
                 isActive
-                  ? 'bg-[#1e283d] text-white border-[#3b82f650] shadow-sm'
-                  : 'bg-[#0f1420] text-[#94a3b8] border-[#1b2233] hover:text-white hover:bg-[#151c2c]'
+                  ? 'bg-[#1e283d] text-foreground border-[#3b82f650] shadow-sm'
+                  : 'bg-[#0f1420] text-[#94a3b8] border-[#1b2233] hover:text-foreground hover:bg-[#151c2c]'
               }`}
             >
               <span>{p.name}</span>
@@ -309,7 +309,7 @@ export default function PresetBar({ onSwitchPreset, onNewPreset, onAddTradesPane
             className="bg-[#0e121a] border border-[#222838] rounded-lg p-4 w-80 space-y-3 shadow-2xl"
           >
             <div className="flex items-center justify-between border-b border-[#1b2130] pb-2">
-              <span className="font-bold text-white text-[12px] flex items-center gap-1.5">
+              <span className="font-bold text-foreground text-[12px] flex items-center gap-1.5">
                 <Save size={13} className="text-[#3b82f6]" />
                 <span>Новый пресет раскладки</span>
               </span>
@@ -329,7 +329,7 @@ export default function PresetBar({ onSwitchPreset, onNewPreset, onAddTradesPane
                 value={newPresetName}
                 onChange={(e) => setNewPresetName(e.target.value)}
                 placeholder="например: Двойной стакан BTC/ETH"
-                className="w-full px-2.5 py-1.5 bg-[#080a0f] border border-[#1f2638] rounded text-white text-[11px] outline-none focus:border-[#3b82f6]"
+                className="w-full px-2.5 py-1.5 bg-[#080a0f] border border-[#1f2638] rounded text-foreground text-[11px] outline-none focus:border-[#3b82f6]"
               />
             </div>
 
@@ -343,14 +343,14 @@ export default function PresetBar({ onSwitchPreset, onNewPreset, onAddTradesPane
               <button
                 type="button"
                 onClick={() => setShowAddModal(false)}
-                className="px-2.5 py-1 rounded text-[10px] text-[#94a3b8] hover:text-white hover:bg-[#1a2130] transition cursor-pointer"
+                className="px-2.5 py-1 rounded text-[10px] text-[#94a3b8] hover:text-foreground hover:bg-[#1a2130] transition cursor-pointer"
               >
                 Отмена
               </button>
               <button
                 type="submit"
                 data-testid="btn-submit-new-preset"
-                className="px-3 py-1 rounded text-[10px] font-bold bg-[#2563eb] hover:bg-[#1d4ed8] text-white transition cursor-pointer shadow"
+                className="px-3 py-1 rounded text-[10px] font-bold bg-[#2563eb] hover:bg-[#1d4ed8] text-foreground transition cursor-pointer shadow"
               >
                 Сохранить
               </button>

@@ -80,7 +80,7 @@ export default function ChannelSelector({ panelId }) {
               setIsOpen(false);
             }}
             className={`w-full flex items-center space-x-2 px-1.5 py-1 rounded text-left hover:bg-[#161c28] transition ${
-              !currentChannel ? 'bg-[#1a2333] text-white font-bold' : 'text-[#94a3b8]'
+              !currentChannel ? 'bg-[#1a2333] text-foreground font-bold' : 'text-[#94a3b8]'
             }`}
           >
             <Unlink size={11} className="text-[#64748b]" />

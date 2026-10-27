@@ -482,7 +482,7 @@ export default function TradesWidget(props) {
             className={`p-1 rounded transition cursor-pointer ${
               isPaused
                 ? 'text-[#f59e0b] bg-[#f59e0b20] border border-[#f59e0b50]'
-                : 'text-[#94a3b8] hover:text-white hover:bg-[#1e2536]'
+                : 'text-[#94a3b8] hover:text-foreground hover:bg-[#1e2536]'
             }`}
             title={isPaused ? 'Возобновить ленту' : 'Заморозить ленту (Пауза)'}
           >
@@ -505,7 +505,7 @@ export default function TradesWidget(props) {
             type="button"
             data-testid="btn-tape-settings"
             onClick={() => setIsSettingsOpen(true)}
-            className="p-1 rounded text-[#94a3b8] hover:text-white hover:bg-[#1e2536] transition cursor-pointer"
+            className="p-1 rounded text-[#94a3b8] hover:text-foreground hover:bg-[#1e2536] transition cursor-pointer"
             title="Настройки фильтров и звука"
           >
             <Settings2 size={11} />
@@ -541,7 +541,7 @@ export default function TradesWidget(props) {
             type="button"
             data-testid="btn-snap-latest-trades"
             onClick={handleSnapToLatest}
-            className="absolute bottom-2 right-3 z-10 flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-[#2563eb] hover:bg-[#1d4ed8] text-white shadow-lg text-[10px] font-mono cursor-pointer transition animate-bounce"
+            className="absolute bottom-2 right-3 z-10 flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-[#2563eb] hover:bg-[#1d4ed8] text-foreground shadow-lg text-[10px] font-mono cursor-pointer transition animate-bounce"
           >
             <ArrowDown size={10} />
             <span>Новые сделки</span>
@@ -569,7 +569,7 @@ export default function TradesWidget(props) {
               <span className={hoveredTrade.side === 'BUY' ? 'text-[#10b981]' : 'text-[#ef4444]'}>
                 {hoveredTrade.side}
               </span>
-              <span className="text-white">${formatPrice(hoveredTrade.price)}</span>
+              <span className="text-foreground">${formatPrice(hoveredTrade.price)}</span>
               <span className="text-[#94a3b8]">{hoveredTrade.size} qty</span>
               <span className="text-[#eab308] font-bold">${Math.round(hoveredTrade.usd).toLocaleString()}</span>
             </span>

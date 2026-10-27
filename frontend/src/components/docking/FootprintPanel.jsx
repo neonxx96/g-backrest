@@ -147,12 +147,12 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
       <div className="px-2.5 py-1.5 border-b border-[#1f2638] bg-[#0f1420] flex items-center justify-between gap-2 shrink-0 flex-wrap">
         <div className="flex items-center space-x-1.5">
           <BarChart3 size={12} className="text-[#3b82f6]" />
-          <span className="font-bold text-[11px] text-white">Футпринт / Кластеры</span>
+          <span className="font-bold text-[11px] text-foreground">Футпринт / Кластеры</span>
           <span className="text-[10px] text-[#60a5fa] font-mono font-semibold">{currentSymbol}</span>
           {hasData && (
             <span
               className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
-                grid.cvd >= 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
+                grid.cvd >= 0 ? 'bg-emerald-500/10 text-bull' : 'bg-rose-500/10 text-bear'
               }`}
               title="Кумулятивная дельта окна (CVD)"
             >
@@ -177,7 +177,7 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
                 className={`px-1.5 py-0.5 rounded transition-colors ${
                   settings.displayMode === m.id
                     ? 'bg-[#1e293b] text-[#38bdf8] font-bold'
-                    : 'text-gray-400 hover:text-gray-200'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
                 title={`Режим ячеек: ${m.label}`}
               >
@@ -199,7 +199,7 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
                 className={`px-1 py-0.5 rounded transition-colors ${
                   settings.scale === sc
                     ? 'bg-[#1e293b] text-amber-300 font-bold'
-                    : 'text-gray-500 hover:text-gray-300'
+                    : 'text-muted-foreground hover:text-foreground/80'
                 }`}
               >
                 {sc}x
@@ -212,7 +212,7 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
               type="button"
               onClick={centerOnPoc}
               title="Центрировать по уровню POC"
-              className="p-1 rounded bg-[#141b29] hover:bg-[#1e293b] text-gray-400 hover:text-white border border-[#1f2638]"
+              className="p-1 rounded bg-[#141b29] hover:bg-[#1e293b] text-muted-foreground hover:text-foreground border border-[#1f2638]"
             >
               <Crosshair size={11} />
             </button>
@@ -226,15 +226,15 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
             className={`p-1 rounded border transition-colors ${
               settingsOpen
                 ? 'bg-[#1e293b] text-[#38bdf8] border-[#38bdf850]'
-                : 'bg-[#141b29] text-gray-400 hover:text-white border-[#1f2638]'
+                : 'bg-[#141b29] text-muted-foreground hover:text-foreground border-[#1f2638]'
             }`}
           >
             <Settings size={11} />
           </button>
 
           {hasData && (
-            <span className="flex items-center space-x-1 text-[9px] font-mono text-gray-500">
-              <Radio size={10} className={isLive ? 'text-emerald-400 animate-pulse' : 'text-gray-600'} />
+            <span className="flex items-center space-x-1 text-[9px] font-mono text-muted-foreground">
+              <Radio size={10} className={isLive ? 'text-bull animate-pulse' : 'text-muted-foreground'} />
               <span>{isLive ? 'LIVE' : 'пауза'}</span>
             </span>
           )}
@@ -249,7 +249,7 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
           className="absolute right-2 top-9 z-30 w-64 rounded-md bg-[#111726] border border-[#28324a] shadow-xl p-3 text-[10px] space-y-2.5"
         >
           <div className="flex items-center justify-between border-b border-[#1f2638] pb-1.5">
-            <span className="font-bold text-white text-[11px]">Настройки кластеров</span>
+            <span className="font-bold text-foreground text-[11px]">Настройки кластеров</span>
             <button
               type="button"
               onClick={() => updateSetting(DEFAULT_SETTINGS)}
@@ -260,7 +260,7 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
           </div>
 
           <div className="flex items-center justify-between">
-            <span className="text-gray-400">Порог Imbalance:</span>
+            <span className="text-muted-foreground">Порог Imbalance:</span>
             <div className="flex gap-1 font-mono">
               {[2.0, 3.0, 4.0].map((r) => (
                 <button
@@ -270,7 +270,7 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
                   className={`px-1.5 py-0.5 rounded border ${
                     settings.imbalanceRatio === r
                       ? 'bg-[#1e293b] border-[#38bdf8] text-[#38bdf8] font-bold'
-                      : 'border-[#1f2638] text-gray-400'
+                      : 'border-[#1f2638] text-muted-foreground'
                   }`}
                 >
                   {Math.round(r * 100)}%
@@ -280,7 +280,7 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
           </div>
 
           <div className="flex items-center justify-between">
-            <span className="text-gray-400">Серия Stacked (мин.):</span>
+            <span className="text-muted-foreground">Серия Stacked (мин.):</span>
             <div className="flex gap-1 font-mono">
               {[2, 3, 4].map((st) => (
                 <button
@@ -290,7 +290,7 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
                   className={`px-2 py-0.5 rounded border ${
                     settings.stackedMin === st
                       ? 'bg-[#1e293b] border-[#38bdf8] text-[#38bdf8] font-bold'
-                      : 'border-[#1f2638] text-gray-400'
+                      : 'border-[#1f2638] text-muted-foreground'
                   }`}
                 >
                   {st} ур.
@@ -300,7 +300,7 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
           </div>
 
           <div className="flex items-center justify-between">
-            <span className="text-gray-400">Окно свечей:</span>
+            <span className="text-muted-foreground">Окно свечей:</span>
             <div className="flex gap-1 font-mono">
               {[10, 14, 20, 30].map((cnt) => (
                 <button
@@ -310,7 +310,7 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
                   className={`px-1.5 py-0.5 rounded border ${
                     settings.maxBars === cnt
                       ? 'bg-[#1e293b] border-[#38bdf8] text-[#38bdf8] font-bold'
-                      : 'border-[#1f2638] text-gray-400'
+                      : 'border-[#1f2638] text-muted-foreground'
                   }`}
                 >
                   {cnt}
@@ -320,7 +320,7 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
           </div>
 
           <label className="flex items-center justify-between cursor-pointer pt-1">
-            <span className="text-gray-300">Боковой профиль объёма (VP)</span>
+            <span className="text-foreground/80">Боковой профиль объёма (VP)</span>
             <input
               type="checkbox"
               checked={settings.showProfile}
@@ -330,7 +330,7 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
           </label>
 
           <label className="flex items-center justify-between cursor-pointer">
-            <span className="text-gray-300">Выделять POC каждой свечи</span>
+            <span className="text-foreground/80">Выделять POC каждой свечи</span>
             <input
               type="checkbox"
               checked={settings.highlightCandlePoc}
@@ -347,7 +347,7 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
             <BarChart3 size={24} className="animate-pulse" />
           </div>
           <div className="space-y-1 max-w-sm">
-            <div className="font-bold text-white text-[12px]">Нет кластеров для {currentSymbol}</div>
+            <div className="font-bold text-foreground text-[12px]">Нет кластеров для {currentSymbol}</div>
             <div className="text-[10.5px] text-[#94a3b8] leading-relaxed">
               {notRecorded
                 ? 'Символ не записывается рекордером. Добавьте его в focus-символы — трейды начнут агрегироваться в кластеры.'
@@ -380,41 +380,41 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
               }}
             >
               {/* Шапка свечей: время, дельта, объём, маркеры stacked/absorption/POC migration */}
-              <div className="sticky left-0 bg-[#0a0d14] z-10 px-1 py-0.5 text-gray-500 flex items-center justify-end border-b border-[#1f2638]">
+              <div className="sticky left-0 bg-[#0a0d14] z-10 px-1 py-0.5 text-muted-foreground flex items-center justify-end border-b border-[#1f2638]">
                 Цена / UTC
               </div>
               {grid.bars.map((c, i) => (
                 <div key={c.timestamp || i} className="px-1 py-0.5 text-center bg-[#0f1420] border-b border-[#1f2638]">
-                  <div className="text-gray-300 font-semibold flex items-center justify-center gap-1">
+                  <div className="text-foreground/80 font-semibold flex items-center justify-center gap-1">
                     <span>{fmtTime(c.timestamp)}</span>
                     {c.poc_migration === 1 && (
-                      <span className="text-emerald-400 text-[8px]" title="POC сместился вверх">▲</span>
+                      <span className="text-bull text-[8px]" title="POC сместился вверх">▲</span>
                     )}
                     {c.poc_migration === -1 && (
-                      <span className="text-rose-400 text-[8px]" title="POC сместился вниз">▼</span>
+                      <span className="text-bear text-[8px]" title="POC сместился вниз">▼</span>
                     )}
                   </div>
-                  <div className={`font-bold ${(c.total_delta || 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  <div className={`font-bold ${(c.total_delta || 0) >= 0 ? 'text-bull' : 'text-bear'}`}>
                     Δ{(c.total_delta || 0) >= 0 ? '+' : ''}{fmtVol(c.total_delta)}
                   </div>
-                  <div className="text-gray-500">
+                  <div className="text-muted-foreground">
                     {fmtVol(c.total_volume)}
                     {(c.stacked_imbalance?.buy > 0 || c.stacked_imbalance?.sell > 0) && (
                       <span
-                        className={c.stacked_imbalance?.buy > 0 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}
+                        className={c.stacked_imbalance?.buy > 0 ? 'text-bull font-bold' : 'text-bear font-bold'}
                         title={`Stacked imbalance x${Math.max(c.stacked_imbalance.buy, c.stacked_imbalance.sell)}`}
                       >
                         {' '}♦{Math.max(c.stacked_imbalance.buy, c.stacked_imbalance.sell)}
                       </span>
                     )}
                     {c.absorption && (
-                      <span className="text-amber-400 font-bold" title="Absorption: крупное лимитное поглощение"> ▬</span>
+                      <span className="text-warning font-bold" title="Absorption: крупное лимитное поглощение"> ▬</span>
                     )}
                   </div>
                 </div>
               ))}
               {settings.showProfile && (
-                <div className="px-1.5 py-0.5 text-center bg-[#0f1420] border-b border-l border-[#1f2638] text-gray-400 font-semibold">
+                <div className="px-1.5 py-0.5 text-center bg-[#0f1420] border-b border-l border-[#1f2638] text-muted-foreground font-semibold">
                   <div>Профиль окна</div>
                   <div className="text-[8px] text-amber-300/90">ΣVol / Δ</div>
                 </div>
@@ -432,7 +432,7 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
                           ? 'bg-[#42320b] text-amber-300 font-bold'
                           : row.isPoc
                             ? 'bg-[#2a220c] text-amber-200 font-semibold'
-                            : 'bg-[#0a0d14] text-gray-400'
+                            : 'bg-[#0a0d14] text-muted-foreground'
                       }`}
                       title={
                         prof?.isSessionPoc
@@ -478,7 +478,7 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
                           {settings.displayMode === 'bid_ask' && (
                             <>
                               <span className="text-emerald-300/95">{fmtVol(cell.buy)}</span>
-                              <span className="text-gray-600 mx-0.5">×</span>
+                              <span className="text-muted-foreground mx-0.5">×</span>
                               <span className="text-rose-300/95">{fmtVol(cell.sell)}</span>
                             </>
                           )}
@@ -488,7 +488,7 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
                             </span>
                           )}
                           {settings.displayMode === 'volume' && (
-                            <span className="text-gray-200">
+                            <span className="text-foreground">
                               {fmtVol(cell.vol)}
                             </span>
                           )}
@@ -498,7 +498,7 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
                                 {cell.imbalance === 'buy' ? `▲ ${fmtVol(cell.buy)}` : `▼ ${fmtVol(cell.sell)}`}
                               </span>
                             ) : (
-                              <span className="text-gray-600">·</span>
+                              <span className="text-muted-foreground">·</span>
                             )
                           )}
                         </div>
@@ -516,17 +516,17 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
                             prof.isSessionPoc
                               ? 'bg-amber-400/25'
                               : prof.delta >= 0
-                                ? 'bg-emerald-500/20'
-                                : 'bg-rose-500/20'
+                                ? 'bg-bull-soft'
+                                : 'bg-bear-soft'
                           }`}
                           style={{ width: `${Math.round(prof.volShare * 100)}%` }}
                         />
-                        <span className={`relative z-10 ${prof.isSessionPoc ? 'text-amber-300 font-bold' : 'text-gray-300'}`}>
+                        <span className={`relative z-10 ${prof.isSessionPoc ? 'text-amber-300 font-bold' : 'text-foreground/80'}`}>
                           {fmtVol(prof.vol)}
                         </span>
                         <span
                           className={`relative z-10 ${
-                            prof.delta > 0 ? 'text-emerald-400' : prof.delta < 0 ? 'text-rose-400' : 'text-gray-500'
+                            prof.delta > 0 ? 'text-bull' : prof.delta < 0 ? 'text-bear' : 'text-muted-foreground'
                           }`}
                         >
                           {prof.delta > 0 ? '+' : ''}{fmtVol(prof.delta)}
@@ -540,12 +540,12 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
           </div>
 
           {/* Подвал: сводка окна + активные кластерные сигналы последней свечи */}
-          <div className="px-2.5 py-1 border-t border-[#1f2638] bg-[#0f1420] flex items-center justify-between gap-2 text-[9.5px] font-mono text-gray-500 shrink-0 flex-wrap">
+          <div className="px-2.5 py-1 border-t border-[#1f2638] bg-[#0f1420] flex items-center justify-between gap-2 text-[9.5px] font-mono text-muted-foreground shrink-0 flex-wrap">
             <div className="flex items-center gap-2">
               <span>
-                Свечей: <span className="text-gray-300">{grid.bars.length}</span> · ΣVol:{' '}
-                <span className="text-gray-300">{fmtVol(grid.totalVolume)}</span> · |Δ|/Vol:{' '}
-                <span className="text-gray-300">{deltaShare.toFixed(1)}%</span>
+                Свечей: <span className="text-foreground/80">{grid.bars.length}</span> · ΣVol:{' '}
+                <span className="text-foreground/80">{fmtVol(grid.totalVolume)}</span> · |Δ|/Vol:{' '}
+                <span className="text-foreground/80">{deltaShare.toFixed(1)}%</span>
               </span>
               {sessionProfile.sessionPocPrice != null && (
                 <span className="text-amber-300/90" title="Уровень максимального объёма за всё окно">

@@ -173,7 +173,7 @@ function LiqAnalyticsDockPanel(props) {
     <div className="h-full w-full flex flex-col overflow-hidden bg-[#0c0e12]">
       <div className="h-6 px-2 bg-[#0d1017] border-b border-[#1b2130] flex items-center justify-between text-[10px] shrink-0 font-mono">
         <div className="flex items-center space-x-1.5">
-          <span className="font-bold text-white text-[11px]">Ликвидации & Карантин</span>
+          <span className="font-bold text-foreground text-[11px]">Ликвидации & Карантин</span>
           <span className="text-[#38bdf8] font-bold">{currentSymbol}</span>
         </div>
         <ChannelSelector panelId={panelId} />
@@ -223,7 +223,7 @@ function OrderBookDockPanel(props) {
     <div className="h-full w-full flex flex-col overflow-hidden bg-[#0c0e12]">
       <div className="h-6 px-2 bg-[#0d1017] border-b border-[#1b2130] flex items-center justify-between text-[10px] shrink-0 font-mono">
         <div className="flex items-center space-x-1.5">
-          <span className="font-bold text-white text-[11px]">Стакан DOM</span>
+          <span className="font-bold text-foreground text-[11px]">Стакан DOM</span>
           <span className="text-[#38bdf8] font-bold">{currentSymbol}</span>
         </div>
         <ChannelSelector panelId={panelId} />
@@ -284,7 +284,7 @@ function SignalsDockPanel(props) {
       <div className="h-6 px-2 bg-[#0f1420] border-b border-[#1f2638] flex items-center justify-between shrink-0 font-mono text-[10px]">
         <div className="flex items-center space-x-1.5">
           <Radio size={11} className="text-[#38bdf8] animate-pulse" />
-          <span className="font-bold text-white text-[11px]">Лента сигналов</span>
+          <span className="font-bold text-foreground text-[11px]">Лента сигналов</span>
           <span className="text-[9.5px] text-[#64748b]">({signals.length})</span>
         </div>
         <ChannelSelector panelId={panelId} />
@@ -309,7 +309,7 @@ function SignalsDockPanel(props) {
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-white text-[10.5px]">{sig.symbol}</span>
+                  <span className="font-bold text-foreground text-[10.5px]">{sig.symbol}</span>
                   <span
                     className={`px-1.5 py-0.2 rounded font-bold text-[9px] ${
                       isBuy ? 'bg-[#10b98125] text-[#10b981]' : 'bg-[#ef444425] text-[#ef4444]'

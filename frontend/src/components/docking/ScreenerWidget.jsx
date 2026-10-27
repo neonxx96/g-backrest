@@ -201,7 +201,7 @@ export default function ScreenerWidget({ panelId = 'watchlist_main' }) {
                   : 'Подключение к WebSocket...'
               }
             />
-            <span className="font-bold text-[11px] text-white tracking-wide">Скринер рынка</span>
+            <span className="font-bold text-[11px] text-foreground tracking-wide">Скринер рынка</span>
             {isConnected && dataSource === 'rest' && (
               <span
                 data-testid="screener-source-rest"
@@ -234,7 +234,7 @@ export default function ScreenerWidget({ panelId = 'watchlist_main' }) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Поиск монеты..."
-            className="w-full pl-5 pr-2 py-0.5 rounded bg-[#07090f] border border-[#1e2536] text-[10px] text-white placeholder-[#64748b] outline-none focus:border-[#38bdf8]"
+            className="w-full pl-5 pr-2 py-0.5 rounded bg-[#07090f] border border-[#1e2536] text-[10px] text-foreground placeholder-[#64748b] outline-none focus:border-[#38bdf8]"
           />
         </div>
 
@@ -251,7 +251,7 @@ export default function ScreenerWidget({ panelId = 'watchlist_main' }) {
           }`}
         >
           <span>⚡</span>
-          <span className="text-[8.5px] px-1 rounded bg-[#1e2536] text-white font-bold">
+          <span className="text-[8.5px] px-1 rounded bg-[#1e2536] text-foreground font-bold">
             {monitoredTickers.length}
           </span>
         </button>
@@ -264,7 +264,7 @@ export default function ScreenerWidget({ panelId = 'watchlist_main' }) {
             onClick={() => setSortBy('volume')}
             title="Сортировка по объему 24ч"
             className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono transition cursor-pointer ${
-              sortBy === 'volume' ? 'bg-[#1e283d] text-white font-bold' : 'text-[#64748b] hover:text-[#94a3b8]'
+              sortBy === 'volume' ? 'bg-[#1e283d] text-foreground font-bold' : 'text-[#64748b] hover:text-[#94a3b8]'
             }`}
           >
             Объем
@@ -377,7 +377,7 @@ export default function ScreenerWidget({ panelId = 'watchlist_main' }) {
 
                   {/* 1. Ticker Name, Exchange Badge, Worker Status */}
                   <div className="w-[82px] flex items-center space-x-1 truncate shrink-0">
-                    <span className="font-bold text-white text-[10px]">{baseName}</span>
+                    <span className="font-bold text-foreground text-[10px]">{baseName}</span>
                     <span
                       className="px-0.5 py-0 rounded text-[7px] font-mono font-bold border shrink-0"
                       style={{
@@ -408,7 +408,7 @@ export default function ScreenerWidget({ panelId = 'watchlist_main' }) {
                   </div>
 
                   {/* 2. Last Price */}
-                  <div className="w-[58px] text-right text-white font-medium shrink-0">
+                  <div className="w-[58px] text-right text-foreground font-medium shrink-0">
                     {t.price >= 1000
                       ? t.price.toFixed(1)
                       : t.price >= 1
