@@ -301,7 +301,7 @@ export default function OnChartDOM({ engine, symbol }) {
   }[status];
 
   const Row = ({ label, children }) => (
-    <label className="flex items-center justify-between gap-3 text-[10px] text-gray-400">
+    <label className="flex items-center justify-between gap-3 text-[10px] text-muted-foreground">
       <span>{label}</span>{children}
     </label>
   );
@@ -321,13 +321,13 @@ export default function OnChartDOM({ engine, symbol }) {
           </div>
         )}
         {enabled && !statusText && hud && (
-          <div className="px-2 py-0.5 rounded bg-[#141a26]/80 border border-[#1f2638] text-[9px] text-gray-500 font-mono">{hud}</div>
+          <div className="px-2 py-0.5 rounded bg-[#141a26]/80 border border-[#1f2638] text-[9px] text-muted-foreground font-mono">{hud}</div>
         )}
         {settingsOpen && (
           <div className="pointer-events-auto w-60 p-2.5 rounded bg-[#0f1420]/95 border border-[#1f2638] shadow-xl space-y-1.5">
-            <div className="flex items-center justify-between text-[11px] font-semibold text-gray-200">
+            <div className="flex items-center justify-between text-[11px] font-semibold text-foreground">
               Настройки DOM
-              <button onClick={() => setSettingsOpen(false)} className="text-gray-500 hover:text-gray-200"><X size={12} /></button>
+              <button onClick={() => setSettingsOpen(false)} className="text-muted-foreground hover:text-foreground"><X size={12} /></button>
             </div>
             <Row label={`Длина: ${settings.lengthPx}px`}>
               <Slider min={60} max={400} step={10} value={[settings.lengthPx]} onValueChange={([val]) => update({ lengthPx: val })} className="w-28 py-1" />
@@ -346,7 +346,7 @@ export default function OnChartDOM({ engine, symbol }) {
             <Row label={`Зрелая стенка: ${settings.matureSec}с`}>
               <Slider min={5} max={300} step={5} value={[settings.matureSec]} onValueChange={([val]) => update({ matureSec: val })} className="w-28 py-1" />
             </Row>
-            <button onClick={() => update(DEFAULT_DOM_SETTINGS)} className="w-full mt-1 text-[10px] text-gray-400 hover:text-gray-200 border border-[#1f2638] rounded py-0.5">Сбросить</button>
+            <button onClick={() => update(DEFAULT_DOM_SETTINGS)} className="w-full mt-1 text-[10px] text-muted-foreground hover:text-foreground border border-[#1f2638] rounded py-0.5">Сбросить</button>
           </div>
         )}
         <div className="pointer-events-auto flex items-center gap-1">
@@ -354,13 +354,13 @@ export default function OnChartDOM({ engine, symbol }) {
             <button
               onClick={() => setSettingsOpen((v) => !v)}
               title="Настройки On-Chart DOM"
-              className="p-1 rounded bg-[#141a26]/90 border border-[#1f2638] text-gray-400 hover:text-gray-100"
+              className="p-1 rounded bg-[#141a26]/90 border border-[#1f2638] text-muted-foreground hover:text-foreground"
             ><Settings2 size={12} /></button>
           )}
           <button
             onClick={toggleEnabled}
             title="On-Chart DOM: плотности стакана у шкалы цен"
-            className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${enabled ? 'bg-amber-500/20 border-amber-400/60 text-amber-300' : 'bg-[#141a26]/90 border-[#1f2638] text-gray-400 hover:text-gray-100'}`}
+            className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${enabled ? 'bg-amber-500/20 border-amber-400/60 text-amber-300' : 'bg-[#141a26]/90 border-[#1f2638] text-muted-foreground hover:text-foreground'}`}
           >DOM</button>
         </div>
       </div>

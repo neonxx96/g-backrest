@@ -62,7 +62,7 @@ export default function PositionSetupHUD({
               data-testid="btn-quick-backtest-setup"
               onClick={handleQuickBacktestCurrentSetup}
               disabled={isBacktesting}
-              className="px-2 py-0.5 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-bold flex items-center space-x-1 transition cursor-pointer shadow-sm text-[9.5px]"
+              className="px-2 py-0.5 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-foreground font-bold flex items-center space-x-1 transition cursor-pointer shadow-sm text-[9.5px]"
               title="Проверить этот сетап (Entry / TP / SL) на реальной истории Binance с комиссиями"
             >
               {isBacktesting ? <Loader2 size={10} className="animate-spin" /> : <Zap size={10} className="text-yellow-300" />}
@@ -75,7 +75,7 @@ export default function PositionSetupHUD({
               data-testid="btn-ask-second-opinion"
               onClick={handleAskSecondOpinion}
               disabled={isAskingOpinion}
-              className="px-2 py-0.5 rounded bg-[#6b21a8] hover:bg-[#7e22ce] text-white font-bold flex items-center space-x-1 transition cursor-pointer shadow-sm text-[9.5px] border border-[#c084fc80]"
+              className="px-2 py-0.5 rounded bg-[#6b21a8] hover:bg-[#7e22ce] text-foreground font-bold flex items-center space-x-1 transition cursor-pointer shadow-sm text-[9.5px] border border-[#c084fc80]"
               title="Консультативное второе мнение AI по этой позиции (только факты рынка, решение за вами)"
             >
               <span>🧠</span>
@@ -88,7 +88,7 @@ export default function PositionSetupHUD({
                 setLocalPositionSetup(null);
                 window.dispatchEvent(new CustomEvent('clear-position-setup'));
               }}
-              className="ml-0.5 text-[#94a3b8] hover:text-white px-1 cursor-pointer"
+              className="ml-0.5 text-[#94a3b8] hover:text-foreground px-1 cursor-pointer"
               title="Скрыть разметку позиции"
             >
               ✕
@@ -105,13 +105,13 @@ export default function PositionSetupHUD({
             <div className="flex items-center justify-between border-b border-[#1e293b] pb-1.5 mb-2">
               <div className="flex items-center space-x-1.5">
                 <span>🧠</span>
-                <span className="font-bold text-white">Второе мнение AI ({secondOpinionData.context?.symbol || symbol} {secondOpinionData.context?.timeframe || timeframe})</span>
+                <span className="font-bold text-foreground">Второе мнение AI ({secondOpinionData.context?.symbol || symbol} {secondOpinionData.context?.timeframe || timeframe})</span>
               </div>
               <button
                 type="button"
                 data-testid="btn-close-second-opinion"
                 onClick={() => setSecondOpinionData(null)}
-                className="text-[#94a3b8] hover:text-white px-1 cursor-pointer"
+                className="text-[#94a3b8] hover:text-foreground px-1 cursor-pointer"
               >
                 ✕
               </button>
@@ -140,17 +140,17 @@ export default function PositionSetupHUD({
               </div>
               <div
                 data-testid="second-opinion-reason"
-                className="text-[11px] text-white bg-[#131b2e] border border-[#1e293b] rounded p-2 leading-snug"
+                className="text-[11px] text-foreground bg-[#131b2e] border border-[#1e293b] rounded p-2 leading-snug"
               >
                 {secondOpinionData.reason}
               </div>
               {secondOpinionData.model_used && (
                 <div className="flex items-center justify-between text-[8.5px] text-[#94a3b8] mt-1 px-1">
-                  <span>Модель: <span className="text-white font-mono">{secondOpinionData.model_used}</span></span>
+                  <span>Модель: <span className="text-foreground font-mono">{secondOpinionData.model_used}</span></span>
                   {secondOpinionData.fallback ? (
-                    <span className="text-amber-400 font-bold bg-amber-500/10 px-1 rounded border border-amber-500/30">[Fallback]</span>
+                    <span className="text-warning font-bold bg-amber-500/10 px-1 rounded border border-amber-500/30">[Fallback]</span>
                   ) : (
-                    <span className="text-emerald-400 font-bold bg-emerald-500/10 px-1 rounded border border-emerald-500/30">[Primary]</span>
+                    <span className="text-bull font-bold bg-emerald-500/10 px-1 rounded border border-emerald-500/30">[Primary]</span>
                   )}
                 </div>
               )}
@@ -159,11 +159,11 @@ export default function PositionSetupHUD({
             {/* Factual Market Snapshot Passed */}
             {secondOpinionData.context && (
               <div className="grid grid-cols-2 gap-1 text-[9.5px] text-[#94a3b8] bg-[#090d16] p-2 rounded border border-[#1e293b] mb-2">
-                <div>Тренд: <span className="text-white">{secondOpinionData.context.trend || '—'}</span></div>
-                <div>Дельта CVD: <span className="text-white">{secondOpinionData.context.cvd_bias || '—'}</span></div>
-                <div>OI (24ч): <span className="text-white">{secondOpinionData.context.oi_change_24h_pct ?? 0}%</span></div>
+                <div>Тренд: <span className="text-foreground">{secondOpinionData.context.trend || '—'}</span></div>
+                <div>Дельта CVD: <span className="text-foreground">{secondOpinionData.context.cvd_bias || '—'}</span></div>
+                <div>OI (24ч): <span className="text-foreground">{secondOpinionData.context.oi_change_24h_pct ?? 0}%</span></div>
                 <div>
-                  Ист. EV: <span className="text-white">${secondOpinionData.context.historical_ev_usd ?? 0} ({secondOpinionData.context.historical_trades_count ?? 0} сд.)</span>
+                  Ист. EV: <span className="text-foreground">${secondOpinionData.context.historical_ev_usd ?? 0} ({secondOpinionData.context.historical_trades_count ?? 0} сд.)</span>
                 </div>
               </div>
             )}
@@ -182,7 +182,7 @@ export default function PositionSetupHUD({
                   onClick={() => handleDecisionFromOpinion('ENTERED')}
                   className={`px-2 py-0.5 rounded text-[9.5px] font-bold cursor-pointer border ${
                     secondOpinionData.log?.user_decision === 'ENTERED'
-                      ? 'bg-[#059669] text-white border-[#34d399]'
+                      ? 'bg-[#059669] text-foreground border-[#34d399]'
                       : 'bg-[#059669]/20 text-[#34d399] border-[#059669]/50 hover:bg-[#059669]/40'
                   }`}
                 >
@@ -194,7 +194,7 @@ export default function PositionSetupHUD({
                   onClick={() => handleDecisionFromOpinion('SKIPPED')}
                   className={`px-2 py-0.5 rounded text-[9.5px] font-bold cursor-pointer border ${
                     secondOpinionData.log?.user_decision === 'SKIPPED'
-                      ? 'bg-[#475569] text-white border-[#94a3b8]'
+                      ? 'bg-[#475569] text-foreground border-[#94a3b8]'
                       : 'bg-[#1e293b] text-[#cbd5e1] border-[#334155] hover:bg-[#334155]'
                   }`}
                 >
@@ -206,7 +206,7 @@ export default function PositionSetupHUD({
                   onClick={() => handleDecisionFromOpinion('EXITED')}
                   className={`px-2 py-0.5 rounded text-[9.5px] font-bold cursor-pointer border ${
                     secondOpinionData.log?.user_decision === 'EXITED'
-                      ? 'bg-[#d97706] text-white border-[#fbbf24]'
+                      ? 'bg-[#d97706] text-foreground border-[#fbbf24]'
                       : 'bg-[#d97706]/20 text-[#fbbf24] border-[#d97706]/50 hover:bg-[#d97706]/40'
                   }`}
                 >

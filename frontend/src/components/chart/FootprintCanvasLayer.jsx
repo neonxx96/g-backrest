@@ -408,7 +408,7 @@ export default function FootprintCanvasLayer({ engine, symbol, timeframe = '15m'
   }[status];
 
   const Row = ({ label, children }) => (
-    <label className="flex items-center justify-between gap-3 text-[10px] text-gray-400">
+    <label className="flex items-center justify-between gap-3 text-[10px] text-muted-foreground">
       <span>{label}</span>{children}
     </label>
   );
@@ -428,21 +428,21 @@ export default function FootprintCanvasLayer({ engine, symbol, timeframe = '15m'
           </div>
         )}
         {enabled && !statusBadge && hud && (
-          <div className="px-2 py-0.5 rounded bg-[#141a26]/80 border border-[#1f2638] text-[9px] text-gray-400 font-mono">
+          <div className="px-2 py-0.5 rounded bg-[#141a26]/80 border border-[#1f2638] text-[9px] text-muted-foreground font-mono">
             {hud}
           </div>
         )}
         {settingsOpen && (
           <div className="pointer-events-auto w-64 p-2.5 rounded bg-[#0f1420]/95 border border-[#1f2638] shadow-xl space-y-1.5">
-            <div className="flex items-center justify-between text-[11px] font-semibold text-gray-200">
+            <div className="flex items-center justify-between text-[11px] font-semibold text-foreground">
               Настройки Footprint
-              <button onClick={() => setSettingsOpen(false)} className="text-gray-500 hover:text-gray-200"><X size={12} /></button>
+              <button onClick={() => setSettingsOpen(false)} className="text-muted-foreground hover:text-foreground"><X size={12} /></button>
             </div>
             <Row label="Режим">
               <select
                 value={settings.displayMode}
                 onChange={(e) => updateSetting({ displayMode: e.target.value })}
-                className="bg-[#141a26] border border-[#1f2638] rounded px-1 py-0.5 text-[10px] text-gray-200"
+                className="bg-[#141a26] border border-[#1f2638] rounded px-1 py-0.5 text-[10px] text-foreground"
               >
                 <option value="bid_ask">Bid × Ask</option>
                 <option value="delta">Delta</option>
@@ -456,7 +456,7 @@ export default function FootprintCanvasLayer({ engine, symbol, timeframe = '15m'
                     key={sc}
                     type="button"
                     onClick={() => updateSetting({ scale: sc })}
-                    className={`px-1.5 py-0.5 rounded text-[9px] font-mono ${settings.scale === sc ? 'bg-blue-600 text-white font-bold' : 'bg-[#141a26] text-gray-400'}`}
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-mono ${settings.scale === sc ? 'bg-blue-600 text-foreground font-bold' : 'bg-[#141a26] text-muted-foreground'}`}
                   >
                     {sc}x
                   </button>
@@ -470,7 +470,7 @@ export default function FootprintCanvasLayer({ engine, symbol, timeframe = '15m'
                     key={imb}
                     type="button"
                     onClick={() => updateSetting({ imbalanceRatio: imb })}
-                    className={`px-1.5 py-0.5 rounded text-[9px] font-mono ${settings.imbalanceRatio === imb ? 'bg-amber-600 text-white font-bold' : 'bg-[#141a26] text-gray-400'}`}
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-mono ${settings.imbalanceRatio === imb ? 'bg-amber-600 text-foreground font-bold' : 'bg-[#141a26] text-muted-foreground'}`}
                   >
                     {imb * 100}%
                   </button>
@@ -488,7 +488,7 @@ export default function FootprintCanvasLayer({ engine, symbol, timeframe = '15m'
             </Row>
             <button
               onClick={() => updateSetting(DEFAULT_FP_SETTINGS)}
-              className="w-full mt-1 text-[10px] text-gray-400 hover:text-gray-200 border border-[#1f2638] rounded py-0.5"
+              className="w-full mt-1 text-[10px] text-muted-foreground hover:text-foreground border border-[#1f2638] rounded py-0.5"
             >
               Сбросить
             </button>
@@ -499,7 +499,7 @@ export default function FootprintCanvasLayer({ engine, symbol, timeframe = '15m'
             <button
               onClick={() => setSettingsOpen((v) => !v)}
               title="Настройки Footprint"
-              className="p-1 rounded bg-[#141a26]/90 border border-[#1f2638] text-gray-400 hover:text-gray-100"
+              className="p-1 rounded bg-[#141a26]/90 border border-[#1f2638] text-muted-foreground hover:text-foreground"
             >
               <Settings2 size={12} />
             </button>
@@ -510,7 +510,7 @@ export default function FootprintCanvasLayer({ engine, symbol, timeframe = '15m'
             className={`px-2 py-0.5 rounded border text-[10px] font-semibold ${
               enabled
                 ? 'bg-blue-500/20 border-blue-400/60 text-blue-300'
-                : 'bg-[#141a26]/90 border-[#1f2638] text-gray-400 hover:text-gray-100'
+                : 'bg-[#141a26]/90 border-[#1f2638] text-muted-foreground hover:text-foreground'
             }`}
           >
             FP

@@ -616,7 +616,7 @@ export default function ChartToolbar({
         {/* Right Section: Layers, Indicators, Crosshair, AI, Backtest */}
         <div className="flex items-center gap-1 shrink-0 font-mono">
           {statusMsg && (
-            <span className="text-amber-400 text-[10px] animate-pulse mr-1 truncate max-w-[120px]">
+            <span className="text-warning text-[10px] animate-pulse mr-1 truncate max-w-[120px]">
               {statusMsg}
             </span>
           )}
@@ -1018,7 +1018,7 @@ export default function ChartToolbar({
                 disabled={isBacktesting}
                 className={`px-1.5 py-0.5 rounded border transition cursor-pointer flex items-center gap-1 text-[10px] ${
                   isCurrentSymbolResult
-                    ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/25'
+                    ? 'bg-emerald-500/15 text-bull border-emerald-500/40 hover:bg-emerald-500/25'
                     : 'border-border/60 text-muted-foreground hover:bg-muted hover:text-foreground'
                 }`}
                 title={`Запустить 1-click бэктест на истории ${symbol} (${timeframe})`}
@@ -1026,7 +1026,7 @@ export default function ChartToolbar({
                 {isBacktesting ? (
                   <Loader2 size={10} className="animate-spin text-primary" />
                 ) : (
-                  <Zap size={10} className={isCurrentSymbolResult ? 'text-emerald-400' : 'text-amber-400'} />
+                  <Zap size={10} className={isCurrentSymbolResult ? 'text-bull' : 'text-warning'} />
                 )}
                 <span className="hidden md:inline">
                   {isBacktesting
@@ -1039,11 +1039,11 @@ export default function ChartToolbar({
 
               {isCurrentSymbolResult && activeBtResult && (
                 <div className="flex items-center space-x-1 bg-muted/50 border border-border/80 px-1.5 py-0.5 rounded text-[9px] tabular-nums">
-                  <span className="text-emerald-400 font-bold">
+                  <span className="text-bull font-bold">
                     Win {activeBtResult.win_rate}%
                   </span>
                   <span className="text-muted-foreground">|</span>
-                  <span className={(activeBtResult.net_profit_usd ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                  <span className={(activeBtResult.net_profit_usd ?? 0) >= 0 ? 'text-bull' : 'text-bear'}>
                     {(activeBtResult.net_profit_usd ?? 0) >= 0 ? '+' : ''}${activeBtResult.net_profit_usd}
                   </span>
                   {setShowTradesOnChart && (
@@ -1065,7 +1065,7 @@ export default function ChartToolbar({
           {onCloseWidget && (
             <button
               onClick={onCloseWidget}
-              className="p-1 rounded text-muted-foreground hover:text-rose-400 hover:bg-rose-400/10 transition cursor-pointer"
+              className="p-1 rounded text-muted-foreground hover:text-bear hover:bg-rose-400/10 transition cursor-pointer"
               title={`Закрыть ${titlePrefix || chartId}`}
             >
               <X size={12} />

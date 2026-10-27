@@ -110,7 +110,7 @@ export default function ChartLegend({
                       type="button"
                       title="Удалить индикатор"
                       onClick={() => onRemove(ind.id)}
-                      className="p-0.5 rounded hover:bg-background text-muted-foreground hover:text-rose-400 cursor-pointer"
+                      className="p-0.5 rounded hover:bg-background text-muted-foreground hover:text-bear cursor-pointer"
                     >
                       <X size={10} />
                     </button>

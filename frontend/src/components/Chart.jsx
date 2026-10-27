@@ -584,7 +584,7 @@ export default function Chart({
           <div className="absolute top-3 left-3 bg-[#181014] border border-[#ef535040] text-[#ef5350] px-3 py-2 rounded text-xs max-w-md shadow-xl backdrop-blur-md z-30">
             <div className="flex items-center justify-between font-bold mb-1">
               <span>Ошибка подключения Binance Futures</span>
-              <button onClick={() => setErrorDetails(null)} className="text-[#848e9c] hover:text-white">
+              <button onClick={() => setErrorDetails(null)} className="text-[#848e9c] hover:text-foreground">
                 <X size={12} />
               </button>
             </div>

@@ -163,7 +163,7 @@ export default function ChartContextMenu({
 
           <button
             onClick={handleResetScale}
-            className="w-full px-3 py-1.5 text-left hover:bg-[#191c26] hover:text-white flex items-center space-x-2 transition"
+            className="w-full px-3 py-1.5 text-left hover:bg-[#191c26] hover:text-foreground flex items-center space-x-2 transition"
           >
             <RotateCcw size={12} className="text-[#38bdf8]" />
             <span>Сбросить масштаб цены</span>
@@ -187,7 +187,7 @@ export default function ChartContextMenu({
               setMagnetEnabled(!magnetEnabled);
               setContextMenu({ visible: false, x: 0, y: 0 });
             }}
-            className="w-full px-3 py-1.5 text-left hover:bg-[#191c26] text-[#787f91] hover:text-white flex items-center justify-between transition"
+            className="w-full px-3 py-1.5 text-left hover:bg-[#191c26] text-[#787f91] hover:text-foreground flex items-center justify-between transition"
           >
             <span className="flex items-center space-x-2">
               <Magnet size={12} className={magnetEnabled ? "text-[#26a69a]" : "text-[#787f91]"} />
@@ -201,7 +201,7 @@ export default function ChartContextMenu({
               toggleIndicator('ema');
               setContextMenu({ visible: false, x: 0, y: 0 });
             }}
-            className="w-full px-3 py-1.5 text-left hover:bg-[#191c26] text-[#787f91] hover:text-white flex items-center justify-between transition"
+            className="w-full px-3 py-1.5 text-left hover:bg-[#191c26] text-[#787f91] hover:text-foreground flex items-center justify-between transition"
           >
             <span>Показать EMA(20)</span>
             {indicators.ema && <Check size={11} className="text-[#38bdf8]" />}
@@ -212,7 +212,7 @@ export default function ChartContextMenu({
               toggleIndicator('vol');
               setContextMenu({ visible: false, x: 0, y: 0 });
             }}
-            className="w-full px-3 py-1.5 text-left hover:bg-[#191c26] text-[#787f91] hover:text-white flex items-center justify-between transition"
+            className="w-full px-3 py-1.5 text-left hover:bg-[#191c26] text-[#787f91] hover:text-foreground flex items-center justify-between transition"
           >
             <span>Показать объём (VOL)</span>
             {indicators.vol && <Check size={11} className="text-[#26a69a]" />}
@@ -222,7 +222,7 @@ export default function ChartContextMenu({
 
           <button
             onClick={() => setContextMenu({ visible: false, x: 0, y: 0 })}
-            className="w-full px-3 py-1 text-left text-[#60697b] hover:text-white text-[10px]"
+            className="w-full px-3 py-1 text-left text-[#60697b] hover:text-foreground text-[10px]"
           >
             ✕ Закрыть
           </button>
@@ -231,7 +231,7 @@ export default function ChartContextMenu({
 
       {/* Level Inspector Result Card (ТАКТ 3) */}
       {levelInspectorData && (
-        <div className="absolute top-12 right-4 z-40 bg-[#0c0f17]/95 border border-[#38bdf880] rounded shadow-2xl p-3 w-80 text-xs font-mono text-white backdrop-blur-md animate-in fade-in zoom-in-95">
+        <div className="absolute top-12 right-4 z-40 bg-[#0c0f17]/95 border border-[#38bdf880] rounded shadow-2xl p-3 w-80 text-xs font-mono text-foreground backdrop-blur-md animate-in fade-in zoom-in-95">
           <div className="flex items-center justify-between pb-1.5 border-b border-[#1f2430] mb-2">
             <div className="flex items-center gap-1.5 font-bold text-[#38bdf8]">
               <BarChart3 size={14} />
@@ -239,7 +239,7 @@ export default function ChartContextMenu({
             </div>
             <button
               onClick={() => setLevelInspectorData(null)}
-              className="text-[#787f91] hover:text-white cursor-pointer px-1"
+              className="text-[#787f91] hover:text-foreground cursor-pointer px-1"
             >
               ✕
             </button>
@@ -248,7 +248,7 @@ export default function ChartContextMenu({
           <div className="grid grid-cols-3 gap-1.5 mb-2 text-center">
             <div className="bg-[#141822] p-1.5 rounded">
               <div className="text-[9px] text-[#787f91]">КАСАНИЙ</div>
-              <div className="text-sm font-bold text-white">{levelInspectorData.total_touches}</div>
+              <div className="text-sm font-bold text-foreground">{levelInspectorData.total_touches}</div>
             </div>
             <div className="bg-[#141822] p-1.5 rounded">
               <div className="text-[9px] text-[#787f91]">WINRATE</div>

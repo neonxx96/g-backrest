@@ -27,9 +27,9 @@ export default function BtTooltipOverlay({ btTooltip, chartContainerRef }) {
                 <span className="text-[#94a3b8] text-[9px]">{btTooltip.trade.regime || 'Regime: No data'}</span>
               </div>
               <div className="text-[#cbd5e1] text-[9.5px] leading-tight">
-                <div>Вход: <span className="text-white">${btTooltip.trade.entry_price}</span> → Выход: <span className="text-white">${btTooltip.trade.exit_price}</span></div>
-                <div>Entry: <span className="text-white">{Array.isArray(btTooltip.trade.entry_reason || btTooltip.trade.reason) ? (btTooltip.trade.entry_reason || btTooltip.trade.reason).join(' · ') : (btTooltip.trade.entry_reason || btTooltip.trade.reason || 'No data')}</span></div>
-                <div>Exit: <span className="text-white">{btTooltip.trade.exit_reason || 'No data'}</span></div>
+                <div>Вход: <span className="text-foreground">${btTooltip.trade.entry_price}</span> → Выход: <span className="text-foreground">${btTooltip.trade.exit_price}</span></div>
+                <div>Entry: <span className="text-foreground">{Array.isArray(btTooltip.trade.entry_reason || btTooltip.trade.reason) ? (btTooltip.trade.entry_reason || btTooltip.trade.reason).join(' · ') : (btTooltip.trade.entry_reason || btTooltip.trade.reason || 'No data')}</span></div>
+                <div>Exit: <span className="text-foreground">{btTooltip.trade.exit_reason || 'No data'}</span></div>
               </div>
               <div className={`font-bold mt-1 text-[11px] ${(btTooltip.trade.pnl_usd ?? 0) >= 0 ? 'text-[#34d399]' : 'text-[#f87171]'}`}>
                 Чистый PnL: {(btTooltip.trade.pnl_usd ?? 0) >= 0 ? '+' : ''}${btTooltip.trade.pnl_usd} ({(btTooltip.trade.pnl_pct ?? 0) >= 0 ? '+' : ''}{btTooltip.trade.pnl_pct}%)
