@@ -1,4 +1,5 @@
 import React from 'react';
+import { Slider } from '../ui/slider.jsx';
 
 // Вкладка «Order Flow & Стакан» — управляемая: cfg + updateUi колбэк (логика в SettingsModal).
 export default function OrderflowTab({ cfg, updateUi }) {
@@ -92,14 +93,13 @@ export default function OrderflowTab({ cfg, updateUi }) {
             <span className="text-white font-bold text-[11px]">Таймер подтверждения «СТЕНА»:</span>
             <span className="text-[#ffb300] font-bold">{cfg.wallLifetimeSec || 60} сек</span>
           </div>
-          <input
-            type="range"
-            min="10"
-            max="300"
-            step="10"
-            value={cfg.wallLifetimeSec || 60}
-            onChange={e => updateUi({ wallLifetimeSec: parseInt(e.target.value, 10) })}
-            className="w-full accent-[#ffb300]"
+          <Slider
+            min={10}
+            max={300}
+            step={10}
+            value={[cfg.wallLifetimeSec || 60]}
+            onValueChange={([val]) => updateUi({ wallLifetimeSec: val })}
+            className="w-full py-1.5"
           />
           <div className="text-[9.5px] text-[#60697b]">
             Время удержания уровня в стакане до присвоения метки «СТЕНА»
@@ -111,14 +111,13 @@ export default function OrderflowTab({ cfg, updateUi }) {
             <span className="text-white font-bold text-[11px]">Дистанция детекции спуфинга:</span>
             <span className="text-[#f43f5e] font-bold">{(cfg.spoofDistancePct ?? 0.35).toFixed(2)}%</span>
           </div>
-          <input
-            type="range"
-            min="0.10"
-            max="1.00"
-            step="0.05"
-            value={cfg.spoofDistancePct ?? 0.35}
-            onChange={e => updateUi({ spoofDistancePct: parseFloat(e.target.value) })}
-            className="w-full accent-[#f43f5e]"
+          <Slider
+            min={0.10}
+            max={1.00}
+            step={0.05}
+            value={[cfg.spoofDistancePct ?? 0.35]}
+            onValueChange={([val]) => updateUi({ spoofDistancePct: val })}
+            className="w-full py-1.5"
           />
           <div className="text-[9.5px] text-[#60697b]">
             Снятие крупной стенки без объёма в ленте ближе этого порога помечается как СПУФ

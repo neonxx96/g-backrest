@@ -2,6 +2,7 @@ import React from 'react';
 import { THEME_PRESETS, MONO_FONTS } from './uiConfig';
 import { themeBridge } from '../../theme/themeBridge';
 import { calculateAutoScale } from '../../theme/screenTiers';
+import { Slider } from '../ui/slider.jsx';
 
 export default function AppearanceTab({ cfg, updateUi }) {
   const currentScale = cfg.uiScale || themeBridge.getUiScale();
@@ -95,14 +96,13 @@ export default function AppearanceTab({ cfg, updateUi }) {
             </div>
           </div>
 
-          <input
-            type="range"
-            min="0.70"
-            max="1.60"
-            step="0.05"
-            value={currentScale}
-            onChange={(e) => handleScaleChange(parseFloat(e.target.value))}
-            className="w-full accent-[#38bdf8] cursor-pointer"
+          <Slider
+            min={0.70}
+            max={1.60}
+            step={0.05}
+            value={[currentScale]}
+            onValueChange={([val]) => handleScaleChange(val)}
+            className="w-full py-1.5"
           />
 
           {/* Quick Presets */}
@@ -217,14 +217,13 @@ export default function AppearanceTab({ cfg, updateUi }) {
             <span className="text-white font-semibold text-[11px]">Прозрачность сетки графика:</span>
             <span className="text-[#38bdf8] font-bold">{Math.round((cfg.gridOpacity ?? 0.22) * 100)}%</span>
           </div>
-          <input
-            type="range"
-            min="0.04"
-            max="0.60"
-            step="0.02"
-            value={cfg.gridOpacity ?? 0.22}
-            onChange={e => updateUi({ gridOpacity: parseFloat(e.target.value) })}
-            className="w-full accent-[#38bdf8]"
+          <Slider
+            min={0.04}
+            max={0.60}
+            step={0.02}
+            value={[cfg.gridOpacity ?? 0.22]}
+            onValueChange={([val]) => updateUi({ gridOpacity: val })}
+            className="w-full py-1.5"
           />
           <div className="text-[9.5px] text-[#60697b]">
             Регулирует контраст линий сетки KLineCharts
@@ -236,14 +235,13 @@ export default function AppearanceTab({ cfg, updateUi }) {
             <span className="text-white font-semibold text-[11px]">Яркость свечей (Opacity):</span>
             <span className="text-[#26a69a] font-bold">{Math.round((cfg.candleOpacity ?? 1.0) * 100)}%</span>
           </div>
-          <input
-            type="range"
-            min="0.40"
-            max="1.00"
-            step="0.05"
-            value={cfg.candleOpacity ?? 1.0}
-            onChange={e => updateUi({ candleOpacity: parseFloat(e.target.value) })}
-            className="w-full accent-[#26a69a]"
+          <Slider
+            min={0.40}
+            max={1.00}
+            step={0.05}
+            value={[cfg.candleOpacity ?? 1.0]}
+            onValueChange={([val]) => updateUi({ candleOpacity: val })}
+            className="w-full py-1.5"
           />
           <div className="text-[9.5px] text-[#60697b]">
             Приглушает тело свечей для акцента на кластерах и плотностях

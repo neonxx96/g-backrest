@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Sliders, Palette, RotateCcw, Check } from 'lucide-react';
 import { INDICATORS_REGISTRY } from '../../config/indicatorsRegistry';
+import { Slider } from '../ui/slider.jsx';
 
 export default function IndicatorSettingsDialog({
   isOpen,
@@ -171,14 +172,13 @@ export default function IndicatorSettingsDialog({
                     <div key={def.key} className="flex items-center justify-between text-xs">
                       <label className="text-[#cbd5e1] font-medium">{def.label}</label>
                       <div className="flex items-center space-x-2">
-                        <input
-                          type="range"
+                        <Slider
                           min={def.min || 1}
                           max={def.max || 4}
                           step={def.step || 0.5}
-                          value={val}
-                          onChange={(e) => handleStyleChange(def.key, parseFloat(e.target.value))}
-                          className="w-24 accent-[#38bdf8] cursor-pointer"
+                          value={[val]}
+                          onValueChange={([v]) => handleStyleChange(def.key, v)}
+                          className="w-24"
                         />
                         <span className="text-[11px] font-mono text-[#38bdf8] w-6 text-right">
                           {val}px

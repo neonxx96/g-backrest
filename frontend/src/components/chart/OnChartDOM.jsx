@@ -1,6 +1,7 @@
 import { crosshairBus } from '../../services/crosshairBus.js';
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Settings2, X } from 'lucide-react';
+import { Slider } from '../ui/slider.jsx';
 import { useLiquidityWallStore } from '../../stores/liquidityWallStore.js';
 import { themeBridge } from '../../theme/themeBridge.js';
 import {
@@ -329,10 +330,10 @@ export default function OnChartDOM({ engine, symbol }) {
               <button onClick={() => setSettingsOpen(false)} className="text-gray-500 hover:text-gray-200"><X size={12} /></button>
             </div>
             <Row label={`Длина: ${settings.lengthPx}px`}>
-              <input type="range" min="60" max="400" step="10" value={settings.lengthPx} onChange={(e) => update({ lengthPx: Number(e.target.value) })} />
+              <Slider min={60} max={400} step={10} value={[settings.lengthPx]} onValueChange={([val]) => update({ lengthPx: val })} className="w-28 py-1" />
             </Row>
             <Row label={`Прозрачность: ${Math.round(settings.opacity * 100)}%`}>
-              <input type="range" min="0.1" max="1" step="0.05" value={settings.opacity} onChange={(e) => update({ opacity: Number(e.target.value) })} />
+              <Slider min={0.1} max={1} step={0.05} value={[settings.opacity]} onValueChange={([val]) => update({ opacity: val })} className="w-28 py-1" />
             </Row>
             <Row label="Цвет bid"><input type="color" value={settings.bidColor} onChange={(e) => update({ bidColor: e.target.value })} /></Row>
             <Row label="Цвет ask"><input type="color" value={settings.askColor} onChange={(e) => update({ askColor: e.target.value })} /></Row>
@@ -340,10 +341,10 @@ export default function OnChartDOM({ engine, symbol }) {
             <Row label="Лог-шкала"><input type="checkbox" checked={settings.logScale} onChange={(e) => update({ logScale: e.target.checked })} /></Row>
             <Row label="Текст на стенках"><input type="checkbox" checked={settings.showText} onChange={(e) => update({ showText: e.target.checked })} /></Row>
             <Row label={`Мин. стенка: $${fmtUsdCompact(settings.minWallUsd)}`}>
-              <input type="range" min="50000" max="5000000" step="50000" value={settings.minWallUsd} onChange={(e) => update({ minWallUsd: Number(e.target.value) })} />
+              <Slider min={50000} max={5000000} step={50000} value={[settings.minWallUsd]} onValueChange={([val]) => update({ minWallUsd: val })} className="w-28 py-1" />
             </Row>
             <Row label={`Зрелая стенка: ${settings.matureSec}с`}>
-              <input type="range" min="5" max="300" step="5" value={settings.matureSec} onChange={(e) => update({ matureSec: Number(e.target.value) })} />
+              <Slider min={5} max={300} step={5} value={[settings.matureSec]} onValueChange={([val]) => update({ matureSec: val })} className="w-28 py-1" />
             </Row>
             <button onClick={() => update(DEFAULT_DOM_SETTINGS)} className="w-full mt-1 text-[10px] text-gray-400 hover:text-gray-200 border border-[#1f2638] rounded py-0.5">Сбросить</button>
           </div>

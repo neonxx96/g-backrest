@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { themeBridge } from '../../theme/themeBridge.js';
 import { Settings2, X } from 'lucide-react';
+import { Slider } from '../ui/slider.jsx';
 import { TF_MS } from '../../services/marketDataFetcher.js';
 import { fmtVol } from '../docking/footprintGrid.js';
 import { hexToRgba, fmtUsdCompact } from './onChartDomMath.js';
@@ -483,7 +484,7 @@ export default function FootprintCanvasLayer({ engine, symbol, timeframe = '15m'
               <input type="checkbox" checked={settings.showDeltaTable} onChange={(e) => updateSetting({ showDeltaTable: e.target.checked })} />
             </Row>
             <Row label={`Прозрачность: ${Math.round(settings.opacity * 100)}%`}>
-              <input type="range" min="0.2" max="1" step="0.05" value={settings.opacity} onChange={(e) => updateSetting({ opacity: Number(e.target.value) })} />
+              <Slider min={0.2} max={1} step={0.05} value={[settings.opacity]} onValueChange={([val]) => updateSetting({ opacity: val })} className="w-28 py-1" />
             </Row>
             <button
               onClick={() => updateSetting(DEFAULT_FP_SETTINGS)}

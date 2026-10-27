@@ -186,10 +186,10 @@
     "rawSelects": 0
   },
   "frontend/src/components/DecisionJournalModal.jsx": {
-    "total": 12,
+    "total": 10,
     "rawColors": 0,
     "rawButtons": 10,
-    "rawSelects": 2
+    "rawSelects": 0
   },
   "frontend/src/components/design-previews/LayerToolbar.jsx": {
     "total": 7,
@@ -210,10 +210,10 @@
     "rawSelects": 0
   },
   "frontend/src/components/docking/AlertsModal.jsx": {
-    "total": 108,
-    "rawColors": 97,
+    "total": 100,
+    "rawColors": 91,
     "rawButtons": 9,
-    "rawSelects": 2
+    "rawSelects": 0
   },
   "frontend/src/components/docking/AutoSelectPanel.jsx": {
     "total": 22,

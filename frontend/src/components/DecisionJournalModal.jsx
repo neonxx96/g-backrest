@@ -1,6 +1,13 @@
 import SymbolLink from './ui/SymbolLink.jsx';
 import React, { useState, useEffect, useCallback } from 'react';
 import { X, Download, RefreshCw, BookOpen, Brain, CheckCircle2, SkipForward, Flag, PlusCircle } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from './ui/select.jsx';
 
 import SessionReviewPanel from './SessionReviewPanel';
 
@@ -397,51 +404,40 @@ export default function DecisionJournalModal({
           </div>
 
           {/* Right: Filters */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <label style={{ fontSize: '11px', color: '#94a3b8' }}>Монета:</label>
-            <select
-              data-testid="select-journal-symbol-filter"
-              value={symbolFilter}
-              onChange={(e) => setSymbolFilter(e.target.value)}
-              style={{
-                padding: '4px 8px',
-                borderRadius: '5px',
-                backgroundColor: '#0b0e14',
-                border: '1px solid #2b3548',
-                color: '#f8fafc',
-                fontSize: '11px',
-                fontWeight: 600,
-              }}
-            >
-              <option value="ALL">Все монеты</option>
-              {uniqueSymbols.map((sym) => (
-                <option key={sym} value={sym}>
-                  {sym}
-                </option>
-              ))}
-            </select>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-muted-foreground font-mono">Монета:</span>
+            <div data-testid="select-journal-symbol-filter">
+              <Select value={symbolFilter} onValueChange={setSymbolFilter}>
+                <SelectTrigger className="h-7 min-w-[110px] text-[11px] bg-background border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">Все монеты</SelectItem>
+                  {uniqueSymbols.map((sym) => (
+                    <SelectItem key={sym} value={sym}>
+                      {sym}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-            <label style={{ fontSize: '11px', color: '#94a3b8' }}>Тип:</label>
-            <select
-              data-testid="select-journal-type-filter"
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              style={{
-                padding: '4px 8px',
-                borderRadius: '5px',
-                backgroundColor: '#0b0e14',
-                border: '1px solid #2b3548',
-                color: '#f8fafc',
-                fontSize: '11px',
-              }}
-            >
-              <option value="ALL">Все события</option>
-              <option value="SIGNAL">📡 Сигналы</option>
-              <option value="AI_OPINION">🧠 Второе мнение AI</option>
-              <option value="MANUAL_ENTRY">⚡ Входы вручную</option>
-              <option value="MANUAL_EXIT">🏁 Выходы</option>
-              <option value="MANUAL_SKIP">⏭ Пропуски</option>
-            </select>
+            <span className="text-[11px] text-muted-foreground font-mono">Тип:</span>
+            <div data-testid="select-journal-type-filter">
+              <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <SelectTrigger className="h-7 min-w-[120px] text-[11px] bg-background border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">Все события</SelectItem>
+                  <SelectItem value="SIGNAL">📡 Сигналы</SelectItem>
+                  <SelectItem value="AI_OPINION">🧠 Второе мнение AI</SelectItem>
+                  <SelectItem value="MANUAL_ENTRY">⚡ Вход вручную</SelectItem>
+                  <SelectItem value="MANUAL_EXIT">🏁 Выход</SelectItem>
+                  <SelectItem value="MANUAL_SKIP">⏭ Пропуск</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
 

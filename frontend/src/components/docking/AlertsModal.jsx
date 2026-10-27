@@ -21,6 +21,13 @@ import {
 } from 'lucide-react';
 import { useAlertsStore } from '../../stores/alertsStore';
 import { resolveAlertPriceInput } from '../../services/marketTruth.js';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../ui/select.jsx';
 
 const CONDITIONS = [
   'Crosses above',
@@ -225,20 +232,18 @@ export default function AlertsModal({ currentSymbol = 'BTCUSDT', currentPrice = 
                   <label className="block text-[11px] text-muted-foreground font-mono mb-1">
                     Условие
                   </label>
-                  <div className="relative">
-                    <select
-                      value={condition}
-                      onChange={(e) => setCondition(e.target.value)}
-                      className="w-full bg-[#07090b] border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-white appearance-none outline-none focus:border-blue-500 font-mono cursor-pointer"
-                    >
+                  <Select value={condition} onValueChange={setCondition}>
+                    <SelectTrigger className="h-8 text-xs bg-background border-border">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
                       {CONDITIONS.map((c) => (
-                        <option key={c} value={c}>
+                        <SelectItem key={c} value={c}>
                           {c}
-                        </option>
+                        </SelectItem>
                       ))}
-                    </select>
-                    <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-500 pointer-events-none" />
-                  </div>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div>
@@ -395,20 +400,18 @@ export default function AlertsModal({ currentSymbol = 'BTCUSDT', currentPrice = 
                 <span className="text-[10px] text-blue-400">EXPIRES</span>
               </div>
 
-              <div className="relative">
-                <select
-                  value={expiresAt}
-                  onChange={(e) => setExpiresAt(e.target.value)}
-                  className="w-full bg-[#07090b] border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-white appearance-none outline-none focus:border-blue-500 font-mono cursor-pointer"
-                >
+              <Select value={expiresAt} onValueChange={setExpiresAt}>
+                <SelectTrigger className="h-8 text-xs bg-background border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
                   {EXPIRATIONS.map((exp) => (
-                    <option key={exp} value={exp}>
+                    <SelectItem key={exp} value={exp}>
                       {exp}
-                    </option>
+                    </SelectItem>
                   ))}
-                </select>
-                <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-500 pointer-events-none" />
-              </div>
+                </SelectContent>
+              </Select>
             </div>
 
             {/* Actions */}

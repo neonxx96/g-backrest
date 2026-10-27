@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Slider } from '../ui/slider.jsx';
 import {
   PALETTES,
   samplePalette,
@@ -453,19 +454,17 @@ export default function LiquidationHeatmapGL({
               <span>Прозрачность</span>
               <span className="text-foreground font-semibold">{Math.round(opacity * 100)}%</span>
             </div>
-            <input
-              type="range"
-              min="0.2"
-              max="1.0"
-              step="0.05"
-              value={opacity}
-              onChange={(e) => {
-                const val = Number(e.target.value);
+            <Slider
+              min={0.2}
+              max={1.0}
+              step={0.05}
+              value={[opacity]}
+              onValueChange={([val]) => {
                 setOpacity(val);
                 localStorage.setItem('chart_liq_opacity', String(val));
                 window.dispatchEvent(new CustomEvent('signalscript:chart-settings-changed'));
               }}
-              className="w-full accent-primary h-1 bg-muted rounded cursor-pointer"
+              className="w-full py-1"
             />
           </div>
 
@@ -474,19 +473,17 @@ export default function LiquidationHeatmapGL({
               <span>Размытие (Гаусс)</span>
               <span className="text-foreground font-semibold">{blur.toFixed(1)}x</span>
             </div>
-            <input
-              type="range"
-              min="0.5"
-              max="2.5"
-              step="0.1"
-              value={blur}
-              onChange={(e) => {
-                const val = Number(e.target.value);
+            <Slider
+              min={0.5}
+              max={2.5}
+              step={0.1}
+              value={[blur]}
+              onValueChange={([val]) => {
                 setBlur(val);
                 localStorage.setItem('chart_liq_blur', String(val));
                 window.dispatchEvent(new CustomEvent('signalscript:chart-settings-changed'));
               }}
-              className="w-full accent-primary h-1 bg-muted rounded cursor-pointer"
+              className="w-full py-1"
             />
           </div>
 
