@@ -197,7 +197,7 @@ export default function AssistantHUD({
         <div
           data-testid="assistant-hud-minimized"
           onClick={() => setIsExpanded(true)}
-          className="flex items-center space-x-2 px-2.5 py-1 rounded-md bg-[#0b0e14]/90 border border-neutral-700/80 shadow-2xl backdrop-blur-md cursor-pointer hover:border-neutral-500 transition text-[10.5px]"
+          className="flex items-center space-x-2 px-2.5 py-1 rounded bg-popover/90 border border-border shadow-md backdrop-blur-md cursor-pointer hover:border-border/80 transition text-[10.5px] text-foreground"
           title="Развернуть Live Tactical Assistant HUD"
         >
           <span className={`w-2 h-2 rounded-full ${regimeInfo.dot} animate-pulse`} />
@@ -220,7 +220,7 @@ export default function AssistantHUD({
         /* Expanded Tactical HUD Card */
         <div
           data-testid="assistant-hud-card"
-          className="w-80 rounded-lg bg-[#0b0f17]/95 border border-neutral-800 shadow-2xl backdrop-blur-md p-2.5 text-neutral-200 text-[10.5px] font-mono animate-in fade-in zoom-in-95"
+          className="w-80 rounded bg-popover/95 border border-border shadow-xl backdrop-blur-md p-2.5 text-foreground text-[10.5px] font-mono animate-in fade-in zoom-in-95"
         >
           {/* Header with Title & Collapse */}
           <div className="flex items-center justify-between pb-1.5 border-b border-neutral-800/80 mb-2">

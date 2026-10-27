@@ -99,8 +99,7 @@ export default function ChartToolbar({
 
   return (
       <div
-        style={{ backgroundColor: 'var(--bg-panel-header)', borderColor: 'var(--border-subtle)' }}
-        className="flex items-center justify-between flex-wrap px-2 py-1 border-b text-xs gap-1 shrink-0"
+        className="flex items-center justify-between flex-wrap px-2 py-1 border-b border-border/60 bg-card/90 text-xs gap-1 shrink-0 text-foreground"
       >
         {/* Drawing Tools */}
         <div className="flex items-center flex-wrap gap-0.5 shrink-0">
@@ -141,7 +140,7 @@ export default function ChartToolbar({
             title="Курсор / Свободное перетаскивание графика (Esc)" 
             onClick={() => cancelActiveDrawing()}
             className={`px-1.5 py-0.5 rounded text-[10.5px] font-mono flex items-center transition ${
-              !activeTool ? 'bg-[#1e293b] text-[#38bdf8] font-bold border border-[#38bdf840]' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'
+              !activeTool ? 'bg-primary/20 text-primary border border-primary/40 font-bold' : 'text-muted-foreground hover:bg-muted hover:text-foreground'
             }`}
           >
             <MousePointer size={11} className="mr-0.5" />
@@ -151,7 +150,7 @@ export default function ChartToolbar({
           <button 
             title="Трендовая линия (Отрезок)" 
             onClick={() => handleSelectTool('segment')}
-            className={`px-1.5 py-0.5 rounded text-[10.5px] font-mono flex items-center transition ${activeTool === 'segment' ? 'bg-[#2563eb] text-white' : 'text-[#787f91] hover:bg-[#161922] hover:text-white'}`}
+            className={`px-1.5 py-0.5 rounded text-[10.5px] font-mono flex items-center transition ${activeTool === 'segment' ? 'bg-primary/20 text-primary border border-primary/40 font-bold' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
           >
             <Minus size={12} className="mr-0.5" />
             <span className="hidden 2xl:inline">Линия</span>

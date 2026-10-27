@@ -16,25 +16,25 @@ export default function PositionSetupHUD({
         {effectivePositionSetup && Number(effectivePositionSetup.entry_price) > 0 && (
           <div
             data-testid="chart-position-hud"
-            className="absolute top-2.5 left-3 z-20 pointer-events-auto flex flex-wrap items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-[#0a0e17]/90 border border-[#2563eb70] shadow-xl backdrop-blur-xs font-mono text-[10px]"
+            className="absolute top-2 left-3 z-20 pointer-events-auto flex flex-wrap items-center gap-1.5 px-2 py-1 rounded bg-popover/90 border border-border/80 shadow-md backdrop-blur-xs font-mono text-[10px] text-foreground"
           >
             <span
               data-testid="chart-badge-entry"
-              className="px-1.5 py-0.5 rounded bg-[#2563eb] text-white font-bold border border-[#60a5fa80]"
+              className="px-1.5 py-0.5 rounded bg-primary/20 text-primary font-bold border border-primary/40"
             >
               [{effectivePositionSetup.order_type || (effectivePositionSetup.direction === 'SHORT' ? 'SELL LIMIT' : 'BUY LIMIT')} @ {Number(effectivePositionSetup.entry_price).toFixed(Number(effectivePositionSetup.entry_price) >= 1000 ? 1 : 2)}]
             </span>
 
             <span
               data-testid="chart-badge-sl"
-              className="px-1.5 py-0.5 rounded bg-[#dc2626] text-white font-bold border border-[#fca5a580]"
+              className="px-1.5 py-0.5 rounded bg-bear/20 text-bear font-bold border border-bear/40"
             >
               [SL @ {Number(effectivePositionSetup.sl_price).toFixed(Number(effectivePositionSetup.sl_price) >= 1000 ? 1 : 2)} ({Number(effectivePositionSetup.sl_pct ?? -0.28).toFixed(2)}% | -${Math.round(Number(effectivePositionSetup.sl_risk_usd ?? 50))})]
             </span>
 
             <span
               data-testid="chart-badge-tp1"
-              className="px-1.5 py-0.5 rounded bg-[#059669] text-white font-bold border border-[#6ee7b780]"
+              className="px-1.5 py-0.5 rounded bg-bull/20 text-bull font-bold border border-bull/40"
             >
               [TP1 @ {Number(effectivePositionSetup.tp1_price).toFixed(Number(effectivePositionSetup.tp1_price) >= 1000 ? 1 : 2)} (+{Number(effectivePositionSetup.tp1_pct ?? 0.43).toFixed(2)}%)]
             </span>
@@ -42,7 +42,7 @@ export default function PositionSetupHUD({
             {effectivePositionSetup.tp2_price && (
               <span
                 data-testid="chart-badge-tp2"
-                className="px-1.5 py-0.5 rounded bg-[#047857] text-white font-bold border border-[#34d39980]"
+                className="px-1.5 py-0.5 rounded bg-bull/20 text-bull font-bold border border-bull/40"
               >
                 [TP2 @ {Number(effectivePositionSetup.tp2_price).toFixed(Number(effectivePositionSetup.tp2_price) >= 1000 ? 1 : 2)} (+{Number(effectivePositionSetup.tp2_pct ?? 0.92).toFixed(2)}%)]
               </span>
@@ -50,7 +50,7 @@ export default function PositionSetupHUD({
 
             <span
               data-testid="chart-badge-rr"
-              className="px-1.5 py-0.5 rounded bg-[#1e293b] text-[#38bdf8] font-bold border border-[#38bdf860]"
+              className="px-1.5 py-0.5 rounded bg-muted/60 text-foreground font-bold border border-border"
             >
               R:R {effectivePositionSetup.rr_label || `1:${Number(effectivePositionSetup.rr_ratio || 2.8).toFixed(1)}`}
             </span>
