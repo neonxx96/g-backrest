@@ -145,12 +145,16 @@ def can_open_position(
     max_positions: int = 4,
     max_portfolio_heat_pct: float = 0.0125,     # 1.25% ($12.50 on $1,000)
     max_directional_heat_pct: float = 0.0075,   # 0.75% ($7.50 on $1,000)
+    paused_symbols: Optional[Any] = None,
+    symbol: Optional[str] = None,
 ) -> Tuple[bool, str]:
     """
     Verifies that adding a new position respects concurrent position counts,
     aggregate Portfolio Heat (including active positions + reserved risk in pending entry orders),
     and Directional Heat limits.
     """
+    if paused_symbols and symbol and symbol.upper() in {s.upper() for s in paused_symbols}:
+        return False, f"PAIR_PAUSED ({symbol.upper()})"
     pending_entries = [
         o for o in (pending_orders or [])
         if str(o.get("role", "")).upper() in ("ENTRY", "PAPERORDERROLE.ENTRY")

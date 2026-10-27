@@ -242,3 +242,16 @@ class PaperTradeRecord(Base):
         Index('idx_paper_symbol_exit_ts', 'symbol', 'exit_ts'),
     )
 
+
+
+class PairTradingState(Base):
+    """
+    Durable operational control state for pair trading (active, paused, closed).
+    Survives server restarts and enforces pair-level risk pause.
+    """
+    __tablename__ = "pair_trading_states"
+
+    symbol = Column(String, primary_key=True)
+    status = Column(String, default="active", nullable=False)  # 'active', 'paused', 'closed'
+    reason = Column(String, default="")
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

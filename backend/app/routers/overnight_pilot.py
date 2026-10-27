@@ -226,3 +226,67 @@ async def auto_select_and_start(req: AutoSelectRequest = AutoSelectRequest()):
         raise HTTPException(status_code=400, detail=str(exc))
     return {"started": True, "pairs": [(c["symbol"], c["strategy_type"], c["timeframe"], c["risk_per_trade_pct"]) for c in raw],
             "counts": selection.get("counts", {}), "result": result}
+
+
+class PausePairRequest(BaseModel):
+    close_position: bool = False
+    reason: str = "USER_REQUEST"
+
+
+class ClosePairRequest(BaseModel):
+    reason: str = "EMERGENCY_CLOSE_USER"
+
+
+@router.get("/pairs")
+async def get_pairs_status():
+    """Get list of active pairs and their operational status (active, paused, closed)."""
+    return {"pairs": overnight_pilot_manager.get_pairs()}
+
+
+@router.post("/pairs/{symbol}/pause")
+async def pause_trading_pair(symbol: str, req: PausePairRequest = PausePairRequest()):
+    """Pause trading for a single pair: blocks new entries, optionally closes active position."""
+    try:
+        return await overnight_pilot_manager.pause_pair(
+            symbol=symbol,
+            close_position=req.close_position,
+            reason=req.reason,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/pairs/{symbol}/resume")
+async def resume_trading_pair(symbol: str, reason: str = "USER_REQUEST"):
+    """Resume trading for a single pair."""
+    try:
+        return await overnight_pilot_manager.resume_pair(symbol=symbol, reason=reason)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/pairs/{symbol}/close")
+async def emergency_close_pair(symbol: str, req: ClosePairRequest = ClosePairRequest()):
+    """Emergency close open position for a single pair by market."""
+    try:
+        return await overnight_pilot_manager.close_pair(symbol=symbol, reason=req.reason)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/pairs/pause-all")
+async def pause_all_trading_pairs(close_positions: bool = False):
+    """Pause trading across all pairs."""
+    try:
+        return await overnight_pilot_manager.pause_all_pairs(close_positions=close_positions)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/pairs/resume-all")
+async def resume_all_trading_pairs():
+    """Resume trading across all pairs."""
+    try:
+        return await overnight_pilot_manager.resume_all_pairs()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))

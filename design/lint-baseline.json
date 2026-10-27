@@ -312,8 +312,8 @@
     "rawSelects": 0
   },
   "frontend/src/components/LivePaperTradingView.jsx": {
-    "total": 204,
-    "rawColors": 200,
+    "total": 203,
+    "rawColors": 199,
     "rawButtons": 3,
     "rawSelects": 1
   },

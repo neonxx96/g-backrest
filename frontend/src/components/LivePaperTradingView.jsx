@@ -1,6 +1,19 @@
 import SymbolLink from './ui/SymbolLink.jsx';
 import React, { useEffect, useState } from 'react';
 import { useBacktestStore } from '../stores/backtestStore';
+import { Button } from './ui/button.jsx';
+import { Badge } from './ui/badge.jsx';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from './ui/alert-dialog.jsx';
 import {
   Zap,
   Play,
@@ -405,6 +418,67 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
   const [depositAmount, setDepositAmount] = useState('1000');
   const [depositBusy, setDepositBusy] = useState(false);
   const [depositMsg, setDepositMsg] = useState(null);
+  const [pairStates, setPairStates] = useState({});
+  const [pairBusy, setPairBusy] = useState(false);
+
+  const fetchPairs = async () => {
+    try {
+      const res = await fetch('/api/overnight-pilot/pairs');
+      if (res.ok) {
+        const data = await res.json();
+        const map = {};
+        (data.pairs || []).forEach((p) => {
+          map[p.symbol] = p.status;
+        });
+        setPairStates(map);
+      }
+    } catch (_) {}
+  };
+
+  const pausePair = async (sym) => {
+    setPairBusy(true);
+    try {
+      await fetch(`/api/overnight-pilot/pairs/${encodeURIComponent(sym)}/pause`, { method: 'POST' });
+      await fetchPairs();
+      fetchStatus();
+    } catch (_) {} finally { setPairBusy(false); }
+  };
+
+  const resumePair = async (sym) => {
+    setPairBusy(true);
+    try {
+      await fetch(`/api/overnight-pilot/pairs/${encodeURIComponent(sym)}/resume`, { method: 'POST' });
+      await fetchPairs();
+      fetchStatus();
+    } catch (_) {} finally { setPairBusy(false); }
+  };
+
+  const closePair = async (sym) => {
+    setPairBusy(true);
+    try {
+      await fetch(`/api/overnight-pilot/pairs/${encodeURIComponent(sym)}/close`, { method: 'POST' });
+      await fetchPairs();
+      fetchStatus();
+    } catch (_) {} finally { setPairBusy(false); }
+  };
+
+  const pauseAllPairs = async () => {
+    setPairBusy(true);
+    try {
+      await fetch('/api/overnight-pilot/pairs/pause-all', { method: 'POST' });
+      await fetchPairs();
+      fetchStatus();
+    } catch (_) {} finally { setPairBusy(false); }
+  };
+
+  const resumeAllPairs = async () => {
+    setPairBusy(true);
+    try {
+      await fetch('/api/overnight-pilot/pairs/resume-all', { method: 'POST' });
+      await fetchPairs();
+      fetchStatus();
+    } catch (_) {} finally { setPairBusy(false); }
+  };
 
   const handleDeposit = async () => {
     const amount = parseFloat(depositAmount);
@@ -427,8 +501,10 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
   // Poll status every 2.5 seconds when active
   useEffect(() => {
     fetchStatus();
+    fetchPairs();
     const timer = setInterval(() => {
       fetchStatus();
+      fetchPairs();
     }, 2500);
     return () => clearInterval(timer);
   }, [fetchStatus]);
@@ -554,7 +630,14 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
               <TrendingUp size={12} className="text-blue-400" />
               Открытые позиции ({openPositions.length})
             </span>
-            <span className="text-[8px] text-neutral-500">REAL-TIME EXECUTION</span>
+            <div className="flex items-center gap-1.5">
+              <Button variant="outline" size="dense" disabled={pairBusy} onClick={pauseAllPairs}>
+                Пауза все
+              </Button>
+              <Button variant="outline" size="dense" disabled={pairBusy} onClick={resumeAllPairs}>
+                Старт все
+              </Button>
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto space-y-1.5 max-h-[140px]">
@@ -566,7 +649,7 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
               openPositions.map((pos, idx) => {
                 const uPnl = Number(pos.unrealized_pnl || 0);
                 return (
-                  <div key={idx} className="border border-neutral-800/80 bg-neutral-950/80 rounded p-1.5 font-mono text-[8.5px] flex items-center justify-between">
+                  <div key={idx} className="border border-neutral-800/80 bg-neutral-950/80 rounded p-1.5 font-mono text-[8.5px] flex items-center justify-between gap-2">
                     <div>
                       <div className="flex items-center gap-1.5">
                         <span className={`px-1 rounded text-[7.5px] font-bold ${pos.side === 'LONG' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
@@ -574,17 +657,60 @@ export function LivePaperTradingResults({ symbol = 'BTCUSDT' }) {
                         </span>
                         <SymbolLink symbol={pos.symbol} />
                         <span className="text-neutral-500">Qty: {pos.qty}</span>
+                        {pairStates[pos.symbol] === 'paused' ? (
+                          <Badge variant="warning" className="text-[8px] py-0 px-1">paused</Badge>
+                        ) : pairStates[pos.symbol] === 'closed' ? (
+                          <Badge variant="neutral" className="text-[8px] py-0 px-1">closed</Badge>
+                        ) : (
+                          <Badge variant="success" className="text-[8px] py-0 px-1">active</Badge>
+                        )}
                       </div>
                       <div className="text-[8px] text-neutral-400 mt-0.5">
                         Вход: ${pos.avg_entry_price} | Маржа: ${pos.margin?.toFixed(2)}
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className={`font-bold ${uPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {uPnl >= 0 ? '+' : ''}${uPnl.toFixed(2)}
+                    <div className="flex items-center gap-2">
+                      <div className="text-right">
+                        <div className={`font-bold ${uPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {uPnl >= 0 ? '+' : ''}${uPnl.toFixed(2)}
+                        </div>
+                        <div className="text-[7.5px] text-neutral-500">
+                          Комиссия: ${pos.fees_paid?.toFixed(3)}
+                        </div>
                       </div>
-                      <div className="text-[7.5px] text-neutral-500">
-                        Комиссия: ${pos.fees_paid?.toFixed(3)}
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="outline"
+                          size="dense"
+                          disabled={pairBusy}
+                          onClick={() => pairStates[pos.symbol] === 'paused' ? resumePair(pos.symbol) : pausePair(pos.symbol)}
+                        >
+                          {pairStates[pos.symbol] === 'paused' ? 'Возобновить' : 'Приостановить'}
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="destructive" size="dense" disabled={pairBusy}>
+                              Закрыть
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Экстренное закрытие {pos.symbol}</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Вы уверены, что хотите экстренно закрыть позицию по рынку для {pos.symbol}?
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Отмена</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => closePair(pos.symbol)}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              >
+                                Закрыть по рынку
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </div>
                     </div>
                   </div>

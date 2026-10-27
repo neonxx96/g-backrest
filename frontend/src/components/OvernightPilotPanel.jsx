@@ -1,5 +1,18 @@
 import SymbolLink from './ui/SymbolLink.jsx';
 import React, { useEffect, useState } from 'react';
+import { Button } from './ui/button.jsx';
+import { Badge } from './ui/badge.jsx';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from './ui/alert-dialog.jsx';
 
 const API = '/api/overnight-pilot';
 
@@ -303,15 +316,91 @@ export default function OvernightPilotPanel({ onClose }) {
   const [error, setError] = useState('');
   const [optimization, setOptimization] = useState({});
   const [preflightConfigKey, setPreflightConfigKey] = useState('');
+  const [pairStates, setPairStates] = useState({});
   const pilotRunning = Object.values(status.sessions || {}).some((session) => session.paper?.is_running);
   const preflightCurrent = Boolean(status.preflight_id && preflightConfigKey === JSON.stringify(configs));
+
+  const fetchPairs = async () => {
+    try {
+      const res = await fetch(`${API}/pairs`);
+      if (res.ok) {
+        const data = await res.json();
+        const map = {};
+        (data.pairs || []).forEach((p) => {
+          map[p.symbol] = p.status;
+        });
+        setPairStates(map);
+      }
+    } catch (_) {}
+  };
 
   const refresh = async () => {
     const res = await fetch(`${API}/status`);
     if (res.ok) setStatus(await res.json());
+    await fetchPairs();
+  };
+
+  const pausePair = async (symbol) => {
+    setBusy(true); setError('');
+    try {
+      const res = await fetch(`${API}/pairs/${encodeURIComponent(symbol)}/pause`, { method: 'POST' });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || `Не удалось приостановить ${symbol}`);
+      }
+      await fetchPairs();
+      await refresh();
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+
+  const resumePair = async (symbol) => {
+    setBusy(true); setError('');
+    try {
+      const res = await fetch(`${API}/pairs/${encodeURIComponent(symbol)}/resume`, { method: 'POST' });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || `Не удалось возобновить ${symbol}`);
+      }
+      await fetchPairs();
+      await refresh();
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+
+  const closePair = async (symbol) => {
+    setBusy(true); setError('');
+    try {
+      const res = await fetch(`${API}/pairs/${encodeURIComponent(symbol)}/close`, { method: 'POST' });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || `Не удалось закрыть позицию по ${symbol}`);
+      }
+      await fetchPairs();
+      await refresh();
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+
+  const pauseAllPairs = async () => {
+    setBusy(true); setError('');
+    try {
+      const res = await fetch(`${API}/pairs/pause-all`, { method: 'POST' });
+      if (!res.ok) throw new Error('Не удалось приостановить все пары');
+      await fetchPairs();
+      await refresh();
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+
+  const resumeAllPairs = async () => {
+    setBusy(true); setError('');
+    try {
+      const res = await fetch(`${API}/pairs/resume-all`, { method: 'POST' });
+      if (!res.ok) throw new Error('Не удалось возобновить все пары');
+      await fetchPairs();
+      await refresh();
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
   };
 
   useEffect(() => {
+    fetchPairs();
     Promise.all([
       fetch(`${API}/defaults`).then((res) => res.json()),
       fetch(`${API}/status`).then((res) => res.ok ? res.json() : null),
@@ -438,10 +527,67 @@ export default function OvernightPilotPanel({ onClose }) {
         <div><div className="text-[12px] font-bold text-amber-300">Ночной пилот · 3 стратегии</div><div className="text-[11px] text-muted-foreground">Backtest → Forecast → Paper Trading · реальные ордера отключены</div></div>
         <button onClick={onClose} className="text-neutral-500 hover:text-white">✕</button>
       </div>
+      <div className="flex items-center justify-between px-3 pt-2">
+        <div className="text-[11px] font-semibold text-foreground">Управление парами</div>
+        <div className="flex items-center gap-1.5">
+          <Button variant="outline" size="dense" disabled={busy} onClick={pauseAllPairs}>
+            Приостановить все
+          </Button>
+          <Button variant="outline" size="dense" disabled={busy} onClick={resumeAllPairs}>
+            Возобновить все
+          </Button>
+        </div>
+      </div>
       <div className="grid gap-2 p-3 xl:grid-cols-3">
         {configs.map((config, index) => (
           <div key={config.symbol} className="space-y-2 rounded border border-neutral-800 bg-[#0d1117] p-2">
             <div className="flex items-center justify-between gap-2"><SymbolLink symbol={config.symbol} /><label title="Стратегия должна быть поддержана историческим backtest и live paper runner; смена применяется после нового preflight."><select aria-label={`${config.symbol} strategy`} value={config.strategy_type} onChange={(e) => update(index, 'strategy_type', e.target.value)} className="max-w-[190px] rounded bg-neutral-950 px-1 py-0.5 text-[9px] text-amber-300">{STRATEGY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label></div>
+            <div className="flex items-center justify-between gap-1.5 rounded bg-muted/40 px-2 py-1">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-muted-foreground">Статус:</span>
+                {pairStates[config.symbol] === 'paused' ? (
+                  <Badge variant="warning" className="text-[9px]">paused</Badge>
+                ) : pairStates[config.symbol] === 'closed' ? (
+                  <Badge variant="neutral" className="text-[9px]">closed</Badge>
+                ) : (
+                  <Badge variant="success" className="text-[9px]">active</Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="dense"
+                  disabled={busy}
+                  onClick={() => pairStates[config.symbol] === 'paused' ? resumePair(config.symbol) : pausePair(config.symbol)}
+                >
+                  {pairStates[config.symbol] === 'paused' ? 'Возобновить' : 'Приостановить'}
+                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" size="dense" disabled={busy}>
+                      Закрыть
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Экстренное закрытие {config.symbol}</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Вы уверены, что хотите экстренно закрыть позицию по рынку для {config.symbol}?
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Отмена</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => closePair(config.symbol)}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      >
+                        Закрыть по рынку
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            </div>
             <label title="Размер одной свечи. Меньший timeframe даёт больше сигналов, но больше рыночного шума." className="block text-[11px] text-muted-foreground">Timeframe<select value={config.timeframe} onChange={(e) => update(index, 'timeframe', e.target.value)} className="ml-2 rounded bg-neutral-950 px-1 py-0.5 text-neutral-200"><option>5m</option><option>15m</option><option>1h</option></select></label>
             <div className="grid grid-cols-3 gap-1">
               <label title="Сколько последних дней полной истории использовать в backtest. При выборе прибыльного участка статистика искажается." className="text-[11px] text-muted-foreground">History days<input type="number" min="1" max="30" step="1" value={config.days} onChange={(e) => update(index, 'days', Number(e.target.value))} className="mt-1 w-full rounded bg-neutral-950 px-1 py-1 text-[10px] text-white" /></label>

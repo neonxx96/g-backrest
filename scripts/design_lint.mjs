@@ -81,6 +81,7 @@ for (const filePath of files) {
     if (baselineCount === undefined) {
       newFileViolations += count;
     } else if (count > baselineCount) {
+      console.log(`[Regression in ${relPath}]: current ${count} > baseline ${baselineCount} (+${count - baselineCount})`);
       regressions += (count - baselineCount);
     }
   }

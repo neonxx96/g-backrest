@@ -116,6 +116,7 @@ class PilotSession:
 class OvernightPilotManager:
     def __init__(self) -> None:
         self.sessions: Dict[str, PilotSession] = {}
+        self.pair_states: Dict[str, str] = {}
         self._forecast_tasks: Dict[str, asyncio.Task] = {}
         self._optimization_tasks: Dict[str, asyncio.Task] = {}
         self._snapshot_task: Optional[asyncio.Task] = None
@@ -831,6 +832,7 @@ class OvernightPilotManager:
             )
             rows.append({
                 "symbol": item["symbol"],
+                "pair_status": self.pair_states.get(item["symbol"], "active"),
                 "strategy_type": item["strategy_type"],
                 "session_id": item.get("session_id"),
                 "backtest_net_pnl": backtest_net_pnl,
@@ -1230,6 +1232,138 @@ class OvernightPilotManager:
             "session_id": state_dict.get("session_id"),
             "data_status": "connected",
         }
+
+
+
+    async def pause_pair(self, symbol: str, close_position: bool = False, reason: str = "USER_REQUEST") -> Dict[str, Any]:
+        sym = symbol.upper()
+        self.pair_states[sym] = "paused"
+        if self._shared_paper_session:
+            self._shared_paper_session.paused_symbols.add(sym)
+        if sym in self.sessions:
+            session = self.sessions[sym]
+            if session.runner:
+                session.runner.is_paused = True
+            if close_position and session.runner and session.runner.session:
+                pos = session.runner.session.positions.get(sym)
+                if pos and not getattr(pos, "closed", False) and getattr(pos, "qty", 0.0) > 0:
+                    price = getattr(pos, "current_price", 0.0) or getattr(pos, "entry_price", 0.0)
+                    session.runner.session.close_position(sym, price, order_type="MARKET", reason=f"PAUSE_CLOSE_{reason}")
+
+        try:
+            from backend.app.db.database import AsyncSessionLocal
+            from backend.app.db.models import PairTradingState
+            from datetime import datetime
+            async with AsyncSessionLocal() as db_session:
+                record = await db_session.get(PairTradingState, sym)
+                if not record:
+                    record = PairTradingState(symbol=sym, status="paused", reason=reason)
+                    db_session.add(record)
+                else:
+                    record.status = "paused"
+                    record.reason = reason
+                    record.updated_at = datetime.utcnow()
+                await db_session.commit()
+        except Exception as e:
+            logger.warning("Could not persist pair pause state to DB for %s: %s", sym, e)
+
+        return {"symbol": sym, "status": "paused", "close_position": close_position}
+
+    async def resume_pair(self, symbol: str, reason: str = "USER_REQUEST") -> Dict[str, Any]:
+        sym = symbol.upper()
+        self.pair_states[sym] = "active"
+        if self._shared_paper_session:
+            self._shared_paper_session.paused_symbols.discard(sym)
+        if sym in self.sessions:
+            session = self.sessions[sym]
+            if session.runner:
+                session.runner.is_paused = False
+
+        try:
+            from backend.app.db.database import AsyncSessionLocal
+            from backend.app.db.models import PairTradingState
+            from datetime import datetime
+            async with AsyncSessionLocal() as db_session:
+                record = await db_session.get(PairTradingState, sym)
+                if not record:
+                    record = PairTradingState(symbol=sym, status="active", reason=reason)
+                    db_session.add(record)
+                else:
+                    record.status = "active"
+                    record.reason = reason
+                    record.updated_at = datetime.utcnow()
+                await db_session.commit()
+        except Exception as e:
+            logger.warning("Could not persist pair resume state to DB for %s: %s", sym, e)
+
+        return {"symbol": sym, "status": "active"}
+
+    async def close_pair(self, symbol: str, reason: str = "EMERGENCY_CLOSE_USER") -> Dict[str, Any]:
+        sym = symbol.upper()
+        closed_position = False
+        if sym in self.sessions:
+            session = self.sessions[sym]
+            if session.runner and session.runner.session:
+                pos = session.runner.session.positions.get(sym)
+                if pos and not getattr(pos, "closed", False) and getattr(pos, "qty", 0.0) > 0:
+                    price = getattr(pos, "current_price", 0.0) or getattr(pos, "entry_price", 0.0)
+                    session.runner.session.close_position(sym, price, order_type="MARKET", reason=reason)
+                    closed_position = True
+
+        if not closed_position and self._shared_paper_session:
+            pos = self._shared_paper_session.positions.get(sym)
+            if pos and not getattr(pos, "closed", False) and getattr(pos, "qty", 0.0) > 0:
+                price = getattr(pos, "current_price", 0.0) or getattr(pos, "entry_price", 0.0)
+                self._shared_paper_session.close_position(sym, price, order_type="MARKET", reason=reason)
+                closed_position = True
+
+        return {"symbol": sym, "status": "closed", "closed_position": closed_position, "detail": f"Market close executed for {sym}"}
+
+    def get_pairs(self) -> List[Dict[str, Any]]:
+        pairs = []
+        symbols = set(self.sessions.keys()) | set(self.pair_states.keys())
+        if not symbols:
+            symbols = {"BTCUSDT", "ETHUSDT", "SOLUSDT"}
+        for sym in sorted(symbols):
+            status = self.pair_states.get(sym, "active")
+            session = self.sessions.get(sym)
+            strategy = session.config.strategy_type if session else "default"
+            timeframe = session.config.timeframe if session else "15m"
+            pos_dict = None
+            if session and session.runner and session.runner.session:
+                pos = session.runner.session.positions.get(sym)
+                if pos and not getattr(pos, "closed", False) and getattr(pos, "qty", 0.0) > 0:
+                    pos_dict = pos.to_dict() if hasattr(pos, "to_dict") else {"symbol": sym, "side": getattr(pos, "side", "")}
+            elif self._shared_paper_session:
+                pos = self._shared_paper_session.positions.get(sym)
+                if pos and not getattr(pos, "closed", False) and getattr(pos, "qty", 0.0) > 0:
+                    pos_dict = pos.to_dict() if hasattr(pos, "to_dict") else {"symbol": sym, "side": getattr(pos, "side", "")}
+
+            pairs.append({
+                "symbol": sym,
+                "status": status,
+                "strategy": strategy,
+                "timeframe": timeframe,
+                "has_open_position": bool(pos_dict),
+                "position": pos_dict,
+            })
+        return pairs
+
+    async def pause_all_pairs(self, close_positions: bool = False) -> Dict[str, Any]:
+        results = []
+        symbols = list(self.sessions.keys()) or ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+        for sym in symbols:
+            res = await self.pause_pair(sym, close_position=close_positions, reason="PAUSE_ALL")
+            results.append(res)
+        return {"action": "pause_all", "count": len(results), "pairs": results}
+
+    async def resume_all_pairs(self) -> Dict[str, Any]:
+        results = []
+        symbols = list(self.sessions.keys()) or ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
+        for sym in symbols:
+            res = await self.resume_pair(sym, reason="RESUME_ALL")
+            results.append(res)
+        return {"action": "resume_all", "count": len(results), "pairs": results}
 
 
 overnight_pilot_manager = OvernightPilotManager()

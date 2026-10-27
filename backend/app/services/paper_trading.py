@@ -215,6 +215,7 @@ class PaperTradingSession:
         self.is_halted: bool = False
         self.halt_reason: Optional[str] = None
         self.halt_ts: Optional[int] = None
+        self.paused_symbols: set = set()
 
     def set_lifecycle_listener(
         self,
@@ -300,6 +301,10 @@ class PaperTradingSession:
         if self.is_halted and role == PaperOrderRole.ENTRY.value:
             logger.warning(f"[KILL_SWITCH] Entry order rejected: system is HALTED ({self.halt_reason})")
             raise ValueError(f"System is HALTED: {self.halt_reason}")
+
+        if role == PaperOrderRole.ENTRY.value and symbol.upper() in self.paused_symbols:
+            logger.warning(f"[PAIR_CONTROL] Entry order rejected for {symbol}: PAIR_PAUSED")
+            raise ValueError(f"Trading paused for {symbol}: PAIR_PAUSED")
 
         if role == PaperOrderRole.ENTRY.value and regime and str(regime).upper() == "TOXIC_VOLATILITY":
             logger.warning(f"[TRADE] Entry order rejected for {symbol}: TOXIC_VOLATILITY regime blocks entries")
