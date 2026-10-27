@@ -44,12 +44,13 @@
   --color-warning: var(--warning);
   --color-info: var(--info);
 
-  /* Radii & Fonts */
+  /* Radii, Fonts & Text Scale */
   --radius-sm: calc(var(--radius) - 2px);
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) + 2px);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
+  --text-label: 0.6875rem; /* 11px */
 }
 
 * {
@@ -72,31 +73,169 @@ html, body, #root {
   user-select: none;
 }
 
+/* Numeric & Monospace Rules */
 .font-mono,
 .font-mono-numbers,
 .tabular-nums,
-[data-tabular-nums] {
-  font-family: var(--font-mono) !important;
+[data-tabular-nums],
+table, th, td {
   font-variant-numeric: tabular-nums;
 }
 
-/* Custom ultra-clean minimal scrollbars (TradingView / Tealstreet style) */
+/* Base Text Selection */
+::selection {
+  background-color: color-mix(in srgb, var(--primary) 25%, transparent);
+  color: var(--foreground);
+}
+
+/* Global Focus Ring */
+:focus-visible {
+  outline: 1px solid var(--ring);
+  outline-offset: 1px;
+}
+
+/* Custom Uniform Themed Scrollbars (8px) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--background);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 2px;
+  background-color: var(--border);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--border-active, #334155);
+  background-color: var(--muted-foreground);
+}
+
+/* Section Header Utility */
+.section-header {
+  font-size: 0.75rem; /* 12px */
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted-foreground);
+  font-weight: 600;
+  user-select: none;
+}
+
+/* ========================================================
+   Dockview Overrides (Theme Variables & Component Styles)
+   ======================================================== */
+.dockview-theme-dark {
+  --dv-tabs-and-actions-container-height: 1.75rem; /* 28px dense */
+  --dv-tabs-and-actions-container-font-size: 0.75rem; /* 12px */
+  --dv-tab-font-size: 0.75rem; /* 12px */
+  --dv-group-view-background-color: var(--background);
+  --dv-tabs-and-actions-container-background-color: var(--background);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--card);
+  --dv-activegroup-visiblepanel-tab-color: var(--foreground);
+  --dv-activegroup-hiddenpanel-tab-background-color: transparent;
+  --dv-activegroup-hiddenpanel-tab-color: var(--muted-foreground);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--card);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--foreground);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: transparent;
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--muted-foreground);
+  --dv-tab-divider-color: var(--border);
+  --dv-separator-border: var(--border);
+  --dv-paneview-header-border-color: var(--border);
+  --dv-sash-color: transparent;
+  --dv-active-sash-color: var(--primary);
+  --dv-active-sash-transition-duration: 0.15s;
+  --dv-active-sash-transition-delay: 0.1s;
+  --dv-drag-over-background-color: color-mix(in srgb, var(--primary) 12%, transparent);
+  --dv-drag-over-border-color: var(--primary);
+  --dv-icon-hover-background-color: var(--muted);
+  --dv-floating-box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  --dv-floating-border: 1px solid var(--border);
+  --dv-border-radius: 6px;
+  --dv-tab-border-radius: 0px;
+  font-family: var(--font-sans);
+}
+
+/* Active tab styling with 2px bottom accent indicator */
+.dockview-theme-dark .dv-tab.dv-active-tab {
+  font-weight: 500;
+  position: relative;
+  background-color: var(--card);
+  color: var(--foreground);
+}
+
+.dockview-theme-dark .dv-tab.dv-active-tab::after {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  content: "";
+  width: 100%;
+  height: 2px;
+  background-color: var(--primary);
+  z-index: 10;
+}
+
+/* Inactive tabs hover */
+.dockview-theme-dark .dv-tab.dv-inactive-tab:hover {
+  color: var(--foreground);
+  background-color: color-mix(in srgb, var(--muted) 40%, transparent);
+}
+
+/* Tab close button: 12px icon, hover:bg-muted, rounded-sm */
+.dockview-theme-dark .dv-tab .dv-default-tab-action {
+  width: 16px;
+  height: 16px;
+  padding: 2px;
+  border-radius: 2px;
+  margin-left: 4px;
+  opacity: 0.6;
+  transition: opacity 0.15s, background-color 0.15s;
+}
+
+.dockview-theme-dark .dv-tab .dv-default-tab-action:hover {
+  opacity: 1;
+  background-color: var(--muted);
+}
+
+.dockview-theme-dark .dv-tab .dv-default-tab-action svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Dockview Splitters / Sashes (1px line, hover accent, 6px grab zone) */
+.dockview-theme-dark .dv-split-view-container.dv-horizontal > .dv-sash-container > .dv-sash {
+  width: 6px;
+}
+
+.dockview-theme-dark .dv-split-view-container.dv-vertical > .dv-sash-container > .dv-sash {
+  height: 6px;
+}
+
+.dockview-theme-dark .dv-split-view-container .dv-sash-container .dv-sash:not(.disabled):hover,
+.dockview-theme-dark .dv-split-view-container .dv-sash-container .dv-sash:not(.disabled):active {
+  background-color: var(--primary);
+}
+
+/* Dividers between docked views */
+.dockview-theme-dark .dv-split-view-container.dv-separator-border .dv-view:not(:first-child)::before {
+  background-color: var(--border);
+}
+
+/* Floating Window Container */
+.dockview-theme-dark .dv-floating-groupview,
+.dockview-theme-dark .dv-resize-container {
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
 }
 
 /* Flash pulse for proximity alert */
