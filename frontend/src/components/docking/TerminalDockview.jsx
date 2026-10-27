@@ -503,7 +503,7 @@ export default function TerminalDockview({
       const watchlistPanel = api.addPanel({
         id: 'watchlist_main',
         component: 'watchlist',
-        title: 'Watchlist'
+        title: 'Список наблюдения'
       });
 
       const chartPanel = api.addPanel({

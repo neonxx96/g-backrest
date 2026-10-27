@@ -57,7 +57,7 @@ export default function LayerToolbar({
             className="w-1.5 h-1.5 rounded-full"
             style={{ backgroundColor: layers.liqHeatmap ? 'var(--accent)' : 'var(--text-3)' }}
           />
-          <span>Liq Heatmap</span>
+          <span>Карта ликвидаций</span>
         </button>
 
         {/* Liq Levels */}
@@ -75,7 +75,7 @@ export default function LayerToolbar({
             className="w-1.5 h-1.5 rounded-full"
             style={{ backgroundColor: layers.liqLevels ? 'var(--accent)' : 'var(--text-3)' }}
           />
-          <span>Liq Levels (est.)</span>
+          <span>Уровни ликвидаций (оценка)</span>
         </button>
 
         {/* OB Depth Limit Walls */}
@@ -93,7 +93,7 @@ export default function LayerToolbar({
             className="w-1.5 h-1.5 rounded-full"
             style={{ backgroundColor: layers.obDepth ? 'var(--accent)' : 'var(--text-3)' }}
           />
-          <span>Spot Walls</span>
+          <span>Спот-стены</span>
         </button>
 
         {/* OB Profile */}
@@ -111,7 +111,7 @@ export default function LayerToolbar({
             className="w-1.5 h-1.5 rounded-full"
             style={{ backgroundColor: layers.obProfile ? 'var(--accent)' : 'var(--text-3)' }}
           />
-          <span>OB Profile</span>
+          <span>Профиль стакана</span>
         </button>
 
         {/* Spot Wall Filter Settings Popover toggle */}
