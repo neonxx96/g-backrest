@@ -16,6 +16,7 @@ import json
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -26,30 +27,29 @@ BACKEND_BASE = "http://127.0.0.1:8000/api/overnight-pilot"
 TOP_8_PAIRS_CONFIG = [
     {
         "symbol": "BTCUSDT",
-        "strategy_type": "ema_trend_window",
+        "strategy_type": "diagnostics_lenient",
         "timeframe": "5m",
-        "days": 2,
+        "days": 7,
         "initial_capital": 1000.0,
-        "risk_per_trade_pct": 0.35,
-        "stop_loss_pct": 0.8,
-        "take_profit_pct": 1.8,
-        "leverage": 3.0,
-        "duration_hours": 24.0,
+        "risk_per_trade_pct": 0.25,
+        "stop_loss_pct": 0.5,
+        "take_profit_pct": 0.75,
+        "leverage": 1.0,
+        "duration_hours": 2.0,
         "min_density_usd": 0.0,
-        "volume_multiplier": 0.95,
-        "use_atr_filter": True,
+        "volume_multiplier": 0.5,
+        "use_atr_filter": False,
         "use_cvd_filter": False,
         "use_oi_filter": False,
         "use_rsi_filter": False,
-        "use_multi_tp": True,
-        "use_trailing": True,
-        "trailing_pct": 0.5,
-        "trailing_activation_pct": 0.5,
-        "tp1_rr_ratio": 1.5,
-        "tp2_rr_ratio": 2.5,
-        "sl_tp_mode": "atr",
-        "atr_multiplier": 1.5,
-        "ai_control": True,
+        "use_multi_tp": False,
+        "use_trailing": False,
+        "trailing_pct": 0.0,
+        "trailing_activation_pct": 0.0,
+        "tp1_rr_ratio": 1.0,
+        "tp2_rr_ratio": 1.0,
+        "sl_tp_mode": "fixed",
+        "ai_control": False,
     },
     {
         "symbol": "ETHUSDT",
@@ -242,6 +242,28 @@ TOP_8_PAIRS_CONFIG = [
     },
 ]
 
+# One shared paper account is created by OvernightPilotManager. These are
+# deliberately conservative operational defaults for the first reproducible
+# diagnostic run; pair-specific signal parameters above remain unchanged.
+FIRST_RUN_DEFAULTS = {
+    "initial_capital": 1000.0,
+    "risk_per_trade_pct": 0.5,
+    "risk_contract_version": 1,
+    "risk_units": "percent",
+    "max_portfolio_heat_pct": 1.25,
+    "max_directional_heat_pct": 0.75,
+    "max_positions": 4,
+    "daily_dd_limit_pct": 3.0,
+    "circuit_daily_loss_limit_pct": -1.25,
+    "circuit_weekly_loss_limit_pct": -3.5,
+    "max_consecutive_losses": 3,
+    "duration_hours": 8.0,
+    "ai_control": False,
+}
+
+for _pair_config in TOP_8_PAIRS_CONFIG:
+    _pair_config.update(FIRST_RUN_DEFAULTS)
+
 
 def post_json(url: str, data: dict, timeout: int = 120):
     payload = json.dumps(data).encode("utf-8")
@@ -261,29 +283,41 @@ def main():
     print("🚀 ИНСТИТУЦИОНАЛЬНЫЙ ЗАПУСК КВАНТ-МАРАФОНА (ТОП-8 ПАР BINANCE FUTURES)")
     print("=" * 70)
     print(f"Пул активов: {[p['symbol'] for p in TOP_8_PAIRS_CONFIG]}")
-    print("Базовый риск: 0.35% | Portfolio Heat: 1.25% | Max Leverage: 5.0x")
+    print("Базовый риск: 0.50% | Portfolio Heat: 1.25% | Max Leverage: 5.0x")
     print("Market Regime Gate: ВКЛЮЧЕН | Microstructure Gate: ВКЛЮЧЕН")
-    print("AI Sentinel: DeepSeek V4.1 Flash via OpenRouter")
+    print("AI Sentinel: disabled for the diagnostic run (deterministic fallback)")
     print("-" * 70)
 
-    # 1. Stop existing sessions if running
+    # 1. Refuse to disturb an existing paper run. A diagnostic launch must be
+    # explicit about operational ownership instead of terminating sessions.
     try:
-        print("[1/3] Остановка предыдущих сессий...")
-        stop_res = post_json(f"{BACKEND_BASE}/stop", {})
-        print("  -> Предыдущие сессии остановлены.")
-        time.sleep(1.0)
+        print("[1/3] Проверка отсутствия активных сессий...")
+        current_status = get_json(f"{BACKEND_BASE}/status")
+        running_symbols = [
+            str(session.get("symbol", "unknown"))
+            for session in current_status.get("sessions", [])
+            if session.get("running") or (session.get("paper") or {}).get("is_running")
+        ]
+        if running_symbols:
+            print(f"  -> Запуск отменён: активны paper-сессии {', '.join(running_symbols)}. Остановите их явно и повторите.")
+            return
+        print("  -> Активных paper-сессий нет.")
     except Exception as e:
-        print(f"  -> Остановка: {e}")
+        print(f"  -> Не удалось безопасно проверить статус: {e}. Запуск отменён.")
+        return
 
     # 2. Preflight for the 8 pairs
     print("[2/3] Запуск Preflight для 8 пар...")
     start_t = time.time()
     try:
         preflight_res = post_json(f"{BACKEND_BASE}/preflight", {"configs": TOP_8_PAIRS_CONFIG}, timeout=120)
-        run_id = preflight_res.get("run_id")
+        preflight_id = preflight_res.get("preflight_id")
         valid = preflight_res.get("valid_sessions", 0)
         total = preflight_res.get("total_sessions", 0)
-        print(f"  -> Preflight завершен за {time.time() - start_t:.1f}с: {valid}/{total} валидно (run_id: {run_id})")
+        print(f"  -> Preflight завершен за {time.time() - start_t:.1f}с: {valid}/{total} валидно (preflight_id: {preflight_id})")
+        if not preflight_id:
+            print("  -> Preflight не выдал идентификатор; запуск отменён, чтобы не пересчитать конфигурацию неявно.")
+            return
     except Exception as e:
         print(f"  -> Ошибка preflight: {e}")
         return
@@ -291,7 +325,8 @@ def main():
     # 3. Start live paper trading
     print("[3/3] Старт непрерывного марафона...")
     try:
-        start_res = post_json(f"{BACKEND_BASE}/start", {"configs": TOP_8_PAIRS_CONFIG}, timeout=60)
+        start_url = f"{BACKEND_BASE}/start?preflight_id={urllib.parse.quote(str(preflight_id), safe='')}"
+        start_res = post_json(start_url, {"configs": TOP_8_PAIRS_CONFIG}, timeout=60)
         print(f"  -> Старт успешен: {start_res.get('message', 'Started')}")
     except Exception as e:
         print(f"  -> Ошибка запуска: {e}")
