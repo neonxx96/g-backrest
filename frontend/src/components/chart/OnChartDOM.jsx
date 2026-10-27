@@ -102,10 +102,24 @@ export default function OnChartDOM({ engine, symbol }) {
     const h = vp.height;
     const pw = Math.round(w * dpr);
     const ph = Math.round(h * dpr);
-    if (canvas.width !== pw || canvas.height !== ph) { canvas.width = pw; canvas.height = ph; }
     canvas.style.width = `${w}px`;
     canvas.style.height = `${h}px`;
     canvas.style.right = `${axisW}px`;
+
+    if (canvas.width === 0 || canvas.height === 0) {
+      canvas.width = pw;
+      canvas.height = ph;
+    } else if (canvas.width !== pw || canvas.height !== ph) {
+      if (!canvas.__resizeDebounce) {
+        canvas.__resizeDebounce = setTimeout(() => {
+          canvas.__resizeDebounce = null;
+          requestAnimationFrame(() => {
+            if (!canvasRef.current) return;
+            drawRef.current();
+          });
+        }, 120);
+      }
+    }
 
     const ctx = canvas.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);

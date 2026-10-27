@@ -146,12 +146,23 @@ export default function FootprintCanvasLayer({ engine, symbol, timeframe = '15m'
     const dpr = Math.max(1, window.devicePixelRatio || 1);
     const pw = Math.round(vp.width * dpr);
     const ph = Math.round(vp.height * dpr);
-    if (canvas.width !== pw || canvas.height !== ph) {
-      canvas.width = pw;
-      canvas.height = ph;
-    }
     canvas.style.width = `${vp.width}px`;
     canvas.style.height = `${vp.height}px`;
+
+    if (canvas.width === 0 || canvas.height === 0) {
+      canvas.width = pw;
+      canvas.height = ph;
+    } else if (canvas.width !== pw || canvas.height !== ph) {
+      if (!canvas.__resizeDebounce) {
+        canvas.__resizeDebounce = setTimeout(() => {
+          canvas.__resizeDebounce = null;
+          requestAnimationFrame(() => {
+            if (!canvasRef.current) return;
+            drawRef.current();
+          });
+        }, 120);
+      }
+    }
 
     const ctx = canvas.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
