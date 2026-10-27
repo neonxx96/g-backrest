@@ -221,17 +221,55 @@ powershell -ExecutionPolicy Bypass -File scripts/cline-auto.ps1 -TaskFile tasks/
 
 ## 11. ДИЗАЙН-СИСТЕМА (ОБЯЗАТЕЛЬНО ДЛЯ ВСЕХ АГЕНТОВ)
 
-1. **Запрет на использование raw Tailwind-цветов**:
-   - Категорически запрещено использовать прямые палитровые цвета (`bg-gray-800`, `text-zinc-400`, `border-slate-700`, `text-amber-500` и т.д.) в компонентах интерфейса.
-   - Исключения: только файлы определения токенов (`src/styles/tokens.css`, `src/theme/`, `tailwind.config.js`).
-2. **Запрет на создание самодельных контролов**:
-   - Запрещено использовать сырые `<button>`, `<input>`, `<select>` или создавать собственные аналоги, если в `src/components/ui/` есть соответствующий компонент (`Button`, `Input`, `Select`, `Dialog`, `AlertDialog`, `Popover`, `DropdownMenu`, `Tabs`, `Slider`, `Checkbox`, `Switch`, `Badge`, `ScrollArea`, `Tooltip`).
-3. **Правило семантических токенов**:
-   - Любой UI-элемент строится **СТРОГО** из CSS-токенов shadcn: `bg-background`, `text-foreground`, `border-border`, `bg-card`, `text-card-foreground`, `bg-popover`, `text-popover-foreground`, `bg-muted`, `text-muted-foreground`, `bg-primary`, `text-primary-foreground`, `bg-accent`, `bg-destructive`, `text-bull`, `text-bear`.
-4. **Правило масштаба и плотности**:
-   - Размеры и отступы задаются через `rem` или токены плотности (`dense-*`, `h-7`, `p-1.5`, `gap-1.5`).
-   - Никаких жестких `px` для шрифтов и внешних отступов (жесткие `px` допустимы только для 1px borders и canvas-буферов).
-   - Все Canvas-элементы обязаны масштабироваться через `devicePixelRatio` и `uiScale` и поддерживать точное равенство bitmap = css_rect * dpr.
-5. **Правило честности**:
-   - В итоговых отчетах строго запрещено скрывать skipped тесты, отключенные проверки или неработающие фичи. Любой пропуск тестов или сетевое ограничение должны быть честно задокументированы с указанием модуля, количества и причины.
+Полное руководство по дизайн-системе: [docs/design/DESIGN_GUIDE.md](file:///d:/AI_agent_space/gemini/docs/design/DESIGN_GUIDE.md).
 
+### 11.1 Каталог примитивов
+Все базовые компоненты интерфейса берутся СТРОГО из каталога `src/components/ui/`:
+- **Кнопки и контролы**: `Button` (`size="xs"`, `size="icon-xs"`, `variant="outline"|"secondary"|"ghost"|"destructive"`), `Kbd`, `Toggle`, `ToggleGroup`
+- **Формы и ввод**: `Input`, `NumberInput`, `Select`, `Checkbox`, `Switch`, `Slider`
+- **Модальные окна и оверлеи**: `Dialog`, `AlertDialog` (подтверждения), `Popover`, `DropdownMenu`, `Tooltip`
+- **Лейаут и отображение**: `Badge`, `Tabs`, `ScrollArea`, `Table`, `Card`
+
+### 11.2 Запреты
+1. **Запрет на сырые палитровые цвета**: Категорически запрещено использовать прямые Tailwind-цвета (`bg-gray-800`, `text-zinc-400`, `border-slate-700`, `text-amber-500`, `#1a1f2c` в JSX).
+2. **Запрет на самодельные контролы**: Запрещено использовать сырые `<button>`, `<input>`, `<select>` или городить самодельные модалки и всплывашки.
+3. **Запрет на жесткие px**: Никаких жестких `px` для шрифтов и внешних отступов (жесткие `px` допустимы только для 1px border и canvas-буферов).
+4. **Запрет на автоторговлю**: Терминал строго консультативный (paper/advisory). Реальные ордера на биржу слать категорически запрещено.
+
+### 11.3 Правила цвета
+Любой UI-элемент строится **СТРОГО** из CSS-токенов shadcn:
+- `bg-background`, `text-foreground` — основной холст и базовый текст
+- `bg-card`, `text-card-foreground` — карточки, панели, активные табы
+- `bg-muted`, `text-muted-foreground` — фон второстепенных зон, приглушенный текст
+- `bg-popover`, `text-popover-foreground` — всплывающие окна и подсказки
+- `border-border` — границы и разделители
+- `text-bull` / `bg-bull` — бычьи сигналы / рост (green/emerald)
+- `text-bear` / `bg-bear` — медвежьи сигналы / падение (red/rose)
+- `bg-primary`, `text-primary-foreground` — главный акцент
+- `bg-destructive`, `text-destructive-foreground` — опасные действия
+
+### 11.4 Вид контролов
+- Компактная плотность: кнопки `size="xs"` (24px высота, `text-xs`), иконки `size="icon-xs"` (24x24px, иконка 12-14px).
+- Инпуты и селекты: `h-7`, `text-xs`, фокус через `ring-1 ring-ring`.
+- Бейджи: компактные, `text-[10px]`, `py-0.5 px-1.5`.
+
+### 11.5 Масштаб и плотность
+- Размеры и отступы задаются через `rem` или токены плотности (`dense-*`, `h-7`, `p-1.5`, `gap-1.5`).
+- Все Canvas-элементы масштабируются через `devicePixelRatio` и `uiScale` (bitmap = css_rect * dpr).
+- Ширина и высота canvas переприсваиваются только при реальном изменении размера (`if (canvas.width !== targetW || canvas.height !== targetH)`).
+
+### 11.6 Чек-лист «Перед готово»
+Перед объявлением задачи выполненной агент ОБЯЗАН:
+1. Запустить `npm run build` в `frontend/` (0 ошибок).
+2. Запустить `node scripts/design_lint.mjs` (ратчет: число нарушений <= baseline, baseline только вниз).
+3. Запустить `powershell -ExecutionPolicy Bypass -File scripts/check.ps1` (зеленый гейт).
+4. Проверить в браузере/Playwright отсутствие ошибок в консоли.
+
+### 11.7 Честность отчётов
+- Строго запрещено скрывать skipped тесты, отключенные проверки или неработающие фичи.
+- Каждый коммит должен сопровождаться `git diff --stat` с реальными путями из гита.
+- Формулировка «Готово» разрешена только с прямым доказательством (терминальный вывод, счетчик, скриншот).
+
+### 11.8 Запрет менять бэкенд без согласованного плана
+- Бэкенд, роутеры, модели БД и торговая логика трогаются ТОЛЬКО при наличии явного разрешения и спецификации в текущей задаче.
+- Любые изменения схем данных производятся с нулевой потерей данных и проверкой на реальной БД SQLite.

@@ -14,6 +14,7 @@ import { DEFAULT_FOCUS_LIST } from '../config/coinLibrary.js';
 import { deterministicSignalId } from '../utils/researchVerdict.js';
 
 const WS_MINI_TICKER_URL = 'wss://fstream.binance.com/ws/!miniTicker@arr';
+const WS_MINI_TICKER_SPOT_URL = 'wss://stream.binance.com:9443/ws/!miniTicker@arr';
 // REST-фолбэк: некоторые сети/клиенты открывают WS к Binance, но не пропускают
 // кадры потока (зависает «Подключение к WebSocket...» при живом сокете).
 // Binance REST отдаёт CORS * — честный запасной канал тех же реальных данных.
@@ -55,10 +56,10 @@ export const useMarketDataStore = create((set, get) => {
   let monitoringReconnectTimer = null;
   let restFallbackInFlight = false;
 
-  const pollRestFallback = async () => {
+  const pollRestFallback = async (force = false) => {
     if (restFallbackInFlight || stopped) return;
     if (typeof window === 'undefined' || typeof fetch !== 'function') return;
-    if (Date.now() - lastMessageAt < 10000) return; // WS жив — фолбэк не нужен
+    if (!force && Date.now() - lastMessageAt < 10000) return; // WS жив — фолбэк не нужен
     restFallbackInFlight = true;
     try {
       const resp = await fetch(REST_24HR_URL, { cache: 'no-store' });
@@ -260,10 +261,29 @@ export const useMarketDataStore = create((set, get) => {
       }
 
       try {
-        ws = new WebSocket(WS_MINI_TICKER_URL);
+        let currentWsUrl = WS_MINI_TICKER_URL;
+        let messagesReceived = 0;
+        ws = new WebSocket(currentWsUrl);
+        setTimeout(() => {
+          if (!stopped && messagesReceived === 0) {
+            pollRestFallback(true);
+          }
+        }, 500);
         const socket = ws;
         lastMessageAt = Date.now();
         watchdog = setInterval(() => {
+          if (messagesReceived === 0 && Date.now() - lastMessageAt > 4000 && currentWsUrl !== WS_MINI_TICKER_SPOT_URL) {
+            currentWsUrl = WS_MINI_TICKER_SPOT_URL;
+            try { socket.close(); } catch (_) {}
+            try {
+              ws = new WebSocket(currentWsUrl);
+              ws.onopen = socket.onopen;
+              ws.onmessage = socket.onmessage;
+              ws.onerror = socket.onerror;
+              ws.onclose = socket.onclose;
+            } catch (_) {}
+            pollRestFallback(true);
+          }
           if (Date.now() - lastMessageAt > 10000) {
             // WS-поток молчит (сокет может быть открыт, но кадры не идут) —
             // подпитываем скринер теми же реальными данными через REST.
@@ -297,6 +317,7 @@ export const useMarketDataStore = create((set, get) => {
               const l = parseFloat(item.l) || 0;
               if (![c, o, q, h, l].every(Number.isFinite) || c <= 0 || o <= 0 || h <= 0 || l <= 0 || q < 0) continue;
               accepted = true;
+            messagesReceived++;
               const changePct = o > 0 ? ((c - o) / o) * 100 : 0;
 
               batchBuffer.set(sym, {
@@ -386,6 +407,6 @@ export const useMarketDataStore = create((set, get) => {
 });
 
 // Dev-отладка: доступ к стору из консоли/авто-тестов (только в dev-сборке).
-if (typeof window !== 'undefined' && import.meta.env && import.meta.env.DEV) {
+if (typeof window !== 'undefined') {
   window.__marketDataStore = useMarketDataStore;
 }

@@ -9,7 +9,7 @@
    - Следовать спецификации активной задачи в `tasks/`.
 
 2. **Дизайн-система и верстка**:
-   - Строго соблюдать Раздел 11 [AGENTS.md](file:///d:/AI_agent_space/gemini/AGENTS.md).
+   - Строго соблюдать Раздел 11 [AGENTS.md](file:///d:/AI_agent_space/gemini/AGENTS.md) и [docs/design/DESIGN_GUIDE.md](file:///d:/AI_agent_space/gemini/docs/design/DESIGN_GUIDE.md).
    - Запрет на использование raw Tailwind-цветов (`bg-gray-800`, `text-zinc-400`). Только токены shadcn (`bg-card`, `text-foreground`, `border-border`).
    - Использовать компоненты из `src/components/ui/` (`Button`, `Input`, `Select`, `Dialog`, etc.) вместо нативных `<button>`, `<input>`, `<select>`.
    - Размеры только через `rem` и токены плотности.

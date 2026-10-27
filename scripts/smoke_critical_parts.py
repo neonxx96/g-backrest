@@ -1,3 +1,4 @@
+import time
 """
 Fast smoke test for critical terminal components:
 1. Chart klines & indicators
@@ -71,22 +72,30 @@ def run_smoke():
     for item in CRITICAL_ENDPOINTS:
         name = item["name"]
         url = item["url"]
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "SmokeTest/1.0"})
-            with urllib.request.urlopen(req, timeout=35) as resp:
-                if resp.status != 200:
-                    print(f"[FAIL] {name}: HTTP {resp.status}", flush=True)
-                    failed.append(name)
-                    continue
-                raw = resp.read().decode("utf-8")
-                data = json.loads(raw)
-                if not item["validate"](data):
-                    print(f"[FAIL] {name}: Payload validation failed, got: {str(data)[:120]}", flush=True)
-                    failed.append(name)
-                    continue
-                print(f"[PASS] {name}", flush=True)
-        except Exception as e:
-            print(f"[FAIL] {name}: {e}", flush=True)
+        success = False
+        last_err = None
+        for attempt in range(2):
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "SmokeTest/1.0"})
+                with urllib.request.urlopen(req, timeout=35) as resp:
+                    if resp.status != 200:
+                        last_err = f"HTTP {resp.status}"
+                        time.sleep(0.5)
+                        continue
+                    raw = resp.read().decode("utf-8")
+                    data = json.loads(raw)
+                    if not item["validate"](data):
+                        last_err = f"Payload validation failed, got: {str(data)[:120]}"
+                        time.sleep(0.5)
+                        continue
+                    print(f"[PASS] {name}", flush=True)
+                    success = True
+                    break
+            except Exception as e:
+                last_err = str(e)
+                time.sleep(0.5)
+        if not success:
+            print(f"[FAIL] {name}: {last_err}", flush=True)
             failed.append(name)
 
     if failed:

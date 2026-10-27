@@ -13,7 +13,7 @@
    - Все решения и параметры риска валидируются через [docs/DECISIONS.md](file:///d:/AI_agent_space/gemini/docs/DECISIONS.md) и `backend/app/services/risk_engine.py`.
 
 3. **Дизайн-система и верстка**:
-   - Строго соблюдать Раздел 11 [AGENTS.md](file:///d:/AI_agent_space/gemini/AGENTS.md).
+   - Строго соблюдать Раздел 11 [AGENTS.md](file:///d:/AI_agent_space/gemini/AGENTS.md) и [docs/design/DESIGN_GUIDE.md](file:///d:/AI_agent_space/gemini/docs/design/DESIGN_GUIDE.md).
    - Никаких raw Tailwind-цветов (`bg-gray-800`), только токены shadcn (`bg-card`, `text-foreground`).
    - Использовать компоненты из `src/components/ui/`, а не нативные теги.
 

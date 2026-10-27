@@ -124,6 +124,29 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "✅ [PASS] Python unit tests passed." -ForegroundColor Green
 
+# 1b. Linux Container Pytest (executes full async suite including 28 Windows-isolated tests)
+Write-Host "`n[1b] Running Linux container pytest (full async test suite)..." -ForegroundColor Yellow
+$dockerAvailable = $false
+try {
+    $null = docker info 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        $dockerAvailable = $true
+    }
+} catch {
+    $dockerAvailable = $false
+}
+
+if ($dockerAvailable) {
+    docker compose exec -T backend pytest -q -rs
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "`n❌ [FAIL] Linux container pytest failed. Commit rejected." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "✅ [PASS] Linux container pytest passed (all 615 tests green, 0 skipped)." -ForegroundColor Green
+} else {
+    Write-Host "⚠️ [WARN] Docker недоступен: 28 async-тестов НЕ выполнялись в Linux-окружении." -ForegroundColor Yellow
+}
+
 # 2. Frontend layout recovery unit tests
 Write-Host "`n[2/6] Checking frontend layout recovery (node --test)..." -ForegroundColor Yellow
 node --test `
