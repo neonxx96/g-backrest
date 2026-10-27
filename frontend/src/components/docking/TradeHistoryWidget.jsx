@@ -501,7 +501,7 @@ export default function TradeHistoryWidget(props) {
             </div>
             <div>
               <span className="font-semibold text-xs tracking-wide text-foreground">История сделок и прогнозы</span>
-              <span className="ml-2 text-[10px] text-muted-foreground font-mono">Бумажная торговля: ${metrics.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              <span className="ml-2 text-[11px] text-muted-foreground font-mono">Бумажная торговля: ${metrics.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               {hasPilotData && (
                 <span
                   data-testid="marathon-summary-chip"
@@ -684,15 +684,15 @@ export default function TradeHistoryWidget(props) {
         {/* Institutional Metrics Grid */}
         <div className="grid grid-cols-6 gap-2 text-center text-[10px] font-mono">
           <div className="p-1.5 rounded bg-[#12161E] border border-neutral-800/80 flex flex-col">
-            <span className="text-neutral-500 uppercase text-[9px]">Баланс профиля</span>
-            <span className="font-bold text-white text-[12px] tabular-nums">
+            <span className="text-muted-foreground uppercase text-[11px] font-medium">Баланс профиля</span>
+            <span className="font-bold text-foreground text-[15px] font-mono tabular-nums">
               ${metrics.balance.toFixed(2)}
             </span>
           </div>
           <div className="p-1.5 rounded bg-[#12161E] border border-neutral-800/80 flex flex-col">
-            <span className="text-neutral-500 uppercase text-[9px]">Realized PnL</span>
+            <span className="text-muted-foreground uppercase text-[11px] font-medium">Realized PnL</span>
             <span
-              className={`font-bold text-[12px] tabular-nums ${
+              className={`font-bold text-[15px] font-mono tabular-nums ${
                 metrics.realizedPnl > 0 ? 'text-[#10b981]' : metrics.realizedPnl < 0 ? 'text-[#ef4444]' : 'text-neutral-300'
               }`}
             >
@@ -700,9 +700,9 @@ export default function TradeHistoryWidget(props) {
             </span>
           </div>
           <div className="p-1.5 rounded bg-[#12161E] border border-neutral-800/80 flex flex-col">
-            <span className="text-neutral-500 uppercase text-[9px]">Unrealized PnL</span>
+            <span className="text-muted-foreground uppercase text-[11px] font-medium">Unrealized PnL</span>
             <span
-              className={`font-bold text-[12px] tabular-nums ${
+              className={`font-bold text-[15px] font-mono tabular-nums ${
                 metrics.unrealizedPnl > 0 ? 'text-[#10b981]' : metrics.unrealizedPnl < 0 ? 'text-[#ef4444]' : 'text-neutral-300'
               }`}
             >
@@ -710,28 +710,28 @@ export default function TradeHistoryWidget(props) {
             </span>
           </div>
           <div className="p-1.5 rounded bg-[#12161E] border border-neutral-800/80 flex flex-col">
-            <span className="text-neutral-500 uppercase text-[9px]">Позиции</span>
-            <span className="font-bold text-neutral-200 text-[12px] tabular-nums">
+            <span className="text-muted-foreground uppercase text-[11px] font-medium">Позиции</span>
+            <span className="font-bold text-foreground text-[15px] font-mono tabular-nums">
               {metrics.activePositions}
             </span>
           </div>
           <div className="p-1.5 rounded bg-[#12161E] border border-neutral-800/80 flex flex-col">
-            <span className="text-neutral-500 uppercase text-[9px]">Win Rate</span>
-            <span className="font-bold text-neutral-200 text-[12px] tabular-nums">
-              {metrics.winRate}% <span className="text-[9px] text-neutral-500">({metrics.totalTrades})</span>
+            <span className="text-muted-foreground uppercase text-[11px] font-medium">Win Rate</span>
+            <span className="font-bold text-foreground text-[15px] font-mono tabular-nums">
+              {metrics.winRate}% <span className="text-[11px] text-muted-foreground">({metrics.totalTrades})</span>
             </span>
           </div>
           <div className="p-1.5 rounded bg-[#12161E] border border-neutral-800/80 flex flex-col">
-            <span className="text-neutral-500 uppercase text-[9px]">Avg Fee Drag</span>
-            <span className="font-bold text-amber-300 text-[12px] tabular-nums">-${metrics.avgFee.toFixed(2)}</span>
+            <span className="text-muted-foreground uppercase text-[11px] font-medium">Avg Fee Drag</span>
+            <span className="font-bold text-amber-400 text-[15px] font-mono tabular-nums">-${metrics.avgFee.toFixed(2)}</span>
           </div>
           <div className="p-1.5 rounded bg-[#12161E] border border-neutral-800/80 flex flex-col">
-            <span className="text-neutral-500 uppercase text-[9px]">Profit Bleed</span>
-            <span className="font-bold text-rose-300 text-[12px] tabular-nums">{metrics.profitBleedPct.toFixed(0)}%</span>
+            <span className="text-muted-foreground uppercase text-[11px] font-medium">Profit Bleed</span>
+            <span className="font-bold text-rose-400 text-[15px] font-mono tabular-nums">{metrics.profitBleedPct.toFixed(0)}%</span>
           </div>
           <div className="p-1.5 rounded bg-[#12161E] border border-neutral-800/80 flex flex-col">
-            <span className="text-neutral-500 uppercase text-[9px]">Аптайм</span>
-            <span className="font-bold text-neutral-400 text-[11px] tabular-nums">
+            <span className="text-muted-foreground uppercase text-[11px] font-medium">Аптайм</span>
+            <span className="font-bold text-muted-foreground text-[14px] font-mono tabular-nums">
               {metrics.uptimeStr}
             </span>
           </div>
@@ -885,7 +885,7 @@ export default function TradeHistoryWidget(props) {
                   </>
                 )}
               </div>
-              <div className="text-[9px] text-neutral-500">
+              <div className="text-[11px] text-muted-foreground">
                 Хранилище: SQLite durable history
               </div>
             </div>
@@ -898,7 +898,7 @@ export default function TradeHistoryWidget(props) {
             ) : (
               <table className="w-full text-left border-collapse text-[11px] font-mono">
                 <thead>
-                  <tr className="border-b border-neutral-800 bg-[#0E1217] text-neutral-400 uppercase text-[9.5px]">
+                  <tr className="border-b border-neutral-800 bg-[#0E1217] text-muted-foreground uppercase text-[11px] font-medium">
                     <th className="py-2 px-3">Дата / Время</th>
                     <th className="py-2 px-3">Монета</th>
                     <th className="py-2 px-3">Сторона</th>
@@ -960,7 +960,7 @@ export default function TradeHistoryWidget(props) {
                         </td>
                         <td className="py-2 px-3 text-right text-neutral-300 tabular-nums">
                           <div className="text-white">${((trade.qty ?? 0) * (trade.entry_price ?? 0)).toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
-                          <div className="text-[9px] text-neutral-500">{trade.qty?.toFixed(4)} {trade.symbol?.replace('USDT', '')}</div>
+                          <div className="text-[11px] text-muted-foreground">{trade.qty?.toFixed(4)} {trade.symbol?.replace('USDT', '')}</div>
                         </td>
                         <td className="py-2 px-3 text-right text-neutral-300 tabular-nums">
                           ${fmtPx(trade.entry_price)}
@@ -1002,7 +1002,7 @@ export default function TradeHistoryWidget(props) {
             ) : (
               <table className="w-full text-left border-collapse text-[11px] font-mono">
                 <thead>
-                  <tr className="border-b border-neutral-800 bg-[#0E1217] text-neutral-400 uppercase text-[9.5px]">
+                  <tr className="border-b border-neutral-800 bg-[#0E1217] text-muted-foreground uppercase text-[11px] font-medium">
                     <th className="py-2 px-3">Монета</th>
                     <th className="py-2 px-3">Сторона</th>
                     <th className="py-2 px-3 text-right">Объем</th>
@@ -1050,7 +1050,7 @@ export default function TradeHistoryWidget(props) {
                           <div className="font-medium text-white">
                             ${((pos.qty ?? 0) * (pos.avg_entry_price ?? 0)).toLocaleString('en-US', { maximumFractionDigits: 0 })}
                           </div>
-                          <div className="text-[9px] text-neutral-500">{pos.qty?.toFixed(4)} {pos.symbol?.replace('USDT', '')}</div>
+                          <div className="text-[11px] text-muted-foreground">{pos.qty?.toFixed(4)} {pos.symbol?.replace('USDT', '')}</div>
                         </td>
                         <td className="py-2 px-3 text-right text-neutral-300 tabular-nums">
                           ${fmtPx(pos.avg_entry_price)}
@@ -1107,7 +1107,7 @@ export default function TradeHistoryWidget(props) {
               <div className="overflow-x-auto border border-neutral-800 rounded">
                 <table className="w-full text-left border-collapse text-[11px] font-mono min-w-[760px]" data-testid="candidates-table">
                   <thead>
-                    <tr className="border-b border-neutral-800 bg-[#0E1217] text-neutral-400 uppercase text-[9.5px]">
+                    <tr className="border-b border-neutral-800 bg-[#0E1217] text-muted-foreground uppercase text-[11px] font-medium">
                       <th className="py-2 px-3 sticky left-0 bg-[#0E1217] z-20 min-w-[105px] border-r border-neutral-800">Монета</th>
                       <th className="py-2 px-3">Тип</th>
                       <th className="py-2 px-3">Стратегия / Причина</th>
@@ -1365,7 +1365,7 @@ export default function TradeHistoryWidget(props) {
 
                 {/* Популярные монеты в 1 клик */}
                 <div>
-                  <div className="text-[9.5px] text-neutral-400 mb-1">Популярные монеты (кликните для выбора):</div>
+                  <div className="text-[11px] text-muted-foreground mb-1">Популярные монеты (кликните для выбора):</div>
                   <div className="flex flex-wrap gap-1">
                     {POPULAR_COINS.map((sym) => (
                       <button
@@ -1387,7 +1387,7 @@ export default function TradeHistoryWidget(props) {
                 {/* Настройка: Символ, Стратегия, Таймфрейм и действия */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end pt-1 border-t border-neutral-800">
                   <div>
-                    <label className="block text-[9px] text-neutral-500 mb-0.5">Тикер (USDT):</label>
+                    <label className="block text-[11px] text-muted-foreground mb-0.5">Тикер (USDT):</label>
                     <input
                       type="text"
                       value={newPairSymbol}
@@ -1398,7 +1398,7 @@ export default function TradeHistoryWidget(props) {
                   </div>
 
                   <div>
-                    <label className="block text-[9px] text-neutral-500 mb-0.5">Стратегия:</label>
+                    <label className="block text-[11px] text-muted-foreground mb-0.5">Стратегия:</label>
                     <select
                       value={newPairStrategy}
                       onChange={(e) => setNewPairStrategy(e.target.value)}
@@ -1413,7 +1413,7 @@ export default function TradeHistoryWidget(props) {
                   </div>
 
                   <div>
-                    <label className="block text-[9px] text-neutral-500 mb-0.5">Таймфрейм:</label>
+                    <label className="block text-[11px] text-muted-foreground mb-0.5">Таймфрейм:</label>
                     <select
                       value={newPairTimeframe}
                       onChange={(e) => setNewPairTimeframe(e.target.value)}
@@ -1483,7 +1483,7 @@ export default function TradeHistoryWidget(props) {
               <div className="overflow-x-auto border border-neutral-800 rounded">
                 <table className="w-full text-left border-collapse text-[11px] font-mono min-w-[760px]" data-testid="paper-pairs-table">
                   <thead>
-                    <tr className="border-b border-neutral-800 bg-[#0E1217] text-neutral-400 uppercase text-[9.5px]">
+                    <tr className="border-b border-neutral-800 bg-[#0E1217] text-muted-foreground uppercase text-[11px] font-medium">
                       <th
                         className="py-1.5 px-2.5 sticky left-0 bg-[#0E1217] z-20 min-w-[105px] border-r border-neutral-800 cursor-pointer hover:text-white select-none"
                         onClick={() => handleSortClick('symbol')}
@@ -1699,7 +1699,7 @@ export default function TradeHistoryWidget(props) {
 
         {activeTab === 'regimes' && (
           <div className="p-3">
-            <div className="mb-2 text-[10px] text-neutral-400 font-mono flex items-center justify-between">
+            <div className="mb-2 text-[11px] text-muted-foreground font-mono flex items-center justify-between">
               <span>Адаптивный классификатор режимов рынка (Walk-Forward Adaptive Brain):</span>
               <span className="text-[9.5px] text-neutral-500">In-Sample 72h • Auto-TP/SL</span>
             </div>
@@ -1743,7 +1743,7 @@ export default function TradeHistoryWidget(props) {
                       )}
                     </div>
 
-                    <div className="text-[10px] text-neutral-400 flex items-center justify-between">
+                    <div className="text-[11px] text-muted-foreground flex items-center justify-between">
                       <span className="truncate">Стратегия: <span className="text-neutral-200">{st.regime_name || 'Adaptive Quant'}</span></span>
                       {st.regime_metrics && (
                         <span className="text-neutral-500 text-[9px] tabular-nums">

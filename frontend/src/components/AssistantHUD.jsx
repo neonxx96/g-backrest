@@ -217,7 +217,7 @@ export default function AssistantHUD({
           <span data-testid="assistant-regime-badge" className="font-bold text-foreground tracking-wide">
             {regimeInfo.badge}
           </span>
-          <span className="text-[10px] text-muted-foreground font-mono">
+          <span className="text-[11px] text-muted-foreground font-mono">
             ATR: {tickerStatus?.atr ? Number(tickerStatus.atr).toFixed(2) : (lastPrice ? (lastPrice * 0.005).toFixed(2) : '—')}
           </span>
           {activePosition && (
@@ -271,7 +271,7 @@ export default function AssistantHUD({
               </span>
 
               {tickerStatus?.regime_metrics && (
-                <span className="text-[9.5px] text-neutral-400">
+                <span className="text-[11px] text-muted-foreground">
                   ATR: {(Number(tickerStatus.regime_metrics.norm_atr || 0) * 100).toFixed(2)}% · Плотн:{' '}
                   {Number(tickerStatus.regime_metrics.rel_density || 1).toFixed(2)}
                 </span>
@@ -310,7 +310,7 @@ export default function AssistantHUD({
               </div>
 
               {/* Excursion metrics MFE / MAE */}
-              <div className="grid grid-cols-2 gap-1 text-[9px] text-neutral-400 bg-[#090d15] p-1 rounded border border-neutral-800/60 mb-1.5">
+              <div className="grid grid-cols-2 gap-1 text-[11px] text-muted-foreground bg-[#090d15] p-1 rounded border border-neutral-800/60 mb-1.5">
                 <div>
                   MFE (макс. профит):{' '}
                   <span className="text-emerald-400 font-semibold">
@@ -338,7 +338,7 @@ export default function AssistantHUD({
           ) : (
             <div
               data-testid="assistant-no-position"
-              className="mb-2 p-1.5 rounded bg-[#10141e]/60 border border-neutral-800/60 text-[9.5px] text-neutral-400 text-center"
+              className="mb-2 p-1.5 rounded bg-[#10141e]/60 border border-neutral-800/60 text-[11px] text-muted-foreground text-center"
             >
               Нет открытой позиции по {symbol}. Ожидание сигнала алгоритма.
             </div>

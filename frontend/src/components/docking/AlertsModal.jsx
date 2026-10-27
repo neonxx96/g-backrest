@@ -154,11 +154,11 @@ export default function AlertsModal({ currentSymbol = 'BTCUSDT', currentPrice = 
             <div>
               <h2 className="text-xs font-bold text-white tracking-wide uppercase flex items-center gap-1.5">
                 <span>Ценовые алерты</span>
-                <span className="text-[10px] text-neutral-400 font-mono font-normal">
+                <span className="text-[11px] text-muted-foreground font-mono font-normal">
                   [{symbol}]
                 </span>
               </h2>
-              <p className="text-[10px] text-neutral-400 font-mono">
+              <p className="text-[11px] text-muted-foreground font-mono">
                 Institutional Alert Dispatcher & Triggers
               </p>
             </div>
@@ -222,7 +222,7 @@ export default function AlertsModal({ currentSymbol = 'BTCUSDT', currentPrice = 
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-[10px] text-neutral-400 font-mono mb-1">
+                  <label className="block text-[11px] text-muted-foreground font-mono mb-1">
                     Условие
                   </label>
                   <div className="relative">
@@ -242,7 +242,7 @@ export default function AlertsModal({ currentSymbol = 'BTCUSDT', currentPrice = 
                 </div>
 
                 <div>
-                  <label className="block text-[10px] text-neutral-400 font-mono mb-1">
+                  <label className="block text-[11px] text-muted-foreground font-mono mb-1">
                     Цена уровня ($)
                   </label>
                   <input
@@ -258,7 +258,7 @@ export default function AlertsModal({ currentSymbol = 'BTCUSDT', currentPrice = 
               </div>
 
               <div>
-                <label className="block text-[10px] text-neutral-400 font-mono mb-1">
+                <label className="block text-[11px] text-muted-foreground font-mono mb-1">
                   Название / Описание алерта
                 </label>
                 <input
@@ -444,7 +444,7 @@ export default function AlertsModal({ currentSymbol = 'BTCUSDT', currentPrice = 
                   <div className="space-y-0.5">
                     <div className="flex items-center space-x-2">
                       <span className="font-bold text-white text-[11px]">{a.symbol}</span>
-                      <span className="text-[10px] text-neutral-400">{a.condition}</span>
+                      <span className="text-[11px] text-muted-foreground">{a.condition}</span>
                       <span className="font-bold text-blue-400">${a.price}</span>
                       <span
                         className={`text-[8.5px] px-1.5 py-0.2 rounded font-bold uppercase ${
@@ -456,7 +456,7 @@ export default function AlertsModal({ currentSymbol = 'BTCUSDT', currentPrice = 
                         {a.status}
                       </span>
                     </div>
-                    <div className="text-[10px] text-neutral-400 truncate max-w-xs">
+                    <div className="text-[11px] text-muted-foreground truncate max-w-xs">
                       {a.name}
                     </div>
                   </div>

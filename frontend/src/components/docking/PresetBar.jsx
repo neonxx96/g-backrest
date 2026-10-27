@@ -47,7 +47,7 @@ export default function PresetBar({ onSwitchPreset, onNewPreset, onAddTradesPane
       <div className="flex items-center space-x-1 overflow-x-auto no-scrollbar py-0.5">
         {layersProps?.showLiqLayers && (
           <div className="flex items-center space-x-1 shrink-0 mr-1.5">
-            <div className="flex items-center space-x-1 text-muted-foreground text-[10px] uppercase font-mono tracking-wider mr-1 shrink-0">
+            <div className="flex items-center space-x-1 text-muted-foreground text-[11px] uppercase font-mono tracking-wider mr-1 shrink-0">
               <Layers size={11} className="text-primary" />
               <span>Слои:</span>
             </div>
@@ -105,7 +105,7 @@ export default function PresetBar({ onSwitchPreset, onNewPreset, onAddTradesPane
             <div className="h-3.5 w-px bg-border/60 mx-1 shrink-0" />
           </div>
         )}
-        <div className="flex items-center space-x-1 text-muted-foreground text-[10px] uppercase font-mono tracking-wider mr-1.5 shrink-0">
+        <div className="flex items-center space-x-1 text-muted-foreground text-[11px] uppercase font-mono tracking-wider mr-1.5 shrink-0">
           <LayoutGrid size={11} className="text-[#3b82f6]" />
           <span>Раскладки:</span>
         </div>

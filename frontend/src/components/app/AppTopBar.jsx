@@ -310,7 +310,7 @@ export default function AppTopBar({
 
       {/* Center: Sleek Institutional Timeframe Switcher */}
       <div className="flex items-center space-x-0.5 bg-background p-0.5 rounded border border-border font-mono shrink-0">
-        <span className="hidden sm:inline text-[9px] text-muted-foreground px-1 font-semibold uppercase tracking-wider">TF:</span>
+        <span className="hidden sm:inline text-[11px] text-muted-foreground px-1 font-semibold uppercase tracking-wider">TF:</span>
         {TIMEFRAMES.map((tf, idx) => (
           <button
             key={tf}
@@ -458,7 +458,7 @@ export default function AppTopBar({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48 p-1 font-mono text-xs">
-              <DropdownMenuLabel className="text-[9.5px] text-muted-foreground uppercase tracking-wider py-1">
+              <DropdownMenuLabel className="text-[11px] text-muted-foreground uppercase tracking-wider py-1">
                 Режимы терминала
               </DropdownMenuLabel>
               <DropdownMenuSeparator />

@@ -1305,7 +1305,7 @@ export default function BacktestPanel({
           )}
 
           {result?.meta && (
-            <span className="hidden xl:inline font-mono text-[10px] text-neutral-500 font-normal truncate">
+            <span className="hidden xl:inline font-mono text-[11px] text-muted-foreground font-normal truncate">
               {result.meta.candles} свечей {result.meta.timeframe}
               {result.meta.combinations_tested
                 ? ` • Итераций генетики: ${result.meta.combinations_tested} (${result.meta.elapsed_ms || 320} мс)`
@@ -1339,10 +1339,10 @@ export default function BacktestPanel({
                 <span className="text-[10px] font-bold text-neutral-200 uppercase tracking-wider flex items-center gap-1">
                   <Sparkles size={11} className="text-neutral-400" /> AI Ассистент стратегий
                 </span>
-                <span className="text-[9px] text-neutral-500 font-mono">NLP v2</span>
+                <span className="text-[11px] text-muted-foreground font-mono">NLP v2</span>
               </div>
 
-              <label className="flex flex-col text-[9px] text-neutral-400 font-mono">
+              <label className="flex flex-col text-[11px] text-muted-foreground font-mono">
                 <span className="mb-1 text-neutral-300">Опишите торговый сетап:</span>
                 <textarea
                   value={aiPrompt}
