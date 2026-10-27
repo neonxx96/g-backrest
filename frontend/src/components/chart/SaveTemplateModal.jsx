@@ -27,11 +27,11 @@ export default function SaveTemplateModal({
         >
           <div className="bg-[#0f1420] border border-[#253248] rounded-lg p-4 w-80 shadow-2xl font-mono text-xs text-[#d1d4dc]">
             <div className="flex items-center justify-between mb-3 border-b border-[#1f2738] pb-2">
-              <span className="font-bold text-white text-sm">Сохранить как шаблон SMC</span>
+              <span className="font-bold text-foreground text-sm">Сохранить как шаблон SMC</span>
               <button
                 type="button"
                 onClick={() => setShowSaveTemplateModal(false)}
-                className="text-[#64748b] hover:text-white cursor-pointer"
+                className="text-[#64748b] hover:text-foreground cursor-pointer"
               >
                 <X size={14} />
               </button>
@@ -44,7 +44,7 @@ export default function SaveTemplateModal({
                 value={newTemplateName}
                 onChange={(e) => setNewTemplateName(e.target.value)}
                 placeholder="например, Мой FVG H1"
-                className="w-full bg-[#070a10] border border-[#2a364f] rounded px-2 py-1 text-white text-xs outline-none focus:border-[#38bdf8]"
+                className="w-full bg-[#070a10] border border-[#2a364f] rounded px-2 py-1 text-foreground text-xs outline-none focus:border-[#38bdf8]"
                 autoFocus
               />
             </div>
@@ -69,7 +69,7 @@ export default function SaveTemplateModal({
                 type="button"
                 onClick={handleSaveCurrentAsTemplate}
                 disabled={!newTemplateName.trim()}
-                className="px-3 py-1 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-bold text-xs disabled:opacity-40 cursor-pointer"
+                className="px-3 py-1 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-foreground font-bold text-xs disabled:opacity-40 cursor-pointer"
               >
                 Сохранить
               </button>

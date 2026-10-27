@@ -73,19 +73,19 @@ export default function ModalsHost({
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-1.5">
-                  <span className={`px-1.5 py-0.2 rounded text-[9.5px] font-bold text-white uppercase ${badgeBg}`}>
+                  <span className={`px-1.5 py-0.2 rounded text-[9.5px] font-bold text-foreground uppercase ${badgeBg}`}>
                     {isBuy ? 'BUY' : isSell ? 'SELL' : 'ALERT'}
                   </span>
-                  <span className="font-bold text-white text-[11px]">#{t.symbol}</span>
+                  <span className="font-bold text-foreground text-[11px]">#{t.symbol}</span>
                 </div>
                 <div className="flex items-center space-x-1.5">
-                  {getUsableMarketPrice(t.price) != null && <span className="text-[11px] font-bold text-white">${getUsableMarketPrice(t.price)}</span>}
+                  {getUsableMarketPrice(t.price) != null && <span className="text-[11px] font-bold text-foreground">${getUsableMarketPrice(t.price)}</span>}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       onRemoveToast(t.id);
                     }}
-                    className="text-[#787f91] hover:text-white p-0.5"
+                    className="text-[#787f91] hover:text-foreground p-0.5"
                   >
                     <X size={12} />
                   </button>
@@ -121,11 +121,11 @@ export default function ModalsHost({
             className="border rounded-lg p-4 w-full max-w-sm text-xs space-y-3 shadow-2xl text-[#d1d4dc]"
           >
             <div className="flex items-center justify-between pb-2 border-b border-[#161820]">
-              <span className="font-bold text-white text-sm flex items-center">
+              <span className="font-bold text-foreground text-sm flex items-center">
                 <Keyboard size={14} className="mr-1.5 text-[#38bdf8]" />
                 Горячие клавиши терминала
               </span>
-              <button onClick={onCloseHotkeyHelp} className="text-[#60697b] hover:text-white">
+              <button onClick={onCloseHotkeyHelp} className="text-[#60697b] hover:text-foreground">
                 ✕
               </button>
             </div>
@@ -141,23 +141,23 @@ export default function ModalsHost({
               </div>
               <div className="flex justify-between py-0.5 border-b border-[#13161f]">
                 <span className="text-[#787f91]">Центр настроек:</span>
-                <span className="text-white font-bold">, (Запятая)</span>
+                <span className="text-foreground font-bold">, (Запятая)</span>
               </div>
               <div className="flex justify-between py-0.5 border-b border-[#13161f]">
                 <span className="text-[#787f91]">Таймфреймы HTF:</span>
-                <span className="text-white font-bold">1=1m, 2=5m, 3=15m, 4=30m, 5=1h, 6=4h, 7=6h</span>
+                <span className="text-foreground font-bold">1=1m, 2=5m, 3=15m, 4=30m, 5=1h, 6=4h, 7=6h</span>
               </div>
               <div className="flex justify-between py-0.5 border-b border-[#13161f]">
                 <span className="text-[#787f91]">Смена монеты:</span>
-                <span className="text-white font-bold">Стрелка Вверх / Вниз</span>
+                <span className="text-foreground font-bold">Стрелка Вверх / Вниз</span>
               </div>
               <div className="flex justify-between py-0.5 border-b border-[#13161f]">
                 <span className="text-[#787f91]">1 / 2 Графика (50/50):</span>
-                <span className="text-white font-bold">D</span>
+                <span className="text-foreground font-bold">D</span>
               </div>
               <div className="flex justify-between py-0.5 border-b border-[#13161f]">
                 <span className="text-[#787f91]">Бэктест & Grid Search:</span>
-                <span className="text-white font-bold">B</span>
+                <span className="text-foreground font-bold">B</span>
               </div>
               <div className="flex justify-between py-0.5 border-b border-[#13161f]">
                 <span className="text-[#787f91]">AI Торговый Ассистент:</span>
@@ -169,29 +169,29 @@ export default function ModalsHost({
               </div>
               <div className="flex justify-between py-0.5 border-b border-[#13161f]">
                 <span className="text-[#787f91]">Скальперский DOM стакан:</span>
-                <span className="text-white font-bold">O</span>
+                <span className="text-foreground font-bold">O</span>
               </div>
               <div className="flex justify-between py-0.5 border-b border-[#13161f]">
                 <span className="text-[#787f91]">Лента сделок (Tape):</span>
-                <span className="text-white font-bold">T</span>
+                <span className="text-foreground font-bold">T</span>
               </div>
               <div className="flex justify-between py-0.5 border-b border-[#13161f]">
                 <span className="text-[#787f91]">Лента сигналов:</span>
-                <span className="text-white font-bold">S</span>
+                <span className="text-foreground font-bold">S</span>
               </div>
               <div className="flex justify-between py-0.5 border-b border-[#13161f]">
                 <span className="text-[#787f91]">Центрировать цену и спред:</span>
-                <span className="text-white font-bold">Space (Пробел)</span>
+                <span className="text-foreground font-bold">Space (Пробел)</span>
               </div>
               <div className="flex justify-between py-0.5">
                 <span className="text-[#787f91]">Отменить фигуру:</span>
-                <span className="text-white font-bold">Ctrl + Z</span>
+                <span className="text-foreground font-bold">Ctrl + Z</span>
               </div>
             </div>
 
             <button
               onClick={onCloseHotkeyHelp}
-              className="w-full py-1 rounded bg-[#1f2430] hover:bg-[#2563eb] text-white font-medium transition text-xs"
+              className="w-full py-1 rounded bg-[#1f2430] hover:bg-[#2563eb] text-foreground font-medium transition text-xs"
             >
               Понятно
             </button>

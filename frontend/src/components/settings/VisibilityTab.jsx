@@ -127,7 +127,7 @@ export default function VisibilityTab({ cfg, updateUi }) {
       {/* 1. Visibility Presets */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <label className="text-white font-bold text-xs">
+          <label className="text-foreground font-bold text-xs">
             Готовые профили видимости:
           </label>
           <span className="text-[10px] font-mono text-muted-foreground">
@@ -144,7 +144,7 @@ export default function VisibilityTab({ cfg, updateUi }) {
               className="p-3 rounded-md border text-left transition cursor-pointer bg-[#10131a] border-[#1f2430] hover:border-[#38bdf8]/50 hover:bg-[#141a24]"
             >
               <div className="flex items-center justify-between mb-1">
-                <span className="font-bold text-xs text-white flex items-center gap-1.5">
+                <span className="font-bold text-xs text-foreground flex items-center gap-1.5">
                   <Sparkles size={12} className="text-[#38bdf8]" />
                   {p.label}
                 </span>
@@ -159,7 +159,7 @@ export default function VisibilityTab({ cfg, updateUi }) {
 
       {/* 2. Individual Element Switches */}
       <div className="space-y-2">
-        <label className="block text-white font-bold text-xs">
+        <label className="block text-foreground font-bold text-xs">
           Элементы интерфейса:
         </label>
 

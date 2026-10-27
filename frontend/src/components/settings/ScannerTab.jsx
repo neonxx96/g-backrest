@@ -22,7 +22,7 @@ export default function ScannerTab({
                 key={tf}
                 onClick={() => handleChange('timeframe', tf)}
                 className={`py-1 rounded font-mono font-semibold transition ${
-                  settings.timeframe === tf ? 'bg-[#2563eb] text-white' : 'bg-[#121620] text-[#848e9c]'
+                  settings.timeframe === tf ? 'bg-[#2563eb] text-foreground' : 'bg-[#121620] text-[#848e9c]'
                 }`}
               >
                 {tf}
@@ -36,7 +36,7 @@ export default function ScannerTab({
           <select
             value={settings.normalization_mode || 'raw'}
             onChange={e => handleChange('normalization_mode', e.target.value)}
-            className="w-full bg-[#121620] border border-[#1b212f] rounded px-2 py-1.5 text-white font-mono"
+            className="w-full bg-[#121620] border border-[#1b212f] rounded px-2 py-1.5 text-foreground font-mono"
           >
             <option value="raw">Обычный (Raw)</option>
             <option value="atr_pct">В % от ATR</option>
@@ -54,7 +54,7 @@ export default function ScannerTab({
             step="0.5"
             value={settings.price_change_min ?? 2.5}
             onChange={e => handleChange('price_change_min', parseFloat(e.target.value))}
-            className="w-full bg-[#0c0e12] border border-[#1f2430] rounded px-1.5 py-0.5 text-white mt-1"
+            className="w-full bg-[#0c0e12] border border-[#1f2430] rounded px-1.5 py-0.5 text-foreground mt-1"
           />
         </div>
         <div className="p-2 rounded bg-[#121620] border border-[#1b212f]">
@@ -64,7 +64,7 @@ export default function ScannerTab({
             step="0.1"
             value={settings.vol_spike_mult ?? 2.0}
             onChange={e => handleChange('vol_spike_mult', parseFloat(e.target.value))}
-            className="w-full bg-[#0c0e12] border border-[#1f2430] rounded px-1.5 py-0.5 text-white mt-1"
+            className="w-full bg-[#0c0e12] border border-[#1f2430] rounded px-1.5 py-0.5 text-foreground mt-1"
           />
         </div>
         <div className="p-2 rounded bg-[#121620] border border-[#1b212f]">
@@ -74,7 +74,7 @@ export default function ScannerTab({
             step="5000"
             value={settings.liquidation_min_usd ?? 50000}
             onChange={e => handleChange('liquidation_min_usd', parseFloat(e.target.value))}
-            className="w-full bg-[#0c0e12] border border-[#1f2430] rounded px-1.5 py-0.5 text-white mt-1"
+            className="w-full bg-[#0c0e12] border border-[#1f2430] rounded px-1.5 py-0.5 text-foreground mt-1"
           />
         </div>
       </div>
@@ -82,14 +82,14 @@ export default function ScannerTab({
       {/* Per-coin overrides */}
       <div className="p-2.5 rounded bg-[#121620] border border-[#1b212f] space-y-2">
         <div className="flex items-center justify-between">
-          <span className="text-white font-bold text-[11px]">Переопределение параметров по монетам:</span>
+          <span className="text-foreground font-bold text-[11px]">Переопределение параметров по монетам:</span>
           <div className="flex space-x-1">
             {OVERRIDE_COINS.map(c => (
               <button
                 key={c}
                 onClick={() => setSelectedCoin(c)}
                 className={`px-1.5 py-0.5 rounded text-[10px] ${
-                  selectedCoin === c ? 'bg-[#2563eb] text-white font-bold' : 'bg-[#0c0e12] text-[#787f91]'
+                  selectedCoin === c ? 'bg-[#2563eb] text-foreground font-bold' : 'bg-[#0c0e12] text-[#787f91]'
                 }`}
               >
                 {c.replace('USDT', '')}
@@ -111,7 +111,7 @@ export default function ScannerTab({
                   e.target.value ? parseInt(e.target.value, 10) : undefined
                 )
               }
-              className="w-full bg-[#0c0e12] border border-[#1f2430] rounded px-2 py-0.5 text-white mt-0.5"
+              className="w-full bg-[#0c0e12] border border-[#1f2430] rounded px-2 py-0.5 text-foreground mt-0.5"
             />
           </div>
           <div>
@@ -128,7 +128,7 @@ export default function ScannerTab({
                   e.target.value ? parseFloat(e.target.value) : undefined
                 )
               }
-              className="w-full bg-[#0c0e12] border border-[#1f2430] rounded px-2 py-0.5 text-white mt-0.5"
+              className="w-full bg-[#0c0e12] border border-[#1f2430] rounded px-2 py-0.5 text-foreground mt-0.5"
             />
           </div>
         </div>
@@ -139,7 +139,7 @@ export default function ScannerTab({
         <div className="flex items-center space-x-2">
           <HardDrive size={14} className="text-[#38bdf8]" />
           <div>
-            <div className="text-white font-bold text-[11px]">Хранилище Parquet (FIFO)</div>
+            <div className="text-foreground font-bold text-[11px]">Хранилище Parquet (FIFO)</div>
             <div className="text-[10px] text-[#787f91]">Путь: {settings.storage_path || 'data/recorded'}</div>
           </div>
         </div>
@@ -149,7 +149,7 @@ export default function ScannerTab({
             type="number"
             value={settings.storage_max_gb ?? 100}
             onChange={e => handleChange('storage_max_gb', parseFloat(e.target.value))}
-            className="w-16 bg-[#0c0e12] border border-[#1f2430] rounded px-1.5 py-0.5 text-right text-white"
+            className="w-16 bg-[#0c0e12] border border-[#1f2430] rounded px-1.5 py-0.5 text-right text-foreground"
           />
         </div>
       </div>

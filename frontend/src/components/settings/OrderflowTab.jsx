@@ -9,7 +9,7 @@ export default function OrderflowTab({ cfg, updateUi }) {
       <div className="p-3 rounded bg-[#10131a] border border-[#1b212f] space-y-2.5">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-white font-bold text-xs">Порог подсветки плотностей в стакане L2 ($)</div>
+            <div className="text-foreground font-bold text-xs">Порог подсветки плотностей в стакане L2 ($)</div>
             <div className="text-[10px] text-[#787f91]">Заявки свыше этого объёма выделяются цветом и отслеживаются на спуфинг</div>
           </div>
           <span className="text-[#ffb300] font-bold text-xs">
@@ -33,7 +33,7 @@ export default function OrderflowTab({ cfg, updateUi }) {
               className={`px-2.5 py-1 rounded text-[10px] font-bold transition ${
                 cfg.densityThresholdUsd === p.val
                   ? 'bg-[#ff9800] text-black'
-                  : 'bg-[#0c0e12] text-[#848e9c] border border-[#1f2430] hover:text-white'
+                  : 'bg-[#0c0e12] text-[#848e9c] border border-[#1f2430] hover:text-foreground'
               }`}
             >
               {p.label}
@@ -44,7 +44,7 @@ export default function OrderflowTab({ cfg, updateUi }) {
             step="10000"
             value={cfg.densityThresholdUsd || 50000}
             onChange={e => updateUi({ densityThresholdUsd: Math.max(1000, Number(e.target.value) || 50000) })}
-            className="ml-auto w-28 bg-[#0c0e12] border border-[#1f2430] rounded px-2 py-1 text-right text-white font-bold"
+            className="ml-auto w-28 bg-[#0c0e12] border border-[#1f2430] rounded px-2 py-1 text-right text-foreground font-bold"
           />
         </div>
       </div>
@@ -53,7 +53,7 @@ export default function OrderflowTab({ cfg, updateUi }) {
       <div className="p-3 rounded bg-[#10131a] border border-[#1b212f] space-y-2.5">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-white font-bold text-xs">Фильтрация тиков в ленте сделок (Time & Sales)</div>
+            <div className="text-foreground font-bold text-xs">Фильтрация тиков в ленте сделок (Time & Sales)</div>
             <div className="text-[10px] text-[#787f91]">Отсекает мелкий рыночный шум, оставляя только значимые принты</div>
           </div>
           <span className="text-[#38bdf8] font-bold text-xs">
@@ -76,8 +76,8 @@ export default function OrderflowTab({ cfg, updateUi }) {
               onClick={() => updateUi({ tapeMinUsd: p.val })}
               className={`px-2.5 py-1 rounded text-[10px] font-bold transition ${
                 cfg.tapeMinUsd === p.val
-                  ? 'bg-[#2563eb] text-white'
-                  : 'bg-[#0c0e12] text-[#848e9c] border border-[#1f2430] hover:text-white'
+                  ? 'bg-[#2563eb] text-foreground'
+                  : 'bg-[#0c0e12] text-[#848e9c] border border-[#1f2430] hover:text-foreground'
               }`}
             >
               {p.label}
@@ -90,7 +90,7 @@ export default function OrderflowTab({ cfg, updateUi }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="p-3 rounded bg-[#10131a] border border-[#1b212f] space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-white font-bold text-[11px]">Таймер подтверждения «СТЕНА»:</span>
+            <span className="text-foreground font-bold text-[11px]">Таймер подтверждения «СТЕНА»:</span>
             <span className="text-[#ffb300] font-bold">{cfg.wallLifetimeSec || 60} сек</span>
           </div>
           <Slider
@@ -108,7 +108,7 @@ export default function OrderflowTab({ cfg, updateUi }) {
 
         <div className="p-3 rounded bg-[#10131a] border border-[#1b212f] space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-white font-bold text-[11px]">Дистанция детекции спуфинга:</span>
+            <span className="text-foreground font-bold text-[11px]">Дистанция детекции спуфинга:</span>
             <span className="text-[#f43f5e] font-bold">{(cfg.spoofDistancePct ?? 0.35).toFixed(2)}%</span>
           </div>
           <Slider

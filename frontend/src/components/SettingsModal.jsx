@@ -152,7 +152,7 @@ export default function SettingsModal({
         <div
           className="flex items-center justify-between px-4 py-2.5 border-b border-border/70 bg-card/95"
         >
-          <div className="flex items-center space-x-2 font-bold text-white text-xs">
+          <div className="flex items-center space-x-2 font-bold text-foreground text-xs">
             <Sliders size={14} className="text-[#38bdf8]" />
             <span>Центр настроек терминала SignalScript</span>
             <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#14171f] text-[#787f91] border border-[#1f2430]">
@@ -161,7 +161,7 @@ export default function SettingsModal({
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded hover:bg-[#161820] text-[#787f91] hover:text-white transition"
+            className="p-1 rounded hover:bg-[#161820] text-[#787f91] hover:text-foreground transition"
           >
             <X size={15} />
           </button>
@@ -190,7 +190,7 @@ export default function SettingsModal({
                 className={`flex items-center space-x-1.5 px-3 py-2 border-b-2 font-semibold whitespace-nowrap transition ${
                   active
                     ? 'border-[#38bdf8] text-[#38bdf8]'
-                    : 'border-transparent text-[#787f91] hover:text-white'
+                    : 'border-transparent text-[#787f91] hover:text-foreground'
                 }`}
               >
                 <Icon size={12} />
@@ -257,7 +257,7 @@ export default function SettingsModal({
             <button
               onClick={handleSave}
               disabled={isSaving}
-              className="px-3.5 py-1 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-mono text-xs font-semibold flex items-center space-x-1 transition"
+              className="px-3.5 py-1 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-foreground font-mono text-xs font-semibold flex items-center space-x-1 transition"
             >
               <Save size={12} className="mr-1" />
               {isSaving ? 'Сохранение...' : 'Сохранить'}

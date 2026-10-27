@@ -150,7 +150,7 @@ export default function WidgetHubModal() {
               <LayoutGrid size={16} />
             </div>
             <div>
-              <div className="font-bold text-white text-[13px] tracking-wide flex items-center gap-1.5">
+              <div className="font-bold text-foreground text-[13px] tracking-wide flex items-center gap-1.5">
                 <span>Каталог модулей (Виджеты)</span>
                 <span className="text-[10px] font-mono text-[#38bdf8] bg-[#38bdf815] px-1.5 py-0.2 rounded border border-[#38bdf830]">
                   SignalScript
@@ -165,7 +165,7 @@ export default function WidgetHubModal() {
             type="button"
             data-testid="btn-close-widget-hub"
             onClick={closeWidgetHub}
-            className="p-1.5 rounded-lg text-[#64748b] hover:text-white hover:bg-[#1b2234] transition cursor-pointer"
+            className="p-1.5 rounded-lg text-[#64748b] hover:text-foreground hover:bg-[#1b2234] transition cursor-pointer"
           >
             <X size={16} />
           </button>
@@ -189,7 +189,7 @@ export default function WidgetHubModal() {
                       <div className={`p-1.5 rounded-md bg-[#161c2b] border border-[#222b40] group-hover:scale-105 transition-transform ${m.iconColor}`}>
                         <Icon size={16} />
                       </div>
-                      <span className="font-bold text-white text-[12px] group-hover:text-[#38bdf8] transition-colors">
+                      <span className="font-bold text-foreground text-[12px] group-hover:text-[#38bdf8] transition-colors">
                         {m.title}
                       </span>
                     </div>
@@ -221,7 +221,7 @@ export default function WidgetHubModal() {
           <button
             type="button"
             onClick={closeWidgetHub}
-            className="px-3 py-1 rounded bg-[#161c2b] hover:bg-[#222b40] text-white transition cursor-pointer"
+            className="px-3 py-1 rounded bg-[#161c2b] hover:bg-[#222b40] text-foreground transition cursor-pointer"
           >
             Закрыть
           </button>

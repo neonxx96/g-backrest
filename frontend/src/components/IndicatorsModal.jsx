@@ -261,7 +261,7 @@ export default function IndicatorsModal({
               <Sliders size={16} />
             </div>
             <div>
-              <div className="font-bold text-white text-sm">
+              <div className="font-bold text-foreground text-sm">
                 Каталог индикаторов & Order Flow
               </div>
               <div className="text-[11px] text-[#787f91]">
@@ -271,7 +271,7 @@ export default function IndicatorsModal({
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded text-[#787f91] hover:text-white hover:bg-[#1f2430] transition"
+            className="p-1 rounded text-[#787f91] hover:text-foreground hover:bg-[#1f2430] transition"
             title="Закрыть каталог (Клавиша 'I')"
           >
             <X size={17} />
@@ -291,8 +291,8 @@ export default function IndicatorsModal({
                   }}
                   className={`px-3 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
                     activeTab === 'primary'
-                      ? 'bg-[#2563eb] text-white shadow-sm'
-                      : 'text-[#94a3b8] hover:text-white hover:bg-[#181d28]'
+                      ? 'bg-[#2563eb] text-foreground shadow-sm'
+                      : 'text-[#94a3b8] hover:text-foreground hover:bg-[#181d28]'
                   }`}
                 >
                   Senior График (HTF 15m)
@@ -304,8 +304,8 @@ export default function IndicatorsModal({
                   }}
                   className={`px-3 py-1 rounded-md text-[11px] font-semibold transition cursor-pointer ${
                     activeTab === 'secondary'
-                      ? 'bg-[#2563eb] text-white shadow-sm'
-                      : 'text-[#94a3b8] hover:text-white hover:bg-[#181d28]'
+                      ? 'bg-[#2563eb] text-foreground shadow-sm'
+                      : 'text-[#94a3b8] hover:text-foreground hover:bg-[#181d28]'
                   }`}
                 >
                   Junior График (LTF 1m)
@@ -327,7 +327,7 @@ export default function IndicatorsModal({
               placeholder="Поиск индикатора (CVD, EMA, ATR, Walls)..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-[#090b10] border border-[#222838] focus:border-[#38bdf8] rounded px-3 py-1 text-[11px] text-white placeholder-[#64748b] outline-none font-sans pl-7"
+              className="w-full bg-[#090b10] border border-[#222838] focus:border-[#38bdf8] rounded px-3 py-1 text-[11px] text-foreground placeholder-[#64748b] outline-none font-sans pl-7"
             />
             <Search
               size={12}
@@ -349,7 +349,7 @@ export default function IndicatorsModal({
                 className={`px-2.5 py-0.8 rounded text-[10.5px] transition cursor-pointer whitespace-nowrap ${
                   activeCategory === cat.id
                     ? 'bg-[#1e293b] text-[#38bdf8] font-bold border border-[#38bdf850]'
-                    : 'text-[#787f91] hover:text-white hover:bg-[#161a24]'
+                    : 'text-[#787f91] hover:text-foreground hover:bg-[#161a24]'
                 }`}
               >
                 {cat.label}
@@ -386,7 +386,7 @@ export default function IndicatorsModal({
                         onClick={() => toggleIndicator(item.id)}
                         className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center transition cursor-pointer shrink-0 ${
                           isEnabled
-                            ? 'bg-[#2563eb] border-[#2563eb] text-white'
+                            ? 'bg-[#2563eb] border-[#2563eb] text-foreground'
                             : 'border-[#333d52] hover:border-[#64748b]'
                         }`}
                       >
@@ -397,7 +397,7 @@ export default function IndicatorsModal({
                         <div className="flex items-center space-x-2">
                           <span
                             onClick={() => toggleIndicator(item.id)}
-                            className="font-semibold text-white text-[11.5px] cursor-pointer hover:text-[#38bdf8] transition"
+                            className="font-semibold text-foreground text-[11.5px] cursor-pointer hover:text-[#38bdf8] transition"
                           >
                             {item.name}
                           </span>
@@ -422,7 +422,7 @@ export default function IndicatorsModal({
                           className={`p-1.5 rounded transition cursor-pointer ${
                             isSettingsOpen
                               ? 'bg-[#1f293d] text-[#38bdf8]'
-                              : 'text-[#64748b] hover:text-white hover:bg-[#181d28]'
+                              : 'text-[#64748b] hover:text-foreground hover:bg-[#181d28]'
                           }`}
                           title="Настройки параметров индикатора"
                         >
@@ -436,7 +436,7 @@ export default function IndicatorsModal({
                         className={`px-2.5 py-1 rounded text-[10px] font-semibold transition cursor-pointer flex items-center space-x-1 ${
                           isEnabled
                             ? 'bg-[#26a69a25] text-[#26a69a] border border-[#26a69a50]'
-                            : 'bg-[#161a24] text-[#64748b] hover:text-white border border-[#242b3b]'
+                            : 'bg-[#161a24] text-[#64748b] hover:text-foreground border border-[#242b3b]'
                         }`}
                       >
                         {isEnabled ? (
@@ -473,7 +473,7 @@ export default function IndicatorsModal({
                                 p[0] = Number(e.target.value);
                                 updateSetting('emaPeriods', p);
                               }}
-                              className="w-full bg-[#121620] border border-[#252d3d] rounded p-1 text-white mt-0.5"
+                              className="w-full bg-[#121620] border border-[#252d3d] rounded p-1 text-foreground mt-0.5"
                             />
                           </div>
                           <div>
@@ -486,7 +486,7 @@ export default function IndicatorsModal({
                                 p[1] = Number(e.target.value);
                                 updateSetting('emaPeriods', p);
                               }}
-                              className="w-full bg-[#121620] border border-[#252d3d] rounded p-1 text-white mt-0.5"
+                              className="w-full bg-[#121620] border border-[#252d3d] rounded p-1 text-foreground mt-0.5"
                             />
                           </div>
                           <div>
@@ -499,7 +499,7 @@ export default function IndicatorsModal({
                                 p[2] = Number(e.target.value);
                                 updateSetting('emaPeriods', p);
                               }}
-                              className="w-full bg-[#121620] border border-[#252d3d] rounded p-1 text-white mt-0.5"
+                              className="w-full bg-[#121620] border border-[#252d3d] rounded p-1 text-foreground mt-0.5"
                             />
                           </div>
                         </div>
@@ -513,7 +513,7 @@ export default function IndicatorsModal({
                               type="number"
                               value={customSettings.rsiPeriod}
                               onChange={(e) => updateSetting('rsiPeriod', Number(e.target.value))}
-                              className="w-full bg-[#121620] border border-[#252d3d] rounded p-1 text-white mt-0.5"
+                              className="w-full bg-[#121620] border border-[#252d3d] rounded p-1 text-foreground mt-0.5"
                             />
                           </div>
                           <div>
@@ -522,7 +522,7 @@ export default function IndicatorsModal({
                               type="number"
                               value={customSettings.rsiOverbought}
                               onChange={(e) => updateSetting('rsiOverbought', Number(e.target.value))}
-                              className="w-full bg-[#121620] border border-[#252d3d] rounded p-1 text-white mt-0.5"
+                              className="w-full bg-[#121620] border border-[#252d3d] rounded p-1 text-foreground mt-0.5"
                             />
                           </div>
                           <div>
@@ -531,7 +531,7 @@ export default function IndicatorsModal({
                               type="number"
                               value={customSettings.rsiOversold}
                               onChange={(e) => updateSetting('rsiOversold', Number(e.target.value))}
-                              className="w-full bg-[#121620] border border-[#252d3d] rounded p-1 text-white mt-0.5"
+                              className="w-full bg-[#121620] border border-[#252d3d] rounded p-1 text-foreground mt-0.5"
                             />
                           </div>
                         </div>
@@ -545,7 +545,7 @@ export default function IndicatorsModal({
                               type="number"
                               value={customSettings.atrPeriod}
                               onChange={(e) => updateSetting('atrPeriod', Number(e.target.value))}
-                              className="w-full bg-[#121620] border border-[#252d3d] rounded p-1 text-white mt-0.5"
+                              className="w-full bg-[#121620] border border-[#252d3d] rounded p-1 text-foreground mt-0.5"
                             />
                           </div>
                           <div>
@@ -555,7 +555,7 @@ export default function IndicatorsModal({
                               step="0.1"
                               value={customSettings.atrMultiplier}
                               onChange={(e) => updateSetting('atrMultiplier', Number(e.target.value))}
-                              className="w-full bg-[#121620] border border-[#252d3d] rounded p-1 text-white mt-0.5"
+                              className="w-full bg-[#121620] border border-[#252d3d] rounded p-1 text-foreground mt-0.5"
                             />
                           </div>
                         </div>
@@ -569,7 +569,7 @@ export default function IndicatorsModal({
                             step="100000"
                             value={customSettings.minWallUsd}
                             onChange={(e) => updateSetting('minWallUsd', Number(e.target.value))}
-                            className="w-full bg-[#121620] border border-[#252d3d] rounded p-1 text-white mt-0.5"
+                            className="w-full bg-[#121620] border border-[#252d3d] rounded p-1 text-foreground mt-0.5"
                           />
                         </div>
                       )}
@@ -585,7 +585,7 @@ export default function IndicatorsModal({
         <div className="px-4 py-3 border-t border-[#1f2430] bg-[#131722] flex items-center justify-between shrink-0">
           <button
             onClick={handleResetToDefaults}
-            className="px-3 py-1.5 rounded text-[#787f91] hover:text-white hover:bg-[#1a202c] transition flex items-center space-x-1.5 cursor-pointer text-[10.5px]"
+            className="px-3 py-1.5 rounded text-[#787f91] hover:text-foreground hover:bg-[#1a202c] transition flex items-center space-x-1.5 cursor-pointer text-[10.5px]"
           >
             <RotateCcw size={13} />
             <span>Сбросить к заводским</span>
@@ -593,7 +593,7 @@ export default function IndicatorsModal({
 
           <button
             onClick={onClose}
-            className="px-4 py-1.5 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-semibold transition cursor-pointer text-[11px]"
+            className="px-4 py-1.5 rounded bg-[#2563eb] hover:bg-[#1d4ed8] text-foreground font-semibold transition cursor-pointer text-[11px]"
           >
             Применить и закрыть
           </button>

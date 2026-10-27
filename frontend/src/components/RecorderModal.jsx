@@ -59,7 +59,7 @@ export default function RecorderModal({ isOpen, onClose, activeSymbol }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="bg-[#0b0e14] border border-[#1b212f] rounded-xl w-full max-w-2xl text-white shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="bg-[#0b0e14] border border-[#1b212f] rounded-xl w-full max-w-2xl text-foreground shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#1b212f] bg-[#0e1118]">
           <div className="flex items-center space-x-2.5">
@@ -75,14 +75,14 @@ export default function RecorderModal({ isOpen, onClose, activeSymbol }) {
             <button
               onClick={fetchStats}
               disabled={loading}
-              className="p-1.5 rounded bg-[#121620] hover:bg-[#1a2130] text-[#848e9c] hover:text-white transition"
+              className="p-1.5 rounded bg-[#121620] hover:bg-[#1a2130] text-[#848e9c] hover:text-foreground transition"
               title="Обновить данные"
             >
               <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 rounded bg-[#121620] hover:bg-[#1a2130] text-[#848e9c] hover:text-white transition"
+              className="p-1.5 rounded bg-[#121620] hover:bg-[#1a2130] text-[#848e9c] hover:text-foreground transition"
             >
               <X size={15} />
             </button>
@@ -96,16 +96,16 @@ export default function RecorderModal({ isOpen, onClose, activeSymbol }) {
             <div className="flex justify-between items-center mb-2">
               <div className="flex items-center space-x-2">
                 <HardDrive size={15} className="text-[#2563eb]" />
-                <span className="text-xs font-semibold text-gray-300">Квота хранилища (100 GB)</span>
+                <span className="text-xs font-semibold text-foreground/80">Квота хранилища (100 GB)</span>
               </div>
               <div className="flex items-center space-x-1.5">
                 <span className={`inline-block w-2 h-2 rounded-full ${stats?.is_recording ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
-                <span className="text-[11px] font-mono text-gray-300">
+                <span className="text-[11px] font-mono text-foreground/80">
                   {stats?.is_recording ? 'ЗАПИСЬ АКТИВНА' : 'ЗАПИСЬ НА ПАУЗЕ'}
                 </span>
                 <button
                   onClick={toggleRecording}
-                  className="ml-2 px-2 py-0.5 rounded text-[10px] bg-[#1a2130] hover:bg-[#222b3d] text-gray-300 border border-[#2a3449]"
+                  className="ml-2 px-2 py-0.5 rounded text-[10px] bg-[#1a2130] hover:bg-[#222b3d] text-foreground/80 border border-[#2a3449]"
                 >
                   {stats?.is_recording ? 'Пауза' : 'Возобновить'}
                 </button>
@@ -121,8 +121,8 @@ export default function RecorderModal({ isOpen, onClose, activeSymbol }) {
             </div>
 
             <div className="flex justify-between text-[11px] text-[#848e9c] font-mono mt-1.5">
-              <span>Использовано: <strong className="text-white">{usedMb} MB</strong> ({usedGb} GB)</span>
-              <span>Лимит: <strong className="text-white">{maxGb} GB</strong> (FIFO очистка при превышении)</span>
+              <span>Использовано: <strong className="text-foreground">{usedMb} MB</strong> ({usedGb} GB)</span>
+              <span>Лимит: <strong className="text-foreground">{maxGb} GB</strong> (FIFO очистка при превышении)</span>
             </div>
           </div>
 
@@ -130,7 +130,7 @@ export default function RecorderModal({ isOpen, onClose, activeSymbol }) {
           <div className="grid grid-cols-3 gap-3 text-center">
             <div className="bg-[#121620] p-3 rounded-lg border border-[#1b212f]">
               <span className="text-[10px] text-[#848e9c] uppercase tracking-wider block mb-1">Сделок за сессию</span>
-              <span className="text-lg font-bold font-mono text-emerald-400">
+              <span className="text-lg font-bold font-mono text-bull">
                 {stats?.total_trades_session?.toLocaleString() || 0}
               </span>
             </div>
@@ -150,7 +150,7 @@ export default function RecorderModal({ isOpen, onClose, activeSymbol }) {
 
           {/* Focus Coins Breakdown */}
           <div className="bg-[#121620] p-4 rounded-lg border border-[#1b212f]">
-            <h3 className="text-xs font-bold text-gray-300 mb-2.5 flex items-center justify-between">
+            <h3 className="text-xs font-bold text-foreground/80 mb-2.5 flex items-center justify-between">
               <span>Основной фокус (глубокий DOM + лента сделок)</span>
               <span className="text-[10px] text-[#848e9c] font-normal">Паркетное сжатие Snappy</span>
             </h3>
@@ -161,17 +161,17 @@ export default function RecorderModal({ isOpen, onClose, activeSymbol }) {
                 return (
                   <div key={sym} className="flex items-center justify-between px-3 py-2 rounded bg-[#0a0d13] border border-[#1a2130] text-xs">
                     <div className="flex items-center space-x-2">
-                      <span className="font-mono font-bold text-white">{sym}</span>
+                      <span className="font-mono font-bold text-foreground">{sym}</span>
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800">
                         Фокус
                       </span>
                     </div>
                     <div className="flex items-center space-x-4 font-mono text-[11px]">
-                      <span className="text-gray-400">{info.files_count} файл(ов)</span>
-                      <span className="text-emerald-400 font-semibold">{info.size_mb} MB</span>
+                      <span className="text-muted-foreground">{info.files_count} файл(ов)</span>
+                      <span className="text-bull font-semibold">{info.size_mb} MB</span>
                       <button
                         onClick={() => handleExport(sym)}
-                        className="px-2 py-0.5 bg-[#1b2230] hover:bg-[#253043] rounded text-gray-300 hover:text-white transition flex items-center space-x-1"
+                        className="px-2 py-0.5 bg-[#1b2230] hover:bg-[#253043] rounded text-foreground/80 hover:text-foreground transition flex items-center space-x-1"
                         title={`Скачать архив ${sym}`}
                       >
                         <Download size={11} />
@@ -187,7 +187,7 @@ export default function RecorderModal({ isOpen, onClose, activeSymbol }) {
           {/* Export Action Card */}
           <div className="p-4 rounded-lg bg-gradient-to-r from-[#111726] to-[#0d1522] border border-[#1e293b] flex items-center justify-between">
             <div>
-              <h4 className="text-xs font-bold text-white flex items-center space-x-1.5">
+              <h4 className="text-xs font-bold text-foreground flex items-center space-x-1.5">
                 <Download size={14} className="text-[#2563eb]" />
                 <span>Полный архив базы (ZIP)</span>
               </h4>
@@ -198,7 +198,7 @@ export default function RecorderModal({ isOpen, onClose, activeSymbol }) {
             <button
               onClick={() => handleExport(null)}
               disabled={exporting}
-              className="px-4 py-2 rounded-lg bg-[#2563eb] hover:bg-[#1d4ed8] text-white text-xs font-bold transition flex items-center space-x-1.5 shadow-lg shadow-blue-900/30"
+              className="px-4 py-2 rounded-lg bg-[#2563eb] hover:bg-[#1d4ed8] text-foreground text-xs font-bold transition flex items-center space-x-1.5 shadow-lg shadow-blue-900/30"
             >
               <Download size={13} />
               <span>{exporting ? 'Формирование...' : 'Скачать все (ZIP)'}</span>

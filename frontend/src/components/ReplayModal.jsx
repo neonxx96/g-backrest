@@ -177,7 +177,7 @@ export default function ReplayModal({ isOpen, onClose }) {
               {total ? `${snapshot.index.toLocaleString()} / ${total.toLocaleString()}` : 'загрузка…'}
             </span>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white" data-testid="replay-close">
+          <button onClick={onClose} className="text-slate-400 hover:text-foreground" data-testid="replay-close">
             <X size={16} />
           </button>
         </div>
@@ -188,7 +188,7 @@ export default function ReplayModal({ isOpen, onClose }) {
             data-testid="replay-play"
             onClick={() => setPlaying((p) => !p)}
             disabled={loading || !!error || snapshot.finished}
-            className="flex items-center gap-1 px-2 py-1 rounded bg-[#1f6feb] text-white text-xs disabled:opacity-40"
+            className="flex items-center gap-1 px-2 py-1 rounded bg-[#1f6feb] text-foreground text-xs disabled:opacity-40"
             title={playing ? 'Пауза' : 'Play'}
           >
             {playing ? <Pause size={12} /> : <Play size={12} />}
@@ -218,7 +218,7 @@ export default function ReplayModal({ isOpen, onClose }) {
                 key={s}
                 data-testid={`replay-speed-${s}`}
                 onClick={() => setSpeed(s)}
-                className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${speed === s ? 'bg-[#1f6feb] text-white' : 'bg-[#21262d] text-slate-400 border border-[#30363d]'}`}
+                className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${speed === s ? 'bg-[#1f6feb] text-foreground' : 'bg-[#21262d] text-slate-400 border border-[#30363d]'}`}
               >
                 {s >= 1000 ? `${s / 1000}k` : s}/с
               </button>
@@ -229,7 +229,7 @@ export default function ReplayModal({ isOpen, onClose }) {
           </div>
         </div>
 
-        {error && <div className="px-4 py-1.5 text-xs text-red-400 bg-red-950/40 border-b border-red-900/50">Ошибка: {error}</div>}
+        {error && <div className="px-4 py-1.5 text-xs text-bear bg-bear-soft/40 border-b border-red-900/50">Ошибка: {error}</div>}
 
         {/* Body */}
         <div className="flex flex-1 min-h-0">

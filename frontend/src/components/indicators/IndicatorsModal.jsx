@@ -80,7 +80,7 @@ export default function IndicatorsModal({
               <SlidersHorizontal size={16} />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-white tracking-wide">
+              <h3 className="text-sm font-semibold text-foreground tracking-wide">
                 Каталог технических индикаторов
               </h3>
               <p className="text-[11px] text-[#94a3b8]">
@@ -92,7 +92,7 @@ export default function IndicatorsModal({
             type="button"
             data-testid="btn-close-indicators-modal"
             onClick={onClose}
-            className="p-1 rounded-md text-[#64748b] hover:text-white hover:bg-[#1e2638] transition cursor-pointer"
+            className="p-1 rounded-md text-[#64748b] hover:text-foreground hover:bg-[#1e2638] transition cursor-pointer"
           >
             <X size={18} />
           </button>
@@ -109,14 +109,14 @@ export default function IndicatorsModal({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Поиск индикатора (RSI, EMA, Bollinger, SuperTrend, Volume...)"
-              className="w-full pl-9 pr-8 py-2 bg-[#121826] border border-[#1e2638] rounded-lg text-xs text-white placeholder-[#64748b] focus:outline-none focus:border-[#38bdf8] transition font-sans"
+              className="w-full pl-9 pr-8 py-2 bg-[#121826] border border-[#1e2638] rounded-lg text-xs text-foreground placeholder-[#64748b] focus:outline-none focus:border-[#38bdf8] transition font-sans"
               autoFocus
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#64748b] hover:text-white"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#64748b] hover:text-foreground"
               >
                 <X size={14} />
               </button>
@@ -136,7 +136,7 @@ export default function IndicatorsModal({
                   className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition cursor-pointer whitespace-nowrap border ${
                     isActive
                       ? 'bg-[#1e293b] text-[#38bdf8] border-[#38bdf850] shadow-sm'
-                      : 'bg-[#121826] text-[#94a3b8] border-[#1b2233] hover:text-white hover:bg-[#161f30]'
+                      : 'bg-[#121826] text-[#94a3b8] border-[#1b2233] hover:text-foreground hover:bg-[#161f30]'
                   }`}
                 >
                   {cat.label}
@@ -171,7 +171,7 @@ export default function IndicatorsModal({
                       <div className="p-1 rounded bg-[#182030] border border-[#222c42]">
                         {getCategoryIcon(ind.category)}
                       </div>
-                      <span className="font-semibold text-xs text-white group-hover:text-[#38bdf8] transition">
+                      <span className="font-semibold text-xs text-foreground group-hover:text-[#38bdf8] transition">
                         {ind.name}
                       </span>
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#182030] text-[#94a3b8] font-mono border border-[#222c42]">
@@ -199,7 +199,7 @@ export default function IndicatorsModal({
                             onClose();
                           }}
                           title="Настройки"
-                          className="p-1.5 rounded bg-[#182233] text-[#94a3b8] hover:text-white hover:bg-[#1e2c42] transition cursor-pointer"
+                          className="p-1.5 rounded bg-[#182233] text-[#94a3b8] hover:text-foreground hover:bg-[#1e2c42] transition cursor-pointer"
                         >
                           <Settings size={13} />
                         </button>
@@ -220,7 +220,7 @@ export default function IndicatorsModal({
                         onClick={() => {
                           onAddIndicator(ind.id);
                         }}
-                        className="flex items-center space-x-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-[#2563eb] hover:bg-[#1d4ed8] text-white shadow-sm hover:shadow transition cursor-pointer"
+                        className="flex items-center space-x-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-[#2563eb] hover:bg-[#1d4ed8] text-foreground shadow-sm hover:shadow transition cursor-pointer"
                       >
                         <Plus size={13} />
                         <span>Добавить</span>
@@ -236,12 +236,12 @@ export default function IndicatorsModal({
         {/* Footer */}
         <div className="px-5 py-3 border-t border-[#1e2638] bg-[#0c1018] flex items-center justify-between text-[11px] text-[#64748b]">
           <span>
-            Активно на графике: <span className="text-white font-semibold">{activeIndicators.length}</span>
+            Активно на графике: <span className="text-foreground font-semibold">{activeIndicators.length}</span>
           </span>
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-1 rounded bg-[#1a2233] text-[#94a3b8] hover:text-white transition cursor-pointer"
+            className="px-3 py-1 rounded bg-[#1a2233] text-[#94a3b8] hover:text-foreground transition cursor-pointer"
           >
             Готово
           </button>

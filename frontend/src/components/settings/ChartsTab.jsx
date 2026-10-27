@@ -8,7 +8,7 @@ export default function ChartsTab({ cfg, updateUi }) {
       <div className="p-3 rounded bg-[#10131a] border border-[#1b212f] space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-white font-bold text-xs">Экспоненциальные средние (EMA)</div>
+            <div className="text-foreground font-bold text-xs">Экспоненциальные средние (EMA)</div>
             <div className="text-[10px] text-[#787f91]">Настройка периодов, цветов и толщины линий на свечном графике</div>
           </div>
           <input
@@ -48,7 +48,7 @@ export default function ChartsTab({ cfg, updateUi }) {
                     nextPeriods[idx] = Math.max(2, parseInt(e.target.value, 10) || 20);
                     updateUi({ emaPeriods: nextPeriods });
                   }}
-                  className="w-full bg-[#121620] border border-[#1f2430] rounded px-1.5 py-0.5 text-right text-white font-bold"
+                  className="w-full bg-[#121620] border border-[#1f2430] rounded px-1.5 py-0.5 text-right text-foreground font-bold"
                 />
               </div>
             </div>
@@ -63,7 +63,7 @@ export default function ChartsTab({ cfg, updateUi }) {
                 key={w}
                 onClick={() => updateUi({ emaWidth: w })}
                 className={`px-2 py-0.5 rounded text-[10px] transition ${
-                  cfg.emaWidth === w ? 'bg-[#2563eb] text-white font-bold' : 'bg-[#0c0e12] text-[#787f91] hover:text-white'
+                  cfg.emaWidth === w ? 'bg-[#2563eb] text-foreground font-bold' : 'bg-[#0c0e12] text-[#787f91] hover:text-foreground'
                 }`}
               >
                 {w}px
@@ -77,14 +77,14 @@ export default function ChartsTab({ cfg, updateUi }) {
       <div className="p-3 rounded bg-[#10131a] border border-[#1b212f] space-y-2.5">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-white font-bold text-xs">Подвальные панели графика (Sub-panes)</div>
+            <div className="text-foreground font-bold text-xs">Подвальные панели графика (Sub-panes)</div>
             <div className="text-[10px] text-[#787f91]">
               Отключите осцилляторы RSI/MACD, чтобы отдать максимум высоты свечам и стакану
             </div>
           </div>
           <button
             onClick={() => updateUi({ subpanes: { vol: true, cvd: true, rsi: false, macd: false } })}
-            className="px-2 py-1 rounded bg-[#182030] hover:bg-[#2563eb] text-[#38bdf8] hover:text-white text-[10px] border border-[#2b3955] transition"
+            className="px-2 py-1 rounded bg-[#182030] hover:bg-[#2563eb] text-[#38bdf8] hover:text-foreground text-[10px] border border-[#2b3955] transition"
           >
             Order Flow фокус (VOL + CVD)
           </button>
@@ -104,8 +104,8 @@ export default function ChartsTab({ cfg, updateUi }) {
                 onClick={() => updateUi({ subpanes: { [pane.id]: !enabled } })}
                 className={`p-2 rounded border cursor-pointer transition ${
                   enabled
-                    ? 'bg-[#161f30] border-[#38bdf8] text-white'
-                    : 'bg-[#0c0e12] border-[#1f2430] text-[#60697b] hover:text-white'
+                    ? 'bg-[#161f30] border-[#38bdf8] text-foreground'
+                    : 'bg-[#0c0e12] border-[#1f2430] text-[#60697b] hover:text-foreground'
                 }`}
               >
                 <div className="flex items-center justify-between">
@@ -129,7 +129,7 @@ export default function ChartsTab({ cfg, updateUi }) {
       {/* Price Precision & Tick Step */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="p-2.5 rounded bg-[#10131a] border border-[#1b212f] space-y-1.5">
-          <div className="text-white font-semibold text-[11px]">Точность округления цен:</div>
+          <div className="text-foreground font-semibold text-[11px]">Точность округления цен:</div>
           <div className="flex space-x-1">
             {[
               { id: 'auto', label: 'Авто' },
@@ -142,7 +142,7 @@ export default function ChartsTab({ cfg, updateUi }) {
                 key={opt.id}
                 onClick={() => updateUi({ pricePrecision: opt.id })}
                 className={`flex-1 py-1 rounded text-[10px] transition ${
-                  cfg.pricePrecision === opt.id ? 'bg-[#2563eb] text-white font-bold' : 'bg-[#0c0e12] text-[#787f91] hover:text-white'
+                  cfg.pricePrecision === opt.id ? 'bg-[#2563eb] text-foreground font-bold' : 'bg-[#0c0e12] text-[#787f91] hover:text-foreground'
                 }`}
               >
                 {opt.label}
@@ -152,14 +152,14 @@ export default function ChartsTab({ cfg, updateUi }) {
         </div>
 
         <div className="p-2.5 rounded bg-[#10131a] border border-[#1b212f] space-y-1.5">
-          <div className="text-white font-semibold text-[11px]">Множитель шага тика стакана:</div>
+          <div className="text-foreground font-semibold text-[11px]">Множитель шага тика стакана:</div>
           <div className="flex space-x-1">
             {[1, 2, 5, 10, 50, 100].map(step => (
               <button
                 key={step}
                 onClick={() => updateUi({ tickStep: step })}
                 className={`flex-1 py-1 rounded text-[10px] transition ${
-                  cfg.tickStep === step ? 'bg-[#2563eb] text-white font-bold' : 'bg-[#0c0e12] text-[#787f91] hover:text-white'
+                  cfg.tickStep === step ? 'bg-[#2563eb] text-foreground font-bold' : 'bg-[#0c0e12] text-[#787f91] hover:text-foreground'
                 }`}
               >
                 x{step}

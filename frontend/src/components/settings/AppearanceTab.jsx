@@ -30,7 +30,7 @@ export default function AppearanceTab({ cfg, updateUi }) {
     <div className="space-y-4">
       {/* 1. Theme Presets */}
       <div>
-        <label className="block text-white font-bold mb-2 text-xs">
+        <label className="block text-foreground font-bold mb-2 text-xs">
           Цветовая тема терминала:
         </label>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
@@ -83,7 +83,7 @@ export default function AppearanceTab({ cfg, updateUi }) {
         {/* Scale */}
         <div className="p-3 rounded bg-[#10131a] border border-[#1b212f] space-y-2.5">
           <div className="flex justify-between items-center">
-            <span className="text-white font-semibold text-xs">Масштаб интерфейса (UI Scale):</span>
+            <span className="text-foreground font-semibold text-xs">Масштаб интерфейса (UI Scale):</span>
             <div className="flex items-center space-x-1.5">
               <span className="text-[#38bdf8] font-bold font-mono text-xs">
                 {Math.round(currentScale * 100)}%
@@ -114,8 +114,8 @@ export default function AppearanceTab({ cfg, updateUi }) {
                 onClick={() => handleScaleChange(sc)}
                 className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono transition cursor-pointer border ${
                   Math.abs(currentScale - sc) < 0.02 && currentMode !== 'auto'
-                    ? 'bg-[#2563eb] border-[#38bdf8] text-white font-bold'
-                    : 'bg-[#151a24] border-[#1e2535] text-[#94a3b8] hover:text-white'
+                    ? 'bg-[#2563eb] border-[#38bdf8] text-foreground font-bold'
+                    : 'bg-[#151a24] border-[#1e2535] text-[#94a3b8] hover:text-foreground'
                 }`}
               >
                 {Math.round(sc * 100)}%
@@ -127,7 +127,7 @@ export default function AppearanceTab({ cfg, updateUi }) {
               className={`px-2 py-0.5 rounded text-[9.5px] font-mono transition cursor-pointer border ${
                 currentMode === 'auto'
                   ? 'bg-primary/20 border-primary text-primary font-bold'
-                  : 'bg-[#151a24] border-[#1e2535] text-[#94a3b8] hover:text-white'
+                  : 'bg-[#151a24] border-[#1e2535] text-[#94a3b8] hover:text-foreground'
               }`}
             >
               Авто
@@ -141,7 +141,7 @@ export default function AppearanceTab({ cfg, updateUi }) {
         {/* Density */}
         <div className="p-3 rounded bg-[#10131a] border border-[#1b212f] space-y-2.5">
           <div className="flex justify-between items-center">
-            <span className="text-white font-semibold text-xs">Плотность элементов (Density):</span>
+            <span className="text-foreground font-semibold text-xs">Плотность элементов (Density):</span>
             <span className="text-[#38bdf8] font-bold font-mono text-xs capitalize">
               {currentDensity === 'compact' ? 'Компактно' : currentDensity === 'spacious' ? 'Просторно' : 'Стандарт'}
             </span>
@@ -159,8 +159,8 @@ export default function AppearanceTab({ cfg, updateUi }) {
                 onClick={() => handleDensityChange(d.id)}
                 className={`p-1.5 rounded border text-center transition cursor-pointer ${
                   currentDensity === d.id
-                    ? 'bg-[#1e293b] border-[#38bdf8] text-white font-bold'
-                    : 'bg-[#151a24] border-[#1e2535] text-[#94a3b8] hover:text-white'
+                    ? 'bg-[#1e293b] border-[#38bdf8] text-foreground font-bold'
+                    : 'bg-[#151a24] border-[#1e2535] text-[#94a3b8] hover:text-foreground'
                 }`}
               >
                 <div className="text-[10px] font-semibold">{d.label}</div>
@@ -183,7 +183,7 @@ export default function AppearanceTab({ cfg, updateUi }) {
 
       {/* 3. Monospace Font Selector */}
       <div>
-        <label className="block text-white font-bold mb-1.5 text-xs">
+        <label className="block text-foreground font-bold mb-1.5 text-xs">
           Моноширинный шрифт для котировок, шкалы и стакана:
         </label>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -196,8 +196,8 @@ export default function AppearanceTab({ cfg, updateUi }) {
                 style={{ fontFamily: f.stack }}
                 className={`p-2 rounded border text-left transition ${
                   active
-                    ? 'bg-[#17253b] border-[#38bdf8] text-white font-bold'
-                    : 'bg-[#10131a] border-[#1f2430] text-[#848e9c] hover:text-white'
+                    ? 'bg-[#17253b] border-[#38bdf8] text-foreground font-bold'
+                    : 'bg-[#10131a] border-[#1f2430] text-[#848e9c] hover:text-foreground'
                 }`}
               >
                 <div className="text-[11px] truncate">{f.label}</div>
@@ -214,7 +214,7 @@ export default function AppearanceTab({ cfg, updateUi }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="p-2.5 rounded bg-[#10131a] border border-[#1b212f] space-y-1.5">
           <div className="flex justify-between items-center">
-            <span className="text-white font-semibold text-[11px]">Прозрачность сетки графика:</span>
+            <span className="text-foreground font-semibold text-[11px]">Прозрачность сетки графика:</span>
             <span className="text-[#38bdf8] font-bold">{Math.round((cfg.gridOpacity ?? 0.22) * 100)}%</span>
           </div>
           <Slider
@@ -232,7 +232,7 @@ export default function AppearanceTab({ cfg, updateUi }) {
 
         <div className="p-2.5 rounded bg-[#10131a] border border-[#1b212f] space-y-1.5">
           <div className="flex justify-between items-center">
-            <span className="text-white font-semibold text-[11px]">Яркость свечей (Opacity):</span>
+            <span className="text-foreground font-semibold text-[11px]">Яркость свечей (Opacity):</span>
             <span className="text-[#26a69a] font-bold">{Math.round((cfg.candleOpacity ?? 1.0) * 100)}%</span>
           </div>
           <Slider
