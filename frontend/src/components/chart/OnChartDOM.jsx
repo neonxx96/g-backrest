@@ -72,12 +72,7 @@ export default function OnChartDOM({ engine, symbol }) {
   const settingsRef = useRef(settings);
   const tokensRef = useRef(themeBridge.getTokens());
 
-  useEffect(() => {
-    return themeBridge.subscribe((tokens) => {
-      tokensRef.current = tokens;
-      render();
-    });
-  }, [render]);
+
   settingsRef.current = settings;
 
   const update = (patch) => setSettings((prev) => {
@@ -194,6 +189,14 @@ export default function OnChartDOM({ engine, symbol }) {
   }, [engine, symbol]);
 
   drawRef.current = draw;
+
+  // Theme subscription
+  useEffect(() => {
+    return themeBridge.subscribe((tokens) => {
+      tokensRef.current = tokens;
+      drawRef.current();
+    });
+  }, []);
 
   // --- Подписка на viewport движка (zoom/scroll/resize) --------------------------
   useEffect(() => {

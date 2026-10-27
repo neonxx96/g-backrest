@@ -51,12 +51,7 @@ export default function TradesWidget(props) {
   const containerRef = useRef(null);
   const tokensRef = useRef(themeBridge.getTokens());
 
-  useEffect(() => {
-    return themeBridge.subscribe((tokens) => {
-      tokensRef.current = tokens;
-      renderCanvas();
-    });
-  }, [renderCanvas]);
+
   const scrollOffsetRef = useRef(0); // 0 = newest at top
   const [isScrolledDown, setIsScrolledDown] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -314,6 +309,14 @@ export default function TradesWidget(props) {
     handleResize();
 
     return () => ro.disconnect();
+  }, [renderCanvas]);
+
+  // Theme subscription
+  useEffect(() => {
+    return themeBridge.subscribe((tokens) => {
+      tokensRef.current = tokens;
+      renderCanvas();
+    });
   }, [renderCanvas]);
 
   // Rerender when trades update or settings change

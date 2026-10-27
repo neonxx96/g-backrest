@@ -41,12 +41,7 @@ export default function OrderBookCanvasLadder({
   const hoverIdxRef = useRef(-1);
   const tokensRef = useRef(themeBridge.getTokens());
 
-  useEffect(() => {
-    return themeBridge.subscribe((tokens) => {
-      tokensRef.current = tokens;
-      renderFrame();
-    });
-  }, [renderFrame]);
+
 
   // Formatting compact dollar strings
   const fmtUsd = useCallback((usd) => {
@@ -391,6 +386,14 @@ export default function OrderBookCanvasLadder({
     fmtUsd,
     fmtQty
   ]);
+
+  // Theme subscription
+  useEffect(() => {
+    return themeBridge.subscribe((tokens) => {
+      tokensRef.current = tokens;
+      renderFrame();
+    });
+  }, [renderFrame]);
 
   // RequestAnimationFrame loop
   useEffect(() => {

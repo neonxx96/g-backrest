@@ -59,12 +59,7 @@ export default function FootprintCanvasLayer({ engine, symbol, timeframe = '15m'
   const settingsRef = useRef(settings);
   const tokensRef = useRef(themeBridge.getTokens());
 
-  useEffect(() => {
-    return themeBridge.subscribe((tokens) => {
-      tokensRef.current = tokens;
-      render();
-    });
-  }, [render]);
+
   settingsRef.current = settings;
 
   const updateSetting = (patch) => setSettings((prev) => {
@@ -366,6 +361,14 @@ export default function FootprintCanvasLayer({ engine, symbol, timeframe = '15m'
   }, [engine, enabled, tfMs, supported]);
 
   drawRef.current = draw;
+
+  // Theme subscription
+  useEffect(() => {
+    return themeBridge.subscribe((tokens) => {
+      tokensRef.current = tokens;
+      drawRef.current();
+    });
+  }, []);
 
   // Подписка на события движения/масштабирования графика через ChartEngine
   useEffect(() => {
