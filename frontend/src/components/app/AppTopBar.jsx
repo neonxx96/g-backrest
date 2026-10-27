@@ -87,19 +87,47 @@ export default function AppTopBar({
   onOpenSettings
 }) {
   const headerRef = useRef(null);
-  const [barWidth, setBarWidth] = useState(1920);
+  // 0: narrow (< 1440), 1: medium (1440-1720), 2: full (>= 1720)
+  const [modeTier, setModeTier] = useState(() => {
+    if (typeof window === 'undefined') return 2;
+    return window.innerWidth >= 1720 ? 2 : window.innerWidth >= 1440 ? 1 : 0;
+  });
+  const tierRef = useRef(modeTier);
+  tierRef.current = modeTier;
 
   useEffect(() => {
     if (!headerRef.current) return;
+    const HYSTERESIS = 24;
+    let rafId = null;
+
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        if (entry.contentRect) {
-          setBarWidth(entry.contentRect.width);
+        if (!entry.contentRect) continue;
+        const w = entry.contentRect.width;
+        const cur = tierRef.current;
+        let next = cur;
+
+        if (cur === 2 && w < 1720 - HYSTERESIS) {
+          next = w < 1440 - HYSTERESIS ? 0 : 1;
+        } else if (cur === 1) {
+          if (w >= 1720 + HYSTERESIS) next = 2;
+          else if (w < 1440 - HYSTERESIS) next = 0;
+        } else if (cur === 0 && w >= 1440 + HYSTERESIS) {
+          next = w >= 1720 + HYSTERESIS ? 2 : 1;
+        }
+
+        if (next !== cur) {
+          tierRef.current = next;
+          if (rafId) cancelAnimationFrame(rafId);
+          rafId = requestAnimationFrame(() => setModeTier(next));
         }
       }
     });
     observer.observe(headerRef.current);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (rafId) cancelAnimationFrame(rafId);
+    };
   }, []);
 
   // Priority-ordered mode buttons
@@ -223,11 +251,11 @@ export default function AppTopBar({
     },
   ];
 
-  // Responsive threshold:
-  // >= 1720px: show all
-  // 1440px - 1719px: show priority >= 4 (up to Tape)
-  // < 1440px: show priority >= 6 (Widgets, Focus, AI, Journal, Backtest)
-  const minPriorityVisible = barWidth >= 1720 ? 0 : barWidth >= 1440 ? 4 : 6;
+  // Responsive threshold with hysteresis tier:
+  // tier 2 (>= 1720px): show all
+  // tier 1 (1440px - 1719px): show priority >= 4 (up to Tape)
+  // tier 0 (< 1440px): show priority >= 6 (Widgets, Focus, AI, Journal, Backtest)
+  const minPriorityVisible = modeTier === 2 ? 0 : modeTier === 1 ? 4 : 6;
   const visibleModes = allModes.filter(m => m.priority >= minPriorityVisible);
   const overflowModes = allModes.filter(m => m.priority < minPriorityVisible);
   const hasActiveOverflow = overflowModes.some(m => m.active);
@@ -265,9 +293,8 @@ export default function AppTopBar({
             <Search size={10} className="absolute right-1.5 top-1.5 text-muted-foreground pointer-events-none" />
           </form>
 
-          {/* Quick Watchlist pills (hidden on compact screens) */}
-          {barWidth >= 1480 && (
-            <div className="flex items-center space-x-0.5 pl-0.5">
+          {/* Quick Watchlist pills (hidden on compact screens via CSS to prevent remounting) */}
+          <div className="hidden min-[1480px]:flex items-center space-x-0.5 pl-0.5">
               {POPULAR_SYMBOLS.map((sym) => (
                 <button
                   key={sym}
@@ -282,8 +309,7 @@ export default function AppTopBar({
                   {sym.replace('USDT', '')}
                 </button>
               ))}
-            </div>
-          )}
+          </div>
         </div>
 
         <div className="h-3 w-px bg-border/60 mx-0.5 shrink-0" />
@@ -490,8 +516,9 @@ export default function AppTopBar({
 
       {/* Pinned Right Group: Always visible (shrink-0, ml-auto) */}
       <div className="ml-auto shrink-0 flex items-center space-x-1 pl-1">
-        {activeProximityAlert && barWidth >= 1600 && (
-          <div className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-warning/15 border border-warning/50 text-warning text-[10px] font-mono animate-pulse">
+        {activeProximityAlert && (
+          <div className="hidden min-[1600px]:flex items-center space-x-1 px-1.5 py-0.5 rounded bg-warning/15 border border-warning/50 text-warning text-[10px] font-mono animate-pulse">
+
             <AlertTriangle size={11} />
             <span>
               {activeProximityAlert.symbol}: ${activeProximityAlert.price} ({activeProximityAlert.distPct.toFixed(2)}%)
@@ -510,10 +537,10 @@ export default function AppTopBar({
           <Bell size={13} />
         </button>
 
-        {activeAiModel && barWidth >= 1500 && (
+        {activeAiModel && (
           <span
             title={activeAiModel}
-            className="px-1.5 py-0.5 rounded border border-primary/40 bg-primary/10 text-primary text-[10px] font-mono truncate max-w-32"
+            className="hidden min-[1500px]:inline-block px-1.5 py-0.5 rounded border border-primary/40 bg-primary/10 text-primary text-[10px] font-mono truncate max-w-32"
           >
             AI: {activeAiModel.split('/').pop().replace(':free', '')}
           </span>

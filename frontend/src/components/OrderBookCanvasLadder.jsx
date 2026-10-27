@@ -70,9 +70,29 @@ export default function OrderBookCanvasLadder({
     const w = width;
     const h = height;
 
-    if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
-      canvas.width = Math.round(w * dpr);
-      canvas.height = Math.round(h * dpr);
+    // Immediate CSS stretch to avoid layout jitter
+    canvas.style.width = `${w}px`;
+    canvas.style.height = `${h}px`;
+
+    // Only reallocate buffer if not yet allocated (0) or if settled
+    const targetW = Math.round(w * dpr);
+    const targetH = Math.round(h * dpr);
+    if (canvas.width === 0 || canvas.height === 0) {
+      canvas.width = targetW;
+      canvas.height = targetH;
+    } else if (canvas.width !== targetW || canvas.height !== targetH) {
+      if (!canvas.__resizeDebounce) {
+        canvas.__resizeDebounce = setTimeout(() => {
+          canvas.__resizeDebounce = null;
+          requestAnimationFrame(() => {
+            if (!canvasRef.current) return;
+            const currentDpr = window.devicePixelRatio || 1;
+            canvasRef.current.width = Math.round(width * currentDpr);
+            canvasRef.current.height = Math.round(height * currentDpr);
+            renderFrame();
+          });
+        }, 120);
+      }
     }
 
     ctx.save();

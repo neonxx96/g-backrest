@@ -100,23 +100,48 @@ export default function ChartToolbar({
   const settingsPanel = 'absolute top-full right-0 mt-1 w-60 bg-[#0f1420] border border-[#2a3449] rounded shadow-2xl z-50 py-1';
 
   const toolbarRef = useRef(null);
-  const [toolbarWidth, setToolbarWidth] = useState(1000);
+  // 0: narrow (< 720), 1: compact (720-900), 2: full (>= 900)
+  const [toolbarTier, setToolbarTier] = useState(2);
+  const tierRef = useRef(toolbarTier);
+  tierRef.current = toolbarTier;
 
   useEffect(() => {
     if (!toolbarRef.current) return;
+    const HYSTERESIS = 20;
+    let rafId = null;
+
     const obs = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        if (entry.contentRect) {
-          setToolbarWidth(entry.contentRect.width);
+        if (!entry.contentRect) continue;
+        const w = entry.contentRect.width;
+        const cur = tierRef.current;
+        let next = cur;
+
+        if (cur === 2 && w < 900 - HYSTERESIS) {
+          next = w < 720 - HYSTERESIS ? 0 : 1;
+        } else if (cur === 1) {
+          if (w >= 900 + HYSTERESIS) next = 2;
+          else if (w < 720 - HYSTERESIS) next = 0;
+        } else if (cur === 0 && w >= 720 + HYSTERESIS) {
+          next = w >= 900 + HYSTERESIS ? 2 : 1;
+        }
+
+        if (next !== cur) {
+          tierRef.current = next;
+          if (rafId) cancelAnimationFrame(rafId);
+          rafId = requestAnimationFrame(() => setToolbarTier(next));
         }
       }
     });
     obs.observe(toolbarRef.current);
-    return () => obs.disconnect();
+    return () => {
+      obs.disconnect();
+      if (rafId) cancelAnimationFrame(rafId);
+    };
   }, []);
 
-  const isCompact = toolbarWidth < 900;
-  const isNarrow = toolbarWidth < 720;
+  const isCompact = toolbarTier <= 1;
+  const isNarrow = toolbarTier === 0;
 
   return (
       <div

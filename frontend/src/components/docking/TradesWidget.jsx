@@ -294,8 +294,10 @@ export default function TradesWidget(props) {
     const canvas = canvasRef.current;
     if (!container || !canvas) return;
 
-    const handleResize = () => {
-      const rect = container.getBoundingClientRect();
+    let debounceTimer = null;
+    let rafId = null;
+
+    const applyResize = (rect) => {
       const dpr = window.devicePixelRatio || 1;
       canvas.width = Math.floor(rect.width * dpr);
       canvas.height = Math.floor(rect.height * dpr);
@@ -304,11 +306,31 @@ export default function TradesWidget(props) {
       renderCanvas();
     };
 
+    const handleResize = () => {
+      const rect = container.getBoundingClientRect();
+      // Keep CSS size responsive immediately without reallocating canvas bitmap
+      canvas.style.width = `${rect.width}px`;
+      canvas.style.height = `${rect.height}px`;
+
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        if (rafId) cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(() => {
+          if (!containerRef.current || !canvasRef.current) return;
+          applyResize(container.getBoundingClientRect());
+        });
+      }, 120);
+    };
+
     const ro = new ResizeObserver(handleResize);
     ro.observe(container);
-    handleResize();
+    applyResize(container.getBoundingClientRect());
 
-    return () => ro.disconnect();
+    return () => {
+      ro.disconnect();
+      if (debounceTimer) clearTimeout(debounceTimer);
+      if (rafId) cancelAnimationFrame(rafId);
+    };
   }, [renderCanvas]);
 
   // Theme subscription

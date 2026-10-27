@@ -98,18 +98,22 @@ const HISTORY_FLOOR_DAYS = {
       }
     });
 
+    let debounceTimer = null;
     let rafId = null;
     const handleResize = () => {
-      if (rafId) cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => {
-        if (chartRef.current) {
-          try {
-            engine.resize();
-            window.__chartResizeCounts = window.__chartResizeCounts || {};
-            window.__chartResizeCounts[chartId] = (window.__chartResizeCounts[chartId] || 0) + 1;
-          } catch (_) {}
-        }
-      });
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        if (rafId) cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(() => {
+          if (chartRef.current && engineRef.current) {
+            try {
+              engine.resize();
+              window.__chartResizeCounts = window.__chartResizeCounts || {};
+              window.__chartResizeCounts[chartId] = (window.__chartResizeCounts[chartId] || 0) + 1;
+            } catch (_) {}
+          }
+        });
+      }, 120);
     };
 
     window.addEventListener('resize', handleResize);
@@ -122,6 +126,7 @@ const HISTORY_FLOOR_DAYS = {
     }
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       if (rafId) cancelAnimationFrame(rafId);
       window.removeEventListener('resize', handleResize);
       if (ro) ro.disconnect();
