@@ -1,12 +1,36 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLayoutStore } from '../../stores/layoutStore';
-import { LayoutGrid, Plus, Trash2, Check, RefreshCw, AlertCircle, Save, Zap, Layers } from 'lucide-react';
+import { LayoutGrid, Plus, Trash2, Check, RefreshCw, AlertCircle, Save, Zap, Layers, ArrowUpDown } from 'lucide-react';
 
 export default function PresetBar({ onSwitchPreset, onNewPreset, onAddTradesPanel, layersProps }) {
   const presets = useLayoutStore((s) => s.presets);
   const activePresetId = useLayoutStore((s) => s.activePresetId);
   const saveStatus = useLayoutStore((s) => s.saveStatus);
   const deletePreset = useLayoutStore((s) => s.deletePreset);
+
+  const [wsHeight, setWsHeight] = useState('auto');
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`signalscript_ws_height_${activePresetId}`);
+      if (!saved || saved === 'auto') {
+        setWsHeight('auto');
+      } else {
+        const num = parseFloat(saved);
+        setWsHeight(!isNaN(num) ? num : 'auto');
+      }
+    } catch (_) {}
+  }, [activePresetId]);
+
+  const dispatchWsHeight = (val) => {
+    if (val === 'auto') {
+      setWsHeight('auto');
+      window.dispatchEvent(new CustomEvent('signalscript:set-workspace-height', { detail: { mode: 'auto' } }));
+    } else {
+      setWsHeight(val);
+      window.dispatchEvent(new CustomEvent('signalscript:set-workspace-height', { detail: { ratio: Number(val) } }));
+    }
+  };
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [newPresetName, setNewPresetName] = useState('');
@@ -174,8 +198,80 @@ export default function PresetBar({ onSwitchPreset, onNewPreset, onAddTradesPane
         )}
       </div>
 
-      {/* Right: Autosave status indicator */}
+      {/* Right: Workspace Height Selector + Autosave status indicator */}
       <div className="flex items-center space-x-2 text-[10px] font-mono shrink-0 pl-2">
+        {/* Workspace Height Quick Menu */}
+        <div data-testid="preset-bar-height-menu" className="flex items-center space-x-1 bg-muted/40 px-1.5 py-0.5 rounded border border-border/60">
+          <span className="text-muted-foreground flex items-center gap-1 text-[9.5px]">
+            <ArrowUpDown size={10} className="text-primary" />
+            <span>Высота:</span>
+          </span>
+          <button
+            type="button"
+            data-testid="btn-ws-height-auto"
+            onClick={() => dispatchWsHeight('auto')}
+            title="Автовысота (100% экрана)"
+            className={`px-1 py-0.2 rounded transition cursor-pointer ${
+              wsHeight === 'auto'
+                ? 'bg-primary text-primary-foreground font-bold'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Авто
+          </button>
+          <button
+            type="button"
+            data-testid="btn-ws-height-125"
+            onClick={() => dispatchWsHeight(1.25)}
+            title="125% высоты экрана (прокрутка вниз)"
+            className={`px-1 py-0.2 rounded transition cursor-pointer ${
+              wsHeight === 1.25
+                ? 'bg-primary text-primary-foreground font-bold'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            +25%
+          </button>
+          <button
+            type="button"
+            data-testid="btn-ws-height-150"
+            onClick={() => dispatchWsHeight(1.5)}
+            title="150% высоты экрана (прокрутка вниз)"
+            className={`px-1 py-0.2 rounded transition cursor-pointer ${
+              wsHeight === 1.5
+                ? 'bg-primary text-primary-foreground font-bold'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            +50%
+          </button>
+          <button
+            type="button"
+            data-testid="btn-ws-height-200"
+            onClick={() => dispatchWsHeight(2.0)}
+            title="200% (удвоенная высота экрана)"
+            className={`px-1 py-0.2 rounded transition cursor-pointer ${
+              wsHeight === 2.0
+                ? 'bg-primary text-primary-foreground font-bold'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            x2
+          </button>
+          <button
+            type="button"
+            data-testid="btn-ws-height-300"
+            onClick={() => dispatchWsHeight(3.0)}
+            title="300% (утроенная высота экрана)"
+            className={`px-1 py-0.2 rounded transition cursor-pointer ${
+              wsHeight === 3.0
+                ? 'bg-primary text-primary-foreground font-bold'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            x3
+          </button>
+        </div>
         {saveStatus === 'saving' && (
           <span
             data-testid="save-status-saving"

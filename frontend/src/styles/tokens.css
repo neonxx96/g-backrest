@@ -11,6 +11,11 @@
    ========================================================================= */
 
 :root {
+  --ui-scale: 1.0;
+  --control-h: 28px;
+  --row-h: 22px;
+  --space: 6px;
+
   --font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
@@ -451,4 +456,21 @@
 [data-candle-mode="mono"] .candle-down {
   background: var(--text-3) !important;
   border-color: var(--text-2) !important;
+}
+
+/* Density variations (Compact / Standard / Spacious) */
+[data-density="compact"] {
+  --control-h: 24px;
+  --row-h: 18px;
+  --space: 4px;
+}
+[data-density="standard"] {
+  --control-h: 28px;
+  --row-h: 22px;
+  --space: 6px;
+}
+[data-density="spacious"] {
+  --control-h: 32px;
+  --row-h: 26px;
+  --space: 8px;
 }

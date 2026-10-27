@@ -24,7 +24,7 @@ import ChannelSelector from './ChannelSelector';
 import { themeBridge } from '../../theme/themeBridge';
 import TradesSettings, { DEFAULT_TRADES_SETTINGS } from './TradesSettings';
 
-const ROW_HEIGHT = 20;
+const BASE_ROW_HEIGHT = 20;
 const EMPTY_TRADES = [];
 
 export default function TradesWidget(props) {
@@ -146,6 +146,10 @@ export default function TradesWidget(props) {
     ctx.save();
     ctx.scale(dpr, dpr);
 
+    const scale = tokensRef.current?.uiScale || 1.0;
+    const ROW_HEIGHT = Math.round(BASE_ROW_HEIGHT * scale);
+    const fSz = (px, bold = false) => `${bold ? 'bold ' : ''}${Math.round(px * scale * 10) / 10}px monospace`;
+
     const cssWidth = width / dpr;
     const cssHeight = height / dpr;
 
@@ -156,7 +160,7 @@ export default function TradesWidget(props) {
     const trades = displayTrades;
     if (trades.length === 0) {
       ctx.fillStyle = '#64748b';
-      ctx.font = '11px monospace';
+      ctx.font = fSz(11);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       const msg = connectionStatus === 'connecting'
@@ -228,7 +232,7 @@ export default function TradesWidget(props) {
       const d = new Date(trade.time);
       const timeStr = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
       ctx.fillStyle = '#64748b';
-      ctx.font = '10px monospace';
+      ctx.font = fSz(10);
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillText(timeStr, 8, rowY + ROW_HEIGHT / 2);
@@ -246,7 +250,7 @@ export default function TradesWidget(props) {
         ctx.fillRect(badgeX, badgeY, badgeW, badgeH);
 
         ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 9px monospace';
+        ctx.font = fSz(9, true);
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(isBuy ? 'B' : 'S', badgeX + badgeW / 2, rowY + ROW_HEIGHT / 2);
@@ -255,7 +259,7 @@ export default function TradesWidget(props) {
       // 4. Price Text
       const priceStr = formatPrice(trade.price);
       ctx.fillStyle = isBuy ? (tokensRef.current.bull || '#10b981') : (tokensRef.current.bear || '#ef4444');
-      ctx.font = isHighlighted || isWhale || isMegaWhale || isMassiveWhale ? 'bold 10.5px monospace' : '10px monospace';
+      ctx.font = isHighlighted || isWhale || isMegaWhale || isMassiveWhale ? fSz(10.5, true) : fSz(10);
       ctx.textAlign = 'right';
       ctx.fillText(priceStr, timeColWidth + priceColWidth - 8, rowY + ROW_HEIGHT / 2);
 
@@ -276,7 +280,7 @@ export default function TradesWidget(props) {
         ctx.fillStyle = isBuy ? '#a7f3d0' : '#fca5a5';
       }
 
-      ctx.font = isHighlighted || isWhale || isMegaWhale ? 'bold 10.5px monospace' : '10px monospace';
+      ctx.font = isHighlighted || isWhale || isMegaWhale ? fSz(10.5, true) : fSz(10);
       ctx.textAlign = 'right';
       ctx.fillText(sizeStr, cssWidth - 8, rowY + ROW_HEIGHT / 2);
 

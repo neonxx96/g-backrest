@@ -56,6 +56,10 @@
   box-sizing: border-box;
 }
 
+html {
+  font-size: calc(16px * var(--ui-scale, 1));
+}
+
 html, body, #root {
   margin: 0;
   padding: 0;

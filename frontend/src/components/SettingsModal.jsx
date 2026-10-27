@@ -9,12 +9,14 @@ import {
   TrendingUp,
   Layers,
   Radar,
-  Scale
+  Scale,
+  Eye
 } from 'lucide-react';
 import AIEngineSettings from './AIEngineSettings';
 import ConfluenceWeightsEditor from './ConfluenceWeightsEditor';
 import { DEFAULT_UI_CONFIG, applyUiConfigToDOM } from './settings/uiConfig';
 import AppearanceTab from './settings/AppearanceTab';
+import VisibilityTab from './settings/VisibilityTab';
 import ChartsTab from './settings/ChartsTab';
 import OrderflowTab from './settings/OrderflowTab';
 import ScannerTab from './settings/ScannerTab';
@@ -172,6 +174,7 @@ export default function SettingsModal({
         >
           {[
             { id: 'appearance', label: 'Внешний вид & Тема', icon: Palette },
+            { id: 'visibility', label: 'Видимость интерфейса', icon: Eye },
             { id: 'charts', label: 'Графики & Индикаторы', icon: TrendingUp },
             { id: 'orderflow', label: 'Order Flow & Стакан', icon: Layers },
             { id: 'scanner', label: 'Сканер & Диск', icon: Radar },
@@ -201,6 +204,9 @@ export default function SettingsModal({
         <div className="p-4 overflow-y-auto space-y-4 font-mono flex-1 text-xs">
           {/* TAB 1: APPEARANCE & THEME */}
           {activeTab === 'appearance' && <AppearanceTab cfg={cfg} updateUi={updateUi} />}
+
+          {/* TAB 1b: VISIBILITY (Spec A2.5) */}
+          {activeTab === 'visibility' && <VisibilityTab cfg={cfg} updateUi={updateUi} />}
 
           {/* TAB 2: CHARTS & INDICATORS */}
           {activeTab === 'charts' && <ChartsTab cfg={cfg} updateUi={updateUi} />}

@@ -195,7 +195,10 @@ export default function FootprintCanvasLayer({ engine, symbol, timeframe = '15m'
     // Ширина колонки футпринта зависит от текущего barSpace
     const colWidth = Math.max(8, Math.min(140, (vp.barSpace || 10) * 0.92));
 
-    ctx.font = '9px "IBM Plex Mono", monospace';
+    const scale = tokensRef.current?.uiScale || 1.0;
+    const fSz = (px) => `${Math.round(px * scale * 10) / 10}px "IBM Plex Mono", monospace`;
+
+    ctx.font = fSz(9);
     ctx.textBaseline = 'middle';
 
     let renderedBarsCount = 0;
@@ -271,7 +274,7 @@ export default function FootprintCanvasLayer({ engine, symbol, timeframe = '15m'
 
           // Текст чисел (Bid x Ask) при достаточном LOD
           if (lod.text) {
-            ctx.font = '8.5px "IBM Plex Mono", monospace';
+            ctx.font = fSz(8.5);
             // Bid (продажи по рынку в бид) слева
             ctx.fillStyle = lvl.imbalance === 'sell' ? '#fca5a5' : '#e5e7eb';
             ctx.textAlign = 'right';
@@ -330,7 +333,7 @@ export default function FootprintCanvasLayer({ engine, symbol, timeframe = '15m'
         ctx.fill();
         ctx.stroke();
 
-        ctx.font = '8px "IBM Plex Mono", monospace';
+        ctx.font = fSz(8);
         ctx.textAlign = 'center';
         // Delta строка
         ctx.fillStyle = isPos ? '#34d399' : '#f87171';
@@ -359,7 +362,7 @@ export default function FootprintCanvasLayer({ engine, symbol, timeframe = '15m'
 
         // Метка уровня у правого края
         ctx.fillStyle = st.npocColor;
-        ctx.font = '8px "IBM Plex Mono", monospace';
+        ctx.font = fSz(8);
         ctx.textAlign = 'right';
         ctx.fillText(`NPOC ${np.price}`, vp.width - 6, cStart.y - 4);
       }

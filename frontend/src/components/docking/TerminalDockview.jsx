@@ -24,6 +24,8 @@ import {
 import { getUsableMarketPrice } from '../../services/marketTruth.js';
 import ChannelSelector from './ChannelSelector';
 import PresetBar from './PresetBar';
+import WorkspaceScroller from './WorkspaceScroller';
+import { readStoredVisibility } from '../settings/VisibilityTab';
 import { Radio, SlidersHorizontal, Sparkles, Zap, Loader2, Eye, EyeOff } from 'lucide-react';
 import { useBacktestStore } from '../../stores/backtestStore';
 import { useTradeOverlayStore } from '../../stores/tradeOverlayStore';
@@ -418,6 +420,14 @@ export default function TerminalDockview({
   layersProps = null
 }) {
   const dockviewApiRef = useRef(null);
+  const [dockviewApi, setDockviewApi] = React.useState(null);
+  const [vis, setVis] = React.useState(() => readStoredVisibility());
+
+  useEffect(() => {
+    const onVis = (e) => setVis(e.detail);
+    window.addEventListener('signalscript:visibility-changed', onVis);
+    return () => window.removeEventListener('signalscript:visibility-changed', onVis);
+  }, []);
 
   const presets = useLayoutStore((s) => s.presets);
   const activePresetId = useLayoutStore((s) => s.activePresetId);
@@ -614,6 +624,7 @@ export default function TerminalDockview({
     async (event) => {
       console.log('[DEBUG] Dockview onReady CALLED! event.api:', Boolean(event?.api));
       dockviewApiRef.current = event.api;
+      setDockviewApi(event.api);
 
       // Provide shared props to panels via containerApi
       event.api.chartSharedProps = chartSharedProps;
@@ -833,24 +844,26 @@ export default function TerminalDockview({
   return (
     <div
       data-testid="terminal-dockview-container"
-      className="h-full w-full flex flex-col overflow-hidden bg-[#0a0d14]"
+      className="h-full w-full flex flex-col overflow-hidden bg-background"
     >
-      {/* Top Presets bar */}
-      <PresetBar
-        layersProps={layersProps}
-        onSwitchPreset={handleSwitchPreset}
-        onNewPreset={handleNewPreset}
-        onAddTradesPanel={handleAddTradesPanel}
-      />
+      {/* Top Presets bar (hidden in Zen mode or when disabled in visibility settings) */}
+      {vis?.showPresetBar !== false && !vis?.zenMode && (
+        <PresetBar
+          layersProps={layersProps}
+          onSwitchPreset={handleSwitchPreset}
+          onNewPreset={handleNewPreset}
+          onAddTradesPanel={handleAddTradesPanel}
+        />
+      )}
 
-      {/* Dockview Container */}
-      <div className="flex-1 w-full min-h-0 relative dockview-theme-dark">
+      {/* Dockview Container with dynamic height & smooth vertical scroll */}
+      <WorkspaceScroller dockviewApi={dockviewApi || dockviewApiRef.current}>
         <DockviewReact
           components={components}
           onReady={onReady}
           className="dockview-theme-dark h-full w-full"
         />
-      </div>
+      </WorkspaceScroller>
 
       {/* Widget Hub Modal */}
       <WidgetHubModal />

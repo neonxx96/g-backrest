@@ -36,10 +36,12 @@ export default function OrderBookCanvasLadder({
   onRowClick = null,
   onHoverRow = null
 }) {
-  const ROW_HEIGHT = Math.max(14, Math.min(32, Number(rowHeight) || 20));
+  const tokensRef = useRef(themeBridge.getTokens());
+  const scale = tokensRef.current?.uiScale || 1.0;
+  const ROW_HEIGHT = Math.round(Math.max(14, Math.min(32, Number(rowHeight) || 20)) * scale);
+  const fSz = (px, bold = false) => `${bold ? 'bold ' : ''}${Math.round(px * scale * 10) / 10}px monospace`;
   const canvasRef = useRef(null);
   const hoverIdxRef = useRef(-1);
-  const tokensRef = useRef(themeBridge.getTokens());
 
 
 
@@ -104,7 +106,7 @@ export default function OrderBookCanvasLadder({
 
     if (!visibleRows || visibleRows.length === 0) {
       ctx.fillStyle = '#64748b';
-      ctx.font = '11px monospace';
+      ctx.font = fSz(11);
       ctx.textAlign = 'center';
       ctx.fillText('Загрузка стакана L2...', w / 2, h / 2);
       ctx.restore();
@@ -192,7 +194,7 @@ export default function OrderBookCanvasLadder({
         ctx.fillRect(colClusterX + colClusterW - clBarW - 4, y + 2, clBarW, ROW_HEIGHT - 4);
 
         ctx.fillStyle = isDeltaPos ? '#34d399' : '#f87171';
-        ctx.font = '9px monospace';
+        ctx.font = fSz(9);
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
         ctx.fillText(fmtUsd(cl.totalUsd), colClusterX + colClusterW - 6, y + ROW_HEIGHT / 2);
@@ -212,7 +214,7 @@ export default function OrderBookCanvasLadder({
 
         if (radius >= 6) {
           ctx.fillStyle = '#ffffff';
-          ctx.font = 'bold 7.5px monospace';
+          ctx.font = fSz(7.5, true);
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           const bubbleTxt = tb.usd >= 1e6 ? `${(tb.usd / 1e6).toFixed(1)}M` : tb.usd >= 1e3 ? `${Math.round(tb.usd / 1e3)}K` : `${Math.round(tb.usd)}`;
@@ -271,7 +273,7 @@ export default function OrderBookCanvasLadder({
 
         // Feature 1: Lifetime badge text [<10s] / [>30s] / [>1m] + процент глубины
         if (isLargeWall || isMegaWall) {
-          ctx.font = '8px monospace';
+          ctx.font = fSz(8);
           ctx.textBaseline = 'middle';
           let lifeBadge = lifeSec >= 60 ? '[>1m]' : lifeSec >= 30 ? '[>30s]' : lifeSec < 10 ? '[<10s]' : `[${lifeSec}s]`;
           ctx.fillStyle = isMegaWall ? '#fef08a' : lifeSec >= 30 ? '#f59e0b' : '#94a3b8';
@@ -280,7 +282,7 @@ export default function OrderBookCanvasLadder({
         }
 
         // Volume text
-        ctx.font = isMegaWall ? 'bold 9.5px monospace' : '9px monospace';
+        ctx.font = isMegaWall ? fSz(9.5, true) : fSz(9);
         ctx.fillStyle = isMegaWall ? '#ffffff' : '#cbd5e1';
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
@@ -289,7 +291,7 @@ export default function OrderBookCanvasLadder({
       }
 
       // 2d. Price Ladder Column (Column 4)
-      ctx.font = (isBestBid || isBestAsk || isCurrentPrice) ? 'bold 10px monospace' : '9.5px monospace';
+      ctx.font = (isBestBid || isBestAsk || isCurrentPrice) ? fSz(10, true) : fSz(9.5);
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'right';
 
@@ -316,7 +318,7 @@ export default function OrderBookCanvasLadder({
         ctx.fillStyle = '#2563eb';
         ctx.fillRect(w - 56, y + 2, 52, ROW_HEIGHT - 4);
         ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 8.5px monospace';
+        ctx.font = fSz(8.5, true);
         ctx.textAlign = 'center';
         ctx.fillText('ENTRY', w - 30, y + ROW_HEIGHT / 2);
       } else if (slP > 0 && Math.abs(row.price - slP) < stepSize * 0.52) {
@@ -326,7 +328,7 @@ export default function OrderBookCanvasLadder({
         ctx.fillStyle = '#dc2626';
         ctx.fillRect(w - 50, y + 2, 46, ROW_HEIGHT - 4);
         ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 8.5px monospace';
+        ctx.font = fSz(8.5, true);
         ctx.textAlign = 'center';
         ctx.fillText('SL', w - 27, y + ROW_HEIGHT / 2);
       } else if (tp1P > 0 && Math.abs(row.price - tp1P) < stepSize * 0.52) {
@@ -336,7 +338,7 @@ export default function OrderBookCanvasLadder({
         ctx.fillStyle = '#059669';
         ctx.fillRect(w - 50, y + 2, 46, ROW_HEIGHT - 4);
         ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 8.5px monospace';
+        ctx.font = fSz(8.5, true);
         ctx.textAlign = 'center';
         ctx.fillText('TP1', w - 27, y + ROW_HEIGHT / 2);
       } else if (tp2P > 0 && Math.abs(row.price - tp2P) < stepSize * 0.52) {
@@ -346,7 +348,7 @@ export default function OrderBookCanvasLadder({
         ctx.fillStyle = '#047857';
         ctx.fillRect(w - 50, y + 2, 46, ROW_HEIGHT - 4);
         ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 8.5px monospace';
+        ctx.font = fSz(8.5, true);
         ctx.textAlign = 'center';
         ctx.fillText('TP2', w - 27, y + ROW_HEIGHT / 2);
       }
@@ -370,7 +372,7 @@ export default function OrderBookCanvasLadder({
           ctx.fillStyle = badgeColor;
           ctx.fillRect(w - 48, y + 2, 44, ROW_HEIGHT - 4);
           ctx.fillStyle = '#ffffff';
-          ctx.font = 'bold 8.5px monospace';
+          ctx.font = fSz(8.5, true);
           ctx.textAlign = 'center';
           ctx.fillText(badgeLabel, w - 26, y + ROW_HEIGHT / 2);
         }

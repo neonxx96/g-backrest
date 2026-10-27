@@ -18,6 +18,7 @@ import { useBacktestStore } from './stores/backtestStore';
 import { X, Target } from 'lucide-react';
 import { useLayoutStore } from './stores/layoutStore';
 import { useAlertsStore } from './stores/alertsStore';
+import { themeBridge } from './theme/themeBridge';
 import LayerToolbar from './components/design-previews/LayerToolbar';
 import LiqAnalyticsPanel from './components/design-previews/LiqAnalyticsPanel';
 import QuantDecisionConsilium from './components/design-previews/QuantDecisionConsilium';
@@ -146,6 +147,41 @@ export default function App() {
       })
       .catch(() => {});
   }, [userId]);
+
+  // Zen Mode state (Alt+Z)
+  const [zenMode, setZenMode] = useState(() => {
+    try {
+      const raw = localStorage.getItem('signalscript_ui_visibility');
+      return raw ? Boolean(JSON.parse(raw)?.zenMode) : false;
+    } catch (_) {
+      return false;
+    }
+  });
+
+  const toggleZenMode = useCallback(() => {
+    try {
+      const raw = localStorage.getItem('signalscript_ui_visibility');
+      const current = raw ? JSON.parse(raw) : {};
+      const nextZen = !current.zenMode;
+      const updated = {
+        ...current,
+        zenMode: nextZen,
+      };
+      localStorage.setItem('signalscript_ui_visibility', JSON.stringify(updated));
+      window.dispatchEvent(new CustomEvent('signalscript:visibility-changed', { detail: updated }));
+      setZenMode(nextZen);
+    } catch (_) {}
+  }, []);
+
+  useEffect(() => {
+    const onVis = (e) => {
+      if (typeof e.detail?.zenMode === 'boolean') {
+        setZenMode(e.detail.zenMode);
+      }
+    };
+    window.addEventListener('signalscript:visibility-changed', onVis);
+    return () => window.removeEventListener('signalscript:visibility-changed', onVis);
+  }, []);
 
   // AI Copilot Sidebar, Decision Journal & Indicators Catalog states
   const [showAICopilot, setShowAICopilot] = useState(() => {
@@ -639,6 +675,30 @@ export default function App() {
           return POPULAR_SYMBOLS[prevIdx];
         });
       }
+      // Alt+= or Alt++: Increase UI scale
+      else if (e.altKey && (e.key === '=' || e.key === '+')) {
+        e.preventDefault();
+        const current = themeBridge.getUiScale ? themeBridge.getUiScale() : 1.0;
+        const next = Math.min(1.6, Math.round((current + 0.05) * 100) / 100);
+        if (themeBridge.setUiScale) themeBridge.setUiScale(next);
+      }
+      // Alt+- or Alt+_: Decrease UI scale
+      else if (e.altKey && (e.key === '-' || e.key === '_')) {
+        e.preventDefault();
+        const current = themeBridge.getUiScale ? themeBridge.getUiScale() : 1.0;
+        const next = Math.max(0.7, Math.round((current - 0.05) * 100) / 100);
+        if (themeBridge.setUiScale) themeBridge.setUiScale(next);
+      }
+      // Alt+0: Reset UI scale to 100%
+      else if (e.altKey && e.key === '0') {
+        e.preventDefault();
+        if (themeBridge.setUiScale) themeBridge.setUiScale(1.0);
+      }
+      // Alt+Z / Alt+z / Alt+я: Zen mode toggle
+      else if (e.altKey && (e.key === 'z' || e.key === 'Z' || e.key === 'я' || e.key === 'Я')) {
+        e.preventDefault();
+        toggleZenMode();
+      }
       // Ctrl+Z or Cmd+Z: Undo drawing
       else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z' || e.key === 'я' || e.key === 'Я')) {
         e.preventDefault();
@@ -757,6 +817,19 @@ export default function App() {
       style={{ backgroundColor: 'var(--bg-root)', color: 'var(--text-main)' }}
       className="flex flex-col h-screen w-screen font-sans overflow-hidden select-none"
     >
+      {zenMode && (
+        <button
+          type="button"
+          data-testid="zen-exit-pill"
+          onClick={toggleZenMode}
+          title="Выйти из Zen-режима (Alt+Z)"
+          className="fixed top-2 left-1/2 -translate-x-1/2 z-50 bg-primary hover:bg-primary/90 text-primary-foreground px-3 py-1 rounded-full text-xs font-mono shadow-xl flex items-center space-x-1.5 transition cursor-pointer backdrop-blur-xs group"
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          <span>Zen-режим (Alt+Z для выхода)</span>
+        </button>
+      )}
+      {!zenMode && (
       <AppTopBar
         symbol={symbol}
         searchInput={searchInput}
@@ -803,6 +876,7 @@ export default function App() {
         onCycleTheme={cycleTheme}
         onOpenSettings={() => setShowSettings(true)}
       />
+      )}
 
       {/* Secondary Row: Merged inside PresetBar (maximum 2 bars at top) */}
 

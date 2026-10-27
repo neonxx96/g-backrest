@@ -1,6 +1,10 @@
 import { THEMES, THEME_ALIASES, DEFAULT_THEME_ID } from './themeMeta.js';
+import { getTierForWidth, calculateAutoScale } from './screenTiers.js';
 
 const STORAGE_KEY = 'signalscript_theme_id';
+const SCALE_KEY = 'signalscript_ui_scale';
+const SCALE_MODE_KEY = 'signalscript_scale_mode';
+const DENSITY_KEY = 'signalscript_ui_density';
 
 class ThemeBridge {
   constructor() {
@@ -8,6 +12,9 @@ class ThemeBridge {
     this.tokens = {};
     this.subscribers = new Set();
     this.initialized = false;
+    this.uiScale = 1.0;
+    this.scaleMode = 'manual'; // 'manual' | 'auto'
+    this.density = 'standard'; // 'compact' | 'standard' | 'spacious'
   }
 
   resolveThemeId(themeId) {
@@ -28,19 +35,41 @@ class ThemeBridge {
     try {
       saved = localStorage.getItem(STORAGE_KEY);
       if (!saved) {
-        // Check older storage key
         const legacy = localStorage.getItem('slab_terminal_theme_settings');
         if (legacy) {
           const parsed = JSON.parse(legacy);
           saved = parsed.theme;
         }
       }
-    } catch (e) {
-      // storage unavailable
-    }
+    } catch (_) {}
 
     const themeId = this.resolveThemeId(saved);
     this.setTheme(themeId, false);
+
+    // Read stored scale & mode
+    try {
+      const mode = localStorage.getItem(SCALE_MODE_KEY);
+      if (mode === 'auto') {
+        this.scaleMode = 'auto';
+        this.uiScale = calculateAutoScale(window.innerWidth);
+      } else {
+        const s = localStorage.getItem(SCALE_KEY);
+        if (s) this.uiScale = Math.min(1.6, Math.max(0.7, parseFloat(s) || 1.0));
+      }
+    } catch (_) {}
+
+    // Read stored density
+    try {
+      const d = localStorage.getItem(DENSITY_KEY);
+      if (d && ['compact', 'standard', 'spacious'].includes(d)) {
+        this.density = d;
+      } else {
+        const tier = getTierForWidth(window.innerWidth);
+        this.density = tier.defaultDensity;
+      }
+    } catch (_) {}
+
+    this.applyScaleAndDensityToDOM();
     this.initialized = true;
   }
 
@@ -51,9 +80,7 @@ class ThemeBridge {
     if (persist && typeof window !== 'undefined') {
       try {
         localStorage.setItem(STORAGE_KEY, targetId);
-      } catch (e) {
-        // ignore
-      }
+      } catch (_) {}
     }
 
     if (typeof document !== 'undefined') {
@@ -68,12 +95,79 @@ class ThemeBridge {
         root.classList.remove('dark');
       }
 
-      // Read computed tokens on the next animation frame once DOM applies styles
       requestAnimationFrame(() => {
         this.tokens = this.readTokensFromDOM();
         this.notifySubscribers();
       });
     }
+  }
+
+  getUiScale() {
+    return this.uiScale || 1.0;
+  }
+
+  setUiScale(scale, persist = true) {
+    const num = Math.min(1.6, Math.max(0.7, Number(scale) || 1.0));
+    this.uiScale = Math.round(num * 100) / 100;
+    this.scaleMode = 'manual';
+
+    if (persist && typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(SCALE_KEY, String(this.uiScale));
+        localStorage.setItem(SCALE_MODE_KEY, 'manual');
+      } catch (_) {}
+    }
+
+    this.applyScaleAndDensityToDOM();
+  }
+
+  getScaleMode() {
+    return this.scaleMode;
+  }
+
+  setScaleMode(mode, persist = true) {
+    this.scaleMode = mode === 'auto' ? 'auto' : 'manual';
+    if (this.scaleMode === 'auto' && typeof window !== 'undefined') {
+      this.uiScale = calculateAutoScale(window.innerWidth);
+    }
+    if (persist && typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(SCALE_MODE_KEY, this.scaleMode);
+        if (this.scaleMode === 'auto') {
+          localStorage.setItem(SCALE_KEY, String(this.uiScale));
+        }
+      } catch (_) {}
+    }
+    this.applyScaleAndDensityToDOM();
+  }
+
+  getDensity() {
+    return this.density;
+  }
+
+  setDensity(density, persist = true) {
+    const valid = ['compact', 'standard', 'spacious'].includes(density) ? density : 'standard';
+    this.density = valid;
+
+    if (persist && typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(DENSITY_KEY, valid);
+      } catch (_) {}
+    }
+
+    this.applyScaleAndDensityToDOM();
+  }
+
+  applyScaleAndDensityToDOM() {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    root.style.setProperty('--ui-scale', String(this.uiScale));
+    root.setAttribute('data-density', this.density);
+
+    requestAnimationFrame(() => {
+      this.tokens = this.readTokensFromDOM();
+      this.notifySubscribers();
+    });
   }
 
   readTokensFromDOM() {
@@ -104,6 +198,8 @@ class ThemeBridge {
         info: '#06b6d4',
         gridRgb: '30, 36, 48',
         gridOpacity: 0.35,
+        uiScale: 1.0,
+        density: 'standard',
       };
     }
     const style = getComputedStyle(document.documentElement);
@@ -126,7 +222,7 @@ class ThemeBridge {
       ema2: getVal('--ema-2', '#f59e0b'),
       ema3: getVal('--ema-3', '#a855f7'),
       gridLine: getVal('--grid-line', 'rgba(30, 36, 48, 0.45)'),
-      crosshair: getVal('--crosshair', '#475569'),
+      crosshair: getVal('--crosshair', '#3a4560'),
       background: getVal('--background', '#090b0e'),
       foreground: getVal('--foreground', '#d1d5db'),
       border: getVal('--border', '#1e2430'),
@@ -138,6 +234,8 @@ class ThemeBridge {
       info: getVal('--info', '#06b6d4'),
       gridRgb: getVal('--grid-rgb', '30, 36, 48'),
       gridOpacity: parseFloat(getVal('--grid-opacity', '0.35')) || 0.35,
+      uiScale: this.uiScale || 1.0,
+      density: this.density || 'standard',
     };
   }
 
