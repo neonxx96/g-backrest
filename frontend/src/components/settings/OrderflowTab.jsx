@@ -1,3 +1,5 @@
+import { Input } from '@/components/ui/input';
+import { NumberInput } from '@/components/ui/number-input';
 import React from 'react';
 import { Slider } from '../ui/slider.jsx';
 
@@ -39,8 +41,7 @@ export default function OrderflowTab({ cfg, updateUi }) {
               {p.label}
             </button>
           ))}
-          <input
-            type="number"
+          <NumberInput
             step="10000"
             value={cfg.densityThresholdUsd || 50000}
             onChange={e => updateUi({ densityThresholdUsd: Math.max(1000, Number(e.target.value) || 50000) })}

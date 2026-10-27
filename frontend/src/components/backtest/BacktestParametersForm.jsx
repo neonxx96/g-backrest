@@ -1,3 +1,5 @@
+import { Input } from '@/components/ui/input';
+import { NumberInput } from '@/components/ui/number-input';
 import React from 'react';
 import { Sliders, ShieldCheck, Grid, AlertTriangle } from 'lucide-react';
 import { STRATEGIES, TIMEFRAMES } from './constants';

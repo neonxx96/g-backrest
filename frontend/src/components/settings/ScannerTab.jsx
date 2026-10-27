@@ -1,3 +1,5 @@
+import { Input } from '@/components/ui/input';
+import { NumberInput } from '@/components/ui/number-input';
 import React from 'react';
 import { HardDrive } from 'lucide-react';
 import { TIMEFRAMES, OVERRIDE_COINS } from './constants';
@@ -49,8 +51,7 @@ export default function ScannerTab({
       <div className="grid grid-cols-3 gap-2">
         <div className="p-2 rounded bg-[#121620] border border-[#1b212f]">
           <div className="text-[10px] text-[#848e9c]">Мин. изм. цены 24ч (%)</div>
-          <input
-            type="number"
+          <NumberInput
             step="0.5"
             value={settings.price_change_min ?? 2.5}
             onChange={e => handleChange('price_change_min', parseFloat(e.target.value))}
@@ -59,8 +60,7 @@ export default function ScannerTab({
         </div>
         <div className="p-2 rounded bg-[#121620] border border-[#1b212f]">
           <div className="text-[10px] text-[#848e9c]">Всплеск объёма (×MA20)</div>
-          <input
-            type="number"
+          <NumberInput
             step="0.1"
             value={settings.vol_spike_mult ?? 2.0}
             onChange={e => handleChange('vol_spike_mult', parseFloat(e.target.value))}
@@ -69,8 +69,7 @@ export default function ScannerTab({
         </div>
         <div className="p-2 rounded bg-[#121620] border border-[#1b212f]">
           <div className="text-[10px] text-[#848e9c]">Порог ликвидаций ($)</div>
-          <input
-            type="number"
+          <NumberInput
             step="5000"
             value={settings.liquidation_min_usd ?? 50000}
             onChange={e => handleChange('liquidation_min_usd', parseFloat(e.target.value))}
@@ -100,8 +99,7 @@ export default function ScannerTab({
         <div className="grid grid-cols-2 gap-2 text-[10.5px]">
           <div>
             <span className="text-[#787f91]">Период EMA для #{selectedCoin}:</span>
-            <input
-              type="number"
+            <NumberInput
               placeholder="20"
               value={currentCoinCfg.ema_period || ''}
               onChange={e =>
@@ -116,8 +114,7 @@ export default function ScannerTab({
           </div>
           <div>
             <span className="text-[#787f91]">Множитель объёма #{selectedCoin}:</span>
-            <input
-              type="number"
+            <NumberInput
               step="0.1"
               placeholder="2.0"
               value={currentCoinCfg.vol_spike_mult || ''}
@@ -145,8 +142,7 @@ export default function ScannerTab({
         </div>
         <div className="flex items-center space-x-2">
           <span className="text-[10px] text-[#848e9c]">Лимит GB:</span>
-          <input
-            type="number"
+          <NumberInput
             value={settings.storage_max_gb ?? 100}
             onChange={e => handleChange('storage_max_gb', parseFloat(e.target.value))}
             className="w-16 bg-[#0c0e12] border border-[#1f2430] rounded px-1.5 py-0.5 text-right text-foreground"

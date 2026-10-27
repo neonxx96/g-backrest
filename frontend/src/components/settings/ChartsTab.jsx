@@ -1,3 +1,5 @@
+import { Input } from '@/components/ui/input';
+import { NumberInput } from '@/components/ui/number-input';
 import React from 'react';
 
 // Вкладка «Графики & Индикаторы» — управляемая: cfg + updateUi колбэк (логика в SettingsModal).
@@ -38,8 +40,7 @@ export default function ChartsTab({ cfg, updateUi }) {
               </div>
               <div className="flex items-center space-x-1">
                 <span className="text-[10px] text-[#60697b]">Период:</span>
-                <input
-                  type="number"
+                <NumberInput
                   min="2"
                   max="500"
                   value={cfg.emaPeriods[idx] || 20}
