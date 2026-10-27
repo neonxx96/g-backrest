@@ -12,14 +12,14 @@
     "rawSelects": 0
   },
   "frontend/src/components/AIEngineSettings.jsx": {
-    "total": 10,
-    "rawColors": 5,
+    "total": 8,
+    "rawColors": 3,
     "rawButtons": 5,
     "rawSelects": 0
   },
   "frontend/src/components/app/AppTopBar.jsx": {
-    "total": 22,
-    "rawColors": 8,
+    "total": 19,
+    "rawColors": 5,
     "rawButtons": 14,
     "rawSelects": 0
   },
@@ -30,26 +30,26 @@
     "rawSelects": 0
   },
   "frontend/src/components/AssistantHUD.jsx": {
-    "total": 68,
-    "rawColors": 65,
+    "total": 37,
+    "rawColors": 34,
     "rawButtons": 3,
     "rawSelects": 0
   },
   "frontend/src/components/backtest/BacktestOptimizerView.jsx": {
-    "total": 41,
-    "rawColors": 38,
+    "total": 15,
+    "rawColors": 12,
     "rawButtons": 3,
     "rawSelects": 0
   },
   "frontend/src/components/backtest/BacktestParametersForm.jsx": {
-    "total": 103,
-    "rawColors": 95,
+    "total": 35,
+    "rawColors": 27,
     "rawButtons": 5,
     "rawSelects": 3
   },
   "frontend/src/components/backtest/BacktestPresetsBar.jsx": {
-    "total": 19,
-    "rawColors": 15,
+    "total": 10,
+    "rawColors": 6,
     "rawButtons": 3,
     "rawSelects": 1
   },
@@ -60,26 +60,26 @@
     "rawSelects": 0
   },
   "frontend/src/components/backtest/fields.jsx": {
-    "total": 15,
-    "rawColors": 15,
+    "total": 3,
+    "rawColors": 3,
     "rawButtons": 0,
     "rawSelects": 0
   },
   "frontend/src/components/BacktestModal.jsx": {
-    "total": 23,
-    "rawColors": 19,
+    "total": 8,
+    "rawColors": 4,
     "rawButtons": 2,
     "rawSelects": 2
   },
   "frontend/src/components/BacktestPanel.jsx": {
-    "total": 196,
-    "rawColors": 174,
+    "total": 79,
+    "rawColors": 57,
     "rawButtons": 22,
     "rawSelects": 0
   },
   "frontend/src/components/BacktestTradeTimeline.jsx": {
-    "total": 33,
-    "rawColors": 32,
+    "total": 21,
+    "rawColors": 20,
     "rawButtons": 1,
     "rawSelects": 0
   },
@@ -90,20 +90,20 @@
     "rawSelects": 0
   },
   "frontend/src/components/chart/ChartLegend.jsx": {
-    "total": 4,
-    "rawColors": 1,
+    "total": 3,
+    "rawColors": 0,
     "rawButtons": 3,
     "rawSelects": 0
   },
   "frontend/src/components/chart/ChartToolbar.jsx": {
-    "total": 71,
-    "rawColors": 19,
+    "total": 63,
+    "rawColors": 11,
     "rawButtons": 46,
     "rawSelects": 6
   },
   "frontend/src/components/chart/FootprintCanvasLayer.jsx": {
-    "total": 27,
-    "rawColors": 20,
+    "total": 13,
+    "rawColors": 6,
     "rawButtons": 6,
     "rawSelects": 1
   },
@@ -114,14 +114,14 @@
     "rawSelects": 0
   },
   "frontend/src/components/chart/OnChartDOM.jsx": {
-    "total": 19,
-    "rawColors": 15,
+    "total": 8,
+    "rawColors": 4,
     "rawButtons": 4,
     "rawSelects": 0
   },
   "frontend/src/components/chart/PositionSetupHUD.jsx": {
-    "total": 14,
-    "rawColors": 7,
+    "total": 12,
+    "rawColors": 5,
     "rawButtons": 7,
     "rawSelects": 0
   },
@@ -132,8 +132,8 @@
     "rawSelects": 0
   },
   "frontend/src/components/chart/ToxicVolatilityOverlay.jsx": {
-    "total": 9,
-    "rawColors": 8,
+    "total": 7,
+    "rawColors": 6,
     "rawButtons": 1,
     "rawSelects": 0
   },
@@ -144,8 +144,8 @@
     "rawSelects": 0
   },
   "frontend/src/components/ConfluenceWeightsEditor.jsx": {
-    "total": 8,
-    "rawColors": 4,
+    "total": 4,
+    "rawColors": 0,
     "rawButtons": 3,
     "rawSelects": 1
   },
@@ -210,14 +210,14 @@
     "rawSelects": 0
   },
   "frontend/src/components/docking/AlertsModal.jsx": {
-    "total": 100,
-    "rawColors": 91,
+    "total": 34,
+    "rawColors": 25,
     "rawButtons": 9,
     "rawSelects": 0
   },
   "frontend/src/components/docking/AutoSelectPanel.jsx": {
-    "total": 22,
-    "rawColors": 20,
+    "total": 9,
+    "rawColors": 7,
     "rawButtons": 2,
     "rawSelects": 0
   },
@@ -228,14 +228,14 @@
     "rawSelects": 0
   },
   "frontend/src/components/docking/FootprintPanel.jsx": {
-    "total": 79,
-    "rawColors": 70,
+    "total": 35,
+    "rawColors": 26,
     "rawButtons": 9,
     "rawSelects": 0
   },
   "frontend/src/components/docking/PostMortemAnalyticsTab.jsx": {
-    "total": 31,
-    "rawColors": 30,
+    "total": 7,
+    "rawColors": 6,
     "rawButtons": 1,
     "rawSelects": 0
   },
@@ -252,8 +252,8 @@
     "rawSelects": 0
   },
   "frontend/src/components/docking/TradeHistoryWidget.jsx": {
-    "total": 353,
-    "rawColors": 322,
+    "total": 167,
+    "rawColors": 136,
     "rawButtons": 27,
     "rawSelects": 4
   },
@@ -282,8 +282,8 @@
     "rawSelects": 0
   },
   "frontend/src/components/ErrorBoundary.jsx": {
-    "total": 14,
-    "rawColors": 12,
+    "total": 7,
+    "rawColors": 5,
     "rawButtons": 2,
     "rawSelects": 0
   },
@@ -312,8 +312,8 @@
     "rawSelects": 0
   },
   "frontend/src/components/LivePaperTradingView.jsx": {
-    "total": 203,
-    "rawColors": 199,
+    "total": 57,
+    "rawColors": 53,
     "rawButtons": 3,
     "rawSelects": 1
   },
@@ -324,26 +324,26 @@
     "rawSelects": 0
   },
   "frontend/src/components/OvernightPilotPanel.jsx": {
-    "total": 175,
-    "rawColors": 166,
+    "total": 99,
+    "rawColors": 90,
     "rawButtons": 7,
     "rawSelects": 2
   },
   "frontend/src/components/PaperTradePanel.jsx": {
-    "total": 24,
-    "rawColors": 23,
+    "total": 2,
+    "rawColors": 1,
     "rawButtons": 1,
     "rawSelects": 0
   },
   "frontend/src/components/RecorderModal.jsx": {
-    "total": 20,
-    "rawColors": 15,
+    "total": 12,
+    "rawColors": 7,
     "rawButtons": 5,
     "rawSelects": 0
   },
   "frontend/src/components/ReplayModal.jsx": {
-    "total": 24,
-    "rawColors": 18,
+    "total": 22,
+    "rawColors": 16,
     "rawButtons": 5,
     "rawSelects": 1
   },
@@ -414,26 +414,26 @@
     "rawSelects": 0
   },
   "frontend/src/features/pilot/PilotConfig.jsx": {
-    "total": 27,
-    "rawColors": 22,
+    "total": 8,
+    "rawColors": 3,
     "rawButtons": 3,
     "rawSelects": 2
   },
   "frontend/src/features/pilot/PilotDashboard.jsx": {
-    "total": 24,
-    "rawColors": 24,
+    "total": 8,
+    "rawColors": 8,
     "rawButtons": 0,
     "rawSelects": 0
   },
   "frontend/src/features/pilot/PilotResults.jsx": {
-    "total": 31,
-    "rawColors": 29,
+    "total": 12,
+    "rawColors": 10,
     "rawButtons": 2,
     "rawSelects": 0
   },
   "frontend/src/features/pilot/PilotWorkspace.jsx": {
-    "total": 35,
-    "rawColors": 29,
+    "total": 22,
+    "rawColors": 16,
     "rawButtons": 6,
     "rawSelects": 0
   }
