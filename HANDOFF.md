@@ -1,3 +1,18 @@
+## Antigravity — Заход B: Шапка графика, DOM, Crosshair Bus, таблицы, план B4 (2026-10-27, 03:52)
+
+- **Ветка:** design/shadcn-themes (коммит 5df97a4)
+- **Статус качества:** 🎉 ALL QUALITY CHECKS PASSED. READY TO COMMIT. (Шлюз scripts/check.ps1: 583 pytest passed, 89 node tests passed, npm build 800ms, smoke test 8/8 OK, Playwright blocking + live UI OK).
+- **Сделано:**
+  1. **B1 (Шапка графика и оверлеи)**: Устранены 4 стопки строк, тулбар сокращен до строго 2 рядов по 28px, KLineCharts нативный tooltip отключен, создана TradingView-легенда OHLC и активных индикаторов с hover-кнопками (ChartLegend.jsx). Оверлеи объединены в правый стек, PositionSetupHUD и AssistantHUD оптимизированы. Реализован модуль раздвижки подписей (labelLayout.js) с top-N=6. В AppTopBar добавлено закрепление 4 избранных виджетов.
+  2. **B2 (DOM & Crosshair Bus)**: Реализована шина crosshairBus.js (rAF, без петлевых эхо) с синхронизацией графика, OnChartDOM (ширина <= 140px, градиент), стакана и ленты сделок.
+  3. **B3 (Колонки таблиц и SymbolLink)**: Хук useTableColumns.js, заголовок DataTableHeader.jsx с drag reorder/resize/visibility persistence, компонент SymbolLink.jsx с фокусом тикера в цветовом канале c1.
+  4. **B4 (Архитектурный план)**: Подготовлен и зафиксирован детальный план per-pair Start/Pause/Stop для paper-марафона (бэкенд НЕ трогался согласно правилу ожидания подтверждения).
+  5. **Исправление в Dockview Layout Sanitizer**: Исправлена ошибка TypeError: Cannot read properties of null (reading 'type') при десериализации сохраненных раскладок с размером 
+ull.
+- **Следующий шаг:** Дождаться подтверждения пользователя («ок») для реализации B4 (эндпоинты и логика паузы/стопа по отдельной паре в бэкенде).
+
+---
+
 ## Antigravity — Запуск Docker-стека, 1-клик автоподбор стратегий и ночной paper-марафон (2026-10-27, 02:12 Киев)
 
 - **Ветка:** gent/antigravity/postmortem-analyzer
