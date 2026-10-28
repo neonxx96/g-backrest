@@ -22,6 +22,7 @@ from backend.app.services.paper_trading import paper_trading_session
 from backend.app.services.deep_intent_logger import DeepIntentLogger
 from backend.app.engine.trade_contract import UnifiedTradeSignal
 from backend.app.services.position_sizer import PositionSizer
+from backend.app.services.risk_profile import SharedRiskProfile
 from backend.app.services.risk_manager import DailyDrawdownGuard, MultiLevelKillSwitch
 from backend.app.services.regime_classifier import (
     MarketRegime,
@@ -179,6 +180,22 @@ async def _async_record_paper_trade(
         logger.debug("Failed to record paper trade to DB: %s", exc)
 
 
+def _schedule_background(coro, description: str) -> Optional[asyncio.Task]:
+    """Schedule best-effort persistence without leaking a coroutine in sync callbacks."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        coro.close()
+        logger.debug("Could not schedule %s: no running event loop", description)
+        return None
+    try:
+        return loop.create_task(coro)
+    except Exception as exc:
+        coro.close()
+        logger.debug("Could not schedule %s: %s", description, exc)
+        return None
+
+
 class LivePaperRunner:
     """
     Manages live paper trading execution loop over FreeBinanceCollector.
@@ -278,7 +295,8 @@ class LivePaperRunner:
 
         # M4 Risk Manager (SRS M4) — default-off; компоненты поднимает start()
         self.use_m4_risk_gates: bool = False
-        self.max_portfolio_heat_pct: float = 6.0
+        self.risk_profile = SharedRiskProfile(risk_per_trade_pct=self.risk_per_trade_pct)
+        self.max_portfolio_heat_pct: float = self.risk_profile.max_portfolio_heat_pct
         self.daily_dd_limit_pct: float = 3.0
         self.confluence_threshold: float = 0.65
         self._m4_kill_switch: Optional[MultiLevelKillSwitch] = None
@@ -309,7 +327,8 @@ class LivePaperRunner:
         # test_paper_entry_guard_not_deadlocked).
         self._last_entry_candle = -1
         self.initial_capital = float(config.get("initial_capital", 10000.0))
-        self.risk_per_trade_pct = float(config.get("risk_per_trade_pct", 1.0))
+        self.risk_profile = SharedRiskProfile.from_api_config(config)
+        self.risk_per_trade_pct = self.risk_profile.risk_per_trade_pct
         self.min_density_usd = float(config.get("min_density_usd", 500000.0))
         self.ai_control = bool(config.get("ai_control", False))
         self.stop_loss_pct = float(config.get("stop_loss_pct", 0.8))
@@ -342,8 +361,8 @@ class LivePaperRunner:
         self.session.max_entry_slippage_pct = self.max_entry_slippage_pct
         # M4 Risk Manager gates (SRS M4) — все default-off, марафон не затрагивается
         self.use_m4_risk_gates = bool(config.get("use_m4_risk_gates", False))
-        self.max_portfolio_heat_pct = float(config.get("max_portfolio_heat_pct", 6.0))
-        self.daily_dd_limit_pct = float(config.get("daily_dd_limit_pct", 3.0))
+        self.max_portfolio_heat_pct = self.risk_profile.max_portfolio_heat_pct
+        self.daily_dd_limit_pct = self.risk_profile.daily_dd_limit_pct
         self.confluence_threshold = float(config.get("confluence_threshold", 0.65))
         self._m4_kill_switch: Optional[MultiLevelKillSwitch] = None
         self._m4_day_guard: Optional[DailyDrawdownGuard] = None
@@ -388,7 +407,7 @@ class LivePaperRunner:
             self.initial_capital = self.session.initial_balance
         # UI/config values are percentages (1.0 = 1%); PaperTradingSession
         # stores the fraction used by its position-size formula.
-        self.session.risk_per_trade_pct = self.risk_per_trade_pct / 100.0
+        self.session.risk_per_trade_pct = self.risk_profile.risk_per_trade_fraction
         self.session.leverage = max(1.0, self.leverage)
         self.session.set_fee_rates_percent(self.maker_fee_pct, self.taker_fee_pct)
 
@@ -520,6 +539,10 @@ class LivePaperRunner:
 
     @staticmethod
     def _validate_market_snapshot(snapshot, now_ms: int, max_age_ms: int = 30_000):
+        data_status = getattr(snapshot, "data_status", "available")
+        if data_status != "available":
+            fields = ", ".join(getattr(snapshot, "unavailable_fields", []) or [])
+            return False, "MARKET_SNAPSHOT_INCOMPLETE", f"market snapshot is {data_status}: {fields or 'required fields unavailable'}"
         try:
             price = float(snapshot.price)
             timestamp = int(snapshot.timestamp)
@@ -527,7 +550,16 @@ class LivePaperRunner:
             return False, "MARKET_SNAPSHOT_INVALID", "market snapshot is missing a valid price/timestamp"
         if not math.isfinite(price) or price <= 0:
             return False, "MARKET_PRICE_INVALID", f"invalid market price: {price}"
-        age_ms = int(now_ms) - timestamp
+        # Binance's exchange clock may be slightly ahead of the host clock.
+        # Freshness is therefore measured from the local receipt/observation
+        # time when a provider supplies one, while ``timestamp`` remains the
+        # exchange-provided market timestamp for audit data.
+        observed_at = getattr(snapshot, "observed_at", None)
+        try:
+            freshness_timestamp = int(observed_at) if observed_at is not None and int(observed_at) > 0 else timestamp
+        except (TypeError, ValueError, OverflowError):
+            freshness_timestamp = timestamp
+        age_ms = int(now_ms) - freshness_timestamp
         if timestamp <= 0 or age_ms < -5_000 or age_ms > max_age_ms:
             return False, "MARKET_SNAPSHOT_STALE", f"market snapshot timestamp is stale (age_ms={age_ms})"
         return True, None, None
@@ -702,6 +734,7 @@ class LivePaperRunner:
             "leverage": self.leverage,
             "initial_capital": self.initial_capital,
             "risk_per_trade_pct": self.risk_per_trade_pct,
+            "risk_profile": self.risk_profile.snapshot(),
             "min_density_usd": self.min_density_usd,
             "ai_control": self.ai_control,
             "m4_risk_gates": {
@@ -799,7 +832,10 @@ class LivePaperRunner:
             self._record_feed_failure(error_code or "MARKET_SNAPSHOT_INVALID", error_message or "invalid market snapshot", source="transport")
             return
 
-        self._record_feed_success(int(data.snapshot.timestamp))
+        # Use receipt time for local health telemetry.  Exchange timestamps
+        # can be a few seconds ahead of this machine and must not make a
+        # valid snapshot look permanently "from the future".
+        self._record_feed_success(self._last_tick_time)
         current_price = data.snapshot.price
 
         # Forward the actual Binance price and current L2 book into the shared
@@ -1061,13 +1097,17 @@ class LivePaperRunner:
         tripped, cb_reason = check_circuit_breaker(
             day_pnl_pct=day_pnl_pct,
             consecutive_losses=getattr(self.session, "consecutive_losses", 0),
+            daily_loss_limit_pct=self.risk_profile.circuit_daily_loss_limit_pct,
+            weekly_loss_limit_pct=self.risk_profile.circuit_weekly_loss_limit_pct,
+            max_consecutive_losses=self.risk_profile.max_consecutive_losses,
         )
         if tripped:
             self._add_log("CIRCUIT_BREAKER", f"⛔ Circuit Breaker активен: {cb_reason}")
             return
 
-        raw_risk = getattr(self, "risk_per_trade_pct", 0.35)
-        base_risk_pct = (raw_risk / 100.0) if raw_risk > 0.05 else (raw_risk if raw_risk > 0 else 0.0035)
+        # All public inputs are percent points; the profile owns the sole
+        # conversion into the internal fractional risk representation.
+        base_risk_pct = self.risk_profile.risk_per_trade_fraction
         if is_weak_signal:
             base_risk_pct = 0.0020
         elif regime == MarketRegime.VOLATILITY_EXPANSION:
@@ -1116,9 +1156,9 @@ class LivePaperRunner:
             open_positions=open_pos_list,
             equity=current_equity,
             pending_orders=pending_orders_list,
-            max_positions=4,
-            max_portfolio_heat_pct=0.0125,
-            max_directional_heat_pct=0.0075,
+            max_positions=self.risk_profile.max_positions,
+            max_portfolio_heat_pct=self.risk_profile.max_portfolio_heat_fraction,
+            max_directional_heat_pct=self.risk_profile.max_directional_heat_fraction,
         )
         if not allowed_heat:
             self._add_log(
@@ -1151,7 +1191,10 @@ class LivePaperRunner:
             tp2=candidate_signal.get("tp2"),
             expected_rr=candidate_signal["expected_rr"],
             leverage=exchange_leverage,
-            risk_pct=effective_risk_pct,
+            # UnifiedTradeSignal is a public contract measured in percentage
+            # points; execution converts it back to a fraction via
+            # SharedRiskProfile at the paper-session boundary.
+            risk_pct=effective_risk_pct * 100.0,
             confidence=ai_conf,
             confluence_score=confluence_score,
             strategy_type=self.strategy_type,
@@ -1181,9 +1224,9 @@ class LivePaperRunner:
             if self.use_m4_risk_gates and self._m4_sizer is not None:
                 score = getattr(signal_obj, "confluence_score", None)
                 if score is not None:
-                    budget, m4_mult = self._m4_sizer.adjusted_risk_budget(
+                    budget, m4_mult = self._m4_sizer.adjusted_risk_budget_fraction(
                         float(self.session.available_margin),
-                        self.risk_per_trade_pct,
+                        self.risk_profile.risk_per_trade_fraction,
                         float(score),
                         self.confluence_threshold,
                     )
@@ -1218,34 +1261,32 @@ class LivePaperRunner:
                 f"(SL: ${candidate_signal['sl']:,.2f}, TP: ${candidate_signal['tp1']:,.2f}, R:R 1:{candidate_signal['expected_rr']:.1f})",
                 meta=order_res,
             )
-            try:
-                ai_v = ai_eval.get('verdict') if ('ai_eval' in locals() and isinstance(ai_eval, dict)) else None
-                ai_r = ai_eval.get('reason') if ('ai_eval' in locals() and isinstance(ai_eval, dict)) else None
-                asyncio.create_task(
-                    _async_record_decision_journal_entry(
-                        symbol=self.symbol,
-                        event_type="ORDER",
-                        timeframe=self.timeframe,
-                        direction=candidate_signal["direction"],
-                        price=float(candidate_signal["entry_price"]),
-                        entry_price=float(candidate_signal["entry_price"]),
-                        sl_price=float(candidate_signal["sl"]),
-                        tp_price=float(candidate_signal["tp1"]),
-                        strategy=self.strategy_type,
-                        user_decision="ENTERED",
-                        notes="; ".join(candidate_signal["reason"]),
-                        ai_verdict=ai_v,
-                        ai_reason=ai_r,
-                        context={
-                            "leverage": effective_leverage,
-                            "risk_pct": effective_risk_pct,
-                            "risk_budget": risk_budget,
-                            "expected_rr": candidate_signal.get("expected_rr"),
-                        },
-                    )
-                )
-            except Exception as _e:
-                logger.debug("Could not schedule decision log for open: %s", _e)
+            ai_v = ai_eval.get('verdict') if ('ai_eval' in locals() and isinstance(ai_eval, dict)) else None
+            ai_r = ai_eval.get('reason') if ('ai_eval' in locals() and isinstance(ai_eval, dict)) else None
+            _schedule_background(
+                _async_record_decision_journal_entry(
+                    symbol=self.symbol,
+                    event_type="ORDER",
+                    timeframe=self.timeframe,
+                    direction=candidate_signal["direction"],
+                    price=float(candidate_signal["entry_price"]),
+                    entry_price=float(candidate_signal["entry_price"]),
+                    sl_price=float(candidate_signal["sl"]),
+                    tp_price=float(candidate_signal["tp1"]),
+                    strategy=self.strategy_type,
+                    user_decision="ENTERED",
+                    notes="; ".join(candidate_signal["reason"]),
+                    ai_verdict=ai_v,
+                    ai_reason=ai_r,
+                    context={
+                        "leverage": effective_leverage,
+                        "risk_pct": effective_risk_pct,
+                        "risk_budget": risk_budget,
+                        "expected_rr": candidate_signal.get("expected_rr"),
+                    },
+                ),
+                "decision log for open",
+            )
         except Exception as e:
             logger.error(f"Paper order execution error: {e}")
             self._add_log("ERROR", f"Ошибка открытия сделки: {e}")
@@ -1283,15 +1324,6 @@ class LivePaperRunner:
                     f"⛔ M4: kill switch {self._m4_kill_switch.active_level} активен — входы заблокированы",
                 )
 
-        if self._m4_sizer is not None:
-            open_risks = [p.risk_amount for p in self.session.positions.values() if not p.closed]
-            new_risk = equity * (self.risk_per_trade_pct / 100.0)
-            allowed, heat_after = self._m4_sizer.check_heat(open_risks, equity, new_risk)
-            if not allowed:
-                return (
-                    "portfolio_heat",
-                    f"⛔ M4: portfolio heat {heat_after:.2f}% > лимита {self.max_portfolio_heat_pct}% — вход заблокирован",
-                )
         return None
 
     async def _load_indicator_context(self) -> Optional[Dict[str, Any]]:
@@ -1951,45 +1983,41 @@ class LivePaperRunner:
                 "is_final_exit": is_final_exit,
             },
         )
-        try:
-            asyncio.create_task(
-                _async_record_decision_journal_entry(
-                    symbol=trade_symbol,
-                    event_type="ORDER",
-                    timeframe=self.timeframe,
-                    direction=str(trade.get("side", "")).upper(),
-                    price=float(trade.get("exit_price") or 0.0),
-                    entry_price=float(trade.get("entry_price") or 0.0),
-                    sl_price=float(trade.get("stop_price")) if trade.get("stop_price") is not None else None,
-                    tp_price=float(trade.get("target_price")) if trade.get("target_price") is not None else None,
-                    strategy=self.strategy_type,
-                    user_decision="EXITED",
-                    notes=f"Закрытие {exit_reason}: PnL ${float(trade.get('net_pnl') or 0.0):+.2f} ({raw_reason})",
-                    context={
-                        "closure_id": closure_id,
-                        "gross_pnl": trade.get("gross_pnl"),
-                        "net_pnl": trade.get("net_pnl"),
-                        "fee_drag": trade.get("fee_drag"),
-                        "exit_reason": exit_reason,
-                    },
-                )
-            )
-        except Exception as _e:
-            logger.debug("Could not schedule decision log for close: %s", _e)
+        _schedule_background(
+            _async_record_decision_journal_entry(
+                symbol=trade_symbol,
+                event_type="ORDER",
+                timeframe=self.timeframe,
+                direction=str(trade.get("side", "")).upper(),
+                price=float(trade.get("exit_price") or 0.0),
+                entry_price=float(trade.get("entry_price") or 0.0),
+                sl_price=float(trade.get("stop_price")) if trade.get("stop_price") is not None else None,
+                tp_price=float(trade.get("target_price")) if trade.get("target_price") is not None else None,
+                strategy=self.strategy_type,
+                user_decision="EXITED",
+                notes=f"Закрытие {exit_reason}: PnL ${float(trade.get('net_pnl') or 0.0):+.2f} ({raw_reason})",
+                context={
+                    "closure_id": closure_id,
+                    "gross_pnl": trade.get("gross_pnl"),
+                    "net_pnl": trade.get("net_pnl"),
+                    "fee_drag": trade.get("fee_drag"),
+                    "exit_reason": exit_reason,
+                },
+            ),
+            "decision log for close",
+        )
 
-        try:
-            trade_src = "marathon" if getattr(self, "is_marathon_bridge", False) or "overnight" in str(self.session.session_id) else "live"
-            asyncio.create_task(
-                _async_record_paper_trade(
-                    trade,
-                    session_id=str(self.session.session_id),
-                    strategy=str(self.strategy_type),
-                    timeframe=str(self.timeframe),
-                    source=trade_src,
-                )
-            )
-        except Exception as _e:
-            logger.debug("Could not schedule paper trade persist: %s", _e)
+        trade_src = "marathon" if getattr(self, "is_marathon_bridge", False) or "overnight" in str(self.session.session_id) else "live"
+        _schedule_background(
+            _async_record_paper_trade(
+                trade,
+                session_id=str(self.session.session_id),
+                strategy=str(self.strategy_type),
+                timeframe=str(self.timeframe),
+                source=trade_src,
+            ),
+            "paper trade persist",
+        )
 
 
 # Global singleton runner

@@ -12,6 +12,7 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from '@/components/ui/popover';
+import { Button } from '@/components/ui/button';
 import {
   Minus,
   MoveRight,
@@ -37,6 +38,7 @@ import {
   Zap,
   Loader2,
   SlidersHorizontal,
+  LocateFixed,
 } from 'lucide-react';
 import ChannelSelector from '../docking/ChannelSelector';
 import { crosshairBus } from '../../services/crosshairBus';
@@ -67,6 +69,7 @@ export default function ChartToolbar({
   symbol = 'BTCUSDT',
   timeframe = '15m',
   onTimeframeChange = null,
+  onScrollToNow = null,
   chartId = 'chart_main',
   titlePrefix = '',
   onCloseWidget = null,
@@ -619,6 +622,21 @@ export default function ChartToolbar({
             <span className="text-warning text-[10px] animate-pulse mr-1 truncate max-w-[120px]">
               {statusMsg}
             </span>
+          )}
+
+          {onScrollToNow && (
+            <Button
+              type="button"
+              data-testid={`chart-go-to-now-${chartId}`}
+              onClick={onScrollToNow}
+              variant="subtle"
+              size="dense"
+              className="cursor-pointer"
+              title="Вернуться к актуальной свече и текущей цене (Space)"
+            >
+              <LocateFixed size={11} />
+              <span className="hidden lg:inline">Сейчас</span>
+            </Button>
           )}
 
           {/* Unified Layers Hub Popover */}

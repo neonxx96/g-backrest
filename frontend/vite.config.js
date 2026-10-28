@@ -42,6 +42,7 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: 7100,
+      strictPort: true,
       host: true,
       proxy: {
         '/api': {

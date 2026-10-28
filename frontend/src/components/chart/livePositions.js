@@ -43,6 +43,11 @@ function normalize(raw, source, sourceLabel) {
   };
 }
 
+function positionList(value) {
+  if (Array.isArray(value)) return value;
+  return value && typeof value === 'object' ? [value] : [];
+}
+
 /**
  * Собирает открытые позиции по символу из ответов /api/overnight-pilot/status
  * и /api/paper-trading/live/status.
@@ -59,7 +64,7 @@ export function collectOpenPositions(pilotStatus, liveStatus, symbol) {
   const sessions = (pilotStatus && pilotStatus.sessions) || {};
   for (const [sessionKey, session] of Object.entries(sessions)) {
     const paper = session && session.paper;
-    const list = (paper && paper.open_positions) || [];
+    const list = positionList(paper && paper.open_positions);
     const strategy = String(session.strategy_type || (paper && paper.strategy_type) || '');
     const sourceLabel = strategy ? `марафон · ${strategy}` : `марафон · ${sessionKey}`;
     for (const raw of list) {
@@ -69,7 +74,7 @@ export function collectOpenPositions(pilotStatus, liveStatus, symbol) {
   }
 
   const runner = (liveStatus && liveStatus.runner) || {};
-  const runnerList = runner.open_positions || [];
+  const runnerList = positionList(runner.open_positions);
   const runnerStrategy = String(runner.strategy_type || '');
   const runnerLabel = runnerStrategy ? `live · ${runnerStrategy}` : 'live-раннер';
   for (const raw of runnerList) {

@@ -410,8 +410,10 @@ class FreeBinanceSelfCollector(IMarketDataProvider):
     # 3. Market Snapshot (Funding, OI, 24h Ticker, CVD)
     # -------------------------------------------------------------
     async def get_market_snapshot(self, symbol: str) -> MarketSnapshot:
+        import time
         session = await self._get_session()
         fut_symbol = symbol.upper()
+        observed_at = int(time.time() * 1000)
 
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) SignalScript/1.0"}
         ticker_url = f"{BINANCE_FUTURES_REST}/fapi/v1/ticker/24hr"
@@ -451,18 +453,41 @@ class FreeBinanceSelfCollector(IMarketDataProvider):
         oi_usd = oi_contracts * price
         funding_rate = float(prem_data.get("lastFundingRate", 0.0))
 
-        # Approximate CVD from recent 30 bars (taker buy vol - taker sell vol)
+        # Approximate CVD from closed 15m bars only. Binance kline timestamps
+        # include the still-forming bar, which must not influence a decision.
         cvd_approx = 0.0
+        closed_candle_count = 0
         if isinstance(klines_data, list):
             for k in klines_data:
+                if len(k) < 10 or int(k[6]) > observed_at:
+                    continue
                 vol = float(k[5])
                 taker_buy = float(k[9])
                 taker_sell = vol - taker_buy
                 cvd_approx += (taker_buy - taker_sell)
+                closed_candle_count += 1
+
+        unavailable_fields = []
+        if not t_data:
+            unavailable_fields.extend(["price", "change_24h_pct", "high_24h", "low_24h", "volume_24h_usd"])
+        if not oi_data:
+            unavailable_fields.append("open_interest_usd")
+        if not prem_data:
+            unavailable_fields.append("funding_rate")
+        if not closed_candle_count:
+            unavailable_fields.append("cvd_value")
+        data_status = "unavailable" if not t_data else ("partial" if unavailable_fields else "available")
+        source = "binance_spot_fallback" if t_data and price and not oi_data else "binance_futures_rest"
 
         return MarketSnapshot(
             symbol=fut_symbol,
-            timestamp=max(int(t_data.get("closeTime", 0)), int(__import__("time").time() * 1000) - 5000),
+            timestamp=int(t_data.get("closeTime", 0) or 0),
+            observed_at=observed_at,
+            source=source,
+            data_status=data_status,
+            unavailable_fields=unavailable_fields,
+            closed_candles_only=True,
+            closed_candle_count=closed_candle_count,
             price=round(price, 6),
             change_24h_pct=round(float(t_data.get("priceChangePercent", 0.0)), 2),
             high_24h=round(float(t_data.get("highPrice", 0.0)), 2),

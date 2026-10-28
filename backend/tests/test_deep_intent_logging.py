@@ -1,4 +1,6 @@
 from datetime import datetime
+import gc
+import warnings
 
 import pytest
 
@@ -201,6 +203,24 @@ def test_live_runner_writes_skip_management_and_close_intents(tmp_path):
     assert events[0]["reason_code"] == "RSI_FILTER"
     assert events[1]["payload"]["action"] == "BREAKEVEN"
     assert events[2]["payload"]["net_pnl"] == 4.25
+
+
+def test_close_intent_without_running_loop_does_not_leak_background_coroutines(tmp_path):
+    """Synchronous fill callbacks may not leave unawaited SQLite coroutines."""
+    runner = LivePaperRunner(session=PaperTradingSession(initial_balance=1000.0, session_id="sync-close"))
+    runner.intent_logger = DeepIntentLogger(path=tmp_path / "deep_intent_log.jsonl")
+    runner.symbol = "BTCUSDT"
+    runner.session.closed_trades.append({
+        "symbol": "BTCUSDT", "reason": "TAKE_PROFIT", "net_pnl": 4.25, "fee_drag": 0.10,
+    })
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        runner._record_new_closed_intents(0)
+        gc.collect()
+
+    assert runner.intent_logger.read_recent(limit=1)[0]["event_type"] == "POSITION_CLOSED"
+    assert not [warning for warning in caught if "was never awaited" in str(warning.message)]
 
 
 def test_runner_records_stop_exit_when_the_market_fill_arrives_after_decision(tmp_path):

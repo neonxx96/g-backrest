@@ -484,6 +484,11 @@ JS/TS call targets are lexical candidates, not a type-resolved call graph.
 - **Calls / imports:** `DailyDrawdownGuard`, `KillSwitchEvent`, `ValueError`, `append`, `clear`, `dataclass`, `float`, `fromtimestamp`, `int`, `max`, …
 - **Imported by:** `backend/app/services/live_paper_runner.py`
 
+### `backend/app/services/risk_profile.py`
+- **Public symbols:** `SharedRiskProfile`
+- **Calls / imports:** `ValueError`, `cls`, `dataclass`, `float`, `get`, `int`, `str`, `validate`
+- **Imported by:** `backend/app/services/live_paper_runner.py`, `backend/app/services/overnight_pilot.py`, `backend/app/services/paper_trading.py`
+
 ### `backend/app/services/runtime_binding.py`
 - **Public symbols:** `find_available_port`, `is_healthy_backend_running`, `persist_runtime_port`, `persist_runtime_port_guarded`
 - **Calls / imports:** `RuntimeError`, `ValueError`, `append`, `bind`, `decode`, `dumps`, `enumerate`, `exists`, `get`, `getLogger`, …
@@ -783,7 +788,7 @@ JS/TS call targets are lexical candidates, not a type-resolved call graph.
 
 ### `frontend/src/components/chart/livePositions.js`
 - **Public symbols:** `collectOpenPositions`
-- **Calls / imports:** `Number`, `String`, `collectOpenPositions`, `entries`, `isFinite`, `normalize`, `push`, `status`, `toUpperCase`
+- **Calls / imports:** `Number`, `String`, `collectOpenPositions`, `entries`, `isArray`, `isFinite`, `normalize`, `positionList`, `push`, `status`, …
 - **Imported by:** —
 
 ### `frontend/src/components/chart/OnChartDOM.jsx`
@@ -982,8 +987,8 @@ JS/TS call targets are lexical candidates, not a type-resolved call graph.
 - **Imported by:** —
 
 ### `frontend/src/components/docking/layoutRecovery.js`
-- **Public symbols:** `persistChartPanelTimeframe`, `persistDockviewLayoutLocally`, `readCachedDockviewLayout`, `readChartPanelTimeframe`, `resolveDockviewLayout`
-- **Calls / imports:** `Boolean`, `Set`, `getItem`, `has`, `isDockviewLayout`, `parse`, `persistChartPanelTimeframe`, `persistDockviewLayoutLocally`, `readCachedDockviewLayout`, `readChartPanelTimeframe`, …
+- **Public symbols:** `hasRenderableTerminalPanel`, `persistChartPanelTimeframe`, `persistDockviewLayoutLocally`, `readCachedDockviewLayout`, `readChartPanelTimeframe`, `resolveDockviewLayout`
+- **Calls / imports:** `Boolean`, `Set`, `getItem`, `has`, `hasRenderableTerminalPanel`, `isDockviewLayout`, `parse`, `persistChartPanelTimeframe`, `persistDockviewLayoutLocally`, `readCachedDockviewLayout`, …
 - **Imported by:** —
 
 ### `frontend/src/components/docking/layoutSanitizer.js`
@@ -992,8 +997,8 @@ JS/TS call targets are lexical candidates, not a type-resolved call graph.
 - **Imported by:** —
 
 ### `frontend/src/components/docking/marathonFeed.js`
-- **Public symbols:** `collectMarathonPositions`, `collectMarathonTrades`, `hasMarathonData`, `mergePaperLists`
-- **Calls / imports:** `Boolean`, `collectMarathonPositions`, `collectMarathonTrades`, `flatMap`, `hasMarathonData`, `map`, `mergePaperLists`, `values`
+- **Public symbols:** `collectMarathonPositions`, `collectMarathonTrades`, `getPilotRunState`, `getSharedPilotAccount`, `hasMarathonData`, `mergePaperLists`
+- **Calls / imports:** `Boolean`, `Number`, `collectMarathonPositions`, `collectMarathonTrades`, `flatMap`, `getPilotRunState`, `getSharedPilotAccount`, `hasMarathonData`, `isFinite`, `keys`, …
 - **Imported by:** —
 
 ### `frontend/src/components/docking/PairControlRowActions.jsx`
@@ -1028,7 +1033,7 @@ JS/TS call targets are lexical candidates, not a type-resolved call graph.
 
 ### `frontend/src/components/docking/TerminalDockview.jsx`
 - **Public symbols:** `TerminalDockview`
-- **Calls / imports:** `Boolean`, `ChartDockPanel`, `DOM`, `LTF`, `LiqAnalyticsDockPanel`, `Number`, `OrderBookDockPanel`, `ResizeObserver`, `SignalsDockPanel`, `TerminalDockview`, …
+- **Calls / imports:** `ChartDockPanel`, `DOM`, `LTF`, `LiqAnalyticsDockPanel`, `Number`, `OrderBookDockPanel`, `ResizeObserver`, `SignalsDockPanel`, `TerminalDockview`, `Trader`, …
 - **Imported by:** —
 
 ### `frontend/src/components/docking/TradeHistoryWidget.jsx`
@@ -1128,7 +1133,7 @@ JS/TS call targets are lexical candidates, not a type-resolved call graph.
 
 ### `frontend/src/components/OvernightPilotPanel.jsx`
 - **Public symbols:** `OvernightPilotPanel`
-- **Calls / imports:** `BacktestQuality`, `Boolean`, `ClientAggregate`, `Date`, `Error`, `ForecastCard`, `Metric`, `Number`, `OptimizationResult`, `OvernightPilotPanel`, …
+- **Calls / imports:** `AppliedProfile`, `BacktestQuality`, `Boolean`, `ClientAggregate`, `Date`, `Error`, `ForecastCard`, `Metric`, `Number`, `OptimizationResult`, …
 - **Imported by:** —
 
 ### `frontend/src/components/PaperTradePanel.jsx`
@@ -1377,8 +1382,8 @@ JS/TS call targets are lexical candidates, not a type-resolved call graph.
 - **Imported by:** —
 
 ### `frontend/src/features/pilot/model.js`
-- **Public symbols:** `STRATEGIES`, `allocateCapital`, `configKey`, `describePilotEvent`, `hasRunning`, `optimizedPatch`, `optimizerRequest`, `paperStatusLabel`, `pilotFilterLabel`, `readReport`, …
-- **Calls / imports:** `Error`, `Number`, `Pullback`, `Set`, `String`, `Trend`, `Window`, `add`, `allocateCapital`, `canonical`, …
+- **Public symbols:** `STRATEGIES`, `allocateCapital`, `configKey`, `describePaperAdmission`, `describePilotEvent`, `describeProfileApplication`, `hasRunning`, `optimizedPatch`, `optimizerRequest`, `paperStatusLabel`, …
+- **Calls / imports:** `Boolean`, `Error`, `Number`, `Pullback`, `Set`, `String`, `Trend`, `Window`, `add`, `allocateCapital`, …
 - **Imported by:** —
 
 ### `frontend/src/features/pilot/PilotConfig.jsx`
@@ -1393,7 +1398,7 @@ JS/TS call targets are lexical candidates, not a type-resolved call graph.
 
 ### `frontend/src/features/pilot/PilotResults.jsx`
 - **Public symbols:** `Forecast`, `Metrics`, `PilotResults`, `Report`, `number`, `time`
-- **Calls / imports:** `Boolean`, `Date`, `Forecast`, `Metrics`, `Number`, `PilotResults`, `Report`, `applyOptimization`, `configKey`, `getTime`, …
+- **Calls / imports:** `AppliedProfile`, `Boolean`, `Date`, `Forecast`, `Metrics`, `Number`, `PaperAdmission`, `PilotResults`, `Report`, `applyOptimization`, …
 - **Imported by:** —
 
 ### `frontend/src/features/pilot/PilotWorkspace.jsx`

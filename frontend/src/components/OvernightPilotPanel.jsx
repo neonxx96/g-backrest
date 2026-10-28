@@ -85,7 +85,8 @@ function BacktestQuality({ backtest }) {
   const avg = Number(summary.total_trades) > 0
     ? Number(summary.net_pnl_usd || 0) / Number(summary.total_trades)
     : 0;
-  const source = backtest?.data_availability?.ohlcv?.source || 'Источник не указан';
+  const availability = backtest?.meta?.data_availability || backtest?.data_availability || {};
+  const source = availability.ohlcv_source || availability?.ohlcv?.source || 'Источник не указан';
   const warning = trades < 30
     ? 'Недостаточно сделок для устойчивой статистики (нужно минимум 30).'
     : backtest?.monte_carlo?.reason;
@@ -97,6 +98,46 @@ function BacktestQuality({ backtest }) {
         <span>Источник <b className="text-cyan-300">{source}</b></span>
       </div>
       {warning && <div className="text-amber-200">⚠ {warning}</div>}
+    </div>
+  );
+}
+
+function AppliedProfile({ session }) {
+  if (!session) return null;
+  const config = session.config || {};
+  const backtestMeta = session.backtest?.meta || {};
+  const availability = backtestMeta.data_availability || session.backtest?.data_availability || {};
+  const forecast = session.forecast || {};
+  const application = forecast.profile_application || {};
+  const requiresLiveClusterEvidence = Boolean(
+    application.filters?.stacked_imbalance
+    || application.filters?.absorption
+    || application.filters?.poc_migration,
+  );
+  const sameProfile = forecast.strategy_type === config.strategy_type
+    && application.strategy_type === config.strategy_type
+    && application.signal_engine === 'shared_ohlcv_evaluator'
+    && !requiresLiveClusterEvidence;
+  const filters = Object.entries(application.filters || {})
+    .filter(([, enabled]) => enabled)
+    .map(([name]) => name.replaceAll('_', ' '));
+  const fingerprint = session.config_fingerprint ? session.config_fingerprint.slice(0, 12) : '—';
+
+  return (
+    <div className="space-y-1 rounded border border-border bg-background/50 px-2 py-1.5 text-[8px] text-muted-foreground" data-testid="overnight-applied-profile">
+      <div className="flex flex-wrap items-center justify-between gap-x-2">
+        <span className="font-bold uppercase tracking-wide text-foreground">Applied profile</span>
+        <span className="font-mono" title={session.config_fingerprint || ''}>#{fingerprint}</span>
+      </div>
+      <div>
+        {config.strategy_type || '—'} · {config.timeframe || '—'} · {config.days ?? '—'}d · risk {config.risk_per_trade_pct ?? '—'}% · SL/TP {config.stop_loss_pct ?? '—'}% / {config.take_profit_pct ?? '—'}% · x{config.leverage ?? '—'}
+      </div>
+      <div>
+        Backtest: {availability.closed_candles_only ? 'closed candles' : 'candle-close contract unavailable'} · {availability.ohlcv_source || 'OHLCV source unavailable'} · OI {availability.open_interest?.available ? 'available' : 'not in history'}
+      </div>
+      <div className={sameProfile ? 'text-bull' : 'text-warning'}>
+        Scenario: {sameProfile ? 'same strategy + OHLCV evaluator' : requiresLiveClusterEvidence ? 'same config; live cluster evidence is evaluated separately' : 'profile parity unavailable'}{filters.length ? ` · filters: ${filters.join(', ')}` : ''}
+      </div>
     </div>
   );
 }
@@ -626,6 +667,7 @@ export default function OvernightPilotPanel({ onClose }) {
             </div>
             <div className="grid grid-cols-3 gap-1"><Metric label="Backtest ROI" value={formatPct(status.sessions?.[config.symbol]?.backtest?.summary?.total_pnl_pct)} /><Metric label="Net PnL" value={status.sessions?.[config.symbol]?.backtest?.summary?.net_pnl_usd != null ? `$${Number(status.sessions[config.symbol].backtest.summary.net_pnl_usd).toFixed(2)}` : null} /><Metric label="PF / Win" value={status.sessions?.[config.symbol]?.backtest?.summary?.profit_factor != null ? `${status.sessions[config.symbol].backtest.summary.profit_factor} / ${formatPct(status.sessions[config.symbol].backtest.summary.win_rate_pct, 1)}` : null} /></div>
             <div className="grid grid-cols-3 gap-1"><Metric label="Win rate" value={status.sessions?.[config.symbol]?.backtest?.summary?.win_rate_pct != null ? `${status.sessions[config.symbol].backtest.summary.win_rate_pct}%` : null} /><Metric label="Max DD" value={status.sessions?.[config.symbol]?.backtest?.summary?.max_drawdown_pct != null ? `${status.sessions[config.symbol].backtest.summary.max_drawdown_pct}%` : null} /><Metric label="Paper equity" value={status.sessions?.[config.symbol]?.paper?.current_equity != null ? `$${Number(status.sessions[config.symbol].paper.current_equity).toFixed(2)}` : 'IDLE'} /></div>
+            <AppliedProfile session={status.sessions?.[config.symbol]} />
             <BacktestQuality backtest={status.sessions?.[config.symbol]?.backtest} />
             <button data-testid={`btn-think-optimize-${config.symbol}`} disabled={busy} onClick={() => optimize(config)} className="w-full rounded border border-violet-400/40 bg-violet-950/20 px-2 py-1 text-[9px] font-bold text-violet-200 disabled:opacity-50">{busy ? 'AI Think: расчёт…' : 'AI Think: подобрать параметры по этой стратегии'}</button>
             <OptimizationResult result={optimization[config.symbol] || status.sessions?.[config.symbol]?.backtest?.optimization} disabled={busy || status.sessions?.[config.symbol]?.paper?.is_running} onApply={(best) => applyOptimization(config, best)} />

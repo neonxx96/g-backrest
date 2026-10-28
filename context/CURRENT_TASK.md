@@ -7,6 +7,11 @@
 - **Recommended Model**: `Claude Sonnet 3.5 / Expert` (Quantitative Analysis, Risk & Microstructure)
 - **Gate**: `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`
 
+## Active continuation — reproducible paper-run
+
+- The current delivery checklist is [`docs/ALGO_PAPER_GOAL.md`](../docs/ALGO_PAPER_GOAL.md). It preserves the paper-only boundary and the shared $1,000 account invariant.
+- Audit evidence (2026-10-27): `data/signals.db` is in WAL mode with 82 `paper_trade_records`; the available manifest covers only 2026-10-22 and contains gaps, so it is not proof of historical L2 or target-pair admission. The first-run 8-pair launcher now uses 0.5% risk, 8 hours, and disables AI calls.
+
 ## Immediate Starting Point for the Agent
 1. **Текущий статус**:
    - Реализован квантовый риск-движок (`risk_engine.py`) со строгим сайзингом от дистанции SL, лимитом Portfolio Heat (1.25%), Directional Heat (0.75%), динамическим штрафом за корреляцию ($\lambda=0.6$) и потолком плеча 5.0x.

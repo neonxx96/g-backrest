@@ -18,6 +18,7 @@ import { sanitizeDockviewLayout } from './layoutSanitizer';
 import {
   readCachedDockviewLayout,
   resolveDockviewLayout,
+  hasRenderableTerminalPanel,
   readChartPanelTimeframe,
   persistChartPanelTimeframe,
 } from './layoutRecovery.js';
@@ -344,6 +345,7 @@ export default function TerminalDockview({
   layersProps = null
 }) {
   const dockviewApiRef = useRef(null);
+  const layoutChangeDisposableRef = useRef(null);
   const [dockviewApi, setDockviewApi] = React.useState(null);
   const [vis, setVis] = React.useState(() => readStoredVisibility());
 
@@ -433,6 +435,7 @@ export default function TerminalDockview({
         title: 'Лента сделок (Tape)',
         position: { referencePanel: signalsPanel, direction: 'within' }
       });
+
     } else {
       // Preset 1: Classic Trader (Default)
       // Left: Watchlist (width ~260px), Center: Chart, Right: DOM (top) + Signals / Trades (bottom)
@@ -491,41 +494,11 @@ export default function TerminalDockview({
         try {
           api.clear();
           const sanitizedLayout = sanitizeDockviewLayout(dockviewJson);
-          if (sanitizedLayout) {
+          if (sanitizedLayout && hasRenderableTerminalPanel(sanitizedLayout)) {
             api.fromJSON(sanitizedLayout);
           } else {
+            console.warn('Dockview preset is empty or malformed; rebuilding safe layout.');
             buildDefaultLayout(api, workspaceDetail.id);
-          }
-          // Auto-migrate: If trades_main is not yet in the saved layout, add it tabbed within signals_main
-          if (!api.getPanel('trades_main')) {
-            const ref = api.getPanel('signals_main') || api.getPanel('orderbook_main') || api.getPanel('chart_main');
-            if (ref) {
-              api.addPanel({ id: 'trades_main', component: 'trades', title: 'Лента сделок (Tape)', position: { referencePanel: ref, direction: 'within' } });
-            }
-          }
-          // Auto-deduplicate: Ensure only one unified tradehistory panel exists
-          const existingTradePanels = (api.panels || []).filter(p => p.component === 'tradehistory' || p.component === 'papertrade');
-          if (existingTradePanels.length > 1) {
-            for (let i = 1; i < existingTradePanels.length; i++) {
-              try { existingTradePanels[i].api?.close?.(); } catch (_) {}
-            }
-          }
-          if (!api.getPanel('tradehistory_main')) {
-            const chartRef = api.getPanel('chart_main') || api.getPanel('chart_ltf') || api.getPanel('signals_main');
-            if (chartRef) {
-              api.addPanel({ id: 'tradehistory_main', component: 'tradehistory', title: 'Демо-торговля & Сделки (20 пар)', position: { referencePanel: chartRef, direction: 'below' } });
-            }
-          }
-          if (false) {
-            const ref = api.getPanel('signals_main') || api.getPanel('orderbook_main') || api.getPanel('chart_main');
-            if (ref) {
-              api.addPanel({
-                id: 'trades_main',
-                component: 'trades',
-                title: 'Лента сделок (Tape)',
-                position: { referencePanel: ref, direction: 'within' }
-              });
-            }
           }
         } catch (err) {
           console.warn('Dockview fromJSON corrupted, rebuilding default layout:', err);
@@ -535,10 +508,10 @@ export default function TerminalDockview({
         buildDefaultLayout(api, workspaceDetail?.id || useLayoutStore.getState().activePresetId);
       }
 
-      // Mark layout as ready so future user drag/resize events trigger autosave safely
-      setTimeout(() => {
-        markLayoutReady();
-      }, 250);
+      // Dockview's imperative mutations above are synchronous.  Releasing the
+      // autosave gate here, rather than after an arbitrary timer, ensures a
+      // transient empty grid can never overwrite a restored workspace.
+      markLayoutReady();
     },
     [importColorLinks, buildDefaultLayout, markLayoutReady]
   );
@@ -546,7 +519,6 @@ export default function TerminalDockview({
   // Initialize Dockview API
   const onReady = useCallback(
     async (event) => {
-      console.log('[DEBUG] Dockview onReady CALLED! event.api:', Boolean(event?.api));
       dockviewApiRef.current = event.api;
       setDockviewApi(event.api);
 
@@ -555,24 +527,19 @@ export default function TerminalDockview({
       event.api.domSharedProps = domSharedProps;
       event.api.signalsSharedProps = signalsSharedProps;
 
-      // 1. Мгновенная инициализация раскладки (кэш либо дефолт) — 0мс задержки, исключает пустой экран
-      const cached = readCachedDockviewLayout();
-      if (cached) {
-        const sanitized = sanitizeDockviewLayout(cached);
-        if (sanitized) {
-          try {
-            event.api.fromJSON(sanitized);
-          } catch (_) {
-            buildDefaultLayout(event.api, activePresetId);
-          }
-        } else {
-          buildDefaultLayout(event.api, activePresetId);
-        }
-      } else {
-        buildDefaultLayout(event.api, activePresetId);
-      }
+      // Subscribe before any imperative layout operation.  The gate starts
+      // closed, so initial Dockview events are observed but never persisted.
+      layoutChangeDisposableRef.current?.dispose?.();
+      layoutChangeDisposableRef.current = event.api.onDidLayoutChange(() => {
+        scheduleAutosave(event.api.toJSON(), useColorLinksStore.getState().channels);
+      });
 
-      // 2. Фоновая загрузка пресетов и синхронизация сохранённой в SQLite раскладки
+      // 1. Render cache/default synchronously. This also marks the layout
+      // ready when no SQLite workspace exists or its request is slow.
+      hydrateLayout(event.api, null);
+
+      // 2. Replace only with a valid workspace returned by SQLite.  A failed
+      // request deliberately leaves the already usable layout untouched.
       try {
         await loadPresets();
         const currentDetail = await loadWorkspaceDetail(activePresetId);
@@ -583,11 +550,6 @@ export default function TerminalDockview({
         console.debug('Background workspace sync:', err);
       }
 
-      // Listen to layout changes for debounced SQLite autosave
-      event.api.onDidLayoutChange(() => {
-        const json = event.api.toJSON();
-        scheduleAutosave(json, useColorLinksStore.getState().channels);
-      });
     },
     [
       chartSharedProps,
@@ -600,6 +562,11 @@ export default function TerminalDockview({
       scheduleAutosave
     ]
   );
+
+  useEffect(() => () => {
+    layoutChangeDisposableRef.current?.dispose?.();
+    layoutChangeDisposableRef.current = null;
+  }, []);
 
   // Keep shared props updated
   useEffect(() => {

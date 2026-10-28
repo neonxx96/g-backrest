@@ -100,8 +100,6 @@ export const useLayoutStore = create((set, get) => {
 
     // Load single workspace detail by ID with timeout protection
     loadWorkspaceDetail: async (id) => {
-      // Temporarily lock autosave while new layout initializes
-      set({ isLayoutLoaded: false, saveStatus: 'idle' });
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 2500);
@@ -131,8 +129,11 @@ export const useLayoutStore = create((set, get) => {
 
         return data;
       } catch (err) {
-        console.warn(`Error loading workspace ${id}, using default fallback:`, err);
-        set({ activePresetId: 'default_classic', saveStatus: 'idle' });
+        // Keep the selected workspace and its currently rendered layout.
+        // A slow or unavailable backend must never turn a temporary failure
+        // into a different persisted preset or a blank autosave candidate.
+        console.warn(`Error loading workspace ${id}; keeping the current layout:`, err);
+        set({ saveStatus: 'idle' });
         return null;
       }
     },

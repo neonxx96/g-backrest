@@ -85,6 +85,53 @@ export function readReport(result) {
   return { status: 'unavailable', metrics: null, sample: {}, validation: {}, data_availability: {} };
 }
 
+export function describeProfileApplication(session) {
+  const config = session?.config || {};
+  const forecast = session?.forecast || {};
+  const application = forecast.profile_application || {};
+  const availability = session?.backtest?.meta?.data_availability || session?.backtest?.data_availability || {};
+  const enabledFilters = Object.entries(application.filters || {})
+    .filter(([, enabled]) => enabled)
+    .map(([name]) => name.replaceAll('_', ' '));
+  const liveClusterEvidenceSeparate = Boolean(
+    application.filters?.stacked_imbalance
+    || application.filters?.absorption
+    || application.filters?.poc_migration,
+  );
+  const sameOhlcvProfile = forecast.strategy_type === config.strategy_type
+    && application.strategy_type === config.strategy_type
+    && application.signal_engine === 'shared_ohlcv_evaluator'
+    && !liveClusterEvidenceSeparate;
+  return {
+    config,
+    availability,
+    fingerprint: session?.config_fingerprint ? String(session.config_fingerprint).slice(0, 12) : null,
+    enabledFilters,
+    liveClusterEvidenceSeparate,
+    sameOhlcvProfile,
+    closedCandlesOnly: availability.closed_candles_only === true,
+    freshOhlcvRequired: application.fresh_ohlcv_required === true,
+  };
+}
+
+export function describePaperAdmission(session, summary, isCurrentConfig = true) {
+  const verdict = summary?.verdict || {};
+  const forecast = session?.forecast || {};
+  const scenario = forecast.unified_signal?.direction || forecast.base_scenario?.direction || 'NO_TRADE';
+  const reasons = [...(verdict.reasons || []), ...(verdict.flags || [])].filter(Boolean);
+  if (verdict.level === 'BLOCK') {
+    return { level: 'BLOCK', startAllowed: false, reasons, scenario };
+  }
+  if (!isCurrentConfig) {
+    return { level: 'RECHECK', startAllowed: false, reasons: ['Черновик профиля изменён после preflight; повторите проверку.', ...reasons], scenario };
+  }
+  const preflightReady = session?.preflight_valid === true && !session?.error && forecast.data_status === 'connected';
+  if (!preflightReady) {
+    return { level: 'RECHECK', startAllowed: false, reasons: reasons.length ? reasons : ['Нужны актуальные backtest и forecast для этой конфигурации.'], scenario };
+  }
+  return { level: verdict.level === 'WARNING' ? 'WARNING' : 'READY', startAllowed: true, reasons, scenario };
+}
+
 export function optimizerRequest(config) {
   return { ...config, optimizer_mode: 'genetic', current_sl_pct: config.stop_loss_pct,
     current_tp_pct: config.take_profit_pct, current_wall_usd: config.min_density_usd,

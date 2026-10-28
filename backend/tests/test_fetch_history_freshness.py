@@ -86,6 +86,17 @@ def test_fresh_parquet_returned_when_require_fresh():
     assert int(df["timestamp"].max()) == int(FRESH_FRAME["timestamp"].max())
 
 
+def test_fetch_history_excludes_an_open_candle_from_historical_consumers():
+    """The latest in-progress kline must not leak into backtest or forecast."""
+    frame = _frame_15m(ending_ago_ms=0)
+    expected_last_closed = int(frame["timestamp"].iloc[-2])
+
+    with patch("backend.app.routers.backtest._read_cached_history", return_value=frame.copy()):
+        df = _run(fetch_history("CLOSEDUSDT", "15m", days=3))
+
+    assert int(df["timestamp"].max()) == expected_last_closed
+
+
 def test_in_memory_cache_not_poisoned_by_stale_frame_when_require_fresh():
     """A stale in-memory entry must not be served to a require_fresh caller."""
     key = ("BTCUSDT", "15m", 2, True)

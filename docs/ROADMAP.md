@@ -30,7 +30,9 @@
 
 | ID | Description | Affected Files | Priority | Size | Status |
 |---|---|---|---|---|---|
-| `MARATHON-01` | 7-Coin overnight paper-trading marathon in Docker stack | `signalscript_backend`, `data/signals.db` | P0 | M | `IN_PROGRESS` |
+| `MARATHON-01` | Guarded AI selection → preflight → shared-$1,000 paper autopilot, with truthful recovery state after backend restart; runtime multi-pair observation remains to be completed | `backend/app/services/overnight_pilot.py`, `backend/app/routers/overnight_pilot.py`, `frontend/src/components/docking/` | P0 | L | `IN_PROGRESS` |
+| `MARATHON-02` | Expand liquid crypto candidates and align selector ATR/history-window parameters with paper preflight; ten admitted concurrent pairs still require a safe transition from active positions | `backend/app/services/pair_selector.py`, `backend/app/services/overnight_pilot.py` | P0 | M | `IN_PROGRESS` |
+| `PRODUCT-01` | BTCUSDT EMA Trend vertical slice: one closed-candle profile from backtest through scenario and paper admission explanation | `backtest.py`, `ai_copilot_service.py`, `frontend/src/features/pilot/` | P0 | M | `IN_PROGRESS` |
 
 ---
 
@@ -52,6 +54,7 @@
 | `BACKLOG-01`| Offload heavy Parquet lake (>2 TB) to dedicated remote server | `recorder/`, `backend/app/config.py` | P2 | L | `BACKLOG` |
 | `BACKLOG-02`| Dedicated standalone mobile view (desktop remains >=1280px) | `frontend/` | P3 | L | `BACKLOG` |
 | `BACKLOG-03`| Direct Bybit / OKX WebSocket adapter failover pool | `backend/app/services/binance_service.py` | P3 | M | `BACKLOG` |
+| `BACKLOG-04`| Complete safe local launcher contract: PowerShell-level identity tests, full-process ownership checks, and a whole-launch mutex. Ports are fixed; this work is not a blocker for product flow. | `run_app.ps1`, launcher tests | P2 | M | `BACKLOG` |
 
 ---
 

@@ -47,6 +47,16 @@ test('collectPaperPairs: марафон агрегируется в строки
   assert.equal(btc.backtestNetUsd, -35.94);
 });
 
+test('collectPaperPairs counts a singleton backend open position', () => {
+  const rows = collectPaperPairs({
+    sessions: {
+      BNBUSDT: { strategy_type: 'ema_trend', paper: { is_running: true, open_positions: { symbol: 'BNBUSDT', qty: 0.159 } } },
+    },
+  }, null);
+
+  assert.equal(rows[0].openCount, 1);
+});
+
 test('collectPaperPairs: live-раннер мержится с марафоном по тому же символу', () => {
   const status = { sessions: { BTCUSDT: session() } };
   const live = { symbol: 'BTCUSDT', strategy_type: 'live_density_bounce', timeframe: '1m', leverage: 5, is_running: true };

@@ -37,7 +37,7 @@ class Core3MathReport(BaseModel):
     suggested_stop_loss: float
     suggested_take_profit: float
     risk_reward_ratio: float
-    verdict: Literal["READY_FOR_PAPER", "VETO_RR_TOO_LOW", "VETO_TOXIC_SKEW"]
+    verdict: Literal["READY_FOR_PAPER", "VETO_RR_TOO_LOW", "VETO_TOXIC_SKEW", "VETO_DATA_UNAVAILABLE"]
     verdict_reasons: List[str]
 
 
@@ -151,10 +151,20 @@ class QuantEngine:
             if top_long:
                 reasons.append(f"Магнит ликвидаций лонгистов: {top_long.amount_str} @ ${top_long.price}")
 
-        # Veto checks
+        # Data quality is a hard veto: an attractive order-book calculation
+        # must never be presented as paper-ready when the snapshot itself is
+        # partial or unavailable.
         funding_ann = round(snap.funding_rate * 3 * 365 * 100, 2)
+        snapshot_status = getattr(snap, "data_status", "available")
+        unavailable_fields = getattr(snap, "unavailable_fields", []) or []
 
-        if rr < 2.0:
+        if snapshot_status != "available":
+            verdict = "VETO_DATA_UNAVAILABLE"
+            reasons.append(
+                "VETO: MarketSnapshot неполный "
+                f"({snapshot_status}; недоступно: {', '.join(unavailable_fields) or 'неуточнённые поля'})."
+            )
+        elif rr < 2.0:
             verdict = "VETO_RR_TOO_LOW"
             reasons.append(f"VETO: Соотношение Risk/Reward ({rr}) ниже институционального порога 1:2.0")
         elif abs(delta_pct) < 3.0:

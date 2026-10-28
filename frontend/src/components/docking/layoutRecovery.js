@@ -13,6 +13,14 @@ export function resolveDockviewLayout(workspaceDetail, cachedLayout) {
   return { layout: null, source: 'default' };
 }
 
+/** A preset may deliberately be journal- or backtest-only, but never empty. */
+export function hasRenderableTerminalPanel(layout) {
+  if (!isDockviewLayout(layout)) return false;
+  return Object.values(layout.panels || {}).some(
+    (panel) => typeof (panel?.contentComponent || panel?.component) === 'string',
+  );
+}
+
 export function readCachedDockviewLayout(storage = undefined) {
   try {
     const target = storage ?? (typeof localStorage !== 'undefined' ? localStorage : null);

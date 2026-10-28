@@ -37,7 +37,7 @@ This document details Git branching, commit conventions, process management, tok
 
 To maximize efficiency and minimize session cost without degrading quality:
 1. **One Task = One Chat Session:** Do not mix multiple tasks in one dialogue. Context across sessions is passed via `HANDOFF.md` and `context/CURRENT_TASK.md`.
-2. **Fixed Model per Task:** Do not switch models mid-task; model switching resets prompt caches.
+2. **Stable Route per Work Block:** Keep one route for a coherent work block. Reassess only when scope or risk materially changes, the same approach fails repeatedly, or the active runtime confirms a necessary model/reasoning change. Do not claim a switch unless it was actually made; see [`AGENT_ROUTING.md`](AGENT_ROUTING.md).
 3. **Range Reads for Large Files:** For files exceeding 800 lines (e.g. `Chart.jsx`, `BacktestPanel.jsx`, `orderflow_backtester.py`), read targeted line ranges instead of loading the full file.
 4. **Single Read per File:** Store file context in session memory and avoid re-reading identical files.
 5. **Concise Command Output:** Filter verbose terminal output (`Select-Object -First 20`, `git diff --stat`, `pytest -q`).

@@ -36,6 +36,16 @@ test('collects marathon open position for active symbol', () => {
   assert.ok(pos.key.startsWith('marathon:BTCUSDT:LONG:'));
 });
 
+test('collects a singleton marathon position object for the active symbol', () => {
+  const positions = collectOpenPositions({
+    sessions: { BNBUSDT: { strategy_type: 'ema_trend', paper: { open_positions: { ...MARATHON_POS, symbol: 'BNBUSDT' } } } },
+  }, null, 'BNBUSDT');
+
+  assert.equal(positions.length, 1);
+  assert.equal(positions[0].symbol, 'BNBUSDT');
+  assert.equal(positions[0].source, 'marathon');
+});
+
 test('collects live-runner position and filters by symbol', () => {
   const live = {
     runner: {

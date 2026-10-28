@@ -345,6 +345,21 @@ async def fetch_history(symbol: str, timeframe: str, days: int, require_fresh: b
     fresh_max_age_ms = (2 * tf_min * 60_000) + 60_000
     now_ts = time.time()
 
+    def _closed_candles_only(frame: pd.DataFrame) -> pd.DataFrame:
+        """Exclude the still-forming candle from every historical consumer.
+
+        Binance kline timestamps denote the bar open.  Using a bar whose close
+        is in the future makes a backtest or forecast depend on information
+        unavailable at its decision time.  Keep this at the shared history
+        boundary so the backtest, forecast, and paper indicator paths all see
+        the same closed-candle contract.
+        """
+        if frame is None or frame.empty or "timestamp" not in frame.columns:
+            return frame
+        close_cutoff = int(now_ts * 1000) - (tf_min * 60_000)
+        timestamps = pd.to_numeric(frame["timestamp"], errors="coerce")
+        return frame.loc[timestamps <= close_cutoff].copy().reset_index(drop=True)
+
     def _frame_is_fresh(df: pd.DataFrame) -> bool:
         if df is None or df.empty or "timestamp" not in df.columns:
             return False
@@ -354,7 +369,7 @@ async def fetch_history(symbol: str, timeframe: str, days: int, require_fresh: b
     cached = _HISTORY_CACHE.get(cache_key)
     if cached is not None and (now_ts - cached[0]) < _HISTORY_CACHE_TTL_SEC:
         if not require_fresh or _frame_is_fresh(cached[1]):
-            return cached[1].copy()
+            return _closed_candles_only(cached[1])
 
     # Smart fallback: reuse any fresh cached entry for this (symbol, timeframe) with sufficient candles
     needed_candles = min(max(100, int(days * 1440 / tf_min)), MAX_CANDLES)
@@ -363,7 +378,7 @@ async def fetch_history(symbol: str, timeframe: str, days: int, require_fresh: b
             if (now_ts - cached_entry[0]) < _HISTORY_CACHE_TTL_SEC:
                 cached_df = cached_entry[1]
                 if len(cached_df) >= needed_candles and (not require_fresh or _frame_is_fresh(cached_df)):
-                    return cached_df.tail(needed_candles).copy().reset_index(drop=True)
+                    return _closed_candles_only(cached_df.tail(needed_candles))
 
     # Non-native intervals (45m, 6h) fetch a native base timeframe and resample.
     custom_tf = CUSTOM_TF_MAP_BT.get(timeframe)
@@ -380,9 +395,9 @@ async def fetch_history(symbol: str, timeframe: str, days: int, require_fresh: b
             # make preflight hang when the exchange is unavailable.
             df_parquet = _read_cached_history(symbol, timeframe, days)
             if df_parquet is not None and (not require_fresh or _frame_is_fresh(df_parquet)):
-                df = df_parquet
+                df = _closed_candles_only(df_parquet)
                 _HISTORY_CACHE[cache_key] = (now_ts, df.copy())
-                return df
+                return df.copy()
         except Exception as e:
             logger.debug(f"historical_loader fast path skipped: {e}")
 
@@ -489,6 +504,7 @@ async def fetch_history(symbol: str, timeframe: str, days: int, require_fresh: b
         except Exception:
             pass
 
+    df = _closed_candles_only(df)
     _HISTORY_CACHE[cache_key] = (now_ts, df)
     return df.copy()
 
@@ -927,6 +943,7 @@ async def run_backtest(req: BacktestRequest):
         "source_setup": req.source_setup,
         "data_availability": {
             "ohlcv_source": "Binance Futures OHLCV" + (" + taker-buy volume" if "taker_buy_volume" in df.columns or "taker_buy_base_volume" in df.columns else ""),
+            "closed_candles_only": True,
             "taker_buy_volume": "taker_buy_volume" in df.columns or "taker_buy_base_volume" in df.columns,
             "open_interest": {"available": oi_available, "source_column": oi_column if oi_available else None},
         }

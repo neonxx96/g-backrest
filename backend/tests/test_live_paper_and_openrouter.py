@@ -77,10 +77,13 @@ def test_live_paper_runner_start_stop_lifecycle():
     assert start_res["ai_control"] is True
     assert len(start_res["equity_curve"]) >= 1
     assert live_paper_runner.session.risk_per_trade_pct == pytest.approx(0.01)
+    assert start_res["risk_profile"]["risk_units"] == "percent"
+    assert start_res["risk_profile"]["risk_per_trade_fraction"] == pytest.approx(0.01)
     assert any("Deep Intent Logging: ACTIVE" in item["message"] for item in start_res["logs"])
 
     status = live_paper_runner.get_status()
     assert status["is_running"] is True
+    assert status["risk_profile"]["max_portfolio_heat_fraction"] == pytest.approx(0.0125)
     assert status["current_equity"] >= 0
 
     stop_res = live_paper_runner.stop()

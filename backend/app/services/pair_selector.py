@@ -15,7 +15,9 @@ from typing import Any, Dict, List, Optional
 
 DEFAULT_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "DOGEUSDT", "LINKUSDT",
                    "ZECUSDT", "NEARUSDT", "ENAUSDT", "WLDUSDT", "SUIUSDT", "UNIUSDT", "AVAXUSDT",
-                   "ADAUSDT", "DOTUSDT", "OPUSDT", "ARBUSDT", "TIAUSDT", "TRXUSDT"]
+                   "ADAUSDT", "DOTUSDT", "OPUSDT", "ARBUSDT", "TIAUSDT", "TRXUSDT",
+                   "HYPEUSDT", "BCHUSDT", "AAVEUSDT", "FILUSDT", "TAOUSDT", "LTCUSDT",
+                   "ONDOUSDT", "PENGUUSDT"]
 STRATEGIES = ["ema_trend", "ema_trend_window", "ema_pullback", "cluster_volume_bounce"]
 TIMEFRAMES = ["5m", "15m"]
 RR = [(0.5, 1.0), (0.8, 1.6), (1.0, 2.5)]  # (SL%, TP%): TP >= 2x round-trip fee
@@ -28,7 +30,7 @@ OUT_PATH = Path(__file__).resolve().parents[3] / "data" / "pair_selection.json"
 
 BT_PARAMS = dict(
     leverage=3.0, risk_per_trade_pct=RISK_SELECT_PCT, min_density_usd=0.0, volume_multiplier=0.0,
-    use_multi_tp=False, compute_monte_carlo=False, fast_eval=True,
+    use_atr_filter=True, use_multi_tp=False, compute_monte_carlo=False, fast_eval=True,
 )
 
 
@@ -133,7 +135,7 @@ def build_pilot_configs(selection: Dict[str, Any], include_explore: bool = True,
         b = r["best"]
         out.append({
             "symbol": r["symbol"], "strategy_type": b["strategy"], "timeframe": b["timeframe"],
-            "days": 14, "initial_capital": capital,
+            "days": int(selection.get("days", 14)), "initial_capital": capital,
             "risk_per_trade_pct": RISK_SELECT_PCT if v == "SELECT" else RISK_EXPLORE_PCT,
             "stop_loss_pct": b["sl"], "take_profit_pct": b["tp"], "leverage": 3.0,
             "duration_hours": duration_hours, "min_density_usd": 0.0, "volume_multiplier": 0.0,

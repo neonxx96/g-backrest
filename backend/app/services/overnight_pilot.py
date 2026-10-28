@@ -8,7 +8,7 @@ import os
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -23,6 +23,7 @@ from backend.app.routers.ai_copilot import compute_probabilistic_forecast
 from backend.app.services.deep_intent_logger import DeepIntentLogger
 from backend.app.services.live_paper_runner import LivePaperRunner
 from backend.app.services.paper_trading import PaperTradingSession
+from backend.app.services.risk_profile import SharedRiskProfile
 from backend.app.engine.verdict import evaluate_verdict
 from backend.app.db.database import AsyncSessionLocal
 from backend.app.db.models import OvernightPilotRun
@@ -34,6 +35,15 @@ OPTIMIZABLE_STRATEGIES = {"confluence_ema", "cvd_absorption", "cluster_volume_bo
 logger = logging.getLogger(__name__)
 
 
+def _snapshot_run_id(config_json: Optional[str]) -> Optional[str]:
+    """Read the logical pilot-run identifier from a durable config snapshot."""
+    try:
+        run_id = json.loads(config_json or "{}").get("_run_id")
+    except (TypeError, ValueError):
+        return None
+    return str(run_id) if run_id else None
+
+
 class OvernightPilotConfig(BaseModel):
     symbol: str
     strategy_type: str
@@ -41,6 +51,16 @@ class OvernightPilotConfig(BaseModel):
     days: int = Field(14, ge=1, le=30)
     initial_capital: float = Field(10000.0, gt=0)
     risk_per_trade_pct: float = Field(1.0, gt=0, le=10)
+    # Version 1 and all public endpoints use percentage points, e.g. 0.5 ==
+    # 0.5%. Fractions are internal runner-only values.
+    risk_contract_version: Literal[1] = 1
+    risk_units: Literal["percent"] = "percent"
+    max_portfolio_heat_pct: float = Field(1.25, gt=0, le=100)
+    max_directional_heat_pct: float = Field(0.75, gt=0, le=100)
+    max_positions: int = Field(4, ge=1, le=20)
+    circuit_daily_loss_limit_pct: float = Field(-1.25, ge=-100, lt=0)
+    circuit_weekly_loss_limit_pct: float = Field(-3.50, ge=-100, lt=0)
+    max_consecutive_losses: int = Field(3, ge=1, le=20)
     stop_loss_pct: float = Field(0.8, gt=0, le=50)
     take_profit_pct: float = Field(1.6, gt=0, le=200)
     leverage: float = Field(2.0, ge=1, le=125)
@@ -65,13 +85,14 @@ class OvernightPilotConfig(BaseModel):
     ai_control: bool = False
     # M4 Risk Manager (SRS M4) — default OFF; сравнение sizing-режимов (Фаза 5.6)
     use_m4_risk_gates: bool = False
-    max_portfolio_heat_pct: float = Field(6.0, gt=0, le=100)
     daily_dd_limit_pct: float = Field(3.0, gt=0, le=100)
     confluence_threshold: float = Field(0.65, gt=0, le=1)
 
     def model_post_init(self, __context: Any) -> None:
         if self.strategy_type not in HISTORICAL_STRATEGIES:
             raise ValueError(f"overnight pilot supports historical strategies only: {sorted(HISTORICAL_STRATEGIES)}")
+        if self.max_directional_heat_pct > self.max_portfolio_heat_pct:
+            raise ValueError("max_directional_heat_pct must not exceed max_portfolio_heat_pct")
 
 
 @dataclass
@@ -95,10 +116,12 @@ class PilotSession:
 
     def to_dict(self) -> Dict[str, Any]:
         paper = self.runner.get_status() if self.runner else self.paper_snapshot
+        effective_risk_config = SharedRiskProfile.from_api_config(self.config.model_dump()).snapshot()
         return {
             "symbol": self.config.symbol.upper(),
             "strategy_type": self.config.strategy_type,
             "config": self.config.model_dump(),
+            "effective_risk_config": effective_risk_config,
             "run_id": self.run_id,
             "config_fingerprint": self.config_fingerprint,
             "preflight_valid": self.preflight_valid,
@@ -316,6 +339,18 @@ class OvernightPilotManager:
         symbols = [config.symbol.strip().upper() for config in selected]
         if len(set(symbols)) != len(symbols):
             raise ValueError("overnight pilot requires unique symbols")
+        profiles = [SharedRiskProfile.from_api_config(config.model_dump()) for config in selected]
+        # One wallet cannot safely have pair-dependent portfolio, directional,
+        # circuit or position-count ceilings.  Per-pair trade risk remains an
+        # explicit profile choice, but all shared-account limits must agree.
+        shared_keys = (
+            "max_portfolio_heat_pct", "max_directional_heat_pct", "max_positions",
+            "daily_dd_limit_pct", "circuit_daily_loss_limit_pct",
+            "circuit_weekly_loss_limit_pct", "max_consecutive_losses",
+        )
+        first = profiles[0]
+        if any(any(getattr(profile, key) != getattr(first, key) for key in shared_keys) for profile in profiles[1:]):
+            raise ValueError("all pairs on one shared account must use the same shared risk limits")
         return selected
 
     def _has_running_sessions(self) -> bool:
@@ -355,6 +390,14 @@ class OvernightPilotManager:
             ):
                 return False
         return True
+
+    def _blocking_preflight_reasons(self) -> Dict[str, str]:
+        """Return the hard historical safety vetoes for the current candidate run."""
+        return {
+            str(row["symbol"]): "; ".join(row["verdict"].get("reasons") or ["Safety verdict is BLOCK"])
+            for row in self.status()["summary"]
+            if (row.get("verdict") or {}).get("level") == "BLOCK"
+        }
 
     async def _prepare(self, selected: List[OvernightPilotConfig]) -> None:
         """Run historical backtest and forecast only; never creates paper orders."""
@@ -662,19 +705,72 @@ class OvernightPilotManager:
             await self._prepare(selected)
         return self.status()
 
+    async def run_autopilot(self, configs: List[OvernightPilotConfig]) -> Dict[str, Any]:
+        """Preflight a selected paper-only set and start only non-BLOCK pairs.
+
+        The second preflight is deliberate: ``start`` accepts only the exact
+        configuration that was checked, so a mixed selection must be checked
+        again after BLOCK candidates are excluded.
+        """
+        selected = self._validate_configs(configs)
+        first_preflight = await self.preflight(selected)
+        excluded = self._blocking_preflight_reasons()
+        allowed = [config for config in selected if config.symbol.upper() not in excluded]
+        if not allowed:
+            return {
+                "started": False,
+                "active_symbols": [],
+                "excluded_symbols": excluded,
+                "preflight_id": first_preflight.get("preflight_id"),
+                "result": None,
+            }
+
+        preflight = first_preflight
+        if excluded:
+            preflight = await self.preflight(allowed)
+            remaining_blocks = self._blocking_preflight_reasons()
+            if remaining_blocks:
+                return {
+                    "started": False,
+                    "active_symbols": [],
+                    "excluded_symbols": {**excluded, **remaining_blocks},
+                    "preflight_id": preflight.get("preflight_id"),
+                    "result": None,
+                }
+
+        preflight_id = preflight.get("preflight_id")
+        result = await self.start(allowed, preflight_id=preflight_id)
+        return {
+            "started": True,
+            "active_symbols": [config.symbol.upper() for config in allowed],
+            "excluded_symbols": excluded,
+            "preflight_id": preflight_id,
+            "result": result,
+        }
+
     async def start(
         self,
         configs: Optional[List[OvernightPilotConfig]] = None,
         preflight_id: Optional[str] = None,
+        ignore_verdict: bool = False,
     ) -> Dict[str, Any]:
         selected = self._validate_configs(configs)
         async with self._lock:
             if self._has_running_sessions():
                 raise ValueError("overnight pilot is already running; stop all paper sessions before starting again")
             if not self._preflight_matches(selected, preflight_id):
-                logger.info("Preflight missing or outdated for %d sessions; auto-preparing before launch...", len(selected))
-                await self.stop()
-                await self._prepare(selected)
+                raise ValueError(
+                    "paper start requires the current preflight for the exact configuration; "
+                    "run backtest + forecast again before starting"
+                )
+            if not ignore_verdict:
+                blocking_reasons = self._blocking_preflight_reasons()
+                if blocking_reasons:
+                    blocked_symbols = ", ".join(sorted(blocking_reasons))
+                    raise ValueError(
+                        f"paper start blocked by preflight verdict for {blocked_symbols}: "
+                        + " | ".join(f"{symbol}: {reason}" for symbol, reason in sorted(blocking_reasons.items()))
+                    )
             # Create one shared PaperTradingSession ($1,000.00 total account capital shared across all active pairs)
             shared_capital = 1000.0
             shared_paper_session = PaperTradingSession(
@@ -840,14 +936,24 @@ class OvernightPilotManager:
                 and last_backtest_direction in ("LONG", "SHORT")
                 and forecast_direction != last_backtest_direction
             )
-            # Verdict v2 (SRS M3.3): historical backtest is OHLCV-only, so any
-            # wall-gated strategy carries the honest `L2 History: No data` flag.
+            # Pure EMA profiles use closed OHLCV candles and do not require L2.
+            # diagnostics_lenient and naked_test are simplified strategies that also work with OHLCV-only data.
+            # Retain the missing-history warning for wall/absorption profiles.
+            config_data = item.get("config") or {}
+            requires_l2 = (
+                item["strategy_type"] not in {"ema_trend", "ema_trend_window", "ema_pullback", "diagnostics_lenient", "naked_test"}
+                or bool(config_data.get("min_density_usd", 0))
+                or any(config_data.get(key) for key in (
+                    "use_stacked_imbalance_filter", "use_absorption_filter", "use_poc_migration_filter"
+                ))
+            )
+            logger.info(f"[{item['symbol']}] requires_l2={requires_l2}, strategy_type={item['strategy_type']}, min_density={config_data.get('min_density_usd')}, filters={[k for k in ('use_stacked_imbalance_filter', 'use_absorption_filter', 'use_poc_migration_filter') if config_data.get(k)]}")
             verdict = evaluate_verdict(
                 net_pnl_usd=backtest_net_pnl,
                 trades=int(summary.get("total_trades", 0) or 0),
                 profit_factor=float(summary.get("profit_factor", 0.0) or 0.0),
                 regime=forecast.get("market_regime") or forecast.get("regime"),
-                requires_l2=True,
+                requires_l2=requires_l2,
                 l2_available=False,
             )
             rows.append({
@@ -929,9 +1035,17 @@ class OvernightPilotManager:
                 "verdict": verdict.to_dict(),
                 "error": item.get("error"),
             })
+        recovery_required = bool(sessions) and not self._has_running_sessions() and any(
+            item.get("paper") is not None for item in sessions.values()
+        )
         return {
             "status": "ok",
             "pilot_running": self._has_running_sessions(),
+            "recovery": {
+                "required": recovery_required,
+                "reason": "Persisted paper sessions are stopped; run preflight before starting again" if recovery_required else None,
+                "session_count": len(sessions) if recovery_required else 0,
+            },
             "preflight_id": self._current_preflight_id(sessions),
             "sessions": sessions,
             "summary": rows,
@@ -979,10 +1093,59 @@ class OvernightPilotManager:
             # Each session reports drawdown as a magnitude; tolerate legacy negative snapshots.
             backtest_drawdown = max(backtest_drawdown, abs(float(summary.get("max_drawdown_pct", 0.0) or 0.0)))
 
+        effective_risk_profiles = [
+            item.get("effective_risk_config")
+            for item in sessions.values()
+            if isinstance(item.get("effective_risk_config"), dict)
+        ]
+        shared_risk_profile = effective_risk_profiles[0] if effective_risk_profiles else None
+
         backtest_wins = sum(1 for trade in backtest_trades if float(trade.get("pnl_usd", trade.get("net_pnl", 0.0)) or 0.0) > 0)
         gross_wins = sum(max(0.0, float(trade.get("pnl_usd", trade.get("net_pnl", 0.0)) or 0.0)) for trade in backtest_trades)
         gross_losses = abs(sum(min(0.0, float(trade.get("pnl_usd", trade.get("net_pnl", 0.0)) or 0.0)) for trade in backtest_trades))
         paper_items = [item.get("paper") for item in sessions.values() if item.get("paper") is not None]
+        # Every pair runner publishes the same shared-account snapshot.  While a
+        # pilot is active ``shared_session`` is authoritative; after a stop or
+        # restart only the persisted snapshots remain.  Collapse snapshots by
+        # their paper-session id so a $1,000 account is never displayed as
+        # $1,000 multiplied by the number of configured pairs.
+        unique_paper_items: List[Dict[str, Any]] = []
+        seen_paper_session_ids: set[str] = set()
+        for item in paper_items:
+            paper_session_id = str(item.get("session_id") or "").strip()
+            if paper_session_id:
+                if paper_session_id in seen_paper_session_ids:
+                    continue
+                seen_paper_session_ids.add(paper_session_id)
+            unique_paper_items.append(item)
+        # A PaperTradingSession is the shared account.  A run is the immutable
+        # preflight/start identity recorded with each pair configuration.  Do
+        # not infer either one from a polling request or manufacture a value
+        # when persisted rows disagree.
+        persisted_account_ids = {
+            str(item.get("account_id") or item.get("session_id") or "").strip()
+            for item in unique_paper_items
+            if str(item.get("account_id") or item.get("session_id") or "").strip()
+        }
+        persisted_run_ids = {
+            str(item.get("run_id") or "").strip()
+            for item in sessions.values()
+            if str(item.get("run_id") or "").strip()
+        }
+        if shared_session is not None:
+            account_id = shared_session.session_id
+            state_source = "active_shared_session"
+            account_updated_at = getattr(shared_session, "_last_event_ts", None) or None
+        else:
+            account_id = next(iter(persisted_account_ids)) if len(persisted_account_ids) == 1 else None
+            state_source = "persisted_snapshot" if account_id else "unavailable"
+            persisted_updates = [
+                int(item.get("updated_at"))
+                for item in unique_paper_items
+                if item.get("updated_at") is not None
+            ]
+            account_updated_at = max(persisted_updates) if persisted_updates else None
+        run_id = next(iter(persisted_run_ids)) if len(persisted_run_ids) == 1 else None
         if shared_session is not None:
             shared = shared_session
             st = shared.get_state()
@@ -1003,7 +1166,7 @@ class OvernightPilotManager:
         else:
             paper_trades = [
                 trade
-                for item in paper_items
+                for item in unique_paper_items
                 for trade in (item.get("closed_trades") or [])
             ]
             paper_pnl_values = [
@@ -1018,11 +1181,11 @@ class OvernightPilotManager:
             paper_wins = sum(1 for value in paper_pnl_values if value > 0)
             paper_gross_wins = sum(max(0.0, value) for value in paper_pnl_values)
             paper_gross_losses = abs(sum(min(0.0, value) for value in paper_pnl_values))
-            paper_initial = sum(float(item.get("initial_capital", 0.0) or 0.0) for item in paper_items)
-            paper_equity = sum(float(item.get("current_equity", 0.0) or 0.0) for item in paper_items)
-            paper_net = sum(float(item.get("realized_pnl", 0.0) or 0.0) for item in paper_items) if paper_items else None
-            paper_unrealized = sum(float(item.get("unrealized_pnl", 0.0) or 0.0) for item in paper_items) if paper_items else None
-            paper_closed_trades = sum(int(item.get("closed_trades_count", 0) or 0) for item in paper_items)
+            paper_initial = sum(float(item.get("initial_capital", 0.0) or 0.0) for item in unique_paper_items)
+            paper_equity = sum(float(item.get("current_equity", 0.0) or 0.0) for item in unique_paper_items)
+            paper_net = sum(float(item.get("realized_pnl", 0.0) or 0.0) for item in unique_paper_items) if unique_paper_items else None
+            paper_unrealized = sum(float(item.get("unrealized_pnl", 0.0) or 0.0) for item in unique_paper_items) if unique_paper_items else None
+            paper_closed_trades = sum(int(item.get("closed_trades_count", 0) or 0) for item in unique_paper_items)
         paper_drawdown = max(
             (abs(float(item.get("max_drawdown_pct", 0.0) or 0.0)) for item in paper_items),
             default=None,
@@ -1076,6 +1239,11 @@ class OvernightPilotManager:
             },
             "paper": {
                 "available": bool(paper_items or shared_session is not None),
+                "account_id": account_id,
+                "run_id": run_id,
+                "state_source": state_source,
+                "updated_at": account_updated_at,
+                "risk_profile": shared_risk_profile,
                 "starting_balance": round(paper_initial, 2) if (paper_items or shared_session is not None) else None,
                 "equity": round(paper_equity, 2) if (paper_items or shared_session is not None) else None,
                 "net_pnl_usd": round(paper_net, 2) if paper_net is not None else None,
@@ -1129,6 +1297,7 @@ class OvernightPilotManager:
                     config_snapshot = dict(item.get("config") or {})
                     config_snapshot["_run_id"] = item.get("run_id")
                     config_snapshot["_config_fingerprint"] = item.get("config_fingerprint")
+                    config_snapshot["_effective_risk_config"] = item.get("effective_risk_config")
                     row.config_json = json.dumps(config_snapshot, ensure_ascii=False)
                     row.backtest_json = json.dumps(item.get("backtest"), ensure_ascii=False) if item.get("backtest") is not None else None
                     row.forecast_json = json.dumps(item.get("forecast"), ensure_ascii=False) if item.get("forecast") is not None else None
@@ -1147,6 +1316,24 @@ class OvernightPilotManager:
             result = await db.execute(select(OvernightPilotRun).order_by(OvernightPilotRun.updated_at.desc()))
             rows = result.scalars().all()
         await self.load_persisted_states()
+
+        # A persisted record is per symbol, while the paper wallet is per run.
+        # Restoring symbol rows from several historical runs makes the terminal
+        # present multiple old wallets as one current balance.  Keep only the
+        # newest run; prior runs remain in SQLite as history, but are not a
+        # candidate for a fresh start or the current account summary.
+        latest_run_id: Optional[str] = None
+        for row in rows:
+            candidate_run_id = _snapshot_run_id(row.config_json)
+            if candidate_run_id:
+                latest_run_id = str(candidate_run_id)
+                break
+        if latest_run_id is not None:
+            rows = [
+                row
+                for row in rows
+                if _snapshot_run_id(row.config_json) == latest_run_id
+            ]
         restored: Dict[str, PilotSession] = {}
         for row in rows:
             if row.symbol.upper() in restored or len(restored) >= self.MAX_SESSIONS:
@@ -1155,6 +1342,7 @@ class OvernightPilotManager:
                 config_data = json.loads(row.config_json or "{}")
                 run_id = config_data.pop("_run_id", None)
                 config_fingerprint = config_data.pop("_config_fingerprint", None)
+                config_data.pop("_effective_risk_config", None)
                 config = OvernightPilotConfig.model_validate(config_data)
                 paper = json.loads(row.paper_json) if row.paper_json else None
                 if paper:
@@ -1199,8 +1387,10 @@ class OvernightPilotManager:
         merged_logs = []
         equity_curve = []
         active_symbols = []
+        pair_risk_profiles = {}
         for sym, sess in self.sessions.items():
             active_symbols.append(sym)
+            pair_risk_profiles[sym] = SharedRiskProfile.from_api_config(sess.config.model_dump()).snapshot()
             if sess.runner:
                 for log_entry in sess.runner.logs[:8]:
                     entry_copy = dict(log_entry)
@@ -1222,18 +1412,21 @@ class OvernightPilotManager:
             "event": "TICK",
         })
 
+        shared_profile = next(iter(pair_risk_profiles.values()), None)
         return {
             "is_running": has_running,
             "is_marathon_bridge": True,
             "symbol": None,
             "active_symbols": active_symbols,
-            "strategy_type": f"multi_pair_20 ({len(active_symbols)} pairs)",
-            "timeframe": "1m/3m/5m/15m",
-            "leverage": 10.0,
+            "strategy_type": f"multi_pair ({len(active_symbols)} pairs)",
+            "timeframe": None,
+            "leverage": None,
             "initial_capital": round(initial_cap, 2),
-            "risk_per_trade_pct": 1.0,
+            "risk_per_trade_pct": None,
+            "risk_profile": shared_profile,
+            "pair_risk_profiles": pair_risk_profiles,
             "min_density_usd": 0.0,
-            "ai_control": True,
+            "ai_control": any(bool(sess.config.ai_control) for sess in self.sessions.values()),
             "current_equity": round(balance, 2),
             "balance": round(balance, 2),
             "available_margin": round(float(state_dict.get("available_margin", initial_cap) or 0.0), 4),

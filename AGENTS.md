@@ -1,6 +1,6 @@
 # AGENTS.md — Canonical Agent Operating Constitution
 
-> **CORE PROTOCOL:** SignalScript relies on sequential, non-concurrent execution across AI agents (Codex, Antigravity, Cline, Kimi). Before writing any code: read `HANDOFF.md`, run `git status`, and run `powershell -ExecutionPolicy Bypass -File scripts/check.ps1`.
+> **CORE PROTOCOL:** SignalScript relies on sequential execution across AI agents (Codex, Antigravity, Cline, Kimi). Before changing files, read `HANDOFF.md` and run `git status`. Choose checks proportionally: focused checks during implementation; run the full quality gate at a task checkpoint and before commit. Never run overlapping agents or change the same files concurrently.
 
 ---
 
@@ -62,9 +62,16 @@ powershell -ExecutionPolicy Bypass -File scripts/check.ps1
 5. **NO Unsolicited Giant-File Refactoring:** Do not fragment `Chart.jsx`, `BacktestPanel.jsx`, or `orderflow_backtester.py` without an explicit task spec following [`docs/MODULARIZATION_PLAN.md`](docs/MODULARIZATION_PLAN.md).
 6. **Strict Single Backend Process:** Only one instance of `backend/main.py` may run at any time (`netstat -ano | findstr ":8000"`).
 
+## 5. Agent Routing
+
+- Minimize verified-work cost. Keep one primary agent; work sequentially.
+- Use runtime-supported controls; never claim a switch. Prefer Codex `Default` or [`docs/AGENT_ROUTING.md`](docs/AGENT_ROUTING.md).
+- Use moderate effort normally; escalate only for evidenced ambiguity, repeated failure, cross-system impact, security, migration, or financial risk. Use bounded, non-overlapping subagents only when valuable. Run focused checks first and the full gate before commit.
+- Do not use project API keys, paid calls, credits, or paid/speed settings without authorization. Report actual checks and limitations concisely.
+
 ---
 
-## 5. Repository Map & Where to Look
+## 6. Repository Map & Where to Look
 
 - `backend/main.py`: FastAPI entrypoint, lifespan startup tasks, WebSocket listeners.
 - `backend/app/services/`: Core logic (`risk_engine.py`, `regime_classifier.py`, `overnight_pilot.py`, `scanner.py`, `recorder.py`, `binance_service.py`).
@@ -79,7 +86,7 @@ powershell -ExecutionPolicy Bypass -File scripts/check.ps1
 
 ---
 
-## 6. Documentation Maintenance Rule
+## 7. Documentation Maintenance Rule
 Any change altering directory structure, public interfaces, data flows, or task status must in the same commit:
 (a) Update [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) on structure/flows changes;
 (b) Run `python scripts/gen_codemap.py` to regenerate [`docs/CODEMAP.md`](docs/CODEMAP.md);
@@ -89,12 +96,12 @@ Enforced automatically in `scripts/check.ps1` via `python scripts/check_docs.py`
 
 ---
 
-## 7. Deep Documentation Directory (`docs/`)
+## 8. Deep Documentation Directory (`docs/`)
 
 - **Design System Guide:** [`docs/design/DESIGN_GUIDE.md`](docs/design/DESIGN_GUIDE.md) (token specifications, component catalog, density rules).
 - **Git & Dev Rules:** [`docs/GIT_AND_DEV_RULES.md`](docs/GIT_AND_DEV_RULES.md) (branch naming, commit hygiene, token economy, report template).
-- **Model Routing:** [`docs/MODEL_ROUTING.md`](docs/MODEL_ROUTING.md) (model tiering, Cline routing, sequential execution).
-- **Agent Routing Stub:** [`docs/AGENT_ROUTING.md`](docs/AGENT_ROUTING.md) (Codex model assignment & reasoning effort template).
+- **Model and Agent Routing:** [`docs/AGENT_ROUTING.md`](docs/AGENT_ROUTING.md) (runtime-aware model preferences, escalation, context, verification, and cost policy).
+- **Legacy Routing Note:** [`docs/MODEL_ROUTING.md`](docs/MODEL_ROUTING.md) (compatibility pointer; no automatic router is assumed).
 - **History & ADR-Lite:** [`docs/HISTORY.md`](docs/HISTORY.md) (architectural decisions, failed experiments, pitfalls).
 - **Engineering Roadmap:** [`docs/ROADMAP.md`](docs/ROADMAP.md) (real roadmap: done, in progress, next, backlog).
 - **Code Map:** [`docs/CODEMAP.md`](docs/CODEMAP.md) (auto-generated symbols and dependencies map).

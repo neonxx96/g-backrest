@@ -26,3 +26,50 @@ export function hasMarathonData(pilotStatus, positions = [], trades = []) {
   const agg = pilotStatus?.aggregate?.paper;
   return Boolean(agg?.available) || positions.length > 0 || trades.length > 0;
 }
+
+/**
+ * Maps the server-owned run state into a compact, truthful UI label.  A
+ * restored snapshot is useful history, but is never represented as a live
+ * paper runner until an explicit preflight/start creates fresh runners.
+ */
+export function getPilotRunState(pilotStatus) {
+  const sessionCount = Object.keys(pilotStatus?.sessions || {}).length;
+  if (pilotStatus?.pilot_running) {
+    return { kind: 'running', label: 'RUNNING', sessionCount };
+  }
+  if (pilotStatus?.recovery?.required) {
+    return {
+      kind: 'recovery_required',
+      label: 'ТРЕБУЕТ НОВОЙ ПРОВЕРКИ',
+      sessionCount: Number(pilotStatus.recovery.session_count) || sessionCount,
+    };
+  }
+  return { kind: 'stopped', label: 'STOPPED', sessionCount };
+}
+
+/**
+ * Read the one shared Overnight Pilot account without falling back to the
+ * unrelated legacy $100 paper wallet.  Missing identity is deliberately
+ * represented as unavailable rather than a fabricated balance.
+ */
+export function getSharedPilotAccount(pilotStatus) {
+  const paper = pilotStatus?.aggregate?.paper;
+  const accountId = typeof paper?.account_id === 'string' && paper.account_id.trim()
+    ? paper.account_id
+    : null;
+  const equity = Number(paper?.equity);
+  const initialBalance = Number(paper?.starting_balance);
+
+  if (!paper?.available || !accountId || !Number.isFinite(equity) || !Number.isFinite(initialBalance)) {
+    return { available: false, accountId: null, runId: null, equity: null, initialBalance: null, stateSource: 'unavailable' };
+  }
+
+  return {
+    available: true,
+    accountId,
+    runId: typeof paper.run_id === 'string' && paper.run_id.trim() ? paper.run_id : null,
+    equity,
+    initialBalance,
+    stateSource: paper.state_source || 'unknown',
+  };
+}

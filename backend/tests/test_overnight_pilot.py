@@ -5,7 +5,19 @@ import sys
 
 import backend.app.services.overnight_pilot as overnight_module
 import backend.app.routers.overnight_pilot as overnight_router
-from backend.app.services.overnight_pilot import OvernightPilotConfig, OvernightPilotManager
+from backend.app.services.overnight_pilot import OvernightPilotConfig, OvernightPilotManager, PilotSession
+
+
+def test_ema_verdict_does_not_claim_missing_l2_history():
+    manager = OvernightPilotManager()
+    manager.sessions["BTCUSDT"] = PilotSession(
+        OvernightPilotConfig(symbol="BTCUSDT", strategy_type="ema_trend", min_density_usd=0),
+        backtest={"summary": {"net_pnl_usd": 5.0, "total_trades": 35, "profit_factor": 1.4}},
+        forecast={"market_regime": "TRENDING"},
+    )
+    verdict = manager.status()["summary"][0]["verdict"]
+    assert verdict["level"] == "PASS"
+    assert "L2 History: No data" not in verdict["flags"]
 
 
 def test_pilot_config_rejects_unknown_strategy_and_limits_three_sessions():
@@ -135,6 +147,104 @@ def test_pilot_summary_exposes_aggregated_paper_rejection_counts():
     assert status["aggregate"]["paper"]["rejection_counts"] == {"ema20_cross": 9, "volume_multiplier": 4}
 
 
+def test_pilot_start_gate_reports_a_blocking_preflight_verdict():
+    """A red historical verdict is a launch veto, not only a UI decoration."""
+    manager = OvernightPilotManager()
+    manager.set_preflight(
+        "BTCUSDT",
+        {
+            "summary": {"total_trades": 26, "net_pnl_usd": -0.70, "profit_factor": 0.96},
+            "trades": [],
+        },
+        {"data_status": "connected", "market_regime": "FLAT"},
+    )
+
+    blocked = manager._blocking_preflight_reasons()
+
+    assert "BTCUSDT" in blocked
+    assert "negative" in blocked["BTCUSDT"].lower()
+
+
+def test_pilot_start_checks_blocking_verdict_before_creating_paper_session():
+    """The launch path must honour BLOCK, not only render it in status."""
+    source = inspect.getsource(OvernightPilotManager.start)
+
+    assert source.index("blocking_reasons = self._blocking_preflight_reasons()") < source.index(
+        "shared_paper_session = PaperTradingSession("
+    )
+    assert "paper start blocked by preflight verdict" in source
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows sandbox blocks asyncio.run for isolated pilot orchestration")
+def test_autopilot_repreflights_only_allowed_pairs_before_starting_them():
+    manager = OvernightPilotManager()
+    configs = [
+        OvernightPilotConfig(symbol="BTCUSDT", strategy_type="ema_trend"),
+        OvernightPilotConfig(symbol="ETHUSDT", strategy_type="ema_trend"),
+    ]
+    preflight_calls = []
+    start_calls = []
+
+    async def fake_preflight(selected):
+        preflight_calls.append([config.symbol for config in selected])
+        return {"preflight_id": f"pf-{len(preflight_calls)}"}
+
+    async def fake_start(selected, preflight_id=None):
+        start_calls.append(([config.symbol for config in selected], preflight_id))
+        return {"pilot_running": True}
+
+    manager.preflight = fake_preflight
+    manager.start = fake_start
+    manager._blocking_preflight_reasons = lambda: {"ETHUSDT": "negative net PnL"} if len(preflight_calls) == 1 else {}
+
+    result = asyncio.run(manager.run_autopilot(configs))
+
+    assert preflight_calls == [["BTCUSDT", "ETHUSDT"], ["BTCUSDT"]]
+    assert start_calls == [(["BTCUSDT"], "pf-2")]
+    assert result == {
+        "started": True,
+        "active_symbols": ["BTCUSDT"],
+        "excluded_symbols": {"ETHUSDT": "negative net PnL"},
+        "preflight_id": "pf-2",
+        "result": {"pilot_running": True},
+    }
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows sandbox blocks asyncio.run for isolated pilot orchestration")
+def test_autopilot_reports_all_blocked_without_starting_any_runner():
+    manager = OvernightPilotManager()
+    configs = [OvernightPilotConfig(symbol="BTCUSDT", strategy_type="ema_trend")]
+    starts = []
+
+    async def fake_preflight(_selected):
+        return {"preflight_id": "pf-1"}
+
+    async def fake_start(*_args, **_kwargs):
+        starts.append(True)
+
+    manager.preflight = fake_preflight
+    manager.start = fake_start
+    manager._blocking_preflight_reasons = lambda: {"BTCUSDT": "negative net PnL"}
+
+    result = asyncio.run(manager.run_autopilot(configs))
+
+    assert starts == []
+    assert result == {
+        "started": False,
+        "active_symbols": [],
+        "excluded_symbols": {"BTCUSDT": "negative net PnL"},
+        "preflight_id": "pf-1",
+        "result": None,
+    }
+
+
+def test_auto_select_route_uses_guarded_autopilot_instead_of_direct_start():
+    source = inspect.getsource(overnight_router.auto_select_and_start)
+
+    assert "run_autopilot(configs)" in source
+    assert "overnight_pilot_manager.stop()" not in source
+
+
 def test_production_robust_preset_has_fee_aware_geometry_and_neutral_rsi_filter():
     configs = OvernightPilotManager.production_robust_configs()
 
@@ -196,6 +306,24 @@ def test_pilot_status_keeps_backtest_forecast_and_paper_results_separate():
     assert status["session_id"] is None
     assert status["config"]["risk_per_trade_pct"] == 1.0
     assert manager.status()["summary"][0]["backtest_roi_pct"] == 0.0
+
+
+def test_pilot_status_marks_persisted_non_running_sessions_as_recovery_required():
+    manager = OvernightPilotManager()
+    manager.set_preflight(
+        "BTCUSDT",
+        {"summary": {"total_trades": 12, "net_pnl_usd": 3.0}, "trades": [], "meta": {"symbol": "BTCUSDT", "timeframe": "15m", "candles": 100}},
+        {"data_status": "connected", "base_scenario": {"direction": "NO_TRADE"}},
+    )
+    manager.sessions["BTCUSDT"].paper_snapshot = {"is_running": False, "data_status": "stale"}
+
+    recovery = manager.status()["recovery"]
+
+    assert recovery == {
+        "required": True,
+        "reason": "Persisted paper sessions are stopped; run preflight before starting again",
+        "session_count": 1,
+    }
 
 
 def test_pilot_summary_exposes_trade_quality_and_no_trade_counts():
@@ -492,12 +620,19 @@ def test_pilot_start_requires_the_current_preflight_and_exact_configuration():
     assert manager._preflight_matches([config], "run-123") is False
 
 
+def test_pilot_start_never_rebuilds_a_stale_configuration_implicitly():
+    source = inspect.getsource(OvernightPilotManager.start)
+
+    assert "paper start requires the current preflight" in source
+    assert "await self._prepare(selected)" not in source
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows sandbox blocks asyncio.run/socket primitives")
 def test_pilot_start_rejects_missing_preflight_without_running_any_runner():
     manager = OvernightPilotManager()
 
-    status = asyncio.run(manager.start([OvernightPilotConfig(symbol="BTCUSDT", strategy_type="confluence_ema")]))
-    assert "BTCUSDT" in status["sessions"]
+    with pytest.raises(ValueError, match="paper start requires the current preflight"):
+        asyncio.run(manager.start([OvernightPilotConfig(symbol="BTCUSDT", strategy_type="confluence_ema")]))
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows sandbox blocks asyncio.run/socket primitives")
@@ -565,7 +700,7 @@ def test_start_orchestrates_three_independent_sessions_without_real_orders(monke
 
         async def fake_backtest(request):
             backtest_calls.append(request)
-            return {"summary": {"total_trades": 0, "total_pnl_pct": 0.0}, "trades": [],
+            return {"summary": {"total_trades": 12, "total_pnl_pct": 0.1, "net_pnl_usd": 1.0, "profit_factor": 1.3}, "trades": [],
                     "meta": {"symbol": request.symbol, "timeframe": request.timeframe, "candles": 1500}}
 
         async def fake_forecast(symbol, timeframe, strategy_type, strategy_params):
@@ -633,7 +768,7 @@ def test_start_orchestrates_three_independent_sessions_without_real_orders(monke
 def test_start_keeps_other_paper_sessions_running_when_one_runner_fails(monkeypatch):
     async def scenario():
         async def fake_backtest(request):
-            return {"summary": {"total_trades": 0, "total_pnl_pct": 0.0}, "trades": [],
+            return {"summary": {"total_trades": 12, "total_pnl_pct": 0.1, "net_pnl_usd": 1.0, "profit_factor": 1.3}, "trades": [],
                     "meta": {"symbol": request.symbol, "timeframe": request.timeframe, "candles": 1500}}
 
         async def fake_forecast(symbol, timeframe, strategy_type, strategy_params):

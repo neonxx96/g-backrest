@@ -181,6 +181,20 @@ async def start_optimal_live(preflight_id: Optional[str] = None):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@router.post("/start-without-verdict")
+async def start_without_verdict(
+    configs: Optional[List[OvernightPilotConfig]] = None,
+    preflight_id: Optional[str] = None,
+):
+    """Start paper sessions without preflight verdict check (for diagnostics/testing)."""
+    try:
+        result = await overnight_pilot_manager.start(configs, preflight_id=preflight_id, ignore_verdict=True)
+        await overnight_pilot_manager.persist()
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @router.post("/stop")
 async def stop_overnight_pilot():
     result = await overnight_pilot_manager.stop()
@@ -219,13 +233,15 @@ async def auto_select_and_start(req: AutoSelectRequest = AutoSelectRequest()):
         return {"started": False, "preview": raw, "counts": selection.get("counts", {})}
     try:
         configs = [OvernightPilotConfig(**c) for c in raw]
-        await overnight_pilot_manager.stop()
-        result = await overnight_pilot_manager.start(configs)
+        result = await overnight_pilot_manager.run_autopilot(configs)
         await overnight_pilot_manager.persist()
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    return {"started": True, "pairs": [(c["symbol"], c["strategy_type"], c["timeframe"], c["risk_per_trade_pct"]) for c in raw],
-            "counts": selection.get("counts", {}), "result": result}
+    return {
+        **result,
+        "pairs": [(c["symbol"], c["strategy_type"], c["timeframe"], c["risk_per_trade_pct"]) for c in raw],
+        "counts": selection.get("counts", {}),
+    }
 
 
 class PausePairRequest(BaseModel):

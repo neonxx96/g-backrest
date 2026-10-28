@@ -5,6 +5,7 @@
  */
 
 const num = (v) => (v == null || !isFinite(Number(v)) ? null : Number(v));
+const listOf = (value) => Array.isArray(value) ? value : (value && typeof value === 'object' ? [value] : []);
 
 /**
  * @param pilotStatus  ответ /api/overnight-pilot/status
@@ -17,7 +18,8 @@ export function collectPaperPairs(pilotStatus, liveRunner, pairControlStates = n
   for (const [sym, s] of Object.entries(pilotStatus?.sessions || {})) {
     if (!sym) continue;
     const p = s?.paper || {};
-    const closedList = p.closed_trades || [];
+    const closedList = listOf(p.closed_trades);
+    const openList = listOf(p.open_positions);
     const wins = closedList.filter((t) => Number(t?.net_pnl ?? 0) > 0).length;
     pairs.set(sym, {
       symbol: sym,
@@ -32,7 +34,7 @@ export function collectPaperPairs(pilotStatus, liveRunner, pairControlStates = n
       realizedPnl: num(p.realized_pnl),
       unrealizedPnl: num(p.unrealized_pnl),
       roiPct: num(p.roi_pct),
-      openCount: (p.open_positions || []).length,
+      openCount: openList.length,
       closedCount: num(p.closed_trades_count) ?? closedList.length,
       winRatePct: closedList.length > 0 ? Math.round((wins / closedList.length) * 1000) / 10 : null,
       backtestNetUsd: num(s?.backtest?.summary?.net_pnl_usd),

@@ -42,7 +42,7 @@ import {
 import { useBacktestStore } from '../../stores/backtestStore';
 import { useColorLinksStore } from '../../stores/colorLinksStore';
 import PostMortemAnalyticsTab from './PostMortemAnalyticsTab';
-import { collectMarathonPositions, collectMarathonTrades, mergePaperLists, hasMarathonData } from './marathonFeed';
+import { collectMarathonPositions, collectMarathonTrades, hasMarathonData, getSharedPilotAccount, getPilotRunState } from './marathonFeed';
 import {
   collectPaperPairs,
   pairTotalPnl,
@@ -87,7 +87,6 @@ export default function TradeHistoryWidget(props) {
 
   // Fetch Closed Trades History from persistent SQLite backend
   const fetchClosedHistory = useCallback(async () => {
-    console.log('[DEBUG_TRADES] fetchClosedHistory called');
     try {
       let sortBy = 'date';
       let sortOrder = 'desc';
@@ -114,19 +113,16 @@ export default function TradeHistoryWidget(props) {
         params.append('symbol', closedSymbolFilter);
       }
 
-      console.log('[DEBUG_TRADES] fetching URL:', `${API_BASE}/paper-trading/closed-trades?${params.toString()}`);
       const res = await fetch(`${API_BASE}/paper-trading/closed-trades?${params.toString()}`);
-      console.log('[DEBUG_TRADES] response status:', res.status);
       if (res.ok) {
         const data = await res.json();
-        console.log('[DEBUG_TRADES] received trades array length:', (data.trades || []).length);
         setHistoricalClosedTrades(data.trades || []);
         setClosedSummary(data.summary || null);
       } else {
-        console.error('[DEBUG_TRADES] HTTP error:', res.status, res.statusText);
+        setError(`История сделок недоступна: HTTP ${res.status}`);
       }
     } catch (err) {
-      console.error('[DEBUG_TRADES] catch error:', err);
+      setError(`История сделок недоступна: ${err.message}`);
     }
   }, [closedPeriod, closedSort, closedSymbolFilter]);
 
@@ -251,31 +247,19 @@ export default function TradeHistoryWidget(props) {
   const handleStartMarathon = async () => {
     setMarathonBusy(true);
     try {
-      // 1. Попытка мгновенного запуска (бэкенд сам выполнит prepare при необходимости)
-      let res = await fetch(`${API_BASE}/overnight-pilot/start`, {
+      const res = await fetch(`${API_BASE}/overnight-pilot/auto-select`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(null)
+        body: JSON.stringify({ days: 14, include_explore: true, duration_hours: 24, rerun: true, start: true })
       });
       if (!res.ok) {
-        // 2. Если требуется preflight_id, запускаем preflight и передаём полученный id
-        const pfRes = await fetch(`${API_BASE}/overnight-pilot/preflight`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(null)
-        });
-        const pfData = pfRes.ok ? await pfRes.json() : null;
-        const pfId = pfData?.preflight_id || '';
-        const url = pfId ? `${API_BASE}/overnight-pilot/start?preflight_id=${pfId}` : `${API_BASE}/overnight-pilot/start`;
-        res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(null)
-        });
+        const detail = await res.json().catch(() => ({}));
+        throw new Error(detail?.detail || `HTTP ${res.status}`);
       }
       await fetchPilotStatus();
     } catch (err) {
       console.error('Failed to start marathon:', err);
+      setError(`AI-марафон не запущен: ${err.message}`);
     } finally {
       setMarathonBusy(false);
     }
@@ -353,6 +337,8 @@ export default function TradeHistoryWidget(props) {
   const pilotClosed = useMemo(() => collectMarathonTrades(pilotStatus), [pilotStatus]);
   const pilotAgg = pilotStatus?.aggregate?.paper;
   const hasPilotData = hasMarathonData(pilotStatus, pilotOpen, pilotClosed);
+  const sharedAccount = useMemo(() => getSharedPilotAccount(pilotStatus), [pilotStatus]);
+  const sharedRiskProfile = pilotAgg?.risk_profile || liveStatus?.risk_profile || null;
 
   // Доступные монеты для выпадающего фильтра закрытых сделок
   const availableClosedSymbols = useMemo(() => {
@@ -432,10 +418,10 @@ export default function TradeHistoryWidget(props) {
     const expectancyR = realizedRs.length > 0 ? realizedRs.reduce((acc, v) => acc + v, 0) / realizedRs.length : 0;
     return { count, netPnl, fees, wins, losses, winRate, profitFactor, expectancyR };
   }, [closedTrades]);
-  const openPositions = useMemo(
-    () => mergePaperLists(sessionData?.positions, pilotOpen),
-    [sessionData, pilotOpen]
-  );
+  // The headline account is exclusively the shared Pilot wallet.  Legacy
+  // `/paper-trading/status` remains available for its own history/controls,
+  // but must never be merged into this account's positions or balance.
+  const openPositions = useMemo(() => sharedAccount.available ? pilotOpen : [], [sharedAccount.available, pilotOpen]);
 
   // Марафон-сессии и статус (вынесены на уровень компонента для доступа в шапке и кнопках)
   const marathonSessions = useMemo(() => Object.values(pilotStatus?.sessions || {}), [pilotStatus]);
@@ -443,8 +429,9 @@ export default function TradeHistoryWidget(props) {
     () => Boolean(pilotStatus?.pilot_running || marathonSessions.some((s) => s?.paper?.is_running)),
     [pilotStatus, marathonSessions]
   );
+  const pilotRunState = useMemo(() => getPilotRunState(pilotStatus), [pilotStatus]);
   const marathonPaperAgg = pilotStatus?.aggregate?.paper;
-  const marathonBalance = Number(marathonPaperAgg?.equity ?? marathonPaperAgg?.starting_balance ?? 1000.0);
+  const marathonBalance = sharedAccount.equity;
   const marathonRealized = Number(
     marathonPaperAgg?.net_pnl_usd ?? marathonSessions.reduce((sum, s) => sum + Number(s?.paper?.realized_pnl ?? 0), 0)
   );
@@ -452,7 +439,7 @@ export default function TradeHistoryWidget(props) {
     () => openPositions.filter((p) => p._source === 'marathon').reduce((sum, p) => sum + Number(p.unrealized_pnl ?? 0), 0),
     [openPositions]
   );
-  const hasMarathon = isMarathonRunning || Boolean(marathonPaperAgg?.available) || marathonSessions.some((s) => s?.paper?.balance != null);
+  const hasMarathon = sharedAccount.available;
 
   // Единая сводка «по парам»: марафон + live-раннер (источник торговли, стратегия, PnL, статус)
   const paperPairs = useMemo(() => collectPaperPairs(pilotStatus, liveStatus, pairControlStates), [pilotStatus, liveStatus, pairControlStates]);
@@ -488,13 +475,14 @@ export default function TradeHistoryWidget(props) {
     window.dispatchEvent(new CustomEvent('signalscript:open-backtest'));
   };
 
-  // Metrics calculation — торговая статистика по объединённым paper-системам (live-раннер + марафон)
+  // Metrics for the selected shared paper account.  Historical and legacy
+  // local-wallet trades are intentionally shown in their own lists only.
   const metrics = useMemo(() => {
-    if (!sessionData && closedTrades.length === 0 && openPositions.length === 0) {
+    if (!sharedAccount.available) {
       return {
-        balance: 100.0,
-        realizedPnl: 0.0,
-        unrealizedPnl: 0.0,
+        balance: null,
+        realizedPnl: null,
+        unrealizedPnl: null,
         totalFees: 0.0,
         activePositions: 0,
         totalTrades: 0,
@@ -505,36 +493,25 @@ export default function TradeHistoryWidget(props) {
       };
     }
 
-    const closed = closedTrades;
+    const closed = pilotClosed;
     const wins = closed.filter((t) => Number(t.net_pnl ?? 0) > 0);
     const wr = closed.length > 0 ? (wins.length / closed.length) * 100 : 0;
     const totalFeeDrag = closed.reduce((sum, trade) => sum + Number(trade.fee_drag ?? trade.fee ?? 0), 0);
     const bleedCount = closed.filter((trade) => trade.profit_bleed).length;
 
-    const uptimeSec = sessionData?.uptime_seconds || 0;
-    const hrs = Math.floor(uptimeSec / 3600);
-    const mins = Math.floor((uptimeSec % 3600) / 60);
-    const secs = uptimeSec % 60;
-    const uptimeStr = `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-
-    // Профиль = live-раннер + все сессии марафона (единый кошелек $1,000.00).
-    const liveBalance = Number(sessionData?.balance ?? 0);
-    const isLiveRunning = Boolean(liveStatus?.is_running && !liveStatus?.is_marathon_bridge);
-    const profileBalance = hasMarathon ? marathonBalance : (isLiveRunning ? liveBalance : (sessionData ? liveBalance : 1000.0));
-
     return {
-      balance: profileBalance,
-      realizedPnl: (hasMarathon ? marathonRealized : 0) + (isLiveRunning ? Number(sessionData?.realized_pnl ?? 0) : 0),
-      unrealizedPnl: (hasMarathon ? marathonUnrealized : 0) + (isLiveRunning ? Number(sessionData?.unrealized_pnl ?? 0) : 0),
-      totalFees: sessionData?.total_fees_paid ?? 0.0,
+      balance: sharedAccount.equity,
+      realizedPnl: marathonRealized,
+      unrealizedPnl: marathonUnrealized,
+      totalFees: marathonPaperAgg?.total_fees ?? 0.0,
       activePositions: openPositions.length,
       totalTrades: closed.length,
       winRate: Math.round(wr),
       avgFee: closed.length > 0 ? totalFeeDrag / closed.length : 0,
       profitBleedPct: closed.length > 0 ? (bleedCount / closed.length) * 100 : 0,
-      uptimeStr
+      uptimeStr: '—'
     };
-  }, [sessionData, closedTrades, openPositions, hasMarathon, marathonBalance, marathonRealized, marathonUnrealized, liveStatus]);
+  }, [sharedAccount, pilotClosed, marathonRealized, marathonUnrealized, marathonPaperAgg, openPositions]);
 
   return (
     <div
@@ -550,8 +527,10 @@ export default function TradeHistoryWidget(props) {
             </div>
             <div>
               <span className="font-semibold text-xs tracking-wide text-foreground">История сделок и прогнозы</span>
-              <span className="ml-2 text-[11px] text-muted-foreground font-mono">Бумажная торговля: ${metrics.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-              {hasPilotData && (
+              <span className="ml-2 text-[11px] text-muted-foreground font-mono">
+                Общий paper-счёт: {metrics.balance == null ? 'не доступен' : `$${metrics.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+              </span>
+              {sharedAccount.available && (
                 <span
                   data-testid="marathon-summary-chip"
                   className="ml-2 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-950 text-amber-300 border border-amber-700"
@@ -559,6 +538,11 @@ export default function TradeHistoryWidget(props) {
                 >
                   Марафон (тест): открыто {pilotOpen.length} · закрыто {pilotAgg?.closed_trades ?? pilotClosed.length} · Equity{' '}
                   {pilotAgg?.equity != null ? `$${Number(pilotAgg.equity).toFixed(2)}` : '—'}
+                </span>
+              )}
+              {sharedAccount.available && (
+                <span data-testid="paper-account-identity" className="ml-2 text-[9px] text-muted-foreground font-mono" title={`Источник: ${sharedAccount.stateSource}`}>
+                  счёт {sharedAccount.accountId} · запуск {sharedAccount.runId || '—'}
                 </span>
               )}
               {sessionData?.is_halted ? (
@@ -647,21 +631,31 @@ export default function TradeHistoryWidget(props) {
             <Zap size={11} className="text-cyan-400 shrink-0" />
             {hasPilotData || Boolean(pilotStatus?.sessions && Object.keys(pilotStatus.sessions).length > 0) ? (
               <>
-                <span className="text-muted-foreground shrink-0">Марафон (20 пар):</span>
-                <span className="text-cyan-200 font-bold truncate">Мульти-стратегия (Shared $1,000)</span>
+                <span className="text-muted-foreground shrink-0">Марафон ({pilotRunState.sessionCount || marathonSessions.length} пар):</span>
+                <span className="text-cyan-200 font-bold truncate">Общий paper-счёт {sharedAccount.available ? `$${sharedAccount.initialBalance.toFixed(2)}` : 'не доступен'}</span>
                 <span className="text-muted-foreground shrink-0">•</span>
-                <span className="text-foreground font-bold shrink-0">{marathonSessions.filter(s => s?.paper?.is_running).length}/{marathonSessions.length || 20} пар</span>
+                <span className="text-foreground font-bold shrink-0">{marathonSessions.filter(s => s?.paper?.is_running).length}/{marathonSessions.length} пар</span>
                 <span className="text-muted-foreground shrink-0">•</span>
-                <span className="text-foreground/80 shrink-0">Плечо 1x-25x</span>
-                <span className="text-violet-300 shrink-0">• AI DeepSeek V4.1 Flash</span>
+                <span className="text-foreground/80 shrink-0">профили проверяются отдельно</span>
+                {sharedRiskProfile && (
+                  <>
+                    <span className="text-muted-foreground shrink-0">•</span>
+                    <span data-testid="shared-risk-summary" className="text-foreground/80 shrink-0" title="Лимиты общего счёта; риск каждой пары показан в её профиле">
+                      heat {sharedRiskProfile.max_portfolio_heat_pct}% / dir {sharedRiskProfile.max_directional_heat_pct}% / {sharedRiskProfile.max_positions} поз.
+                    </span>
+                  </>
+                )}
                 <span
                   className={`px-1 rounded text-[9px] font-bold border shrink-0 ${
-                    isMarathonRunning
+                    pilotRunState.kind === 'running'
                       ? 'bg-bull-soft text-emerald-300 border-emerald-700'
+                      : pilotRunState.kind === 'recovery_required'
+                        ? 'bg-warning/15 text-warning border-warning/30'
                       : 'bg-muted text-muted-foreground border-border'
                   }`}
+                  title={pilotStatus?.recovery?.reason || undefined}
                 >
-                  {isMarathonRunning ? 'RUNNING' : 'STOPPED'}
+                  {pilotRunState.label}
                 </span>
               </>
             ) : liveStatus ? (
@@ -735,7 +729,7 @@ export default function TradeHistoryWidget(props) {
           <div className="p-1.5 rounded bg-[#12161E] border border-border/80 flex flex-col">
             <span className="text-muted-foreground uppercase text-[11px] font-medium">Баланс профиля</span>
             <span className="font-bold text-foreground text-[15px] font-mono tabular-nums">
-              ${metrics.balance.toFixed(2)}
+              {metrics.balance == null ? '—' : `$${metrics.balance.toFixed(2)}`}
             </span>
           </div>
           <div className="p-1.5 rounded bg-[#12161E] border border-border/80 flex flex-col">
@@ -745,7 +739,7 @@ export default function TradeHistoryWidget(props) {
                 metrics.realizedPnl > 0 ? 'text-[#10b981]' : metrics.realizedPnl < 0 ? 'text-[#ef4444]' : 'text-foreground/80'
               }`}
             >
-              {metrics.realizedPnl > 0 ? '+' : ''}${metrics.realizedPnl.toFixed(2)}
+              {metrics.realizedPnl == null ? '—' : `${metrics.realizedPnl > 0 ? '+' : ''}$${metrics.realizedPnl.toFixed(2)}`}
             </span>
           </div>
           <div className="p-1.5 rounded bg-[#12161E] border border-border/80 flex flex-col">
@@ -755,7 +749,7 @@ export default function TradeHistoryWidget(props) {
                 metrics.unrealizedPnl > 0 ? 'text-[#10b981]' : metrics.unrealizedPnl < 0 ? 'text-[#ef4444]' : 'text-foreground/80'
               }`}
             >
-              {metrics.unrealizedPnl > 0 ? '+' : ''}${metrics.unrealizedPnl.toFixed(2)}
+              {metrics.unrealizedPnl == null ? '—' : `${metrics.unrealizedPnl > 0 ? '+' : ''}$${metrics.unrealizedPnl.toFixed(2)}`}
             </span>
           </div>
           <div className="p-1.5 rounded bg-[#12161E] border border-border/80 flex flex-col">

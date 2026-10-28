@@ -4,7 +4,7 @@ scripts/launch_overnight_8pairs.py — Institutional 8-Pair Marathon Launch Scri
 Launches the refined 8-pair quant portfolio on Binance Futures USDT-M:
 - Pairs: BTC, ETH, SOL, BNB, XRP, DOGE, SUI, NEAR
 - Timeframes: 5m and 15m (eliminating 1m/3m fee drag)
-- Risk per trade: 0.35% ($3.50 on $1,000 shared balance)
+- Risk per trade: 0.50% ($5.00 on $1,000 shared balance)
 - Portfolio Heat limit: 1.25% ($12.50 max simultaneous risk across all pairs)
 - Maximum simultaneous positions: 4
 - Maximum effective leverage: 5.0x (derived strictly from stop loss distance)
@@ -257,7 +257,7 @@ FIRST_RUN_DEFAULTS = {
     "circuit_daily_loss_limit_pct": -1.25,
     "circuit_weekly_loss_limit_pct": -3.5,
     "max_consecutive_losses": 3,
-    "duration_hours": 2.0,  # Short diagnostic run
+    "duration_hours": 8.0,  # Fixed, owner-approved diagnostic window
     "ai_control": False,
 }
 

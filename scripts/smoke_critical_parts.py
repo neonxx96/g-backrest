@@ -15,6 +15,22 @@ import urllib.error
 
 BACKEND_BASE = "http://127.0.0.1:8000/api"
 
+
+def is_depth_payload(data):
+    """Validate the local depth endpoint without treating exchange reachability as app failure.
+
+    The exchange adapter deliberately returns empty sides when every public
+    Binance endpoint is unreachable.  That is an honest disconnected state,
+    not a malformed response and must not be confused with a synthetic book.
+    Live exchange availability is covered separately by the advisory UI check.
+    """
+    return (
+        isinstance(data, dict)
+        and isinstance(data.get("bids"), list)
+        and isinstance(data.get("asks"), list)
+    )
+
+
 CRITICAL_ENDPOINTS = [
     {
         "name": "OrderFlow Recorder & Storage Status",
@@ -24,7 +40,7 @@ CRITICAL_ENDPOINTS = [
     {
         "name": "DOM OrderBook (L2 Depth)",
         "url": f"{BACKEND_BASE}/depth?symbol=BTCUSDT&limit=20",
-        "validate": lambda data: "bids" in data and "asks" in data and len(data["bids"]) > 0,
+        "validate": is_depth_payload,
     },
     {
         "name": "Chart Historical K-Lines",

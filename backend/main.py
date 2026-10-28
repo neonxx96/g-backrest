@@ -133,7 +133,7 @@ app = FastAPI(title="Signal Script API", lifespan=lifespan)
 @app.get("/api/health")
 @app.get("/health")
 async def health_check():
-    return {"status": "ok"}
+    return {"status": "ok", "service": "signalscript-backend"}
 
 # Allow CORS for React/Vite development & localhost
 app.add_middleware(
@@ -185,17 +185,8 @@ if __name__ == "__main__":
     import time
     preferred_port = 8000
     active_port = find_available_port(BACKEND_HOST, preferred_port)
-    for _ in range(5):
-        if active_port == preferred_port:
-            break
-        time.sleep(1.0)
-        active_port = find_available_port(BACKEND_HOST, preferred_port)
     if active_port != preferred_port:
-        logger.warning(
-            "Configured backend port %s is busy; selecting the next free port %s.",
-            preferred_port,
-            active_port,
-        )
+        raise RuntimeError(f"Configured backend port {preferred_port} is busy; refusing fallback port {active_port}.")
     persist_runtime_port_guarded(
         ENV_PATH,
         DATA_DIR / "backend_runtime.json",

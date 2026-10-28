@@ -170,3 +170,13 @@ def test_adjusted_risk_budget_with_and_without_score(sizer):
     # Слабый сигнал ниже порога -> 0.5x
     budget, mult = sizer.adjusted_risk_budget(10_000.0, 1.0, confluence_score=0.4)
     assert budget == pytest.approx(50.0) and mult == 0.5
+
+
+def test_fractional_quality_budget_is_explicit_and_never_expands_shared_budget(sizer):
+    budget, mult = sizer.adjusted_risk_budget_fraction(1_000.0, 0.005, confluence_score=1.0)
+    assert budget == pytest.approx(5.0)
+    assert mult == pytest.approx(1.0)
+
+    budget, mult = sizer.adjusted_risk_budget_fraction(1_000.0, 0.005, confluence_score=0.4)
+    assert budget == pytest.approx(2.5)
+    assert mult == pytest.approx(0.5)

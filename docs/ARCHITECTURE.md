@@ -60,7 +60,7 @@
          │                 │
          │                 ├──► [regime_classifier.py] (CI-14, Volatility percentiles)
          │                 ├──► [microstructure_gate.py] (L2 depth, CVD absorption)
-         │                 └──► [risk_engine.py] (SL-based sizing, Portfolio Heat <= 1.25%)
+         │                 └──► [risk_profile.py → risk_engine.py] (versioned API percent contract → internal fractions; SL-based sizing, Portfolio Heat <= 1.25%)
          │                          │
          │                          └──► [live_paper_runner.py] ──► [data/signals.db: paper_trade_records]
          │
@@ -81,6 +81,12 @@
    - Backend service is strictly bound to port `8000`.
    - Frontend web service is strictly bound to port `7100`.
    - When running under Docker Compose, traffic is routed through the internal bridge network `signalscript_net` with volume mounts to `./data`.
+4. **Profile Propagation Boundary:**
+   - The Overnight Pilot sends one selected `OvernightPilotConfig` to historical backtest, current forecast, and the paper runner; the `config_fingerprint` binds preflight to start.
+   - `fetch_history()` removes an in-progress kline before all three consumers evaluate it. Backtests may use a recorded historical slice; a forecast used for paper admission additionally requires a fresh closed-candle frame and fails explicitly when one is unavailable. The forecast reports whether it used the shared OHLCV evaluator and which enabled filters it applied; it does not represent a score as a probability.
+   - The Pilot UI treats a changed draft profile as stale even if the prior server session remains valid: paper admission is `RECHECK` until that exact draft receives a new preflight. This keeps the user-facing explanation aligned with the server-side fingerprint/config check at start.
+   - Historical OHLCV has no replayable L2 book. Backtest metadata exposes that limitation instead of claiming an L2 confirmation.
+   - The paper auto-selector evaluates each candidate with the ATR filter used by its generated pilot profile and retains the selected history window. The curated crypto universe has 28 candidates; positive training net PnL and the independent pilot preflight still control admission. Pure EMA profiles with no L2 filters do not claim missing L2 history.
 
 ---
 

@@ -36,6 +36,7 @@ from backend.app.services.execution_simulator import (
     OrderStatus,
     OrderType,
 )
+from backend.app.services.risk_profile import SharedRiskProfile
 
 logger = logging.getLogger(__name__)
 
@@ -132,10 +133,15 @@ class PaperSessionState:
     is_halted: bool = False
     halt_reason: Optional[str] = None
     halt_ts: Optional[int] = None
+    updated_at: Optional[int] = None
 
     def to_dict(self) -> dict:
         return {
+            # ``session_id`` is retained for legacy consumers.  The explicit
+            # alias makes it clear that this stable wallet identity is not a
+            # per-request status identifier.
             "session_id": self.session_id,
+            "account_id": self.session_id,
             "initial_balance": self.initial_balance,
             "available_margin": self.available_margin,
             "locked_margin": self.locked_margin,
@@ -154,6 +160,7 @@ class PaperSessionState:
             "is_halted": self.is_halted,
             "halt_reason": self.halt_reason,
             "halt_ts": self.halt_ts,
+            "updated_at": self.updated_at,
         }
 
 
@@ -924,7 +931,11 @@ class PaperTradingSession:
         payload = to_paper_order_request(signal, quantity=quantity)
         payload["regime"] = regime
         raw_risk = getattr(signal, "risk_pct", None)
-        risk_fraction = (raw_risk / 100.0) if (raw_risk is not None and raw_risk > 0.05) else (raw_risk if raw_risk is not None else None)
+        risk_fraction = (
+            SharedRiskProfile.from_api_config({"risk_per_trade_pct": raw_risk}).risk_per_trade_fraction
+            if raw_risk is not None
+            else None
+        )
         return self.execute_trade_signal(
             **payload,
             signal_ts=signal.timestamp,
@@ -1218,6 +1229,7 @@ class PaperTradingSession:
             is_halted=self.is_halted,
             halt_reason=self.halt_reason,
             halt_ts=self.halt_ts,
+            updated_at=self._last_event_ts or None,
         )
 
 

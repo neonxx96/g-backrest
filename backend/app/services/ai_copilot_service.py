@@ -1000,7 +1000,10 @@ async def compute_probabilistic_forecast(
 
     forecast_days = int(strategy_params.get("days", 3)) if isinstance(strategy_params, dict) and strategy_params.get("days") else 3
     try:
-        df = await fetch_history(sym, tf, days=forecast_days)
+        # A preflight scenario informs paper admission, so it must never reuse
+        # a merely historical Parquet tail.  The shared loader will refresh or
+        # fail explicitly when a closed-candle frame is not current enough.
+        df = await fetch_history(sym, tf, days=forecast_days, require_fresh=True)
     except Exception as e:
         logger.error(f"Failed to fetch klines for forecast: {e}")
         raise HTTPException(status_code=502, detail=f"Ошибка загрузки истории Binance для {sym}: {e}")
@@ -1041,6 +1044,9 @@ async def compute_probabilistic_forecast(
     use_cvd_filter = bool(params.get("use_cvd_filter", False))
     use_oi_filter = bool(params.get("use_oi_filter", False))
     use_rsi_filter = bool(params.get("use_rsi_filter", False))
+    use_stacked_imbalance_filter = bool(params.get("use_stacked_imbalance_filter", False))
+    use_absorption_filter = bool(params.get("use_absorption_filter", False))
+    use_poc_migration_filter = bool(params.get("use_poc_migration_filter", False))
     volume_multiplier = float(params.get("volume_multiplier", 1.3) or 1.3)
     min_density_usd = float(params.get("min_density_usd", 0.0) or 0.0)
     forecast_engine = OrderFlowBacktester(initial_capital=float(params.get("initial_capital", 10000.0) or 10000.0))
@@ -1055,6 +1061,9 @@ async def compute_probabilistic_forecast(
         use_cvd_filter=use_cvd_filter,
         use_oi_filter=use_oi_filter,
         use_rsi_filter=use_rsi_filter,
+        use_stacked_imbalance_filter=use_stacked_imbalance_filter,
+        use_absorption_filter=use_absorption_filter,
+        use_poc_migration_filter=use_poc_migration_filter,
     )
     decision_diagnostic = None
     if latest_signal:
@@ -1075,6 +1084,9 @@ async def compute_probabilistic_forecast(
             use_cvd_filter=use_cvd_filter,
             use_oi_filter=use_oi_filter,
             use_rsi_filter=use_rsi_filter,
+            use_stacked_imbalance_filter=use_stacked_imbalance_filter,
+            use_absorption_filter=use_absorption_filter,
+            use_poc_migration_filter=use_poc_migration_filter,
         )
         reasoning = decision_diagnostic.get("reason") or "NO_TRADE: условия стратегии не выполнены."
 
@@ -1187,6 +1199,21 @@ async def compute_probabilistic_forecast(
         "timeframe": tf,
         "strategy_type": profile,
         "strategy_params": params,
+        "profile_application": {
+            "strategy_type": profile,
+            "signal_engine": "shared_ohlcv_evaluator",
+            "closed_candles_only": True,
+            "fresh_ohlcv_required": True,
+            "filters": {
+                "atr": use_atr_filter,
+                "cvd": use_cvd_filter,
+                "oi": use_oi_filter,
+                "rsi": use_rsi_filter,
+                "stacked_imbalance": use_stacked_imbalance_filter,
+                "absorption": use_absorption_filter,
+                "poc_migration": use_poc_migration_filter,
+            },
+        },
         "data_status": "connected",
         "data_source": "binance_futures_klines",
         "is_probabilistic_forecast": True,

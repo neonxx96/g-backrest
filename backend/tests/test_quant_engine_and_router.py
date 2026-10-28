@@ -121,6 +121,17 @@ def test_core3_math_veto_toxic_skew():
     assert "VETO" in report.verdict
 
 
+def test_core3_vetoes_incomplete_market_snapshot_even_when_depth_looks_tradeable():
+    data = make_mock_unified_data(delta_pct=25.0, price=80000.0)
+    data.snapshot.data_status = "partial"
+    data.snapshot.unavailable_fields = ["open_interest_usd"]
+
+    report = quant_engine.evaluate_core3_math(data)
+
+    assert report.verdict == "VETO_DATA_UNAVAILABLE"
+    assert any("open_interest_usd" in reason for reason in report.verdict_reasons)
+
+
 def test_build_snapshot_prompt_and_quarantine():
     data = make_mock_unified_data(delta_pct=20.0, price=80000.0)
     c3 = quant_engine.evaluate_core3_math(data)

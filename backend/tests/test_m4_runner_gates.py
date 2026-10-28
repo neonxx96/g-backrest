@@ -68,16 +68,14 @@ def test_kill_switch_blocks_and_logs_event():
     assert any(log["category"] == "M4_KILL_SWITCH" for log in runner.logs)
 
 
-def test_portfolio_heat_blocks_entry():
+def test_m4_does_not_duplicate_shared_portfolio_heat_gate():
     runner = _runner()
     _enable_m4(runner)
-    # Открытый риск $550 (5.5%) + новый $100 (1%) = 6.5% > 6%
+    # Heat, pending reservations and directional limits are evaluated once by
+    # the shared gate immediately before execution. M4 owns drawdown/kill only.
     runner.session.positions["ETHUSDT"] = SimpleNamespace(risk_amount=550.0, closed=False)
 
-    block = runner._m4_check_entry()
-
-    assert block is not None and block[0] == "portfolio_heat"
-    assert "portfolio heat" in block[1]
+    assert runner._m4_check_entry() is None
 
 
 def test_healthy_state_allows_entry():
@@ -120,13 +118,35 @@ def test_execute_unified_signal_forwards_quantity():
         assert mocked.call_args.kwargs["quantity"] is None
 
 
+def test_execute_unified_signal_converts_small_percent_risk_without_guessing_units():
+    """UnifiedTradeSignal publishes percentage points even below 0.05%."""
+    from unittest.mock import patch
+
+    from backend.app.engine.trade_contract import UnifiedTradeSignal
+
+    session = PaperTradingSession(initial_balance=10_000.0)
+    signal = UnifiedTradeSignal(
+        symbol="BTCUSDT", timeframe="15m", timestamp=T0, direction="LONG",
+        entry_type="LIMIT", entry_price=100.0, sl=99.0, tp1=102.0,
+        expected_rr=2.0, leverage=1.0, risk_pct=0.01,
+        strategy_type="confluence_ema", data_source="test", reason=["t"],
+    )
+
+    with patch.object(session, "execute_trade_signal", return_value={"status": "OK"}) as mocked:
+        session.execute_unified_signal(signal)
+
+    assert mocked.call_args.kwargs["risk_pct"] == pytest.approx(0.0001)
+
+
 def test_pilot_config_carries_m4_fields_default_off():
     from backend.app.services.overnight_pilot import OvernightPilotConfig
 
     cfg = OvernightPilotConfig(symbol="BTCUSDT", strategy_type="confluence_ema")
     dump = cfg.model_dump()
     assert dump["use_m4_risk_gates"] is False
-    assert dump["max_portfolio_heat_pct"] == 6.0
+    # M4 uses the same public profile ceiling as the always-on shared gate;
+    # it must not reintroduce the legacy independent 6% allowance.
+    assert dump["max_portfolio_heat_pct"] == 1.25
     assert dump["daily_dd_limit_pct"] == 3.0
     assert dump["confluence_threshold"] == 0.65
 

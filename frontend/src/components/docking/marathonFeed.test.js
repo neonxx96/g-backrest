@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { collectMarathonPositions, collectMarathonTrades, mergePaperLists, hasMarathonData } from './marathonFeed.js';
+import { collectMarathonPositions, collectMarathonTrades, mergePaperLists, hasMarathonData, getSharedPilotAccount, getPilotRunState } from './marathonFeed.js';
 
 const PILOT_STATUS = {
   sessions: {
@@ -42,6 +42,16 @@ test('collectMarathonPositions пуст при отсутствии pilotStatus'
   assert.deepEqual(collectMarathonPositions({}), []);
 });
 
+test('collectMarathonPositions normalizes a singleton backend position object', () => {
+  const positions = collectMarathonPositions({
+    sessions: {
+      BNBUSDT: { paper: { open_positions: { symbol: 'BNBUSDT', side: 'LONG', qty: 0.159 } } },
+    },
+  });
+
+  assert.deepEqual(positions, [{ symbol: 'BNBUSDT', side: 'LONG', qty: 0.159, _source: 'marathon' }]);
+});
+
 test('collectMarathonTrades собирает closed_trades всех сессий и переносит поля сделки', () => {
   const list = collectMarathonTrades(PILOT_STATUS);
   assert.equal(list.length, 1);
@@ -66,4 +76,42 @@ test('hasMarathonData по aggregate.available или наличию запис�
   assert.equal(hasMarathonData({ sessions: {} }, [], []), false);
   assert.equal(hasMarathonData(null, [{ symbol: 'X' }], []), true);
   assert.equal(hasMarathonData(null, [], [{ symbol: 'X' }]), true);
+});
+
+test('getSharedPilotAccount never substitutes the legacy wallet for a missing account identity', () => {
+  assert.deepEqual(
+    getSharedPilotAccount({ aggregate: { paper: { available: true, equity: 100, starting_balance: 100 } } }),
+    { available: false, accountId: null, runId: null, equity: null, initialBalance: null, stateSource: 'unavailable' },
+  );
+
+  assert.deepEqual(
+    getSharedPilotAccount({ aggregate: { paper: {
+      available: true,
+      account_id: 'overnight_shared_account_1',
+      run_id: 'preflight_run_1',
+      equity: 998.5,
+      starting_balance: 1000,
+      state_source: 'persisted_snapshot',
+    } } }),
+    {
+      available: true,
+      accountId: 'overnight_shared_account_1',
+      runId: 'preflight_run_1',
+      equity: 998.5,
+      initialBalance: 1000,
+      stateSource: 'persisted_snapshot',
+    },
+  );
+});
+
+test('getPilotRunState distinguishes a recoverable persisted run from a live runner', () => {
+  assert.deepEqual(
+    getPilotRunState({ pilot_running: false, recovery: { required: true, session_count: 5 } }),
+    { kind: 'recovery_required', label: 'ТРЕБУЕТ НОВОЙ ПРОВЕРКИ', sessionCount: 5 },
+  );
+  assert.deepEqual(
+    getPilotRunState({ pilot_running: true, sessions: { BTCUSDT: { paper: { is_running: true } } } }),
+    { kind: 'running', label: 'RUNNING', sessionCount: 1 },
+  );
+  assert.deepEqual(getPilotRunState({ sessions: {} }), { kind: 'stopped', label: 'STOPPED', sessionCount: 0 });
 });

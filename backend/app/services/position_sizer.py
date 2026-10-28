@@ -213,6 +213,28 @@ class PositionSizer:
         mult = 1.0 if confluence_score is None else self.quality_multiplier(confluence_score, threshold)
         return (base * mult, mult)
 
+    def adjusted_risk_budget_fraction(
+        self,
+        equity: float,
+        risk_fraction: float,
+        confluence_score: Optional[float] = None,
+        threshold: float = 0.65,
+    ) -> Tuple[float, float]:
+        """Return an internal risk budget from an explicit fraction.
+
+        The public API method above intentionally retains percentage points for
+        backward compatibility. Live paper execution uses fractions supplied by
+        ``SharedRiskProfile``. Quality is a downward-only adjustment here: it
+        may make an entry smaller but cannot expand the accepted shared budget.
+        """
+        if equity <= 0:
+            raise ValueError("equity must be positive")
+        if not 0 < risk_fraction <= 1:
+            raise ValueError("risk_fraction must be within (0, 1]")
+        raw_multiplier = 1.0 if confluence_score is None else self.quality_multiplier(confluence_score, threshold)
+        multiplier = min(1.0, raw_multiplier)
+        return (equity * risk_fraction * multiplier, multiplier)
+
     # --- helpers --------------------------------------------------------------
 
     @staticmethod

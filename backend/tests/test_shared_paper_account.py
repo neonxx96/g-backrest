@@ -115,3 +115,64 @@ def test_shared_paper_session_isolates_cross_symbol_ticks():
     assert "BTCUSDT" in session.positions
     assert session.positions["BTCUSDT"].qty > 0
     assert abs(session.positions["BTCUSDT"].avg_entry_price - 50000.0) < 1e-6
+
+
+def test_archived_multi_pair_status_does_not_sum_one_shared_balance_per_symbol():
+    """Stopped runner snapshots still represent one account, not N virtual wallets."""
+    manager = OvernightPilotManager()
+    sessions = {
+        symbol: {
+            "config": {"initial_capital": 1000.0, "risk_per_trade_pct": 0.5},
+            "paper": {
+                "session_id": "overnight_shared_demo",
+                "initial_capital": 1000.0,
+                "current_equity": 1000.0,
+                "realized_pnl": 0.0,
+                "unrealized_pnl": 0.0,
+                "closed_trades": [],
+            },
+        }
+        for symbol in ("BTCUSDT", "ETHUSDT", "SOLUSDT")
+    }
+
+    report = manager._aggregate_report(sessions, [], shared_session=None)
+
+    assert report["paper"]["starting_balance"] == 1000.0
+    assert report["paper"]["equity"] == 1000.0
+
+
+def test_shared_account_status_keeps_account_and_run_identities_distinct():
+    """The shared wallet is an account; the preflight/start token is a run."""
+    manager = OvernightPilotManager()
+    sessions = {
+        symbol: {
+            "run_id": "run_immutable_1",
+            "config": {"initial_capital": 1000.0, "risk_per_trade_pct": 0.5},
+            "paper": {
+                "session_id": "overnight_shared_account_1",
+                "initial_balance": 1000.0,
+                "balance": 998.5,
+                "current_equity": 998.5,
+                "realized_pnl": -1.5,
+                "unrealized_pnl": 0.0,
+                "closed_trades": [],
+            },
+        }
+        for symbol in ("BTCUSDT", "ETHUSDT")
+    }
+
+    report = manager._aggregate_report(sessions, [], shared_session=None)
+
+    assert report["paper"]["account_id"] == "overnight_shared_account_1"
+    assert report["paper"]["run_id"] == "run_immutable_1"
+    assert report["paper"]["state_source"] == "persisted_snapshot"
+    assert report["paper"]["equity"] == 998.5
+
+
+def test_paper_session_status_exposes_legacy_account_identity_compatibly():
+    session = PaperTradingSession(initial_balance=100.0, session_id="legacy_local_account")
+
+    state = session.get_state().to_dict()
+
+    assert state["session_id"] == "legacy_local_account"
+    assert state["account_id"] == "legacy_local_account"

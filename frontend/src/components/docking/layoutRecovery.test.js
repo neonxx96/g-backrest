@@ -4,6 +4,7 @@ import {
   readCachedDockviewLayout,
   resolveDockviewLayout,
   persistDockviewLayoutLocally,
+  hasRenderableTerminalPanel,
   readChartPanelTimeframe,
   persistChartPanelTimeframe,
 } from './layoutRecovery.js';
@@ -23,6 +24,27 @@ test('workspace layout wins, then a valid local snapshot, then built-in defaults
   );
   assert.deepEqual(resolveDockviewLayout(null, cachedLayout), { layout: cachedLayout, source: 'local' });
   assert.deepEqual(resolveDockviewLayout(null, { panels: {} }), { layout: null, source: 'default' });
+});
+
+test('a focused journal or backtest preset remains valid, while an empty preset is rejected', () => {
+  const journalOnly = {
+    grid: { root: {} },
+    panels: {
+      trades_main: { contentComponent: 'trades' },
+    },
+  };
+  const backtestOnly = {
+    grid: { root: {} },
+    panels: { backtest_main: { contentComponent: 'papertrade' } },
+  };
+  const empty = {
+    grid: { root: {} },
+    panels: {},
+  };
+
+  assert.equal(hasRenderableTerminalPanel(journalOnly), true);
+  assert.equal(hasRenderableTerminalPanel(backtestOnly), true);
+  assert.equal(hasRenderableTerminalPanel(empty), false);
 });
 
 test('local Dockview snapshot is written synchronously and malformed cache is ignored', () => {

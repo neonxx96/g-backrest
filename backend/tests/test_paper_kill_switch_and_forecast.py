@@ -187,13 +187,16 @@ def test_probabilistic_forecast_output_contract():
         })
     df_mock = pd.DataFrame(rows)
 
-    with patch("backend.app.services.ai_copilot_service.fetch_history", return_value=df_mock):
+    with patch("backend.app.services.ai_copilot_service.fetch_history", return_value=df_mock) as fetch_history_mock:
         res = asyncio.run(compute_probabilistic_forecast("BTCUSDT", "15m", horizon_bars=16))
+
+    fetch_history_mock.assert_awaited_once_with("BTCUSDT", "15m", days=3, require_fresh=True)
 
     assert res["status"] == "success"
     assert res["symbol"] == "BTCUSDT"
     assert res["timeframe"] == "15m"
     assert res["is_probabilistic_forecast"] is True
+    assert res["profile_application"]["fresh_ohlcv_required"] is True
     assert "anchor_price" in res
     assert res["anchor_price"] > 0
     assert res["anchor_timestamp"] == int(df_mock["timestamp"].iloc[-1])
@@ -227,6 +230,57 @@ def test_probabilistic_forecast_rejects_insufficient_bars():
             asyncio.run(compute_probabilistic_forecast("BTCUSDT", "15m", horizon_bars=16))
         assert exc_info.value.status_code == 400
         assert "минимум 60 свечей" in exc_info.value.detail
+
+
+def test_forecast_applies_cluster_filters_from_the_selected_strategy_profile(monkeypatch):
+    """Forecast must not silently omit filters that backtest/live paper receive."""
+    base_ts = 1_700_000_000_000
+    df_mock = pd.DataFrame([
+        {
+            "timestamp": base_ts + index * 900_000,
+            "open": 50_000.0 + index,
+            "high": 50_050.0 + index,
+            "low": 49_950.0 + index,
+            "close": 50_000.0 + index,
+            "volume": 1_000.0,
+            "taker_buy_volume": 520.0,
+        }
+        for index in range(70)
+    ])
+    observed = []
+
+    def no_signal(self, data, **kwargs):
+        observed.append(("signal", kwargs))
+        return None
+
+    def explained_no_trade(self, data, **kwargs):
+        observed.append(("diagnostic", kwargs))
+        return {"status": "NO_TRADE", "reason": "NO_TRADE: cluster gate", "failed_checks": ["cluster"]}
+
+    async def fake_history(*args, **kwargs):
+        return df_mock
+
+    monkeypatch.setattr("backend.app.services.ai_copilot_service.fetch_history", fake_history)
+    monkeypatch.setattr(OrderFlowBacktester, "evaluate_latest_signal", no_signal)
+    monkeypatch.setattr(OrderFlowBacktester, "explain_latest_signal", explained_no_trade)
+
+    result = asyncio.run(compute_probabilistic_forecast(
+        "BTCUSDT",
+        "15m",
+        strategy_type="ema_trend",
+        strategy_params={
+            "use_stacked_imbalance_filter": True,
+            "use_absorption_filter": True,
+            "use_poc_migration_filter": True,
+        },
+    ))
+
+    assert result["base_scenario"]["direction"] == "NO_TRADE"
+    assert len(observed) == 2
+    for _, kwargs in observed:
+        assert kwargs["use_stacked_imbalance_filter"] is True
+        assert kwargs["use_absorption_filter"] is True
+        assert kwargs["use_poc_migration_filter"] is True
 
 
 def test_forecast_signal_parameters_preserve_leverage_and_risk():

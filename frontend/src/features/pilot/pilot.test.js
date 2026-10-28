@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { allocateCapital, configKey, validateConfigs, readReport } from './model.js';
+import { allocateCapital, configKey, validateConfigs, readReport, describeProfileApplication, describePaperAdmission } from './model.js';
 import { createPilotStore } from './store.js';
 import * as pilotModel from './model.js';
 
@@ -20,6 +20,47 @@ test('validation rejects duplicate symbols, missing risk and invalid duration', 
 test('configuration key ignores property insertion order but includes risk', () => {
   assert.equal(configKey([{ a: 1, b: 2 }]), configKey([{ b: 2, a: 1 }]));
   assert.notEqual(configKey([config]), configKey([{ ...config, risk_per_trade_pct: 1 }]));
+});
+
+test('profile application reports server config, closed-candle data, and live-cluster divergence honestly', () => {
+  const session = {
+    config: { strategy_type: 'ema_trend', timeframe: '15m', days: 14, risk_per_trade_pct: 0.5, stop_loss_pct: 0.8, take_profit_pct: 1.6, leverage: 2 },
+    config_fingerprint: 'abcdef0123456789',
+    backtest: { meta: { data_availability: { closed_candles_only: true, ohlcv_source: 'Binance Futures OHLCV', open_interest: { available: false } } } },
+    forecast: { strategy_type: 'ema_trend', profile_application: { strategy_type: 'ema_trend', signal_engine: 'shared_ohlcv_evaluator', fresh_ohlcv_required: true, filters: { atr: true, stacked_imbalance: true } } },
+  };
+
+  const profile = describeProfileApplication(session);
+
+  assert.equal(profile.fingerprint, 'abcdef012345');
+  assert.equal(profile.closedCandlesOnly, true);
+  assert.equal(profile.freshOhlcvRequired, true);
+  assert.equal(profile.sameOhlcvProfile, false);
+  assert.equal(profile.liveClusterEvidenceSeparate, true);
+  assert.deepEqual(profile.enabledFilters, ['atr', 'stacked imbalance']);
+});
+
+test('paper admission makes a blocking verdict visible even after a valid preflight', () => {
+  const admission = describePaperAdmission(
+    { preflight_valid: true, forecast: { data_status: 'connected', base_scenario: { direction: 'NO_TRADE', reason: 'EMA cross absent' } } },
+    { verdict: { level: 'BLOCK', reasons: ['negative expectancy'], flags: ['small sample'] } },
+  );
+
+  assert.equal(admission.level, 'BLOCK');
+  assert.equal(admission.startAllowed, false);
+  assert.equal(admission.scenario, 'NO_TRADE');
+  assert.deepEqual(admission.reasons, ['negative expectancy', 'small sample']);
+});
+test('paper admission requires the displayed draft to match the checked profile', () => {
+  const admission = describePaperAdmission(
+    { preflight_valid: true, forecast: { data_status: 'connected', unified_signal: { direction: 'LONG' } } },
+    { verdict: { level: 'READY' } },
+    false,
+  );
+
+  assert.equal(admission.level, 'RECHECK');
+  assert.equal(admission.startAllowed, false);
+  assert.match(admission.reasons[0], /изменён/);
 });
 test('OOS missing evidence never falls back to profitable training summary', () => {
   const report = readReport({ report: { schema_version: 1, status: 'insufficient_evidence', metrics: null, sample: { closed_trades: 3 } }, summary: { net_pnl_usd: 100 } });

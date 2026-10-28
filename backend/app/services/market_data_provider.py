@@ -64,8 +64,15 @@ class LiqEstimatesData(BaseModel):
 
 
 class MarketSnapshot(BaseModel):
+    schema_version: Literal[1] = 1
     symbol: str
     timestamp: int
+    observed_at: int = 0
+    source: str = "binance_futures_rest"
+    data_status: Literal["available", "partial", "unavailable"] = "available"
+    unavailable_fields: List[str] = Field(default_factory=list)
+    closed_candles_only: bool = True
+    closed_candle_count: int = 0
     price: float
     change_24h_pct: float
     high_24h: float

@@ -282,10 +282,25 @@ def test_runner_does_not_resubmit_signal_from_same_closed_candle(monkeypatch):
     events = []
     monkeypatch.setattr(runner, "_record_event", lambda *args, **kwargs: events.append((args, kwargs)))
 
+    # This is a runner-admission test.  The real background decision-journal
+    # write can hold asyncio.run() open while SQLite flushes, which is neither
+    # part of the duplicate-candle contract nor deterministic on Windows.
+    async def no_op_decision_journal(**_kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "backend.app.services.live_paper_runner._async_record_decision_journal_entry",
+        no_op_decision_journal,
+    )
+
     asyncio.run(runner.tick_cycle())
     assert len(session.orders) == 1
     entry_event = next(kwargs for args, kwargs in events if args[0] == "POSITION_OPENED")
-    assert entry_event["payload"]["risk_budget_usdt"] == pytest.approx(4.464, abs=0.01)
+    # The generic strategy-side adjustment makes this signal 0.3125% of the
+    # $1,000 account.  M4 is disabled here, so it must not re-apply a quality
+    # multiplier or expand the shared profile's $5 ceiling.
+    assert entry_event["payload"]["risk_budget_usdt"] == pytest.approx(3.125, abs=0.01)
+    assert entry_event["payload"]["m4_quality_multiplier"] is None
     first = next(iter(session.orders.values()))
     # A completed/cancelled order does not itself block admission. The
     # closed-candle token must still prevent a second decision on that candle.

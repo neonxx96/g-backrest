@@ -41,7 +41,21 @@ def test_invalid_and_stale_market_snapshots_are_rejected():
     stale = SimpleNamespace(price=100.0, timestamp=now - 60_000)
     assert runner._validate_market_snapshot(invalid, now)[0] is False
     assert runner._validate_market_snapshot(stale, now)[0] is False
+    partial = SimpleNamespace(price=100.0, timestamp=now, data_status="partial", unavailable_fields=["funding_rate"])
+    assert runner._validate_market_snapshot(partial, now)[0] is False
     assert runner._validate_market_snapshot(SimpleNamespace(price=100.0, timestamp=now), now)[0] is True
+
+
+def test_snapshot_uses_local_observation_time_for_freshness_when_exchange_clock_is_ahead():
+    runner = LivePaperRunner()
+    now = 1_700_000_100_000
+    snapshot = SimpleNamespace(
+        price=100.0,
+        timestamp=now + 15_000,
+        observed_at=now - 100,
+    )
+
+    assert runner._validate_market_snapshot(snapshot, now)[0] is True
 
 
 def test_invalid_live_price_does_not_manage_an_open_position(tmp_path, monkeypatch):

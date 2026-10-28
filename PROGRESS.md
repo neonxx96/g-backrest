@@ -31,6 +31,21 @@
 
 ## 2. Completed Milestones
 
+- **2026-10-28 [Codex] Task PAPER-AUTOPILOT-RECOVERY**:
+  - Fixed the AI paper-autopilot chain so auto-selection executes preflight before start, excludes only BLOCK verdicts, rechecks the exact allowed set, and never performs a real order.
+  - Persisted paper snapshots now report a truthful recovery-required state after a backend restart instead of presenting stale candidates as a live run. The trade widget renders this state explicitly; active paper positions continue through the existing chart overlay contract.
+  - `scripts/check.ps1`: ALL QUALITY CHECKS PASSED. Host pytest 646 passed, 2 skipped; frontend tests/build, design lint, docs, critical smoke, blocking Playwright and live WebSocket passed. Docker/Linux async coverage remained unavailable locally.
+
+- **2026-10-28 [Codex] Task RUNNER-COROUTINE-CLEANUP**:
+  - Removed unawaited-coroutine warnings from synchronous paper-fill callbacks. Best-effort SQLite persistence now closes its coroutine when no event loop is present, while async runner paths still schedule it on the active loop.
+  - Added a regression that verifies close-event journaling still occurs and no leaked coroutine warning is emitted.
+  - `scripts/check.ps1` exit **0**: 609 host pytest passed, 31 skipped, with no pytest warning summary; frontend, lint, docs, critical smoke, blocking Playwright, and live WebSocket passed. Docker/Linux async tests remained unavailable.
+
+- **2026-10-28 [Codex] Task QUALITY-GATE-SMOKE-CONTRACT**:
+  - Replaced the Chart toolbar's newly added raw “Сейчас” control with the canonical compact `Button`, eliminating the only design-lint regression.
+  - Corrected the critical HTTP smoke contract: an empty L2 book from an unreachable public exchange is now accepted as an explicit disconnected response shape, while malformed payloads still fail. Added two regressions for that distinction.
+  - `scripts/check.ps1` exit **0**: 608 host pytest passed, 31 skipped; frontend recovery, 89 frontend tests/build, design lint, docs, critical smoke, blocking Playwright, and live WebSocket passed. Docker/Linux async tests remained unavailable.
+
 - **2026-10-27 [Codex] Task CODEX-HANDOFF**:
   - Refreshed the context documents, recorded real runtime model routing, upgraded the deterministic CodeMap generator with caller/callee hints, and confirmed the documentation gate locally.
   - Fixed the quality gate's Node worker restriction by running its two frontend tests sequentially; the complete gate now passes (585 passed, 31 skipped; frontend 7/7 and pilot 85/85; build, lint, docs, critical smoke, Playwright, live WebSocket).
