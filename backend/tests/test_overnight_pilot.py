@@ -6,6 +6,7 @@ import sys
 import backend.app.services.overnight_pilot as overnight_module
 import backend.app.routers.overnight_pilot as overnight_router
 from backend.app.services.overnight_pilot import OvernightPilotConfig, OvernightPilotManager, PilotSession
+from backend.app.services.paper_trading import PaperPosition
 
 
 def test_ema_verdict_does_not_claim_missing_l2_history():
@@ -18,6 +19,122 @@ def test_ema_verdict_does_not_claim_missing_l2_history():
     verdict = manager.status()["summary"][0]["verdict"]
     assert verdict["level"] == "PASS"
     assert "L2 History: No data" not in verdict["flags"]
+
+
+def test_demo_admission_does_not_block_negative_backtest_but_keeps_toxic_veto():
+    manager = OvernightPilotManager()
+    config = OvernightPilotConfig(symbol="BTCUSDT", strategy_type="ema_trend", min_density_usd=0)
+    manager.sessions["BTCUSDT"] = overnight_module.PilotSession(
+        config,
+        backtest={"summary": {"net_pnl_usd": -10.0, "total_trades": 4, "profit_factor": 0.5}},
+        forecast={"data_status": "connected", "market_regime": "TRENDING"},
+    )
+    assert manager._demo_hard_block_reasons() == {}
+    manager.sessions["BTCUSDT"].forecast["market_regime"] = "TOXIC_VOLATILITY"
+    assert "BTCUSDT" in manager._demo_hard_block_reasons()
+
+
+def test_pair_preflight_fingerprint_rejects_changed_profile_and_stale_forecast():
+    config = OvernightPilotConfig(symbol="BTCUSDT", strategy_type="ema_trend")
+    session = overnight_module.PilotSession(
+        config, run_id="prepared-1", config_fingerprint=OvernightPilotManager._config_fingerprint(config),
+        preflight_valid=True,
+        backtest={"meta": {"candles": 300, "symbol": "BTCUSDT", "timeframe": "15m"}},
+        forecast={"data_status": "connected"},
+    )
+    assert OvernightPilotManager._pair_preflight_matches(session, config, "prepared-1")
+    assert not OvernightPilotManager._pair_preflight_matches(session, config, "wrong")
+    assert not OvernightPilotManager._pair_preflight_matches(
+        session, config.model_copy(update={"stop_loss_pct": 0.9}), "prepared-1"
+    )
+    session.forecast["data_status"] = "stale"
+    assert not OvernightPilotManager._pair_preflight_matches(session, config, "prepared-1")
+
+
+def test_full_stop_requires_recent_observed_price_for_open_paper_position():
+    manager = OvernightPilotManager()
+    shared = overnight_module.PaperTradingSession(initial_balance=1000)
+    shared.positions["BTCUSDT"] = PaperPosition(
+        symbol="BTCUSDT", side="LONG", qty=0.1, avg_entry_price=100.0,
+    )
+    shared.last_prices["BTCUSDT"] = 101.0
+    manager._shared_paper_session = shared
+    assert "BTCUSDT" in manager._unsafe_stop_positions(now_ms=100_000)
+    manager.sessions["BTCUSDT"] = overnight_module.PilotSession(
+        OvernightPilotConfig(symbol="BTCUSDT", strategy_type="ema_trend"),
+        runner=type("Runner", (), {"last_successful_data_at": 99_000, "is_running": True})(),
+    )
+    assert manager._unsafe_stop_positions(now_ms=100_000) == []
+
+
+def test_manual_pair_close_uses_observed_shared_price_not_position_entry():
+    manager = OvernightPilotManager()
+    shared = overnight_module.PaperTradingSession(initial_balance=1000)
+    shared.last_prices["BTCUSDT"] = 102.0
+    manager._shared_paper_session = shared
+    manager.sessions["BTCUSDT"] = overnight_module.PilotSession(
+        OvernightPilotConfig(symbol="BTCUSDT", strategy_type="ema_trend"),
+        runner=type("Runner", (), {"last_successful_data_at": 99_000, "is_running": True})(),
+    )
+    assert manager._observed_close_price("BTCUSDT", now_ms=100_000) == 102.0
+    with pytest.raises(ValueError, match="fresh observed price"):
+        manager._observed_close_price("BTCUSDT", now_ms=200_000)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows sandbox blocks asyncio event-loop socketpair")
+def test_new_pair_requires_its_exact_preflight_even_when_other_pair_runs(monkeypatch):
+    async def scenario():
+        class QuietLogger:
+            def count_by_source(self, *_):
+                return {}
+
+        class Runner:
+            def __init__(self, session):
+                self.session = session
+                self.is_running = False
+
+            def start(self, *_args, **_kwargs):
+                self.is_running = True
+                return {}
+
+            def get_status(self):
+                return {"is_running": self.is_running, "session_id": self.session.session_id,
+                        "open_positions": [], "closed_trades": []}
+
+        async def fake_prepare(self, selected):
+            for config in selected:
+                fingerprint = self._config_fingerprint(config)
+                self.sessions[config.symbol] = overnight_module.PilotSession(
+                    config, run_id="prepared-1", config_fingerprint=fingerprint, preflight_valid=True,
+                    backtest={"summary": {"net_pnl_usd": -1.0, "total_trades": 5},
+                              "meta": {"candles": 300, "symbol": config.symbol, "timeframe": config.timeframe}},
+                    forecast={"data_status": "connected", "market_regime": "TRENDING"},
+                )
+
+        monkeypatch.setattr(overnight_module.OvernightPilotManager, "_prepare", fake_prepare)
+        monkeypatch.setattr(overnight_module, "LivePaperRunner", Runner)
+        manager = OvernightPilotManager()
+        manager.intent_logger = QuietLogger()
+        manager._shared_paper_session = overnight_module.PaperTradingSession(initial_balance=1000)
+        existing = overnight_module.PilotSession(
+            OvernightPilotConfig(symbol="ETHUSDT", strategy_type="ema_trend"),
+            runner=Runner(manager._shared_paper_session),
+        )
+        existing.runner.is_running = True
+        manager.sessions["ETHUSDT"] = existing
+        config = OvernightPilotConfig(symbol="BTCUSDT", strategy_type="ema_trend")
+        prepared = await manager.prepare_pair(config)
+        assert prepared["preflight_id"] == "prepared-1"
+        with pytest.raises(ValueError, match="exact pair preflight"):
+            await manager.start_pair(config.model_copy(update={"stop_loss_pct": 0.9}), "prepared-1", demo=True)
+        with pytest.raises(ValueError, match="exact pair preflight"):
+            await manager.start_pair(config, "wrong", demo=True)
+        result = await manager.start_pair(config, "prepared-1", demo=True)
+        assert result["pilot_running"] is True
+        assert result["sessions"]["ETHUSDT"]["paper"]["is_running"] is True
+        assert result["sessions"]["BTCUSDT"]["paper"]["is_running"] is True
+
+    asyncio.run(scenario())
 
 
 def test_pilot_config_rejects_unknown_strategy_and_limits_three_sessions():
@@ -241,7 +358,7 @@ def test_autopilot_reports_all_blocked_without_starting_any_runner():
 def test_auto_select_route_uses_guarded_autopilot_instead_of_direct_start():
     source = inspect.getsource(overnight_router.auto_select_and_start)
 
-    assert "run_autopilot(configs)" in source
+    assert "run_autopilot(configs, demo=req.demo)" in source
     assert "overnight_pilot_manager.stop()" not in source
 
 

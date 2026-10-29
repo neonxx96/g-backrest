@@ -162,6 +162,7 @@ class OvernightPilotManager:
         self.intent_logger = DeepIntentLogger()
         self._persist_lock = asyncio.Lock()
         self._shared_paper_session: Optional[PaperTradingSession] = None
+        self._pending_pair_preflights: Dict[str, PilotSession] = {}
 
     async def load_persisted_states(self) -> None:
         """Load durable operational pair states from SQLite on manager startup/restart."""
@@ -328,12 +329,9 @@ class OvernightPilotManager:
         session.backtest = backtest
         session.forecast = forecast
 
-    # MAX_SESSIONS: 20 сессий (запрос Di 2026-10-24 вечер: тест на 20 объёмных
-    # волатильных пар с бэктест-подбором стратегии — data/test20_configs.json;
-    # ранее 14 — расширение прогона 2026-10-24 день).
-    # Каждая сессия — LivePaperRunner со своим тик-циклом (sleep 4–60 c между
-    # опросами) и forecast-циклом (300 c) — нагрузка на Binance REST умеренная.
-    MAX_SESSIONS = 20
+    # User-controlled watchlist size. Shared portfolio heat and max_positions
+    # still bound concurrent exposure independently of the number of pairs.
+    MAX_SESSIONS = 100
 
     # Период переоптимизации стратегий работающих сессий (запрос Di 2026-10-24:
     # «оптимизация стратегий включена на период теста»). Первый прогон — сразу
@@ -412,6 +410,17 @@ class OvernightPilotManager:
             for row in self.status()["summary"]
             if (row.get("verdict") or {}).get("level") == "BLOCK"
         }
+
+    def _demo_hard_block_reasons(self) -> Dict[str, str]:
+        """Demo ignores historical performance, but never missing data or toxic conditions."""
+        blocked: Dict[str, str] = {}
+        for symbol, session in self.sessions.items():
+            forecast = session.forecast or {}
+            if session.error or session.backtest is None or forecast.get("data_status") != "connected":
+                blocked[symbol] = session.error or "Backtest or current forecast is unavailable"
+            elif str(forecast.get("market_regime") or forecast.get("regime") or "").upper() == "TOXIC_VOLATILITY":
+                blocked[symbol] = "Current market regime is TOXIC_VOLATILITY"
+        return blocked
 
     async def _prepare(self, selected: List[OvernightPilotConfig]) -> None:
         """Run historical backtest and forecast only; never creates paper orders."""
@@ -952,7 +961,103 @@ class OvernightPilotManager:
             await self._prepare(selected)
         return self.status()
 
-    async def run_autopilot(self, configs: List[OvernightPilotConfig]) -> Dict[str, Any]:
+    async def prepare_pair(self, config: OvernightPilotConfig) -> Dict[str, Any]:
+        """Prepare one addition without altering an active shared paper account."""
+        self._validate_configs([config])
+        symbol = config.symbol.upper()
+        if symbol in self.sessions and self.sessions[symbol].runner and self.sessions[symbol].runner.is_running:
+            raise ValueError(f"{symbol} is already running; edit requires stopping its entries first")
+        probe = OvernightPilotManager()
+        await probe._prepare([config])
+        prepared = probe.sessions[symbol]
+        if not prepared.preflight_valid:
+            raise ValueError(prepared.error or f"{symbol}: backtest or current forecast is unavailable")
+        async with self._lock:
+            self._pending_pair_preflights[symbol] = prepared
+        summary = (prepared.backtest or {}).get("summary") or {}
+        verdict = evaluate_verdict(
+            net_pnl_usd=float(summary.get("net_pnl_usd", 0.0) or 0.0),
+            trades=int(summary.get("total_trades", 0) or 0),
+            profit_factor=float(summary.get("profit_factor", 0.0) or 0.0),
+            regime=(prepared.forecast or {}).get("market_regime") or (prepared.forecast or {}).get("regime"),
+        ).to_dict()
+        return {"preflight_id": prepared.run_id, "session": prepared.to_dict(), "verdict": verdict}
+
+    @classmethod
+    def _pair_preflight_matches(
+        cls, prepared: Optional[PilotSession], config: OvernightPilotConfig, preflight_id: str,
+    ) -> bool:
+        return bool(
+            prepared is not None and prepared.run_id == preflight_id
+            and prepared.config_fingerprint == cls._config_fingerprint(config)
+            and prepared.config.model_dump() == config.model_dump()
+            and prepared.preflight_valid and cls._backtest_matches_config(prepared)
+            and (prepared.forecast or {}).get("data_status") == "connected"
+        )
+
+    async def start_pair(
+        self, config: OvernightPilotConfig, preflight_id: str, *, demo: bool = False,
+    ) -> Dict[str, Any]:
+        """Attach an exactly preflighted pair to the current shared paper wallet."""
+        symbol = config.symbol.upper()
+        async with self._lock:
+            prepared = self._pending_pair_preflights.get(symbol)
+            if not self._pair_preflight_matches(prepared, config, preflight_id):
+                raise ValueError("new pair requires its exact pair preflight and current forecast")
+            current = self.sessions.get(symbol)
+            if current and current.runner and current.runner.is_running:
+                raise ValueError(f"{symbol} is already running")
+            active = [s.config for s in self.sessions.values() if s.runner and s.runner.is_running]
+            self._validate_configs(active + [config])
+            if self._shared_paper_session and self._shared_paper_session.positions.get(symbol):
+                position = self._shared_paper_session.positions[symbol]
+                if position.qty > 0 and not position.closed:
+                    raise ValueError(f"{symbol} already has an open paper position")
+            forecast = prepared.forecast or {}
+            if str(forecast.get("market_regime") or forecast.get("regime") or "").upper() == "TOXIC_VOLATILITY":
+                raise ValueError(f"{symbol}: current market regime is TOXIC_VOLATILITY")
+            if not demo:
+                summary = (prepared.backtest or {}).get("summary") or {}
+                verdict = evaluate_verdict(
+                    net_pnl_usd=float(summary.get("net_pnl_usd", 0.0) or 0.0),
+                    trades=int(summary.get("total_trades", 0) or 0),
+                    profit_factor=float(summary.get("profit_factor", 0.0) or 0.0),
+                    regime=forecast.get("market_regime") or forecast.get("regime"),
+                )
+                if not verdict.allows_live_paper:
+                    raise ValueError(f"{symbol}: historical verdict is BLOCK: {'; '.join(verdict.reasons)}")
+            if not active:
+                self.sessions = {}
+                self._shared_paper_session = PaperTradingSession(
+                    initial_balance=1000.0, session_id=f"overnight_shared_{uuid.uuid4().hex[:12]}"
+                )
+            shared = self._shared_paper_session
+            if shared is None:
+                raise ValueError("active paper wallet is unavailable")
+            runner = LivePaperRunner(session=shared)
+            runner.intent_logger = self.intent_logger
+            prepared.session_id = f"overnight_{symbol.lower()}_{uuid.uuid4().hex[:12]}"
+            runner.start(
+                config.model_dump(), run_id=prepared.run_id,
+                config_fingerprint=prepared.config_fingerprint, reset_wallet=False,
+            )
+            prepared.runner = runner
+            prepared.started_at = int(time.time() * 1000)
+            prepared.preflight_valid = False
+            self.sessions[symbol] = prepared
+            self.pair_states[symbol] = "active"
+            shared.paused_symbols.discard(symbol)
+            self._pending_pair_preflights.pop(symbol, None)
+            self._forecast_tasks[symbol] = asyncio.create_task(
+                self._forecast_loop(prepared), name=f"overnight-forecast-{symbol}"
+            )
+            self._optimization_tasks[symbol] = asyncio.create_task(
+                self._optimization_loop(prepared), name=f"overnight-optimization-{symbol}"
+            )
+            self._ensure_snapshot_task()
+        return self.status()
+
+    async def run_autopilot(self, configs: List[OvernightPilotConfig], demo: bool = False) -> Dict[str, Any]:
         """Preflight a selected paper-only set and start only non-BLOCK pairs.
 
         The second preflight is deliberate: ``start`` accepts only the exact
@@ -961,7 +1066,7 @@ class OvernightPilotManager:
         """
         selected = self._validate_configs(configs)
         first_preflight = await self.preflight(selected)
-        excluded = self._blocking_preflight_reasons()
+        excluded = self._demo_hard_block_reasons() if demo else self._blocking_preflight_reasons()
         allowed = [config for config in selected if config.symbol.upper() not in excluded]
         if not allowed:
             return {
@@ -975,7 +1080,7 @@ class OvernightPilotManager:
         preflight = first_preflight
         if excluded:
             preflight = await self.preflight(allowed)
-            remaining_blocks = self._blocking_preflight_reasons()
+            remaining_blocks = self._demo_hard_block_reasons() if demo else self._blocking_preflight_reasons()
             if remaining_blocks:
                 return {
                     "started": False,
@@ -986,7 +1091,7 @@ class OvernightPilotManager:
                 }
 
         preflight_id = preflight.get("preflight_id")
-        result = await self.start(allowed, preflight_id=preflight_id)
+        result = await self.start(allowed, preflight_id=preflight_id, ignore_verdict=demo)
         return {
             "started": True,
             "active_symbols": [config.symbol.upper() for config in allowed],
@@ -1010,7 +1115,13 @@ class OvernightPilotManager:
                     "paper start requires the current preflight for the exact configuration; "
                     "run backtest + forecast again before starting"
                 )
-            if not ignore_verdict:
+            if ignore_verdict:
+                hard_reasons = self._demo_hard_block_reasons()
+                if hard_reasons:
+                    raise ValueError("demo paper start blocked: " + " | ".join(
+                        f"{symbol}: {reason}" for symbol, reason in sorted(hard_reasons.items())
+                    ))
+            else:
                 blocking_reasons = self._blocking_preflight_reasons()
                 if blocking_reasons:
                     blocked_symbols = ", ".join(sorted(blocking_reasons))
@@ -1042,6 +1153,8 @@ class OvernightPilotManager:
                         reset_wallet=False,
                     )
                     session.preflight_valid = False
+                    self.pair_states[session.config.symbol.upper()] = "active"
+                    shared_paper_session.paused_symbols.discard(session.config.symbol.upper())
                     self._forecast_tasks[session.config.symbol.upper()] = asyncio.create_task(
                         self._forecast_loop(session),
                         name=f"overnight-forecast-{session.config.symbol.upper()}",
@@ -1086,6 +1199,17 @@ class OvernightPilotManager:
             self._snapshot_task = None
 
     async def stop(self) -> Dict[str, Any]:
+        unsafe = self._unsafe_stop_positions()
+        if unsafe:
+            raise ValueError(
+                "Cannot stop paper runners with open positions and stale/missing prices: "
+                + ", ".join(unsafe) + ". Pause new entries instead."
+            )
+        if self._shared_paper_session and any(
+            position.qty > 0 and not position.closed
+            for position in self._shared_paper_session.positions.values()
+        ):
+            self._shared_paper_session.kill_switch(reason="USER_STOP_PAPER_RUN")
         for task in self._forecast_tasks.values():
             if not task.done():
                 task.cancel()
@@ -1121,6 +1245,24 @@ class OvernightPilotManager:
                 session.runner.stop()
             session.preflight_valid = False
         return self.status()
+
+    def _unsafe_stop_positions(self, now_ms: Optional[int] = None) -> List[str]:
+        """Never abandon an open paper position without a recent observed exit price."""
+        shared = self._shared_paper_session
+        if shared is None:
+            return []
+        now = int(now_ms if now_ms is not None else time.time() * 1000)
+        unsafe: List[str] = []
+        for symbol, position in shared.positions.items():
+            if position.closed or position.qty <= 0:
+                continue
+            session = self.sessions.get(symbol)
+            runner = session.runner if session else None
+            observed_at = int(getattr(runner, "last_successful_data_at", 0) or 0)
+            price = float(shared.last_prices.get(symbol, 0) or 0)
+            if not (runner and runner.is_running and price > 0 and 0 <= now - observed_at <= 30_000):
+                unsafe.append(symbol)
+        return unsafe
 
     async def _forecast_loop(self, session: PilotSession) -> None:
         """Refresh the same parameterized forecast while paper mode observes live data."""
@@ -1715,6 +1857,11 @@ class OvernightPilotManager:
 
     async def pause_pair(self, symbol: str, close_position: bool = False, reason: str = "USER_REQUEST") -> Dict[str, Any]:
         sym = symbol.upper()
+        close_price = None
+        if close_position and self._shared_paper_session:
+            position = self._shared_paper_session.positions.get(sym)
+            if position and position.qty > 0 and not position.closed:
+                close_price = self._observed_close_price(sym)
         self.pair_states[sym] = "paused"
         if self._shared_paper_session:
             self._shared_paper_session.paused_symbols.add(sym)
@@ -1722,11 +1869,8 @@ class OvernightPilotManager:
             session = self.sessions[sym]
             if session.runner:
                 session.runner.is_paused = True
-            if close_position and session.runner and session.runner.session:
-                pos = session.runner.session.positions.get(sym)
-                if pos and not getattr(pos, "closed", False) and getattr(pos, "qty", 0.0) > 0:
-                    price = getattr(pos, "current_price", 0.0) or getattr(pos, "entry_price", 0.0)
-                    session.runner.session.close_position(sym, price, order_type="MARKET", reason=f"PAUSE_CLOSE_{reason}")
+            if close_price is not None and session.runner and session.runner.session:
+                session.runner.session.close_position(sym, close_price, order_type="MARKET", reason=f"PAUSE_CLOSE_{reason}")
 
         try:
             from backend.app.db.database import AsyncSessionLocal
@@ -1778,27 +1922,32 @@ class OvernightPilotManager:
 
     async def close_pair(self, symbol: str, pause_after: bool = True, reason: str = "MANUAL_PAIR_CLOSE") -> Dict[str, Any]:
         sym = symbol.upper()
-        closed_position = False
-        if sym in self.sessions:
-            session = self.sessions[sym]
-            if session.runner and session.runner.session:
-                pos = session.runner.session.positions.get(sym)
-                if pos and not getattr(pos, "closed", False) and getattr(pos, "qty", 0.0) > 0:
-                    price = getattr(pos, "current_price", 0.0) or getattr(pos, "entry_price", 0.0)
-                    session.runner.session.close_position(sym, price, order_type="MARKET", reason=reason)
-                    closed_position = True
-
-        if not closed_position and self._shared_paper_session:
-            pos = self._shared_paper_session.positions.get(sym)
-            if pos and not getattr(pos, "closed", False) and getattr(pos, "qty", 0.0) > 0:
-                price = getattr(pos, "current_price", 0.0) or getattr(pos, "entry_price", 0.0)
-                self._shared_paper_session.close_position(sym, price, order_type="MARKET", reason=reason)
-                closed_position = True
+        submitted = False
+        if self._shared_paper_session:
+            position = self._shared_paper_session.positions.get(sym)
+            if position and position.qty > 0 and not position.closed:
+                price = self._observed_close_price(sym)
+                submitted = bool(self._shared_paper_session.close_position(
+                    sym, price, order_type="MARKET", reason=reason,
+                ))
 
         if pause_after:
             await self.pause_pair(sym, close_position=False, reason=reason)
         status = self.pair_states.get(sym, "paused" if pause_after else "active")
-        return {"symbol": sym, "status": status, "reason": reason, "closed_position": closed_position, "detail": f"Market close executed for {sym}"}
+        return {"symbol": sym, "status": status, "reason": reason, "exit_order_submitted": submitted,
+                "closed_position": False, "detail": f"Market exit order submitted for {sym}" if submitted else "No open position"}
+
+    def _observed_close_price(self, symbol: str, now_ms: Optional[int] = None) -> float:
+        sym = symbol.upper()
+        shared = self._shared_paper_session
+        now = int(now_ms if now_ms is not None else time.time() * 1000)
+        session = self.sessions.get(sym)
+        runner = session.runner if session else None
+        observed_at = int(getattr(runner, "last_successful_data_at", 0) or 0)
+        price = float(shared.last_prices.get(sym, 0) or 0) if shared else 0.0
+        if not (runner and runner.is_running and price > 0 and 0 <= now - observed_at <= 30_000):
+            raise ValueError(f"{sym}: fresh observed price is required for a market paper exit")
+        return price
 
     def get_pairs(self) -> List[Dict[str, Any]]:
         pairs = []

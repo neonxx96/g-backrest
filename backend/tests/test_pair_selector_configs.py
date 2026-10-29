@@ -53,3 +53,27 @@ def test_liquid_crypto_candidates_include_additional_distinct_pairs():
     assert len(DEFAULT_SYMBOLS) >= 28
     assert len(DEFAULT_SYMBOLS) == len(set(DEFAULT_SYMBOLS))
     assert {"HYPEUSDT", "BCHUSDT", "AAVEUSDT", "LTCUSDT"} <= set(DEFAULT_SYMBOLS)
+
+
+def test_demo_selection_retains_negative_history_as_labeled_candidate():
+    class Backtester:
+        def run_backtest(self, **kwargs):
+            return {"total_trades": 12, "net_pnl": -2.0, "profit_factor": 0.8, "win_rate_pct": 25.0}
+
+    frame = pd.DataFrame({"close": range(300)})
+    result = evaluate_symbol_sync(Backtester(), {"15m": (frame, frame)}, "BTCUSDT")
+    assert result["verdict"] == "SKIP"
+    assert result["best"]["train"]["net"] < 0
+    config = build_pilot_configs({"days": 14, "results": [result]}, include_skip_for_demo=True)
+    assert len(config) == 1
+    assert config[0]["symbol"] == "BTCUSDT"
+    assert config[0]["ai_control"] is False
+    assert config[0]["risk_per_trade_pct"] <= 0.15
+
+
+def test_demo_keeps_zero_signal_history_visible_but_rejects_no_data():
+    selection = {"results": [
+        {"symbol": "A", "verdict": "SKIP", "best": {"strategy": "ema_trend", "timeframe": "5m", "sl": 0.5, "tp": 1.0, "train": {"trades": 0}}},
+        {"symbol": "B", "verdict": "NO_DATA"},
+    ]}
+    assert [config["symbol"] for config in build_pilot_configs(selection, include_skip_for_demo=True)] == ["A"]

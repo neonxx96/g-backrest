@@ -24,12 +24,24 @@
 | **Pyramiding (Adding to size)** | `DISABLED` | `ENABLE_PYRAMIDING = False` strictly enforced pending comparative backtesting. |
 | **Trade Post-Mortem & Analytics**| `ACTIVE` | MFE/MAE analysis, Fee Burden Index, loss classification, UI "Аналитика & Винрейт" tab. |
 | **Strategy & TF Pair Selector** | `ACTIVE` | Automated strategy/TF selection with Out-Of-Sample validation (70% TRAIN / 30% OOS). |
-| **Overnight Paper Marathon** | `RUNNING` | 7 validated pairs in Docker (ZEC SELECT, BNB/ENA/WLD/UNI/TIA/TRX EXPLORE) on $1,000. |
+| **Overnight Paper Marathon** | `ACTIVE` | 15 demo runners on one $1,000 shared account; connected feeds and persisted profiles verified on host, fills pending live setups. |
 | **Design System & Tokens** | `READY` | shadcn/ui primitives, 28px Dockview tabs, 4 theme presets, lint ratchet (1031 baseline). |
 
 ---
 
 ## 2. Completed Milestones
+
+- **2026-10-29 [Kimi] Task DEV-MERGE-01: Integrate marathon + challenger lines into `dev`**:
+  - Committed Codex's pending challenger increment on `dev` (83ac085): catalog-driven alternative evaluation via backtest+forecast every 15 min per active pair, deduplicated by config fingerprint; guarded auto-switch only for flat pairs with fresh forecast and explicit `auto_strategy_switch`; UI shows challenger status and AUTO STRATEGY toggle.
+  - Committed Cline's uncommitted marathon work on `feature/diagnostic-paper-run` (1e20107): demo observation keeps historical `SKIP` candidates with real TRAIN/OOS profiles while preserving data/regime/sizing checks; per-pair entry pause; `reconcile_paper_stop` tool.
+  - Merged both lines into `dev` (single conflict in `pair_selector.py` resolved as `ai_control=not include_skip_for_demo`, `auto_strategy_switch=True` per merged test contract). Added `playwright`/`pytest-playwright` to `requirements.txt` so a fresh venv passes the blocking UI smoke.
+  - Environment note: removing the Codex integration worktree followed its junctions and wiped `.venv`, `frontend/node_modules` and the `data/recorded` lake in the main checkout; all were rebuilt (`venv`+`requirements.txt`, `npm ci`, recorder re-created the lake on backend start). `data/signals.db` and backups were untouched.
+  - `scripts/check.ps1` exit **0** in `logs/quality-gate-merge2.log`: host pytest 635 passed, 37 skipped; frontend tests/build, design lint, docs, critical smoke, blocking Playwright and live WebSocket passed. Docker/Linux async coverage unavailable locally.
+
+- **2026-10-29 [Codex] Task MARATHON-03: Demo observation across 15 pairs**:
+  - Kept historical `SKIP` profiles eligible for demo observation while preserving current data, toxic-regime, strategy-signal, and risk checks. Added exact per-pair preflight/start to the existing widget, a shared account, and safe per-pair entry pause. Reconciled one orphaned BNB paper position against observed closed 1m market data after a database backup.
+  - Runtime: 15/15 paper runners active and data-connected, each with at least one evaluation and a persisted profile fingerprint; 0 new fills so far. Backend/frontend identities and SQLite integrity verified. Current account `overnight_shared_1793263962` remains running.
+  - `scripts/check.ps1` exit **0** in `logs/quality-gate-20261029-demo-pairs-4.log`: host pytest 625 passed, 37 skipped; frontend tests/build, design lint, docs, critical smoke, Playwright, and live WebSocket passed. Docker unavailable; Linux async coverage not run.
 
 - **2026-10-28 [Codex] Task PAPER-AUTOPILOT-RECOVERY**:
   - Fixed the AI paper-autopilot chain so auto-selection executes preflight before start, excludes only BLOCK verdicts, rechecks the exact allowed set, and never performs a real order.

@@ -367,6 +367,9 @@ export default function OvernightPilotPanel({ onClose }) {
   const [optimization, setOptimization] = useState({});
   const [preflightConfigKey, setPreflightConfigKey] = useState('');
   const [pairStates, setPairStates] = useState({});
+  const [accountMode, setAccountMode] = useState('demo');
+  const [newSymbol, setNewSymbol] = useState('');
+  const [pairPreflights, setPairPreflights] = useState({});
   const pilotRunning = Object.values(status.sessions || {}).some((session) => session.paper?.is_running);
   const preflightCurrent = Boolean(status.preflight_id && preflightConfigKey === JSON.stringify(configs));
 
@@ -488,6 +491,51 @@ export default function OvernightPilotPanel({ onClose }) {
 
   const update = (index, key, value) => setConfigs((prev) => prev.map((item, i) => i === index ? { ...item, [key]: value } : item));
 
+  const addPair = () => {
+    const symbol = newSymbol.trim().toUpperCase();
+    if (!/^[A-Z0-9]{2,20}USDT$/.test(symbol)) { setError('Укажите USDT-M пару, например BTCUSDT.'); return; }
+    if (configs.some((item) => item.symbol.toUpperCase() === symbol)) { setError(`${symbol} уже добавлена.`); return; }
+    if (configs.length >= 100 || !configs.length) { setError('Можно выбрать от 1 до 100 пар.'); return; }
+    const template = configs[0];
+    setConfigs((prev) => [...prev, {
+      ...template, symbol, strategy_type: 'ema_trend', timeframe: '15m',
+      days: 14, initial_capital: 1000, risk_per_trade_pct: 0.15,
+      stop_loss_pct: 0.8, take_profit_pct: 1.6, leverage: 3,
+      min_density_usd: 0, volume_multiplier: 0, ai_control: false,
+      use_cvd_filter: false, use_oi_filter: false, use_rsi_filter: false,
+    }]);
+    setNewSymbol(''); setError('');
+  };
+
+  const prepareOne = async (config) => {
+    setBusy(true); setError('');
+    try {
+      const res = await fetch(`${API}/pairs/prepare`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || `Не удалось проверить ${config.symbol}`);
+      setPairPreflights((prev) => ({ ...prev, [config.symbol]: { configKey: JSON.stringify(config), data } }));
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+
+  const startOne = async (config) => {
+    const prepared = pairPreflights[config.symbol];
+    if (!prepared || prepared.configKey !== JSON.stringify(config)) {
+      setError(`${config.symbol}: профиль изменён; повторите backtest + forecast.`); return;
+    }
+    setBusy(true); setError('');
+    try {
+      const res = await fetch(`${API}/pairs/start-demo?preflight_id=${encodeURIComponent(prepared.data.preflight_id)}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || `Не удалось запустить ${config.symbol}`);
+      setStatus(data);
+      setPairPreflights((prev) => { const next = { ...prev }; delete next[config.symbol]; return next; });
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+
   const loadDiversifiedPaper = async () => {
     if (pilotRunning) return;
     setBusy(true); setError('');
@@ -508,7 +556,8 @@ export default function OvernightPilotPanel({ onClose }) {
     }
     setBusy(true); setError('');
     try {
-      const res = await fetch(`${API}/start?preflight_id=${encodeURIComponent(status.preflight_id)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(configs) });
+      if (accountMode !== 'demo') throw new Error('Биржевой счёт доступен только для просмотра; отправка реальных ордеров отключена.');
+      const res = await fetch(`${API}/start-demo?preflight_id=${encodeURIComponent(status.preflight_id)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(configs) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Не удалось запустить пилот');
       setStatus(data);
@@ -529,7 +578,12 @@ export default function OvernightPilotPanel({ onClose }) {
 
   const stop = async () => {
     setBusy(true);
-    try { const res = await fetch(`${API}/stop`, { method: 'POST' }); setStatus(await res.json()); } catch (err) { setError(err.message); } finally { setBusy(false); }
+    try {
+      const res = await fetch(`${API}/pairs/pause-all`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Не удалось остановить новые входы');
+      await refresh();
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
   };
 
   const optimize = async (config) => {
@@ -574,14 +628,25 @@ export default function OvernightPilotPanel({ onClose }) {
   return (
     <div data-testid="overnight-pilot-panel" className="absolute inset-3 z-50 rounded-lg border border-amber-400/30 bg-[#090c10] text-foreground shadow-2xl overflow-auto">
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
-        <div><div className="text-[12px] font-bold text-amber-300">Ночной пилот · 3 стратегии</div><div className="text-[11px] text-muted-foreground">Backtest → Forecast → Paper Trading · реальные ордера отключены</div></div>
+        <div><div className="text-[12px] font-bold text-amber-300">Пары и стратегии · {configs.length}</div><div className="text-[11px] text-muted-foreground">Пара → Backtest → Forecast → запуск/стоп · реальные ордера отключены</div></div>
         <button onClick={onClose} className="text-muted-foreground hover:text-foreground">✕</button>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 px-3 pt-2">
+        <label className="text-[11px] text-muted-foreground">Счёт
+          <select aria-label="Тип счёта" value={accountMode} onChange={(event) => setAccountMode(event.target.value)} className="ml-2 rounded border border-border bg-background px-2 py-1 text-foreground">
+            <option value="demo">Демо · paper</option>
+            <option value="exchange" disabled>Биржевой · недоступен в paper-терминале</option>
+          </select>
+        </label>
+        <input aria-label="Добавить пару" value={newSymbol} onChange={(event) => setNewSymbol(event.target.value.toUpperCase())} onKeyDown={(event) => { if (event.key === 'Enter') addPair(); }} placeholder="BTCUSDT" className="w-28 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground" />
+        <Button variant="outline" size="xs" disabled={busy || configs.length >= 100} onClick={addPair}>Добавить пару</Button>
+        <span className="text-[10px] text-muted-foreground">До 100 пар; общий риск и лимит позиций остаются прежними.</span>
       </div>
       <div className="flex items-center justify-between px-3 pt-2">
         <div className="text-[11px] font-semibold text-foreground">Управление парами</div>
         <div className="flex items-center gap-1.5">
           <Button variant="outline" size="xs" disabled={busy} onClick={pauseAllPairs}>
-            Приостановить все
+            Стоп новых входов
           </Button>
           <Button variant="outline" size="xs" disabled={busy} onClick={resumeAllPairs}>
             Возобновить все
@@ -599,18 +664,20 @@ export default function OvernightPilotPanel({ onClose }) {
                   <Badge variant="warning" className="text-[9px]">paused</Badge>
                 ) : pairStates[config.symbol] === 'closed' ? (
                   <Badge variant="neutral" className="text-[9px]">closed</Badge>
-                ) : (
+                ) : status.sessions?.[config.symbol]?.paper?.is_running ? (
                   <Badge variant="success" className="text-[9px]">active</Badge>
+                ) : (
+                  <Badge variant="neutral" className="text-[9px]">не запущена</Badge>
                 )}
               </div>
               <div className="flex items-center gap-1">
                 <Button
                   variant="outline"
                   size="xs"
-                  disabled={busy}
+                  disabled={busy || !status.sessions?.[config.symbol]?.paper?.is_running}
                   onClick={() => pairStates[config.symbol] === 'paused' ? resumePair(config.symbol) : pausePair(config.symbol)}
                 >
-                  {pairStates[config.symbol] === 'paused' ? 'Возобновить' : 'Приостановить'}
+                  {pairStates[config.symbol] === 'paused' ? 'Возобновить входы' : 'Стоп входы'}
                 </Button>
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
@@ -641,7 +708,7 @@ export default function OvernightPilotPanel({ onClose }) {
             <label title="Размер одной свечи. Меньший timeframe даёт больше сигналов, но больше рыночного шума." className="block text-[11px] text-muted-foreground">Timeframe<select value={config.timeframe} onChange={(e) => update(index, 'timeframe', e.target.value)} className="ml-2 rounded bg-background px-1 py-0.5 text-foreground"><option>5m</option><option>15m</option><option>1h</option></select></label>
             <div className="grid grid-cols-3 gap-1">
               <label title="Сколько последних дней полной истории использовать в backtest. При выборе прибыльного участка статистика искажается." className="text-[11px] text-muted-foreground">History days<input type="number" min="1" max="30" step="1" value={config.days} onChange={(e) => update(index, 'days', Number(e.target.value))} className="mt-1 w-full rounded bg-background px-1 py-1 text-[10px] text-foreground" /></label>
-              <label title="Отдельный виртуальный баланс этой стратегии. Реальные средства не используются." className="text-[11px] text-muted-foreground">Paper $<input type="number" min="100" step="100" value={config.initial_capital} onChange={(e) => update(index, 'initial_capital', Number(e.target.value))} className="mt-1 w-full rounded bg-background px-1 py-1 text-[10px] text-foreground" /></label>
+              <label title="Расчётный капитал backtest; активные пары используют один общий демо-счёт $1,000." className="text-[11px] text-muted-foreground">Backtest $<input type="number" min="100" step="100" value={config.initial_capital} onChange={(e) => update(index, 'initial_capital', Number(e.target.value))} className="mt-1 w-full rounded bg-background px-1 py-1 text-[10px] text-foreground" /></label>
               <label title="Автоматическая остановка paper-сессии. По умолчанию 24 часа; остановить можно вручную раньше." className="text-[11px] text-muted-foreground">Duration h<input type="number" min="0.1" max="168" step="1" value={config.duration_hours} onChange={(e) => update(index, 'duration_hours', Number(e.target.value))} className="mt-1 w-full rounded bg-background px-1 py-1 text-[10px] text-foreground" /></label>
             </div>
             <div className="grid grid-cols-3 gap-1">
@@ -651,7 +718,7 @@ export default function OvernightPilotPanel({ onClose }) {
             </div>
             <div className="grid grid-cols-3 gap-1">
               <label title="Плечо виртуальной позиции. Увеличивает размер позиции, но не отменяет ограничение риска на сделку." className="text-[11px] text-muted-foreground">Leverage<input type="number" min="1" max="125" step="0.5" value={config.leverage} onChange={(e) => update(index, 'leverage', Number(e.target.value))} className="mt-1 w-full rounded bg-background px-1 py-1 text-[10px] text-foreground" /></label>
-              <label title="Минимальный множитель объёма для фильтра сигнала." className="text-[11px] text-muted-foreground">Vol ×<input type="number" min="0.5" max="20" step="0.1" value={config.volume_multiplier} onChange={(e) => update(index, 'volume_multiplier', Number(e.target.value))} className="mt-1 w-full rounded bg-background px-1 py-1 text-[10px] text-foreground" /></label>
+              <label title="Минимальный множитель объёма для фильтра сигнала." className="text-[11px] text-muted-foreground">Vol ×<input type="number" min="0" max="20" step="0.1" value={config.volume_multiplier} onChange={(e) => update(index, 'volume_multiplier', Number(e.target.value))} className="mt-1 w-full rounded bg-background px-1 py-1 text-[10px] text-foreground" /></label>
               <label title="Минимальный размер плотности стакана для кластерной стратегии. В историческом OHLCV-бэктесте L2-фильтр не применяется." className="text-[11px] text-muted-foreground">Density $<input type="number" min="0" step="50000" value={config.min_density_usd} onChange={(e) => update(index, 'min_density_usd', Number(e.target.value))} className="mt-1 w-full rounded bg-background px-1 py-1 text-[10px] text-foreground" /></label>
             </div>
             <div className="grid grid-cols-2 gap-1">
@@ -678,6 +745,17 @@ export default function OvernightPilotPanel({ onClose }) {
                 AUTO STRATEGY
               </label>
             </div>
+            <div className="flex flex-wrap gap-1 border-t border-border pt-2">
+              <Button data-testid={`btn-pair-prepare-${config.symbol}`} variant="outline" size="xs" disabled={busy || Boolean(status.sessions?.[config.symbol]?.paper?.is_running)} onClick={() => prepareOne(config)}>1. Бэктест + прогноз</Button>
+              <Button data-testid={`btn-pair-start-${config.symbol}`} size="xs" disabled={busy || accountMode !== 'demo' || Boolean(status.sessions?.[config.symbol]?.paper?.is_running) || pairPreflights[config.symbol]?.configKey !== JSON.stringify(config)} onClick={() => startOne(config)}>2. Запустить демо</Button>
+              <Button variant="outline" size="xs" disabled={busy || Boolean(status.sessions?.[config.symbol]?.paper?.is_running) || configs.length <= 1} onClick={() => setConfigs((prev) => prev.filter((item) => item.symbol !== config.symbol))}>Убрать из списка</Button>
+            </div>
+            {pairPreflights[config.symbol]?.configKey === JSON.stringify(config) && <div className="rounded border border-border bg-background/60 p-2 text-[10px] text-muted-foreground">
+              <div className="font-bold text-foreground">Проверенный профиль: {config.symbol} · {config.strategy_type} · {config.timeframe}</div>
+              <div>Backtest net ${Number(pairPreflights[config.symbol].data.session?.backtest?.summary?.net_pnl_usd || 0).toFixed(2)} · Win {Number(pairPreflights[config.symbol].data.session?.backtest?.summary?.win_rate_pct || 0).toFixed(1)}% · историческая оценка {pairPreflights[config.symbol].data.verdict?.level} (для демо не отсеивает)</div>
+              <div>Сценарий: {pairPreflights[config.symbol].data.session?.forecast?.base_scenario?.direction || pairPreflights[config.symbol].data.session?.forecast?.unified_signal?.direction || 'NO_TRADE'} · {pairPreflights[config.symbol].data.session?.forecast?.data_status || 'unknown'}</div>
+              <div>{pairPreflights[config.symbol].data.verdict?.reasons?.join('; ') || 'Результат истории информационный для демо.'}</div>
+            </div>}
             <div className="grid grid-cols-3 gap-1"><Metric label="Backtest ROI" value={formatPct(status.sessions?.[config.symbol]?.backtest?.summary?.total_pnl_pct)} /><Metric label="Net PnL" value={status.sessions?.[config.symbol]?.backtest?.summary?.net_pnl_usd != null ? `$${Number(status.sessions[config.symbol].backtest.summary.net_pnl_usd).toFixed(2)}` : null} /><Metric label="PF / Win" value={status.sessions?.[config.symbol]?.backtest?.summary?.profit_factor != null ? `${status.sessions[config.symbol].backtest.summary.profit_factor} / ${formatPct(status.sessions[config.symbol].backtest.summary.win_rate_pct, 1)}` : null} /></div>
             <div className="grid grid-cols-3 gap-1"><Metric label="Win rate" value={status.sessions?.[config.symbol]?.backtest?.summary?.win_rate_pct != null ? `${status.sessions[config.symbol].backtest.summary.win_rate_pct}%` : null} /><Metric label="Max DD" value={status.sessions?.[config.symbol]?.backtest?.summary?.max_drawdown_pct != null ? `${status.sessions[config.symbol].backtest.summary.max_drawdown_pct}%` : null} /><Metric label="Paper equity" value={status.sessions?.[config.symbol]?.paper?.current_equity != null ? `$${Number(status.sessions[config.symbol].paper.current_equity).toFixed(2)}` : 'IDLE'} /></div>
             <AppliedProfile session={status.sessions?.[config.symbol]} />
@@ -707,7 +785,7 @@ export default function OvernightPilotPanel({ onClose }) {
       </div>}
       {error && <div className="mx-3 rounded border border-red-500/30 bg-bear-soft/20 p-2 text-[10px] text-red-300">{error}</div>}
       {!pilotRunning && status.sessions && Object.keys(status.sessions).length > 0 && !preflightCurrent && <div data-testid="overnight-preflight-stale" className="mx-3 mb-2 rounded border border-amber-500/30 bg-amber-950/20 p-2 text-[10px] text-amber-200">Конфигурация не проверена или изменилась. Повторите backtest + forecast перед запуском.</div>}
-      <div className="flex flex-wrap gap-2 px-3 pb-3"><button data-testid="btn-load-diversified-paper" disabled={busy || pilotRunning} onClick={loadDiversifiedPaper} title="Загрузить BTC EMA, ETH CVD Absorption и SOL Cluster Bounce с отдельными параметрами; активную paper-сессию не изменяет." className="rounded border border-violet-400/50 bg-violet-950/30 px-3 py-1.5 text-[10px] font-bold text-violet-200 disabled:opacity-50">Загрузить 3 стратегии</button><button data-testid="btn-overnight-preflight" disabled={busy || pilotRunning} onClick={preflight} title="Для каждого выбранного символа выполнит исторический backtest, live forecast и генетический поиск параметров с отдельной проверкой OOS." className="rounded border border-cyan-400/50 bg-cyan-950/30 px-3 py-1.5 text-[10px] font-bold text-cyan-200 disabled:opacity-50">{busy ? 'Расчёт…' : pilotRunning ? '1. Сначала остановите paper' : '1. Backtest + forecast + optimize'}</button><button data-testid="btn-overnight-start" disabled={busy || pilotRunning || !preflightCurrent} onClick={start} title={!preflightCurrent ? 'Сначала выполните backtest и forecast для этой конфигурации.' : 'Запустить paper на проверенной конфигурации.'} className="rounded bg-amber-300 px-3 py-1.5 text-[10px] font-bold text-neutral-950 disabled:opacity-50">{pilotRunning ? 'Paper уже запущен' : '2. Запустить paper'}</button><button disabled={busy} onClick={stop} className="rounded border border-red-400/40 px-3 py-1.5 text-[10px] text-red-300 disabled:opacity-50">Остановить все</button></div>
+      <div className="flex flex-wrap gap-2 px-3 pb-3"><button data-testid="btn-load-diversified-paper" disabled={busy || pilotRunning} onClick={loadDiversifiedPaper} title="Загрузить BTC EMA, ETH CVD Absorption и SOL Cluster Bounce с отдельными параметрами; активную paper-сессию не изменяет." className="rounded border border-violet-400/50 bg-violet-950/30 px-3 py-1.5 text-[10px] font-bold text-violet-200 disabled:opacity-50">Загрузить 3 стратегии</button><button data-testid="btn-overnight-preflight" disabled={busy || pilotRunning} onClick={preflight} title="Для каждого выбранного символа выполнит исторический backtest и live forecast; для добавления к работающему счёту используйте кнопку в карточке пары." className="rounded border border-cyan-400/50 bg-cyan-950/30 px-3 py-1.5 text-[10px] font-bold text-cyan-200 disabled:opacity-50">{busy ? 'Расчёт…' : pilotRunning ? 'Добавляйте пары по одной' : '1. Backtest + forecast + optimize'}</button><button data-testid="btn-overnight-start" disabled={busy || pilotRunning || !preflightCurrent || accountMode !== 'demo'} onClick={start} title={!preflightCurrent ? 'Сначала выполните backtest и forecast для этой конфигурации.' : 'Запустить demo paper на проверенной конфигурации.'} className="rounded bg-amber-300 px-3 py-1.5 text-[10px] font-bold text-neutral-950 disabled:opacity-50">{pilotRunning ? 'Paper уже запущен' : '2. Запустить демо'}</button><button disabled={busy} onClick={stop} className="rounded border border-border px-3 py-1.5 text-[10px] text-foreground disabled:opacity-50">Стоп новых входов (SL/TP работают)</button></div>
     </div>
   );
 }

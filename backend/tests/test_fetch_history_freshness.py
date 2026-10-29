@@ -8,6 +8,7 @@ growing). Live consumers must be able to demand a fresh frame.
 """
 
 import time
+import sys
 from unittest.mock import patch
 
 import pandas as pd
@@ -53,6 +54,15 @@ async def _failing_get_session():
 
 def _run(coro):
     import asyncio
+    if sys.platform == "win32":
+        # These fixtures resolve every awaited dependency synchronously.  The
+        # Windows sandbox forbids the socketpair needed just to create an
+        # asyncio event loop; drive this bounded coroutine without one.
+        try:
+            coro.send(None)
+        except StopIteration as completed:
+            return completed.value
+        raise AssertionError("fetch_history fixture unexpectedly suspended")
     return asyncio.run(coro)
 
 

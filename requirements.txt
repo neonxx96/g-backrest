@@ -25,3 +25,5 @@ aiogram>=3.4.0
 # Testing & Quality Gate Framework
 pytest>=8.0.0
 anyio>=4.0.0
+playwright>=1.40.0
+pytest-playwright>=0.6.0

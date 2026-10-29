@@ -81,8 +81,21 @@ def evaluate_symbol_sync(bt, frames: Dict[str, Any], sym: str) -> Dict[str, Any]
                 rows.append({"strategy": strat, "timeframe": tf, "sl": sl, "tp": tp, "train": summarize(res)})
     best = pick_best(rows)
     if best is None:
-        return {"symbol": sym, "verdict": "SKIP", "reason": "нет конфигурации с положительным TRAIN net",
-                "candidates": len(rows)}
+        diagnostic = [row for row in rows if row["train"]["trades"] > 0]
+        if not rows:
+            return {"symbol": sym, "verdict": "NO_DATA", "reason": "исторический backtest не смог оценить конфигурации",
+                    "candidates": 0}
+        best = max(diagnostic or rows, key=lambda row: (row["train"]["net"], row["train"]["trades"]))
+        _, oos_df = frames[best["timeframe"]]
+        try:
+            best["oos"] = summarize(bt.run_backtest(
+                df=oos_df.copy(), strategy_type=best["strategy"],
+                stop_loss_pct=best["sl"], take_profit_pct=best["tp"], **BT_PARAMS
+            ))
+        except Exception:
+            best["oos"] = {"trades": 0, "win": 0.0, "net": 0.0, "pf": 0.0, "dd": 0.0}
+        return {"symbol": sym, "verdict": "SKIP", "reason": "TRAIN net не положителен или нет сделок; демо-наблюдение возможно",
+                "best": best, "candidates": len(rows)}
     _, oos_df = frames[best["timeframe"]]
     res = bt.run_backtest(df=oos_df.copy(), strategy_type=best["strategy"],
                           stop_loss_pct=best["sl"], take_profit_pct=best["tp"], **BT_PARAMS)
@@ -129,22 +142,25 @@ def load_last_selection() -> Optional[Dict[str, Any]]:
 
 
 def build_pilot_configs(selection: Dict[str, Any], include_explore: bool = True,
-                        duration_hours: float = 24.0, capital: float = 1000.0) -> List[Dict[str, Any]]:
+                        duration_hours: float = 24.0, capital: float = 1000.0,
+                        include_skip_for_demo: bool = False) -> List[Dict[str, Any]]:
     """Преобразует результат селектора в словари для OvernightPilotConfig."""
     out: List[Dict[str, Any]] = []
     for r in selection.get("results", []):
         v = r.get("verdict")
-        if v not in ("SELECT", "EXPLORE") or (v == "EXPLORE" and not include_explore):
+        if v not in (("SELECT", "EXPLORE", "SKIP") if include_skip_for_demo else ("SELECT", "EXPLORE")) or (v == "EXPLORE" and not include_explore):
             continue
-        b = r["best"]
+        b = r.get("best")
+        if not b:
+            continue
         out.append({
             "symbol": r["symbol"], "strategy_type": b["strategy"], "timeframe": b["timeframe"],
             "days": int(selection.get("days", 14)), "initial_capital": capital,
-            "risk_per_trade_pct": RISK_SELECT_PCT if v == "SELECT" else RISK_EXPLORE_PCT,
+            "risk_per_trade_pct": RISK_SELECT_PCT if v == "SELECT" and not include_skip_for_demo else RISK_EXPLORE_PCT,
             "stop_loss_pct": b["sl"], "take_profit_pct": b["tp"], "leverage": 3.0,
             "duration_hours": duration_hours, "min_density_usd": 0.0, "volume_multiplier": 0.0,
             "use_atr_filter": True, "use_cvd_filter": False, "use_oi_filter": False, "use_rsi_filter": False,
             "use_multi_tp": False, "use_trailing": True, "trailing_pct": 0.5, "trailing_activation_pct": 0.5,
-            "sl_tp_mode": "fixed", "ai_control": True, "auto_strategy_switch": True,
+            "sl_tp_mode": "fixed", "ai_control": not include_skip_for_demo, "auto_strategy_switch": True,
         })
     return out

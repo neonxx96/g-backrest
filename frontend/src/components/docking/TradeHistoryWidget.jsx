@@ -250,7 +250,7 @@ export default function TradeHistoryWidget(props) {
       const res = await fetch(`${API_BASE}/overnight-pilot/auto-select`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ days: 14, include_explore: true, duration_hours: 24, rerun: true, start: true })
+        body: JSON.stringify({ days: 14, include_explore: true, duration_hours: 24, rerun: true, start: true, demo: true, target_pairs: 15 })
       });
       if (!res.ok) {
         const detail = await res.json().catch(() => ({}));
@@ -259,7 +259,7 @@ export default function TradeHistoryWidget(props) {
       await fetchPilotStatus();
     } catch (err) {
       console.error('Failed to start marathon:', err);
-      setError(`AI-марафон не запущен: ${err.message}`);
+      setError(`Демо-марафон не запущен: ${err.message}`);
     } finally {
       setMarathonBusy(false);
     }
@@ -268,7 +268,8 @@ export default function TradeHistoryWidget(props) {
   const handleStopMarathon = async () => {
     setMarathonBusy(true);
     try {
-      await fetch(`${API_BASE}/overnight-pilot/stop`, { method: 'POST' });
+      const res = await fetch(`${API_BASE}/overnight-pilot/pairs/pause-all`, { method: 'POST' });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`);
       await fetchPilotStatus();
     } catch (err) {
       console.error('Failed to stop marathon:', err);
@@ -1353,10 +1354,10 @@ export default function TradeHistoryWidget(props) {
                     disabled={marathonBusy}
                     onClick={handleStopMarathon}
                     className="flex items-center space-x-1 px-2.5 py-1 rounded text-[10px] font-mono font-bold bg-bear-soft hover:bg-rose-900 text-rose-200 border border-rose-700 cursor-pointer transition disabled:opacity-50"
-                    title="Остановить марафон по всем 20 парам"
+                    title="Остановить новые входы по всем парам; открытые позиции продолжают сопровождаться до SL/TP"
                   >
                     <Square size={10} fill="currentColor" />
-                    <span>{marathonBusy ? 'Остановка…' : '⏹ Стоп марафон'}</span>
+                    <span>{marathonBusy ? 'Остановка входов…' : '⏹ Стоп новых входов'}</span>
                   </button>
                 ) : (
                   <button
@@ -1364,10 +1365,10 @@ export default function TradeHistoryWidget(props) {
                     disabled={marathonBusy}
                     onClick={handleStartMarathon}
                     className="flex items-center space-x-1 px-2.5 py-1 rounded text-[10px] font-mono font-bold bg-bull-soft hover:bg-emerald-900 text-emerald-200 border border-emerald-700 cursor-pointer transition disabled:opacity-50"
-                    title="Запустить марафон по всем 20 парам ($1,000 shared wallet, AI DeepSeek V4.1 Flash)"
+                    title="Подобрать до 15 криптопар локальным алгоритмом и запустить демо на общем paper-счёте $1,000; исторический win rate не отсекает пары"
                   >
                     <Play size={10} fill="currentColor" />
-                    <span>{marathonBusy ? 'Запуск…' : '▶ Запустить марафон (20 пар)'}</span>
+                    <span>{marathonBusy ? 'Запуск…' : '▶ Подобрать и запустить демо (15 пар)'}</span>
                   </button>
                 )}
                 <Button
