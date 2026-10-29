@@ -24,7 +24,7 @@
 | **Pyramiding (Adding to size)** | `DISABLED` | `ENABLE_PYRAMIDING = False` strictly enforced pending comparative backtesting. |
 | **Trade Post-Mortem & Analytics**| `ACTIVE` | MFE/MAE analysis, Fee Burden Index, loss classification, UI "Аналитика & Винрейт" tab. |
 | **Strategy & TF Pair Selector** | `ACTIVE` | Automated strategy/TF selection with Out-Of-Sample validation (70% TRAIN / 30% OOS). |
-| **Overnight Paper Marathon** | `ACTIVE` | 15 demo runners on one $1,000 shared account; connected feeds and persisted profiles verified on host, fills pending live setups. |
+| **Overnight Paper Marathon** | `ACTIVE` | 13 demo runners on shared account `overnight_shared_1793301106` ($1,000, `dev` branch, launched 2026-10-29); challenger auto-switch enabled per pair, fills pending strategy signals. |
 | **Design System & Tokens** | `READY` | shadcn/ui primitives, 28px Dockview tabs, 4 theme presets, lint ratchet (1031 baseline). |
 
 ---
