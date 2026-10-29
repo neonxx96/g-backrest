@@ -1,5 +1,10 @@
 # HANDOFF.md — Current Repository Snapshot
 
+## 2026-10-29 pair-lab checkpoint (Kimi)
+
+- `dev` @ 8d49577 adds the self-service flow: `POST /api/overnight-pilot/pairs/screen` (read-only backtest+forecast of one symbol across the whole 8-strategy catalog, 16 combos, ~20s, per-symbol in-flight guard) + TradeHistoryWidget UI «Скрининг → Торговать» (exact prepare → start-demo onto the shared wallet; falls back to challenger submit when the pair already trades) + `PairChallengerQuickTest` per pair row. Gate green: 640 passed, 37 skipped (`logs/quality-gate-pairlab.log`).
+- Runtime after code restart: backend PID 30908 on `http://127.0.0.1:8000`; demo relaunched on shared account `overnight_shared_1793302714`, equity **$1,000**, **14 pairs running** (ADA, AVAX, BNB, BTC, DOGE, ENA, ETH, LINK, NEAR, SOL, SUI, UNI, XRP, ZEC; WLD excluded by live TOXIC_VOLATILITY). Live screen test TRXUSDT 7d returned 16 ranked rows in 18.5s (all-negative PnL, FLAT_DENSE). DB backup before restart: `data/backups/signals-20261029T193713Z-pre-restart.db`. Do not restart the backend while runners are active.
+
 ## 2026-10-29 dev integration checkpoint (Kimi)
 
 - Branch `dev` now integrates both active lines: marathon/demo-observation (`feature/diagnostic-paper-run` @ 1e20107) and strategy catalog + challenger/auto-switch (`dev` @ 83ac085). One merge conflict in `pair_selector.py` resolved per merged test contract: auto-created demo configs get `auto_strategy_switch=True` always, `ai_control=not include_skip_for_demo`.
