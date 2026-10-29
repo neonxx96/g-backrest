@@ -2,6 +2,13 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select';
 import PairControlRowActions from './PairControlRowActions';
 import {
   AlertDialog,
@@ -275,6 +282,82 @@ export default function TradeHistoryWidget(props) {
       console.error('Failed to stop marathon:', err);
     } finally {
       setMarathonBusy(false);
+    }
+  };
+
+  // Скрининг монеты по всему каталогу стратегий (бэктест + прогноз, read-only)
+  const [screenBusy, setScreenBusy] = useState(false);
+  const [screenResult, setScreenResult] = useState(null);
+  const [screenMsg, setScreenMsg] = useState('');
+  const [promoteBusy, setPromoteBusy] = useState('');
+
+  const handleScreenPair = async () => {
+    if (!newPairSymbol) return;
+    setScreenBusy(true);
+    setScreenMsg('');
+    setScreenResult(null);
+    try {
+      const res = await fetch(`${API_BASE}/overnight-pilot/pairs/screen`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: newPairSymbol, days: 14 }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.detail || `HTTP ${res.status}`);
+      setScreenResult(data);
+      setNewPairSymbol(data.symbol);
+    } catch (err) {
+      setScreenMsg(`Скрининг не выполнен: ${err.message}`);
+    } finally {
+      setScreenBusy(false);
+    }
+  };
+
+  // Перенос выбранной строки скрининга в тестовую торговлю (exact preflight → demo start);
+  // если пара уже торгуется — подаём challenger, auto-switch применит его на закрытой позиции.
+  const handleTradeScreenRow = async (row) => {
+    const symbol = (screenResult?.symbol || newPairSymbol || '').toUpperCase();
+    if (!symbol) return;
+    setPromoteBusy(`${row.strategy_type}:${row.timeframe}`);
+    setScreenMsg('');
+    try {
+      const prep = await fetch(`${API_BASE}/overnight-pilot/pairs/prepare`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(row.config),
+      });
+      const prepData = await prep.json().catch(() => ({}));
+      if (!prep.ok) {
+        const msg = String(prepData?.detail || `HTTP ${prep.status}`);
+        if (msg.includes('already running')) {
+          const ch = await fetch(`${API_BASE}/overnight-pilot/pairs/${symbol}/challengers`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ strategy_type: row.strategy_type }),
+          });
+          const chData = await ch.json().catch(() => ({}));
+          if (!ch.ok) throw new Error(String(chData?.detail || `HTTP ${ch.status}`));
+          setScreenMsg(`${symbol} уже торгуется. Претендент ${row.strategy_type} (${row.timeframe}) отправлен: ${chData?.recommendation || 'оценка'}; переключение при закрытой позиции.`);
+          return;
+        }
+        throw new Error(msg);
+      }
+      const start = await fetch(
+        `${API_BASE}/overnight-pilot/pairs/start-demo?preflight_id=${encodeURIComponent(prepData.preflight_id)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(row.config),
+        }
+      );
+      const startData = await start.json().catch(() => ({}));
+      if (!start.ok) throw new Error(String(startData?.detail || `HTTP ${start.status}`));
+      setScreenMsg(`✓ ${symbol}: ${row.strategy_type} ${row.timeframe} запущена в тестовой торговле (AI-контроль и auto-switch включены).`);
+      await Promise.all([fetchPilotStatus(), fetchPairControlStates(), fetchClosedHistory()]);
+    } catch (err) {
+      setScreenMsg(`Не удалось запустить: ${err.message}`);
+    } finally {
+      setPromoteBusy('');
     }
   };
 
@@ -1531,8 +1614,104 @@ export default function TradeHistoryWidget(props) {
                     >
                       Торговать
                     </button>
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      disabled={!newPairSymbol || screenBusy}
+                      onClick={handleScreenPair}
+                      className="flex-1 font-bold text-success border-success/60 hover:text-success"
+                      title="Оттестировать монету по всем стратегиям каталога (бэктест + прогноз), затем одна кнопка — в торговлю"
+                    >
+                      {screenBusy ? 'Скрининг…' : 'Скрининг'}
+                    </Button>
                   </div>
                 </div>
+
+                {/* Результаты скрининга: таблица стратегий → одна кнопка в тестовую торговлю */}
+                {screenMsg && (
+                  <div
+                    data-testid="screen-message"
+                    className={`px-2 py-1.5 rounded border text-[10.5px] font-mono ${
+                      screenMsg.startsWith('✓')
+                        ? 'bg-success/10 border-success/50 text-success'
+                        : 'bg-[#12161E] border-border text-foreground/80'
+                    }`}
+                  >
+                    {screenMsg}
+                  </div>
+                )}
+                {screenResult && (
+                  <div data-testid="screen-results" className="rounded border border-success/40 overflow-hidden">
+                    <div className="flex items-center justify-between px-2 py-1 bg-success/10 border-b border-success/40 font-mono text-[10px]">
+                      <span className="font-bold text-success">
+                        Скрининг {screenResult.symbol}: {screenResult.rows?.length ?? 0} вариантов (бэктест 14д + прогноз)
+                      </span>
+                      <span className="text-muted-foreground">сортировка: Net PnL ↓</span>
+                    </div>
+                    <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                      <table className="w-full text-left border-collapse text-[10.5px] font-mono">
+                        <thead>
+                          <tr className="border-b border-border bg-[#0E1217] text-muted-foreground uppercase text-[9.5px]">
+                            <th className="py-1 px-2">Стратегия</th>
+                            <th className="py-1 px-2">ТФ</th>
+                            <th className="py-1 px-2 text-right">Net PnL</th>
+                            <th className="py-1 px-2 text-right">Сделки</th>
+                            <th className="py-1 px-2 text-right">Win%</th>
+                            <th className="py-1 px-2 text-right">PF</th>
+                            <th className="py-1 px-2">Режим</th>
+                            <th className="py-1 px-2 text-center">В торговлю</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border/50">
+                          {(screenResult.rows || []).map((row) => {
+                            const pnl = row?.backtest?.net_pnl_usd;
+                            const busyKey = `${row.strategy_type}:${row.timeframe}`;
+                            return (
+                              <tr key={busyKey} className={row.ok ? '' : 'opacity-50'}>
+                                <td className="py-1 px-2 text-foreground/90" title={row.label}>
+                                  {row.strategy_type}
+                                </td>
+                                <td className="py-1 px-2 text-foreground/70">{row.timeframe}</td>
+                                <td
+                                  className={`py-1 px-2 text-right font-bold tabular-nums ${
+                                    pnl == null ? 'text-muted-foreground' : pnl >= 0 ? 'text-bull' : 'text-bear'
+                                  }`}
+                                >
+                                  {pnl == null ? '—' : `${pnl >= 0 ? '+' : ''}$${Number(pnl).toFixed(2)}`}
+                                </td>
+                                <td className="py-1 px-2 text-right text-foreground/80 tabular-nums">
+                                  {row?.backtest?.total_trades ?? '—'}
+                                </td>
+                                <td className="py-1 px-2 text-right text-foreground/80 tabular-nums">
+                                  {row?.backtest?.win_rate != null ? `${Number(row.backtest.win_rate).toFixed(0)}%` : '—'}
+                                </td>
+                                <td className="py-1 px-2 text-right text-foreground/80 tabular-nums">
+                                  {row?.backtest?.profit_factor != null ? Number(row.backtest.profit_factor).toFixed(2) : '—'}
+                                </td>
+                                <td className="py-1 px-2 text-foreground/70">
+                                  {row?.forecast?.market_regime || '—'}
+                                  {!row.ok && <span className="text-rose-300"> ({row.error || 'нет данных'})</span>}
+                                </td>
+                                <td className="py-1 px-2 text-center">
+                                  <Button
+                                    variant="accent"
+                                    size="dense"
+                                    disabled={!row.ok || promoteBusy !== ''}
+                                    onClick={() => handleTradeScreenRow(row)}
+                                    className="text-[9px] font-bold"
+                                    title="Точный preflight этой конфигурации → запуск на общем paper-счёте"
+                                  >
+                                    {promoteBusy === busyKey ? '…' : 'Торговать'}
+                                  </Button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1751,7 +1930,8 @@ export default function TradeHistoryWidget(props) {
                               title="Настроить и запустить paper-торговлю по этой паре"
                             >
                               Торговать
-                            </button>
+                            </button>{' '}
+                            <PairChallengerQuickTest symbol={pair.symbol} currentStrategy={pair.strategy} />
                           </td>
                         </tr>
                       );
@@ -1761,7 +1941,7 @@ export default function TradeHistoryWidget(props) {
               </div>
             )}
             <div className="mt-2 text-[9.5px] text-muted-foreground font-mono px-1">
-              Единый paper-модуль: подбор стратегии (бэктест / AI) → запуск торговли по паре → позиции и сделки выше. Баланс везде тестовый (paper), реальные деньги не используются.
+              Поток: «+ Добавить пару» → Скрининг (бэктест+прогноз по всем стратегиям) → «Торговать» на строке → пара торгуется на общем paper-счёте; challenger («Тест» в строке) проверяет альтернативы без остановки. Баланс везде тестовый (paper).
             </div>
           </div>
         )}
@@ -1856,6 +2036,69 @@ export default function TradeHistoryWidget(props) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Быстрый challenger-тест альтернативной стратегии для уже торгующей пары.
+ * POST /pairs/{symbol}/challengers — раннер не трогаем; auto-switch применит
+ * CANDIDATE сам, когда позиция закроется (или по кнопке promote в панели пилота).
+ */
+function PairChallengerQuickTest({ symbol, currentStrategy }) {
+  const [strategy, setStrategy] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const options = AVAILABLE_STRATEGIES.filter((s) => s.id !== currentStrategy);
+
+  const handleTest = async () => {
+    if (!strategy) return;
+    setBusy(true);
+    setFeedback('');
+    try {
+      const res = await fetch(`${API_BASE}/overnight-pilot/pairs/${symbol}/challengers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ strategy_type: strategy }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(data?.detail || `HTTP ${res.status}`));
+      const rec = data?.recommendation || 'оценка';
+      const pnl = data?.backtest?.summary?.net_pnl_usd;
+      setFeedback(
+        `${strategy}: ${rec}${pnl != null ? ` (PnL ${pnl >= 0 ? '+' : ''}$${Number(pnl).toFixed(2)})` : ''} — переключение при закрытой позиции`
+      );
+    } catch (err) {
+      setFeedback(`Ошибка: ${err.message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="inline-flex items-center space-x-1" title="Проверить альтернативную стратегию по бэктесту+прогнозу, не останавливая пару">
+      <Select value={strategy} onValueChange={setStrategy}>
+        <SelectTrigger className="h-5 w-[110px] px-1 text-[9px] bg-background border-border text-foreground/80" aria-label="Альтернативная стратегия">
+          <SelectValue placeholder="стратегия…" />
+        </SelectTrigger>
+        <SelectContent className="text-[9.5px] font-mono">
+          {options.map((s) => (
+            <SelectItem key={s.id} value={s.id}>{s.id}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Button
+        variant="subtle"
+        size="dense"
+        disabled={!strategy || busy}
+        onClick={handleTest}
+        className="text-[9px] font-bold"
+      >
+        {busy ? '…' : 'Тест'}
+      </Button>
+      {feedback && (
+        <span className="text-[8.5px] text-muted-foreground max-w-[220px] truncate" title={feedback}>{feedback}</span>
+      )}
     </div>
   );
 }

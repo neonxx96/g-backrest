@@ -195,7 +195,7 @@ JS/TS call targets are lexical candidates, not a type-resolved call graph.
 - **Imported by:** —
 
 ### `backend/app/routers/overnight_pilot.py`
-- **Public symbols:** `AutoSelectRequest`, `ChallengerRequest`, `ClosePairRequest`, `PausePairRequest`, `auto_select_and_start`, `emergency_close_pair`, `get_diversified_paper_defaults`, `get_last_auto_selection`, `get_overnight_defaults`, `get_overnight_status`, …
+- **Public symbols:** `AutoSelectRequest`, `ChallengerRequest`, `ClosePairRequest`, `PairScreenRequest`, `PausePairRequest`, `auto_select_and_start`, `emergency_close_pair`, `get_diversified_paper_defaults`, `get_last_auto_selection`, `get_overnight_defaults`, …
 - **Calls / imports:** `APIRouter`, `AutoSelectRequest`, `ClosePairRequest`, `DeepIntentLogger`, `Field`, `HTTPException`, `OvernightPilotConfig`, `PausePairRequest`, `build_pilot_configs`, `close_pair`, …
 - **Imported by:** —
 
@@ -1043,7 +1043,7 @@ JS/TS call targets are lexical candidates, not a type-resolved call graph.
 
 ### `frontend/src/components/docking/TradeHistoryWidget.jsx`
 - **Public symbols:** `TradeHistoryWidget`
-- **Calls / imports:** `Boolean`, `CustomEvent`, `Date`, `Error`, `Map`, `Number`, `Pilot`, `Set`, `String`, `Switch`, …
+- **Calls / imports:** `Boolean`, `CustomEvent`, `Date`, `Error`, `Map`, `Number`, `PairChallengerQuickTest`, `Pilot`, `Set`, `String`, …
 - **Imported by:** —
 
 ### `frontend/src/components/docking/TradesSettings.jsx`

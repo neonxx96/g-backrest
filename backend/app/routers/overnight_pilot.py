@@ -224,6 +224,21 @@ async def start_new_demo_pair(config: OvernightPilotConfig, preflight_id: str):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+class PairScreenRequest(BaseModel):
+    """Параметры скрининга монеты по всему каталогу стратегий (read-only лаборатория)."""
+    symbol: str
+    days: int = Field(14, ge=3, le=30)
+
+
+@router.post("/pairs/screen")
+async def screen_pair_strategies(req: PairScreenRequest):
+    """Backtest+forecast one symbol across the whole strategy catalog without touching runners."""
+    try:
+        return await overnight_pilot_manager.screen_pair(req.symbol, req.days)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/stop")
 async def stop_overnight_pilot():
     try:

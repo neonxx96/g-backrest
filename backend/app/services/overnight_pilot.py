@@ -163,6 +163,7 @@ class OvernightPilotManager:
         self._persist_lock = asyncio.Lock()
         self._shared_paper_session: Optional[PaperTradingSession] = None
         self._pending_pair_preflights: Dict[str, PilotSession] = {}
+        self._screen_inflight: Dict[str, float] = {}
 
     async def load_persisted_states(self) -> None:
         """Load durable operational pair states from SQLite on manager startup/restart."""
@@ -960,6 +961,99 @@ class OvernightPilotManager:
             await self.stop()
             await self._prepare(selected)
         return self.status()
+
+    async def screen_pair(self, symbol: str, days: int = 14) -> Dict[str, Any]:
+        """Read-only strategy lab: backtest+forecast one symbol across the whole catalog.
+
+        Never touches the shared paper wallet or active runners. Each strategy/timeframe
+        combination is probed in isolation (fresh manager) because the pilot session map
+        is keyed by symbol; concurrency is bounded to stay polite to public market APIs.
+        """
+        key = symbol.strip().upper()
+        if not (len(key) >= 6 and key.endswith("USDT") and key.isalnum()):
+            raise ValueError(f"invalid USDT-M symbol: {symbol!r}")
+        days = int(days)
+        if not 3 <= days <= 30:
+            raise ValueError("days must be within 3..30")
+        now = time.time()
+        last = self._screen_inflight.get(key)
+        if last and now - last < 90:
+            raise ValueError(f"screen for {key} is already running; wait for it to finish")
+        self._screen_inflight[key] = now
+        try:
+            combos = []
+            for strategy_id in HISTORICAL_STRATEGY_IDS:
+                descriptor = get_strategy_descriptor(strategy_id)
+                if not descriptor.paper_historical:
+                    continue
+                for timeframe in descriptor.supported_timeframes:
+                    if timeframe in ("5m", "15m"):
+                        combos.append((descriptor, timeframe))
+            if not combos:
+                raise ValueError("no screenable strategies in the catalog")
+
+            sem = asyncio.Semaphore(4)
+
+            async def _run_one(descriptor, timeframe: str) -> Dict[str, Any]:
+                config = OvernightPilotConfig(
+                    symbol=key, strategy_type=descriptor.id, timeframe=timeframe, days=days,
+                    initial_capital=1000.0, risk_per_trade_pct=0.5,
+                    min_density_usd=0.0, volume_multiplier=0.0,
+                    use_cvd_filter=False, use_rsi_filter=False,
+                    use_multi_tp=False, trailing_activation_pct=0.5,
+                    ai_control=True, auto_strategy_switch=True,
+                )
+                async with sem:
+                    probe = OvernightPilotManager()
+                    probe.intent_logger = self.intent_logger
+                    try:
+                        await probe._prepare([config])
+                    except Exception as exc:  # keep screening the remaining combinations
+                        return {
+                            "strategy_type": descriptor.id, "label": descriptor.label,
+                            "family": descriptor.family, "timeframe": timeframe, "ok": False,
+                            "error": str(exc), "config": config.model_dump(),
+                        }
+                session = probe.sessions.get(key)
+                summary = (session.backtest or {}).get("summary") or {} if session else {}
+                forecast = (session.forecast or {}) if session else {}
+                verdict = evaluate_verdict(
+                    net_pnl_usd=float(summary.get("net_pnl_usd", 0.0) or 0.0),
+                    trades=int(summary.get("total_trades", 0) or 0),
+                    profit_factor=float(summary.get("profit_factor", 0.0) or 0.0),
+                    regime=forecast.get("market_regime") or forecast.get("regime"),
+                ).to_dict()
+                return {
+                    "strategy_type": descriptor.id, "label": descriptor.label,
+                    "family": descriptor.family, "timeframe": timeframe,
+                    "ok": bool(session and session.preflight_valid),
+                    "error": (session.error if session else "probe unavailable"),
+                    "backtest": {
+                        "net_pnl_usd": summary.get("net_pnl_usd"),
+                        "total_trades": summary.get("total_trades"),
+                        "win_rate": summary.get("win_rate"),
+                        "profit_factor": summary.get("profit_factor"),
+                        "max_drawdown_usd": summary.get("max_drawdown_usd"),
+                    },
+                    "forecast": {
+                        "market_regime": forecast.get("market_regime") or forecast.get("regime"),
+                        "data_status": forecast.get("data_status"),
+                    },
+                    "verdict": verdict,
+                    "config": config.model_dump(),
+                }
+
+            rows = await asyncio.gather(*(_run_one(d, tf) for d, tf in combos))
+            ordered = sorted(
+                rows,
+                key=lambda r: (
+                    not r["ok"],
+                    -(float((r.get("backtest") or {}).get("net_pnl_usd") or 0.0)),
+                ),
+            )
+            return {"symbol": key, "days": days, "generated_at": int(now), "rows": ordered}
+        finally:
+            self._screen_inflight.pop(key, None)
 
     async def prepare_pair(self, config: OvernightPilotConfig) -> Dict[str, Any]:
         """Prepare one addition without altering an active shared paper account."""

@@ -22,7 +22,7 @@
 
 | Блок | Назначение и ключевые точки | Вход → выход |
 | --- | --- | --- |
-| Pilot API | `overnight_pilot.py`: `/strategies`, `/preflight`, `/start`, `/auto-select`, `/pairs`, `/pairs/{symbol}/challengers` | catalogue/status/config → JSON metadata, status/preflight/challenger evidence с `config_fingerprint` |
+| Pilot API | `overnight_pilot.py`: `/strategies`, `/preflight`, `/start`, `/auto-select`, `/pairs`, `/pairs/screen`, `/pairs/prepare`, `/pairs/start-demo`, `/pairs/{symbol}/challengers` | catalogue/status/config → JSON metadata, status/preflight/challenger evidence с `config_fingerprint`; `/pairs/screen` — read-only скрининг символа по всему каталогу (backtest+forecast, без кошелька и runner) |
 | Pilot manager | `OvernightPilotManager`: валидирует общие лимиты, запускает backtest/forecast, создаёт shared wallet и runner на пару | список конфигов → `PilotSession`, task-циклы, persisted snapshot |
 | Strategy catalogue | `strategy_catalog.py` — versioned metadata и capability flags для всех historical paper strategies; это единственный источник состава списков | stable ID → metadata, selector/optimizer/runner capability |
 | Challenger | `evaluate_challenger()` выполняет alternate backtest + fresh forecast без изменения runner; `promote_challenger()` применяет только `CANDIDATE` и только на flat pair | incumbent + catalogue strategy → `KEEP/WATCH/CANDIDATE/REJECT`, затем `AWAITING_APPROVAL/WAITING_FOR_FLAT/APPLIED` |
@@ -30,7 +30,7 @@
 | Paper execution | `PaperTradingSession` хранит один виртуальный счёт; `LivePaperRunner` получает сигнал, применяет риски, открывает/ведёт/закрывает позицию и журналирует решение | runner config + market snapshot → position/orders/trades/status |
 | Risk | `SharedRiskProfile` нормализует публичные проценты; `risk_engine.py` считает размер от SL, portfolio/directional heat, circuit breaker и добавление слоя | balance, stop, positions, regime → allow/reject и quantity |
 | Market quality | `regime_classifier.py` классифицирует CI/ATR/BBW и microstructure; provider/collector отмечают свежесть и полноту данных | OHLCV/L2/CVD → regime, data status, gate reason |
-| Frontend | `OvernightPilotPanel` управляет preflight/start; `TradeHistoryWidget` отображает shared account; `paperPairs.js` формирует строки; `marathonFeed.js` устраняет дубли общего счёта | API status/events → user-visible rows, positions, PnL |
+| Frontend | `OvernightPilotPanel` управляет preflight/start; `TradeHistoryWidget` отображает shared account и содержит сквозной поток «Скрининг → Торговать» (`/pairs/screen` → `/pairs/prepare` → `/pairs/start-demo`) плюс `PairChallengerQuickTest` (challenger из строки пары); `paperPairs.js` формирует строки; `marathonFeed.js` устраняет дубли общего счёта | API status/events → user-visible rows, positions, PnL |
 
 ## Сквозные сценарии
 

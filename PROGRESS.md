@@ -31,6 +31,12 @@
 
 ## 2. Completed Milestones
 
+- **2026-10-29 [Kimi] Task PAIR-LAB-01: Self-service pair screening → paper trading flow**:
+  - New read-only lab endpoint `POST /api/overnight-pilot/pairs/screen`: backtest+forecast of one symbol across the whole strategy catalog (per-combo isolated probes, concurrency 4, per-symbol in-flight guard); returns ranked rows with metrics, forecast regime, verdict and an exact reusable config (`ai_control`/`auto_strategy_switch` on).
+  - `TradeHistoryWidget`: «Скрининг» button in the add-pair panel renders a per-strategy results table; «Торговать» on a row runs the exact `prepare → start-demo` chain onto the shared paper wallet; if the pair already trades, the row strategy is submitted as a challenger instead (auto-switch applies it when flat). New `PairChallengerQuickTest` in every pair row tests an alternative strategy without stopping the runner. All new UI uses semantic tokens (design-lint ratchet clean).
+  - Tests: `backend/tests/test_pair_screen.py` (5 tests: catalog coverage, PnL ordering, no mutation of active sessions, validation, concurrent-run guard).
+  - `scripts/check.ps1` exit 0 in `logs/quality-gate-pairlab.log`: host pytest 640 passed, 37 skipped; frontend tests/build, design lint, docs, critical smoke, blocking Playwright and live WebSocket passed. Docker/Linux async coverage unavailable locally.
+
 - **2026-10-29 [Kimi] Task DEV-MERGE-01: Integrate marathon + challenger lines into `dev`**:
   - Committed Codex's pending challenger increment on `dev` (83ac085): catalog-driven alternative evaluation via backtest+forecast every 15 min per active pair, deduplicated by config fingerprint; guarded auto-switch only for flat pairs with fresh forecast and explicit `auto_strategy_switch`; UI shows challenger status and AUTO STRATEGY toggle.
   - Committed Cline's uncommitted marathon work on `feature/diagnostic-paper-run` (1e20107): demo observation keeps historical `SKIP` candidates with real TRAIN/OOS profiles while preserving data/regime/sizing checks; per-pair entry pause; `reconcile_paper_stop` tool.
