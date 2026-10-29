@@ -59,6 +59,10 @@
   - Added a regression that verifies close-event journaling still occurs and no leaked coroutine warning is emitted.
   - `scripts/check.ps1` exit **0**: 609 host pytest passed, 31 skipped, with no pytest warning summary; frontend, lint, docs, critical smoke, blocking Playwright, and live WebSocket passed. Docker/Linux async tests remained unavailable.
 
+- **2026-10-29 [Kimi] Task SCREEN-AND-TRADE DEMO RELAUNCH**:
+  - Added `scripts/screen_and_trade.py`: one-command flow for Di — stop pilot → screen candidate pairs across the full 8-strategy × 5m/15m catalog (read-only, probe managers, ai_control configs) → pick best (ok, ≥5 trades, max net PnL) → prepare + start demo sessions on a shared $1,000 account (`duration_hours=168`) → write `data/screen_and_trade_result.json`. Subcommand `monitor [--once|--interval|--rounds]` snapshots status and prints new openings (with SL/TP) and the closed-trade counter to a log file.
+  - Relaunched the demo with unique per-pair strategies: 12 running pairs on `overnight_shared_283953d23d55` (BTC/ema_trend 5m, ETH/cvd_absorption 15m, SOL/ema_trend 15m, XRP/ema_trend 15m, BNB/ema_trend_window 5m, DOGE/ema_trend 15m, LINK/ema_trend 15m, ZEC/ema_trend_window 15m, SUI/ema_trend 15m, UNI/ema_trend 15m, AVAX/ema_trend 15m, ADA/ema_trend 15m); NEAR and ENA rejected at start (live TOXIC_VOLATILITY). Runners warm up from 2-day kline history, so entries depend on live signal setups (EMA_CROSS / CROSS_WINDOW / CVD_ABSORPTION_STRUCTURE), not on a timer. Night monitor runs detached to `data/pair_monitor_night.log`.
+
 - **2026-10-28 [Codex] Task QUALITY-GATE-SMOKE-CONTRACT**:
   - Replaced the Chart toolbar's newly added raw “Сейчас” control with the canonical compact `Button`, eliminating the only design-lint regression.
   - Corrected the critical HTTP smoke contract: an empty L2 book from an unreachable public exchange is now accepted as an explicit disconnected response shape, while malformed payloads still fail. Added two regressions for that distinction.
