@@ -181,12 +181,13 @@ async def start_optimal_live(preflight_id: Optional[str] = None):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@router.post("/start-demo")
 @router.post("/start-without-verdict")
 async def start_without_verdict(
     configs: Optional[List[OvernightPilotConfig]] = None,
     preflight_id: Optional[str] = None,
 ):
-    """Start paper sessions without preflight verdict check (for diagnostics/testing)."""
+    """Start demo paper after exact preflight; historical results do not veto, hard data/regime checks do."""
     try:
         result = await overnight_pilot_manager.start(configs, preflight_id=preflight_id, ignore_verdict=True)
         await overnight_pilot_manager.persist()
@@ -195,11 +196,34 @@ async def start_without_verdict(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@router.post("/pairs/prepare")
+async def prepare_new_paper_pair(config: OvernightPilotConfig):
+    """Backtest and forecast one user-selected pair without interrupting active pairs."""
+    try:
+        return await overnight_pilot_manager.prepare_pair(config)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/pairs/start-demo")
+async def start_new_demo_pair(config: OvernightPilotConfig, preflight_id: str):
+    """Attach one exactly preflighted pair to the existing demo paper account."""
+    try:
+        result = await overnight_pilot_manager.start_pair(config, preflight_id, demo=True)
+        await overnight_pilot_manager.persist()
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/stop")
 async def stop_overnight_pilot():
-    result = await overnight_pilot_manager.stop()
-    await overnight_pilot_manager.persist()
-    return result
+    try:
+        result = await overnight_pilot_manager.stop()
+        await overnight_pilot_manager.persist()
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 class AutoSelectRequest(BaseModel):
@@ -210,6 +234,8 @@ class AutoSelectRequest(BaseModel):
     duration_hours: float = Field(24.0, gt=0, le=168)
     rerun: bool = True
     start: bool = True
+    demo: bool = False
+    target_pairs: int = Field(15, ge=1, le=100)
 
 
 @router.get("/auto-select/last")
@@ -225,7 +251,12 @@ async def auto_select_and_start(req: AutoSelectRequest = AutoSelectRequest()):
     selection = None if req.rerun else load_last_selection()
     if selection is None:
         selection = await run_selection(req.symbols, req.days)
-    raw = build_pilot_configs(selection, include_explore=req.include_explore, duration_hours=req.duration_hours)
+    raw = build_pilot_configs(
+        selection, include_explore=req.include_explore, duration_hours=req.duration_hours,
+        include_skip_for_demo=req.demo,
+    )
+    if req.demo:
+        raw = raw[:req.target_pairs]
     if not raw:
         return {"started": False, "reason": "ни одна пара не прошла отбор - торговля не запущена (кэш)",
                 "counts": selection.get("counts", {}), "results": selection.get("results", [])}
@@ -233,7 +264,7 @@ async def auto_select_and_start(req: AutoSelectRequest = AutoSelectRequest()):
         return {"started": False, "preview": raw, "counts": selection.get("counts", {})}
     try:
         configs = [OvernightPilotConfig(**c) for c in raw]
-        result = await overnight_pilot_manager.run_autopilot(configs)
+        result = await overnight_pilot_manager.run_autopilot(configs, demo=req.demo)
         await overnight_pilot_manager.persist()
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -241,6 +272,7 @@ async def auto_select_and_start(req: AutoSelectRequest = AutoSelectRequest()):
         **result,
         "pairs": [(c["symbol"], c["strategy_type"], c["timeframe"], c["risk_per_trade_pct"]) for c in raw],
         "counts": selection.get("counts", {}),
+        "demo": req.demo,
     }
 
 

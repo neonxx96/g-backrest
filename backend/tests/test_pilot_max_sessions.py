@@ -20,10 +20,17 @@ def test_twenty_sessions_accepted():
     manager._validate_configs(_configs(20))  # не должно поднять ValueError
 
 
-def test_twenty_one_sessions_rejected():
+def test_one_hundred_user_selected_sessions_are_supported():
     manager = OvernightPilotManager()
-    with pytest.raises(ValueError, match="one to 20 sessions"):
-        manager._validate_configs(_configs(21))
+    configs = [OvernightPilotConfig(symbol=f"PAIR{i}USDT", strategy_type="ema_trend") for i in range(100)]
+    assert len(manager._validate_configs(configs)) == 100
+
+
+def test_one_hundred_one_sessions_rejected():
+    manager = OvernightPilotManager()
+    configs = [OvernightPilotConfig(symbol=f"PAIR{i}USDT", strategy_type="ema_trend") for i in range(101)]
+    with pytest.raises(ValueError, match="one to 100 sessions"):
+        manager._validate_configs(configs)
 
 
 def test_single_session_still_accepted():

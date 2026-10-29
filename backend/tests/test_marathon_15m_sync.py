@@ -6,6 +6,7 @@ MARATHON_SYNC_SYMBOLS on 15m once per master cycle via load_dataset_async.
 """
 
 import asyncio
+import sys
 from unittest.mock import AsyncMock, patch
 
 import pandas as pd
@@ -25,6 +26,14 @@ def _df(rows: int = 3) -> pd.DataFrame:
 
 
 def _run(coro):
+    if sys.platform == "win32":
+        # All dependencies in these fixtures complete without scheduling.
+        # Avoid Windows event-loop socketpair creation in the sandbox.
+        try:
+            coro.send(None)
+        except StopIteration as completed:
+            return completed.value
+        raise AssertionError("marathon-sync fixture unexpectedly suspended")
     return asyncio.run(coro)
 
 
@@ -94,7 +103,10 @@ def test_master_cycle_invokes_marathon_sync_once():
         ):
             # Empty monitoring set keeps the gather block instant.
             worker.monitored_tickers = set()
-            await asyncio.wait_for(worker._run_periodic_loop(), timeout=5)
+            if sys.platform == "win32":
+                await worker._run_periodic_loop()
+            else:
+                await asyncio.wait_for(worker._run_periodic_loop(), timeout=5)
 
         assert sync_mock.await_count == 1
 

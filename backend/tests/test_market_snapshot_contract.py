@@ -1,4 +1,5 @@
 import asyncio
+import sys
 
 from backend.app.services.free_binance_collector import FreeBinanceSelfCollector
 from backend.app.services.market_data_provider import MarketSnapshot
@@ -73,7 +74,19 @@ def test_provider_marks_partial_data_and_excludes_forming_candle(monkeypatch) ->
 
     monkeypatch.setattr(collector, "_get_session", get_session)
     monkeypatch.setattr("time.time", lambda: 1_700_000_000)
-    snapshot = asyncio.run(collector.get_market_snapshot("btcusdt"))
+    coroutine = collector.get_market_snapshot("btcusdt")
+    if sys.platform == "win32":
+        # Fully mocked awaits complete synchronously; avoid a Windows event-loop
+        # socketpair that is unavailable in the sandboxed quality gate.
+        try:
+            coroutine.send(None)
+        except StopIteration as completed:
+            snapshot = completed.value
+        else:
+            coroutine.close()
+            raise AssertionError("mocked snapshot unexpectedly suspended")
+    else:
+        snapshot = asyncio.run(coroutine)
 
     assert snapshot.data_status == "partial"
     assert snapshot.unavailable_fields == ["open_interest_usd"]
