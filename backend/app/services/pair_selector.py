@@ -13,12 +13,16 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from backend.app.services.strategy_catalog import SELECTABLE_STRATEGY_IDS
+
 DEFAULT_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "DOGEUSDT", "LINKUSDT",
                    "ZECUSDT", "NEARUSDT", "ENAUSDT", "WLDUSDT", "SUIUSDT", "UNIUSDT", "AVAXUSDT",
                    "ADAUSDT", "DOTUSDT", "OPUSDT", "ARBUSDT", "TIAUSDT", "TRXUSDT",
                    "HYPEUSDT", "BCHUSDT", "AAVEUSDT", "FILUSDT", "TAOUSDT", "LTCUSDT",
                    "ONDOUSDT", "PENGUUSDT"]
-STRATEGIES = ["ema_trend", "ema_trend_window", "ema_pullback", "cluster_volume_bounce"]
+# The selector keeps its current four candidates; the catalogue prevents this
+# list from drifting away from profiles the paper runner supports.
+STRATEGIES = list(SELECTABLE_STRATEGY_IDS)
 TIMEFRAMES = ["5m", "15m"]
 RR = [(0.5, 1.0), (0.8, 1.6), (1.0, 2.5)]  # (SL%, TP%): TP >= 2x round-trip fee
 TRAIN_FRACTION = 0.7

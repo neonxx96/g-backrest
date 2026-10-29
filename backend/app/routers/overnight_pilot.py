@@ -6,8 +6,16 @@ from pydantic import BaseModel, Field
 from backend.app.services.deep_intent_logger import DeepIntentLogger
 from backend.app.services.overnight_pilot import OvernightPilotConfig, overnight_pilot_manager
 from backend.app.services.pair_selector import build_pilot_configs, load_last_selection, run_selection
+from backend.app.services.strategy_catalog import get_strategy_catalog as list_strategy_catalog
 
 router = APIRouter(prefix="/api/overnight-pilot", tags=["overnight-pilot"])
+
+
+@router.get("/strategies")
+def get_strategy_catalog():
+    """Read the versioned paper-strategy catalogue; this endpoint changes no run state."""
+    strategies = list_strategy_catalog()
+    return {"strategies": strategies, "count": len(strategies)}
 
 
 @router.get("/defaults")

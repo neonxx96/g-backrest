@@ -24,14 +24,20 @@ from backend.app.services.deep_intent_logger import DeepIntentLogger
 from backend.app.services.live_paper_runner import LivePaperRunner
 from backend.app.services.paper_trading import PaperTradingSession
 from backend.app.services.risk_profile import SharedRiskProfile
+from backend.app.services.strategy_catalog import (
+    HISTORICAL_STRATEGY_IDS,
+    OPTIMIZABLE_STRATEGY_IDS,
+)
 from backend.app.engine.verdict import evaluate_verdict
 from backend.app.db.database import AsyncSessionLocal
 from backend.app.db.models import OvernightPilotRun
 from sqlalchemy import select
 
 
-HISTORICAL_STRATEGIES = {"confluence_ema", "cvd_absorption", "cluster_volume_bounce", "diagnostics_lenient", "ema_pullback", "ema_trend", "ema_trend_window", "naked_test"}
-OPTIMIZABLE_STRATEGIES = {"confluence_ema", "cvd_absorption", "cluster_volume_bounce", "ema_pullback", "ema_trend", "ema_trend_window"}
+# Compatibility exports: callers keep their established names while the
+# catalogue owns membership and metadata.
+HISTORICAL_STRATEGIES = HISTORICAL_STRATEGY_IDS
+OPTIMIZABLE_STRATEGIES = OPTIMIZABLE_STRATEGY_IDS
 logger = logging.getLogger(__name__)
 
 

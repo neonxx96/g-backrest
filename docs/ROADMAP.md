@@ -33,6 +33,7 @@
 | `MARATHON-01` | Guarded AI selection → preflight → shared-$1,000 paper autopilot, with truthful recovery state after backend restart; runtime multi-pair observation remains to be completed | `backend/app/services/overnight_pilot.py`, `backend/app/routers/overnight_pilot.py`, `frontend/src/components/docking/` | P0 | L | `IN_PROGRESS` |
 | `MARATHON-02` | Expand liquid crypto candidates and align selector ATR/history-window parameters with paper preflight; ten admitted concurrent pairs still require a safe transition from active positions | `backend/app/services/pair_selector.py`, `backend/app/services/overnight_pilot.py` | P0 | M | `IN_PROGRESS` |
 | `PRODUCT-01` | BTCUSDT EMA Trend vertical slice: one closed-candle profile from backtest through scenario and paper admission explanation | `backtest.py`, `ai_copilot_service.py`, `frontend/src/features/pilot/` | P0 | M | `IN_PROGRESS` |
+| `PAPER-LAB-01` | Versioned paper-strategy catalogue and read-only API; first step toward challenger evaluation and a curated 10–20 pair paper universe | `strategy_catalog.py`, `overnight_pilot.py`, `pair_selector.py`, `live_paper_runner.py` | P0 | S | `IN_PROGRESS` |
 
 ---
 

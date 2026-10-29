@@ -13,7 +13,7 @@
 │   │   ├── db/               # Async database layer (SQLAlchemy 2.0 + aiosqlite, models, init_db)
 │   │   ├── engine/           # Background workers for coin monitoring and analysis
 │   │   ├── routers/          # Domain-specific routers (backtest, journal, overnight_pilot, copilot)
-│   │   ├── services/         # Business logic: risk engine, regime classifier, scanner, recorder
+│   │   ├── services/         # Business logic: strategy catalogue, risk engine, regime classifier, scanner, recorder
 │   │   └── tests/            # Pytest automated test suites (unit, quantum, backtest golden)
 ├── frontend/                 # React 19 + Vite desktop trading terminal
 │   ├── src/
@@ -82,6 +82,7 @@
    - Frontend web service is strictly bound to port `7100`.
    - When running under Docker Compose, traffic is routed through the internal bridge network `signalscript_net` with volume mounts to `./data`.
 4. **Profile Propagation Boundary:**
+   - `strategy_catalog.py` is the versioned source of public strategy metadata and capability membership. The selector, optimiser eligibility and paper runner derive their established strategy lists from it; a catalogue update therefore requires compatibility regressions across all three consumers.
    - The Overnight Pilot sends one selected `OvernightPilotConfig` to historical backtest, current forecast, and the paper runner; the `config_fingerprint` binds preflight to start.
    - `fetch_history()` removes an in-progress kline before all three consumers evaluate it. Backtests may use a recorded historical slice; a forecast used for paper admission additionally requires a fresh closed-candle frame and fails explicitly when one is unavailable. The forecast reports whether it used the shared OHLCV evaluator and which enabled filters it applied; it does not represent a score as a probability.
    - The Pilot UI treats a changed draft profile as stale even if the prior server session remains valid: paper admission is `RECHECK` until that exact draft receives a new preflight. This keeps the user-facing explanation aligned with the server-side fingerprint/config check at start.

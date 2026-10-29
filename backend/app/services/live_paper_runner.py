@@ -36,36 +36,23 @@ from backend.app.services.risk_engine import (
     check_circuit_breaker,
     select_max_leverage,
 )
+from backend.app.services.strategy_catalog import (
+    HISTORICAL_STRATEGY_IDS,
+    MARKET_ENTRY_STRATEGY_IDS,
+)
 
 logger = logging.getLogger("SignalScript.LivePaperRunner")
 
 # These profiles are evaluated from the same real OHLCV frame in historical
 # backtest, forecast, and live paper mode. Keep the list explicit so a new
 # diagnostic profile cannot silently stop at the live execution boundary.
-PAPER_HISTORICAL_STRATEGIES = frozenset({
-    "confluence_ema",
-    "cvd_absorption",
-    "cluster_volume_bounce",
-    "diagnostics_lenient",
-    "ema_pullback",
-    "ema_trend",
-    "ema_trend_window",
-    "naked_test",
-})
+PAPER_HISTORICAL_STRATEGIES = HISTORICAL_STRATEGY_IDS
 
 # P0 (night test 23-24.10): моментум/кросс-стратегии обязаны входить ПО РЫНКУ.
 # Лимитный вход по цене сигнала асимметричен: BUY LIMIT в росте не исполняется
 # часами (сигнал сгорает), а SELL LIMIT исполняется мгновенно — лонг-сигналы
 # теряются. Wall-bounce стратегии намеренно ждут у стенки и остаются лимитными.
-MARKET_ENTRY_STRATEGIES = frozenset({
-    "confluence_ema",
-    "cvd_absorption",
-    "diagnostics_lenient",
-    "ema_pullback",
-    "ema_trend",
-    "ema_trend_window",
-    "naked_test",
-})
+MARKET_ENTRY_STRATEGIES = MARKET_ENTRY_STRATEGY_IDS
 
 
 

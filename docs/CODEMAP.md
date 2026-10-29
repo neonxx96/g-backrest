@@ -504,6 +504,11 @@ JS/TS call targets are lexical candidates, not a type-resolved call graph.
 - **Calls / imports:** `ValueError`, `append`, `find_decision_for_trade`, `float`, `get`, `isinstance`, `len`, `link_trades_to_decisions`, `list`, `round`, …
 - **Imported by:** `backend/app/routers/journal.py`
 
+### `backend/app/services/strategy_catalog.py`
+- **Public symbols:** `StrategyDescriptor`, `get_strategy_catalog`, `get_strategy_descriptor`
+- **Calls / imports:** `StrategyDescriptor`, `ValueError`, `asdict`, `dataclass`, `frozenset`, `list`, `to_dict`, `tuple`
+- **Imported by:** `backend/app/routers/overnight_pilot.py`, `backend/app/services/live_paper_runner.py`, `backend/app/services/overnight_pilot.py`, `backend/app/services/pair_selector.py`
+
 ### `backend/app/services/think_optimizer.py`
 - **Public symbols:** `analyze_post_mortem`
 - **Calls / imports:** `append`, `dict`, `float`, `get`, `len`, `list`, `lower`, `max`, `round`, `str`
