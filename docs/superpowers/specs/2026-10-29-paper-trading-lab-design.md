@@ -119,7 +119,7 @@ only when this policy is covered by migration and regression tests.
 The terminal needs a durable experiment/run ledger, structured event reasons and
 a post-run summary: pair/profile/version, lifecycle, admission mode, metrics,
 fills, blocks, data errors, risk rejects, AI proposals/decisions and exceptions.
-This is the data needed to fix real faults during 15–200-pair soak runs without
+This is the data needed to fix real faults during 10–20-pair soak runs without
 reading the whole project or guessing from UI counters.
 
 ## Delivery order

@@ -18,6 +18,7 @@ def test_build_configs_tiers_and_validity():
     cfgs = build_pilot_configs(_sel())
     assert [c["symbol"] for c in cfgs] == ["ZECUSDT", "BNBUSDT"]
     assert cfgs[0]["risk_per_trade_pct"] > cfgs[1]["risk_per_trade_pct"]  # EXPLORE = меньший риск
+    assert all(c["auto_strategy_switch"] is True for c in cfgs)
     for c in cfgs:
         OvernightPilotConfig(**c)  # конфиг валиден для пилота
 

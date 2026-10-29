@@ -145,6 +145,6 @@ def build_pilot_configs(selection: Dict[str, Any], include_explore: bool = True,
             "duration_hours": duration_hours, "min_density_usd": 0.0, "volume_multiplier": 0.0,
             "use_atr_filter": True, "use_cvd_filter": False, "use_oi_filter": False, "use_rsi_filter": False,
             "use_multi_tp": False, "use_trailing": True, "trailing_pct": 0.5, "trailing_activation_pct": 0.5,
-            "sl_tp_mode": "fixed", "ai_control": True,
+            "sl_tp_mode": "fixed", "ai_control": True, "auto_strategy_switch": True,
         })
     return out

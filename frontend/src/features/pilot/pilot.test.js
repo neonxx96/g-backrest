@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { allocateCapital, configKey, validateConfigs, readReport, describeProfileApplication, describePaperAdmission } from './model.js';
+import { allocateCapital, configKey, validateConfigs, readReport, describeProfileApplication, describePaperAdmission, describeLatestChallenger } from './model.js';
 import { createPilotStore } from './store.js';
 import * as pilotModel from './model.js';
 
@@ -20,6 +20,20 @@ test('validation rejects duplicate symbols, missing risk and invalid duration', 
 test('configuration key ignores property insertion order but includes risk', () => {
   assert.equal(configKey([{ a: 1, b: 2 }]), configKey([{ b: 2, a: 1 }]));
   assert.notEqual(configKey([config]), configKey([{ ...config, risk_per_trade_pct: 1 }]));
+});
+
+test('latest challenger summary exposes recommendation and safe promotion state', () => {
+  const summary = describeLatestChallenger({ challengers: [
+    { job_id: 'old', created_at: 10, challenger_strategy: 'ema_pullback', recommendation: 'KEEP' },
+    { job_id: 'new', created_at: 20, challenger_strategy: 'cvd_absorption', recommendation: 'CANDIDATE', promotion_status: 'WAITING_FOR_FLAT', reason: 'better OOS' },
+  ] });
+  assert.deepEqual(summary, {
+    strategy: 'cvd_absorption',
+    recommendation: 'CANDIDATE',
+    promotionStatus: 'WAITING_FOR_FLAT',
+    reason: 'better OOS',
+  });
+  assert.equal(describeLatestChallenger({ challengers: [] }), null);
 });
 
 test('profile application reports server config, closed-candle data, and live-cluster divergence honestly', () => {

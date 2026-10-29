@@ -2,6 +2,7 @@ import SymbolLink from './ui/SymbolLink.jsx';
 import React, { useEffect, useState } from 'react';
 import { Button } from './ui/button.jsx';
 import { Badge } from './ui/badge.jsx';
+import { describeLatestChallenger } from '../features/pilot/model.js';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -77,6 +78,14 @@ function VerdictBadge({ verdict }) {
 
 function Metric({ label, value }) {
   return <div className="rounded border border-border bg-background/70 p-2"><div className="text-[11px] text-muted-foreground">{label}</div><div className="font-mono text-[11px] text-foreground">{value ?? '—'}</div></div>;
+}
+
+function ChallengerStatus({ session }) {
+  const challenger = describeLatestChallenger(session);
+  if (!challenger) return null;
+  return <div className="rounded border border-border bg-background/50 px-2 py-1.5 text-[9px] text-muted-foreground" title={challenger.reason}>
+    Challenger: <span className="font-mono text-foreground">{challenger.strategy}</span> · <span className="text-amber-200">{challenger.recommendation}</span>{challenger.promotionStatus ? ` · ${challenger.promotionStatus}` : ''}
+  </div>;
 }
 
 function BacktestQuality({ backtest }) {
@@ -664,10 +673,15 @@ export default function OvernightPilotPanel({ onClose }) {
                   {key.replace('use_', '').replace('_filter', '').replace('_', ' ').toUpperCase()}
                 </label>
               ))}
+              <label title="Разрешить автоматическую смену только на подтверждённый challenger, когда по паре нет открытой позиции." className="flex items-center gap-1 rounded border border-border px-1.5 py-1">
+                <input data-testid={`auto-strategy-switch-${config.symbol}`} type="checkbox" checked={Boolean(config.auto_strategy_switch)} onChange={(e) => update(index, 'auto_strategy_switch', e.target.checked)} />
+                AUTO STRATEGY
+              </label>
             </div>
             <div className="grid grid-cols-3 gap-1"><Metric label="Backtest ROI" value={formatPct(status.sessions?.[config.symbol]?.backtest?.summary?.total_pnl_pct)} /><Metric label="Net PnL" value={status.sessions?.[config.symbol]?.backtest?.summary?.net_pnl_usd != null ? `$${Number(status.sessions[config.symbol].backtest.summary.net_pnl_usd).toFixed(2)}` : null} /><Metric label="PF / Win" value={status.sessions?.[config.symbol]?.backtest?.summary?.profit_factor != null ? `${status.sessions[config.symbol].backtest.summary.profit_factor} / ${formatPct(status.sessions[config.symbol].backtest.summary.win_rate_pct, 1)}` : null} /></div>
             <div className="grid grid-cols-3 gap-1"><Metric label="Win rate" value={status.sessions?.[config.symbol]?.backtest?.summary?.win_rate_pct != null ? `${status.sessions[config.symbol].backtest.summary.win_rate_pct}%` : null} /><Metric label="Max DD" value={status.sessions?.[config.symbol]?.backtest?.summary?.max_drawdown_pct != null ? `${status.sessions[config.symbol].backtest.summary.max_drawdown_pct}%` : null} /><Metric label="Paper equity" value={status.sessions?.[config.symbol]?.paper?.current_equity != null ? `$${Number(status.sessions[config.symbol].paper.current_equity).toFixed(2)}` : 'IDLE'} /></div>
             <AppliedProfile session={status.sessions?.[config.symbol]} />
+            <ChallengerStatus session={status.sessions?.[config.symbol]} />
             <BacktestQuality backtest={status.sessions?.[config.symbol]?.backtest} />
             <button data-testid={`btn-think-optimize-${config.symbol}`} disabled={busy} onClick={() => optimize(config)} className="w-full rounded border border-violet-400/40 bg-violet-950/20 px-2 py-1 text-[9px] font-bold text-violet-200 disabled:opacity-50">{busy ? 'AI Think: расчёт…' : 'AI Think: подобрать параметры по этой стратегии'}</button>
             <OptimizationResult result={optimization[config.symbol] || status.sessions?.[config.symbol]?.backtest?.optimization} disabled={busy || status.sessions?.[config.symbol]?.paper?.is_running} onApply={(best) => applyOptimization(config, best)} />

@@ -195,7 +195,7 @@ JS/TS call targets are lexical candidates, not a type-resolved call graph.
 - **Imported by:** —
 
 ### `backend/app/routers/overnight_pilot.py`
-- **Public symbols:** `AutoSelectRequest`, `ClosePairRequest`, `PausePairRequest`, `auto_select_and_start`, `emergency_close_pair`, `get_diversified_paper_defaults`, `get_last_auto_selection`, `get_overnight_defaults`, `get_overnight_status`, `get_pairs_status`, …
+- **Public symbols:** `AutoSelectRequest`, `ChallengerRequest`, `ClosePairRequest`, `PausePairRequest`, `auto_select_and_start`, `emergency_close_pair`, `get_diversified_paper_defaults`, `get_last_auto_selection`, `get_overnight_defaults`, `get_overnight_status`, …
 - **Calls / imports:** `APIRouter`, `AutoSelectRequest`, `ClosePairRequest`, `DeepIntentLogger`, `Field`, `HTTPException`, `OvernightPilotConfig`, `PausePairRequest`, `build_pilot_configs`, `close_pair`, …
 - **Imported by:** —
 
@@ -1138,7 +1138,7 @@ JS/TS call targets are lexical candidates, not a type-resolved call graph.
 
 ### `frontend/src/components/OvernightPilotPanel.jsx`
 - **Public symbols:** `OvernightPilotPanel`
-- **Calls / imports:** `AppliedProfile`, `BacktestQuality`, `Boolean`, `ClientAggregate`, `Date`, `Error`, `ForecastCard`, `Metric`, `Number`, `OptimizationResult`, …
+- **Calls / imports:** `AppliedProfile`, `BacktestQuality`, `Boolean`, `ChallengerStatus`, `ClientAggregate`, `Date`, `Error`, `ForecastCard`, `Metric`, `Number`, …
 - **Imported by:** —
 
 ### `frontend/src/components/PaperTradePanel.jsx`
@@ -1387,7 +1387,7 @@ JS/TS call targets are lexical candidates, not a type-resolved call graph.
 - **Imported by:** —
 
 ### `frontend/src/features/pilot/model.js`
-- **Public symbols:** `STRATEGIES`, `allocateCapital`, `configKey`, `describePaperAdmission`, `describePilotEvent`, `describeProfileApplication`, `hasRunning`, `optimizedPatch`, `optimizerRequest`, `paperStatusLabel`, …
+- **Public symbols:** `STRATEGIES`, `allocateCapital`, `configKey`, `describeLatestChallenger`, `describePaperAdmission`, `describePilotEvent`, `describeProfileApplication`, `hasRunning`, `optimizedPatch`, `optimizerRequest`, …
 - **Calls / imports:** `Boolean`, `Error`, `Number`, `Pullback`, `Set`, `String`, `Trend`, `Window`, `add`, `allocateCapital`, …
 - **Imported by:** —
 

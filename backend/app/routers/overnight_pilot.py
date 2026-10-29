@@ -269,6 +269,45 @@ def _validate_symbol(sym: str) -> str:
         raise HTTPException(status_code=404, detail=f"Trading pair {clean} not found")
     return clean
 
+
+class ChallengerRequest(BaseModel):
+    strategy_type: str
+
+
+@router.post("/pairs/{symbol}/challengers")
+async def submit_pair_challenger(symbol: str, req: ChallengerRequest):
+    """Backtest and forecast an alternate paper strategy without touching the runner."""
+    sym = _validate_symbol(symbol)
+    try:
+        return await overnight_pilot_manager.evaluate_challenger(sym, req.strategy_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/pairs/{symbol}/challengers")
+async def get_pair_challengers(symbol: str):
+    """List completed challenger evidence for one configured paper pair."""
+    sym = _validate_symbol(symbol)
+    session = overnight_pilot_manager.sessions.get(sym)
+    challengers = sorted(
+        (session.challengers.values() if session else []),
+        key=lambda item: int(item.get("created_at", 0) or 0),
+        reverse=True,
+    )
+    return {"symbol": sym, "challengers": list(challengers), "count": len(challengers)}
+
+
+@router.post("/pairs/{symbol}/challengers/{job_id}/promote")
+async def promote_pair_challenger(symbol: str, job_id: str):
+    """Operator-approved switch to a CANDIDATE profile; open positions still block it."""
+    sym = _validate_symbol(symbol)
+    try:
+        return overnight_pilot_manager.promote_challenger(sym, job_id, automatic=False)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
 class ClosePairRequest(BaseModel):
     reason: str = "MANUAL_PAIR_CLOSE"
     pause_after: bool = True

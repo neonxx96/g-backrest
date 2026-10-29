@@ -18,6 +18,18 @@ const canonical = value => Array.isArray(value) ? value.map(canonical) : value &
 export const configKey = configs => JSON.stringify(canonical(configs));
 export const hasRunning = status => Object.values(status?.sessions || {}).some(s => s.paper?.is_running === true);
 
+export function describeLatestChallenger(session) {
+  const latest = [...(session?.challengers || [])]
+    .sort((left, right) => Number(right.created_at || 0) - Number(left.created_at || 0))[0];
+  if (!latest) return null;
+  return {
+    strategy: latest.challenger_strategy,
+    recommendation: latest.recommendation,
+    promotionStatus: latest.promotion_status || null,
+    reason: latest.reason || '',
+  };
+}
+
 const filterNames = {
   cvd_absorption_structure: 'нет подтверждённого поглощения CVD у экстремума',
   volume_multiplier: 'объём свечи ниже порога',

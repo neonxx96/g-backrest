@@ -9,7 +9,7 @@
 
 | Если нужно изменить… | Сначала читать | Затем проверить |
 | --- | --- | --- |
-| запуск, preflight, добавление/паузу/закрытие пары | `backend/app/routers/overnight_pilot.py`, `backend/app/services/overnight_pilot.py` | `backend/tests/test_overnight_pilot.py`, `test_pilot_max_sessions.py` |
+| запуск, preflight, challenger, promotion, добавление/паузу/закрытие пары | `backend/app/routers/overnight_pilot.py`, `backend/app/services/overnight_pilot.py` | `backend/tests/test_overnight_pilot.py`, `test_strategy_challenger.py`, `test_pilot_max_sessions.py` |
 | paper-ордер, позицию, SL/TP, kill switch или запись сделки | `paper_trading_router.py`, `paper_trading.py`, `live_paper_runner.py` | `test_paper_trading.py`, `test_paper_position_management.py`, `test_paper_kill_switch_and_forecast.py` |
 | риск, размер позиции, плечо или pyramiding | `risk_profile.py`, `risk_engine.py`, `live_paper_runner.py` | `test_risk_profile_contract.py`, `test_execution_risk_hardening.py` |
 | каталог, описание или доступность стратегии | `strategy_catalog.py`, затем `pair_selector.py`, `overnight_pilot.py`, `live_paper_runner.py` | `test_strategy_catalog.py`, `test_pair_selector_configs.py` |
@@ -22,9 +22,10 @@
 
 | Блок | Назначение и ключевые точки | Вход → выход |
 | --- | --- | --- |
-| Pilot API | `overnight_pilot.py`: `/strategies`, `/preflight`, `/start`, `/auto-select`, `/pairs` pause/resume/close | catalogue/status/config → JSON metadata, status/preflight с `config_fingerprint` |
+| Pilot API | `overnight_pilot.py`: `/strategies`, `/preflight`, `/start`, `/auto-select`, `/pairs`, `/pairs/{symbol}/challengers` | catalogue/status/config → JSON metadata, status/preflight/challenger evidence с `config_fingerprint` |
 | Pilot manager | `OvernightPilotManager`: валидирует общие лимиты, запускает backtest/forecast, создаёт shared wallet и runner на пару | список конфигов → `PilotSession`, task-циклы, persisted snapshot |
 | Strategy catalogue | `strategy_catalog.py` — versioned metadata и capability flags для всех historical paper strategies; это единственный источник состава списков | stable ID → metadata, selector/optimizer/runner capability |
+| Challenger | `evaluate_challenger()` выполняет alternate backtest + fresh forecast без изменения runner; `promote_challenger()` применяет только `CANDIDATE` и только на flat pair | incumbent + catalogue strategy → `KEEP/WATCH/CANDIDATE/REJECT`, затем `AWAITING_APPROVAL/WAITING_FOR_FLAT/APPLIED` |
 | Selection | `run_selection()` выбирает только catalogue candidates, ищет strategy/TF/SL/TP на TRAIN и проверяет OOS; `build_pilot_configs()` создаёт профиль | закрытые OHLCV → `SELECT`/`EXPLORE`/`SKIP`/`NO_DATA` |
 | Paper execution | `PaperTradingSession` хранит один виртуальный счёт; `LivePaperRunner` получает сигнал, применяет риски, открывает/ведёт/закрывает позицию и журналирует решение | runner config + market snapshot → position/orders/trades/status |
 | Risk | `SharedRiskProfile` нормализует публичные проценты; `risk_engine.py` считает размер от SL, portfolio/directional heat, circuit breaker и добавление слоя | balance, stop, positions, regime → allow/reject и quantity |
@@ -49,9 +50,9 @@
 
 ### 3. Подбор стратегии без остановки действующей пары
 
-1. `pair_selector.run_selection()` или новый challenger-сервис работает на закрытых исторических свечах и не трогает активный runner.
+1. `pair_selector.run_selection()` или `OvernightPilotManager.evaluate_challenger()` работает на закрытых исторических свечах и не трогает активный runner.
 2. Результат хранит dataset window, strategy parameters, TRAIN/OOS и версию оценки.
-3. Новая конфигурация становится кандидатом; заменить действующую можно только отдельным действием после свежего preflight и risk validation.
+3. Новая конфигурация становится кандидатом; автоматическое применение требует явного `auto_strategy_switch`, свежего connected forecast и отсутствия открытой позиции. Иначе кандидат ждёт оператора или flat-состояния.
 
 ### 4. Сделка и пост-мортем
 

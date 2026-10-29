@@ -27,6 +27,7 @@ from backend.app.services.risk_profile import SharedRiskProfile
 from backend.app.services.strategy_catalog import (
     HISTORICAL_STRATEGY_IDS,
     OPTIMIZABLE_STRATEGY_IDS,
+    get_strategy_descriptor,
 )
 from backend.app.engine.verdict import evaluate_verdict
 from backend.app.db.database import AsyncSessionLocal
@@ -89,6 +90,7 @@ class OvernightPilotConfig(BaseModel):
     sl_tp_mode: str = Field("fixed")
     atr_multiplier: float = Field(1.35, ge=0.3, le=10.0)
     ai_control: bool = False
+    auto_strategy_switch: bool = False
     # M4 Risk Manager (SRS M4) — default OFF; сравнение sizing-режимов (Фаза 5.6)
     use_m4_risk_gates: bool = False
     daily_dd_limit_pct: float = Field(3.0, gt=0, le=100)
@@ -119,6 +121,7 @@ class PilotSession:
     started_at: Optional[int] = None
     last_optimization_at: Optional[int] = None
     paper_snapshot: Optional[Dict[str, Any]] = None
+    challengers: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         paper = self.runner.get_status() if self.runner else self.paper_snapshot
@@ -138,6 +141,7 @@ class PilotSession:
             "error": self.error,
             "started_at": self.started_at,
             "last_optimization_at": self.last_optimization_at,
+            "challengers": list(self.challengers.values()),
             "session_id": self.session_id or (paper.get("session_id") if paper else None),
         }
 
@@ -150,6 +154,9 @@ class OvernightPilotManager:
         self._emergency_stopped: bool = False
         self._forecast_tasks: Dict[str, asyncio.Task] = {}
         self._optimization_tasks: Dict[str, asyncio.Task] = {}
+        self._challenger_tasks: Dict[str, asyncio.Task] = {}
+        self._challenger_loop_tasks: Dict[str, asyncio.Task] = {}
+        self._challenger_cursors: Dict[str, int] = {}
         self._snapshot_task: Optional[asyncio.Task] = None
         self._lock = asyncio.Lock()
         self.intent_logger = DeepIntentLogger()
@@ -332,6 +339,7 @@ class OvernightPilotManager:
     # «оптимизация стратегий включена на период теста»). Первый прогон — сразу
     # после start(), далее раз в интервал. Рекомендации консультативные.
     OPTIMIZATION_INTERVAL_SEC = int(os.getenv("OVERNIGHT_OPTIMIZATION_INTERVAL_SEC", str(6 * 3600)))
+    CHALLENGER_INTERVAL_SEC = int(os.getenv("OVERNIGHT_CHALLENGER_INTERVAL_SEC", str(15 * 60)))
 
     def _validate_configs(self, configs: Optional[List[OvernightPilotConfig]]) -> List[OvernightPilotConfig]:
         if not configs and self.sessions:
@@ -684,6 +692,239 @@ class OvernightPilotManager:
             payload={"mode": mode, "status": (session.backtest.get("optimization") or {}).get("status")},
         )
 
+    @staticmethod
+    def _challenger_recommendation(
+        incumbent: Dict[str, Any], challenger: Dict[str, Any], forecast: Dict[str, Any]
+    ) -> tuple[str, str]:
+        if forecast.get("data_status") != "connected":
+            return "REJECT", "Challenger forecast is not connected and fresh."
+        candidate = challenger.get("summary") or {}
+        current = incumbent.get("summary") or {}
+        trades = int(candidate.get("total_trades", 0) or 0)
+        net = float(candidate.get("net_pnl_usd", 0.0) or 0.0)
+        profit_factor = float(candidate.get("profit_factor", 0.0) or 0.0)
+        drawdown = float(candidate.get("max_drawdown_pct", 0.0) or 0.0)
+        if trades < 10 or net <= 0 or profit_factor < 1.1:
+            return "REJECT", "Challenger does not meet the minimum historical quality sample."
+        direction = (
+            (forecast.get("base_scenario") or {}).get("direction")
+            or (forecast.get("unified_signal") or {}).get("direction")
+            or "NO_TRADE"
+        )
+        if direction not in {"LONG", "SHORT"}:
+            return "WATCH", "Historical quality passed, but the fresh forecast has no trade direction."
+        current_net = float(current.get("net_pnl_usd", 0.0) or 0.0)
+        current_pf = float(current.get("profit_factor", 0.0) or 0.0)
+        current_dd = float(current.get("max_drawdown_pct", 0.0) or 0.0)
+        drawdown_limit = max(2.0, current_dd + 0.5)
+        if net > max(0.0, current_net) and profit_factor >= max(1.1, current_pf + 0.1) and drawdown <= drawdown_limit:
+            return "CANDIDATE", "Challenger improves net PnL and profit factor without material drawdown expansion."
+        return "KEEP", "Challenger is valid but does not improve the incumbent by the promotion margin."
+
+    async def _execute_challenger(
+        self,
+        session: "PilotSession",
+        challenger_config: OvernightPilotConfig,
+        job_id: str,
+    ) -> Dict[str, Any]:
+        config = challenger_config
+        request = BacktestRequest(
+            symbol=config.symbol,
+            timeframe=config.timeframe,
+            days=config.days,
+            strategy_type=config.strategy_type,
+            initial_capital=config.initial_capital,
+            params=BacktestParams(
+                risk_per_trade_pct=config.risk_per_trade_pct,
+                stop_loss_pct=config.stop_loss_pct,
+                take_profit_pct=config.take_profit_pct,
+                leverage=config.leverage,
+                min_density_usd=config.min_density_usd,
+                volume_multiplier=config.volume_multiplier,
+                use_atr_filter=config.use_atr_filter,
+                use_cvd_filter=config.use_cvd_filter,
+                use_oi_filter=config.use_oi_filter,
+                use_rsi_filter=config.use_rsi_filter,
+                use_stacked_imbalance_filter=config.use_stacked_imbalance_filter,
+                use_absorption_filter=config.use_absorption_filter,
+                use_poc_migration_filter=config.use_poc_migration_filter,
+                use_multi_tp=config.use_multi_tp,
+                use_trailing=config.use_trailing,
+                trailing_pct=config.trailing_pct,
+                tp1_rr_ratio=config.tp1_rr_ratio,
+                tp2_rr_ratio=config.tp2_rr_ratio,
+                sl_tp_mode=config.sl_tp_mode,
+                atr_multiplier=config.atr_multiplier,
+            ),
+        )
+        backtest = await run_backtest(request)
+        forecast = await compute_probabilistic_forecast(
+            config.symbol,
+            config.timeframe,
+            strategy_type=config.strategy_type,
+            strategy_params=config.model_dump(),
+        )
+        recommendation, reason = self._challenger_recommendation(
+            session.backtest or {}, backtest, forecast
+        )
+        result = {
+            "job_id": job_id,
+            "symbol": config.symbol.upper(),
+            "incumbent_strategy": session.config.strategy_type,
+            "challenger_strategy": config.strategy_type,
+            "config_fingerprint": self._config_fingerprint(config),
+            "status": "complete",
+            "recommendation": recommendation,
+            "reason": reason,
+            "backtest": backtest,
+            "forecast": forecast,
+            "created_at": int(time.time() * 1000),
+            "deduplicated": False,
+        }
+        session.challengers[job_id] = result
+        self._record_run_event(
+            session,
+            event_type="CHALLENGER_COMPLETED",
+            source="challenger",
+            reason_code=f"CHALLENGER_{recommendation}",
+            reason=reason,
+            payload={
+                "job_id": job_id,
+                "incumbent_strategy": session.config.strategy_type,
+                "challenger_strategy": config.strategy_type,
+                "recommendation": recommendation,
+            },
+        )
+        if recommendation == "CANDIDATE":
+            result = self.promote_challenger(
+                config.symbol,
+                job_id,
+                automatic=True,
+            )
+        return dict(result)
+
+    def promote_challenger(
+        self,
+        symbol: str,
+        job_id: str,
+        *,
+        automatic: bool = False,
+    ) -> Dict[str, Any]:
+        """Apply a proven challenger only to a flat paper pair.
+
+        Automatic promotion additionally requires the explicit session flag.
+        The existing wallet and runner task are preserved.
+        """
+        key = symbol.strip().upper()
+        session = self.sessions.get(key)
+        if session is None:
+            raise ValueError(f"paper pair {key} not found")
+        result = session.challengers.get(job_id)
+        if result is None:
+            raise ValueError(f"challenger job {job_id} not found for {key}")
+        if result.get("recommendation") != "CANDIDATE":
+            raise ValueError("only a CANDIDATE challenger can be promoted")
+        if (result.get("forecast") or {}).get("data_status") != "connected":
+            result["promotion_status"] = "STALE"
+            return dict(result)
+        if automatic and not session.config.auto_strategy_switch:
+            result["promotion_status"] = "AWAITING_APPROVAL"
+            return dict(result)
+        runner = session.runner
+        positions = getattr(getattr(runner, "session", None), "positions", {}) if runner else {}
+        position = positions.get(key) if isinstance(positions, dict) else None
+        if position is not None and not getattr(position, "closed", False) and float(getattr(position, "qty", 0.0) or 0.0) > 0:
+            result["promotion_status"] = "WAITING_FOR_FLAT"
+            return dict(result)
+        strategy_type = str(result["challenger_strategy"])
+        session.config = session.config.model_copy(update={"strategy_type": strategy_type})
+        session.config_fingerprint = self._config_fingerprint(session.config)
+        session.backtest = result["backtest"]
+        session.forecast = result["forecast"]
+        session.preflight_valid = True
+        session.preflight_passed = True
+        if runner is not None:
+            runner.strategy_type = strategy_type
+            runner.config_fingerprint = session.config_fingerprint
+            if hasattr(runner, "indicator_candle_close_time"):
+                runner._last_entry_candle = runner.indicator_candle_close_time
+        result["promotion_status"] = "APPLIED"
+        result["promoted_at"] = int(time.time() * 1000)
+        self._record_run_event(
+            session,
+            event_type="STRATEGY_SWITCHED",
+            source="challenger",
+            reason_code="CHALLENGER_PROMOTED",
+            reason=f"Paper strategy switched to {strategy_type} while flat",
+            payload={"job_id": job_id, "strategy_type": strategy_type, "automatic": automatic},
+        )
+        return dict(result)
+
+    async def evaluate_challenger(self, symbol: str, strategy_type: str) -> Dict[str, Any]:
+        """Evaluate an alternate strategy without mutating the active paper runner."""
+        key = symbol.strip().upper()
+        session = self.sessions.get(key)
+        if session is None:
+            raise ValueError(f"paper pair {key} not found")
+        get_strategy_descriptor(strategy_type)
+        if strategy_type == session.config.strategy_type:
+            raise ValueError("challenger strategy must be different from the incumbent")
+        challenger_config = session.config.model_copy(update={"strategy_type": strategy_type})
+        fingerprint = self._config_fingerprint(challenger_config)
+        freshness_bucket = int(time.time() // 300)
+        job_id = hashlib.sha256(f"{key}:{fingerprint}:{freshness_bucket}".encode("utf-8")).hexdigest()[:20]
+        existing = session.challengers.get(job_id)
+        if existing is not None:
+            if existing.get("promotion_status") == "WAITING_FOR_FLAT":
+                promoted = self.promote_challenger(key, job_id, automatic=True)
+                return {**promoted, "deduplicated": True}
+            return {**existing, "deduplicated": True}
+        task = self._challenger_tasks.get(job_id)
+        if task is None:
+            task = asyncio.create_task(self._execute_challenger(session, challenger_config, job_id))
+            self._challenger_tasks[job_id] = task
+        try:
+            result = await task
+        finally:
+            if task.done():
+                self._challenger_tasks.pop(job_id, None)
+        return dict(result)
+
+    def _next_challenger_strategy(self, session: "PilotSession") -> Optional[str]:
+        waiting = [
+            item for item in session.challengers.values()
+            if item.get("promotion_status") == "WAITING_FOR_FLAT"
+            and item.get("challenger_strategy") != session.config.strategy_type
+        ]
+        if waiting:
+            return str(max(waiting, key=lambda item: int(item.get("created_at", 0) or 0))["challenger_strategy"])
+        candidates = sorted(OPTIMIZABLE_STRATEGIES - {session.config.strategy_type})
+        if not candidates:
+            return None
+        key = session.config.symbol.upper()
+        cursor = self._challenger_cursors.get(key, 0)
+        strategy = candidates[cursor % len(candidates)]
+        self._challenger_cursors[key] = cursor + 1
+        return strategy
+
+    async def _challenger_loop(self, session: "PilotSession", initial_delay: float) -> None:
+        """Continuously evaluate one bounded alternate profile per interval."""
+        if initial_delay > 0:
+            await asyncio.sleep(initial_delay)
+        while session.runner and session.runner.is_running:
+            strategy_type = self._next_challenger_strategy(session)
+            if strategy_type is None:
+                return
+            try:
+                await self.evaluate_challenger(session.config.symbol, strategy_type)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Challenger evaluation failed for %s", session.config.symbol)
+            if not (session.runner and session.runner.is_running):
+                break
+            await asyncio.sleep(self.CHALLENGER_INTERVAL_SEC)
+
     async def _optimization_loop(self, session: "PilotSession") -> None:
         """Periodic re-optimization while the paper session runs (запрос Di 24.10:
         оптимизация стратегий должна работать всё время теста). Первый прогон —
@@ -809,6 +1050,11 @@ class OvernightPilotManager:
                         self._optimization_loop(session),
                         name=f"overnight-optimization-{session.config.symbol.upper()}",
                     )
+                    stagger = min(300.0, 30.0 * len(self._challenger_loop_tasks))
+                    self._challenger_loop_tasks[session.config.symbol.upper()] = asyncio.create_task(
+                        self._challenger_loop(session, initial_delay=stagger),
+                        name=f"overnight-challenger-{session.config.symbol.upper()}",
+                    )
                 except Exception as exc:
                     session.error = str(exc)
             self._ensure_snapshot_task()
@@ -852,6 +1098,18 @@ class OvernightPilotManager:
         if self._optimization_tasks:
             await asyncio.gather(*self._optimization_tasks.values(), return_exceptions=True)
         self._optimization_tasks.clear()
+        for task in self._challenger_loop_tasks.values():
+            if not task.done():
+                task.cancel()
+        if self._challenger_loop_tasks:
+            await asyncio.gather(*self._challenger_loop_tasks.values(), return_exceptions=True)
+        self._challenger_loop_tasks.clear()
+        for task in self._challenger_tasks.values():
+            if not task.done():
+                task.cancel()
+        if self._challenger_tasks:
+            await asyncio.gather(*self._challenger_tasks.values(), return_exceptions=True)
+        self._challenger_tasks.clear()
         snapshot_task = self._snapshot_task
         self._snapshot_task = None
         if snapshot_task and snapshot_task is not asyncio.current_task() and not snapshot_task.done():
