@@ -87,26 +87,17 @@ powershell -ExecutionPolicy Bypass -File scripts/check.ps1
 ---
 
 ## 7. Documentation Maintenance Rule
-Any change altering directory structure, public interfaces, data flows, or task status must in the same commit:
-(a) Update [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) on structure/flows changes;
-(b) Run `python scripts/gen_codemap.py` to regenerate [`docs/CODEMAP.md`](docs/CODEMAP.md);
-(c) Update task status in [`docs/ROADMAP.md`](docs/ROADMAP.md);
-(d) Add a chronological entry to [`PROGRESS.md`](PROGRESS.md).
+For structure/flow changes update [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). For public interfaces, cross-module flows, ownership, data/config contracts or user workflows update [`docs/SYSTEM_WORKING_MAP.md`](docs/SYSTEM_WORKING_MAP.md). Regenerate [`docs/CODEMAP.md`](docs/CODEMAP.md); update [`docs/ROADMAP.md`](docs/ROADMAP.md) and [`PROGRESS.md`](PROGRESS.md) when task status changes.
 Enforced automatically in `scripts/check.ps1` via `python scripts/check_docs.py`.
 
 ---
 
 ## 8. Deep Documentation Directory (`docs/`)
 
-- **Design System Guide:** [`docs/design/DESIGN_GUIDE.md`](docs/design/DESIGN_GUIDE.md) (token specifications, component catalog, density rules).
-- **Git & Dev Rules:** [`docs/GIT_AND_DEV_RULES.md`](docs/GIT_AND_DEV_RULES.md) (branch naming, commit hygiene, token economy, report template).
-- **Model and Agent Routing:** [`docs/AGENT_ROUTING.md`](docs/AGENT_ROUTING.md) (runtime-aware model preferences, escalation, context, verification, and cost policy).
-- **Legacy Routing Note:** [`docs/MODEL_ROUTING.md`](docs/MODEL_ROUTING.md) (compatibility pointer; no automatic router is assumed).
-- **History & ADR-Lite:** [`docs/HISTORY.md`](docs/HISTORY.md) (architectural decisions, failed experiments, pitfalls).
-- **Engineering Roadmap:** [`docs/ROADMAP.md`](docs/ROADMAP.md) (real roadmap: done, in progress, next, backlog).
-- **Code Map:** [`docs/CODEMAP.md`](docs/CODEMAP.md) (auto-generated symbols and dependencies map).
-- **User Intent Scenarios:** [`docs/USER_INTENTS.md`](docs/USER_INTENTS.md) (overnight pilot, post-mortem analytics, Docker runs).
-- **Quantum Transformation:** [`docs/WIN_RATE_IMPROVEMENT_PLAN.md`](docs/WIN_RATE_IMPROVEMENT_PLAN.md) (expectancy and risk engine).
-- **Modularization Roadmap:** [`docs/MODULARIZATION_PLAN.md`](docs/MODULARIZATION_PLAN.md) (backend architecture decomposition plan).
-- **Docker Deployment:** [`docs/DOCKER.md`](docs/DOCKER.md) & [`DEPLOY.md`](DEPLOY.md) (container operations, Proxmox/Cloudflare setups).
-- **Architecture Decisions:** [`docs/DECISIONS.md`](docs/DECISIONS.md) (historical decision log).
+- **Design:** [`docs/design/DESIGN_GUIDE.md`](docs/design/DESIGN_GUIDE.md).
+- **Git rules:** [`docs/GIT_AND_DEV_RULES.md`](docs/GIT_AND_DEV_RULES.md).
+- **Routing:** [`docs/AGENT_ROUTING.md`](docs/AGENT_ROUTING.md), [`docs/MODEL_ROUTING.md`](docs/MODEL_ROUTING.md).
+- **History and roadmap:** [`docs/HISTORY.md`](docs/HISTORY.md), [`docs/ROADMAP.md`](docs/ROADMAP.md), [`docs/DECISIONS.md`](docs/DECISIONS.md).
+- **Maps:** [`docs/CODEMAP.md`](docs/CODEMAP.md), [`docs/SYSTEM_WORKING_MAP.md`](docs/SYSTEM_WORKING_MAP.md).
+- **Product:** [`docs/USER_INTENTS.md`](docs/USER_INTENTS.md), [`docs/WIN_RATE_IMPROVEMENT_PLAN.md`](docs/WIN_RATE_IMPROVEMENT_PLAN.md), [`docs/MODULARIZATION_PLAN.md`](docs/MODULARIZATION_PLAN.md).
+- **Deployment:** [`docs/DOCKER.md`](docs/DOCKER.md), [`DEPLOY.md`](DEPLOY.md).

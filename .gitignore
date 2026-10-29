@@ -59,6 +59,7 @@ context/qa/
 # Extra Logs, Process Outputs & Clutter
 logs/
 artifacts/
+/status*.json
 *.stdout
 *.stderr
 *.stdout.log

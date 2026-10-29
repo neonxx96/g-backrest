@@ -23,6 +23,7 @@ REQUIRED_DOCS = [
     "HANDOFF.md",
     "PROGRESS.md",
     "docs/ARCHITECTURE.md",
+    "docs/SYSTEM_WORKING_MAP.md",
     "docs/ROADMAP.md",
     "docs/HISTORY.md",
     "docs/AGENT_ROUTING.md",
