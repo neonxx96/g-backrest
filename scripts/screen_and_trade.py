@@ -169,11 +169,16 @@ def cmd_monitor(once: bool, interval: int, rounds: int) -> int:
             f"equity={snap['equity']} sessions={snap['sessions']} open={snap['open_count']} closed={closed_now}"
         )
         for p in snap["open_positions"]:
-            marker = " NEW" if f"{p.get('symbol')}:{p.get('side')}:{p.get('entry_price')}" in new_opens else ""
-            print(
-                f"  {p.get('symbol')} {p.get('side')} qty={p.get('qty')} entry={p.get('entry_price')} "
-                f"sl={p.get('stop_loss')} tp={p.get('take_profit')} pnl={p.get('unrealized_pnl')}{marker}"
-            )
+            key = f"{p.get('symbol')}:{p.get('side')}:{p.get('entry_price') or p.get('avg_entry_price')}"
+            marker = " NEW" if key in new_opens else ""
+            if marker:
+                # первый снапшот новой позиции — печатаем сырой JSON (ключи зависят от раннера)
+                print(f"  NEW POSITION {json.dumps(p, ensure_ascii=False, default=str)[:800]}")
+            else:
+                compact = {k: p.get(k) for k in (
+                    "symbol", "side", "qty", "entry_price", "avg_entry_price", "stop_price",
+                    "take_profit", "target_price", "unrealized_pnl", "leverage") if k in p}
+                print(f"  {json.dumps(compact, ensure_ascii=False, default=str)}{marker}")
         if prev_closed >= 0 and closed_now > prev_closed:
             print(f"  >>> закрыто сделок суммарно: {closed_now} (новых: {closed_now - prev_closed}) — статистика пишется")
         prev_open = opens

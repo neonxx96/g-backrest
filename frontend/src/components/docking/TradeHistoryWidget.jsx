@@ -67,6 +67,7 @@ export default function TradeHistoryWidget(props) {
   const [sessionData, setSessionData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [pilotError, setPilotError] = useState(null);
   const [activeTab, setActiveTab] = useState('positions'); // 'trades' | 'positions' | 'candidates' | 'pairs' | 'regimes'
   const [isResetting, setIsResetting] = useState(false);
   const [monitoringData, setMonitoringData] = useState(null);
@@ -125,6 +126,7 @@ export default function TradeHistoryWidget(props) {
         const data = await res.json();
         setHistoricalClosedTrades(data.trades || []);
         setClosedSummary(data.summary || null);
+        setError(null);
       } else {
         setError(`История сделок недоступна: HTTP ${res.status}`);
       }
@@ -225,9 +227,13 @@ export default function TradeHistoryWidget(props) {
       if (res.ok) {
         const data = await res.json();
         setPilotStatus(data);
+        setPilotError(null);
+      } else {
+        setPilotError(`HTTP ${res.status}`);
       }
     } catch (err) {
       console.debug('Failed to fetch overnight pilot status:', err);
+      setPilotError(err.message);
     }
   }, []);
 
@@ -705,6 +711,19 @@ export default function TradeHistoryWidget(props) {
             </button>
           </div>
         </div>
+
+        {/* Баннер потери связи с API: без него виджет молча показывает нули */}
+        {(error || pilotError) && (
+          <div
+            data-testid="api-error-banner"
+            className="flex items-center gap-2 rounded border border-destructive/60 bg-destructive/10 px-2 py-1 text-[10px] font-mono text-destructive"
+          >
+            <AlertCircle size={10} className="shrink-0" />
+            <span className="truncate" title={error || pilotError}>
+              API бэкенда не отвечает — данные неполные или устаревшие ({error || pilotError})
+            </span>
+          </div>
+        )}
 
         {/* Активная стратегия live paper-раннера */}
         <div
