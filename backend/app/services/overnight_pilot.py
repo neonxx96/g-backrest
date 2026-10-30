@@ -1122,8 +1122,11 @@ class OvernightPilotManager:
                     raise ValueError(f"{symbol}: historical verdict is BLOCK: {'; '.join(verdict.reasons)}")
             if not active:
                 self.sessions = {}
+                # Общий кошелёк сидируется из конфига: watchdog/скрипт продолжения
+                # подставляют сюда сохранённый equity, чтобы перезапуски не обнуляли счёт.
                 self._shared_paper_session = PaperTradingSession(
-                    initial_balance=1000.0, session_id=f"overnight_shared_{uuid.uuid4().hex[:12]}"
+                    initial_balance=float(getattr(config, "initial_capital", 0.0) or 1000.0),
+                    session_id=f"overnight_shared_{uuid.uuid4().hex[:12]}",
                 )
             shared = self._shared_paper_session
             if shared is None:
@@ -1223,8 +1226,9 @@ class OvernightPilotManager:
                         f"paper start blocked by preflight verdict for {blocked_symbols}: "
                         + " | ".join(f"{symbol}: {reason}" for symbol, reason in sorted(blocking_reasons.items()))
                     )
-            # Create one shared PaperTradingSession ($1,000.00 total account capital shared across all active pairs)
-            shared_capital = 1000.0
+            # Create one shared PaperTradingSession (total account capital shared across
+            # all active pairs; seeded from the first config so a resume can carry equity over)
+            shared_capital = float(getattr(selected[0], "initial_capital", 0.0) or 1000.0) if selected else 1000.0
             shared_paper_session = PaperTradingSession(
                 initial_balance=shared_capital,
                 session_id=f"overnight_shared_{int(time.time())}"

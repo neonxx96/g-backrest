@@ -21,6 +21,7 @@ from urllib.request import Request, urlopen
 
 API = "http://127.0.0.1:8000/api/overnight-pilot"
 RESULT_PATH = "data/screen_and_trade_result.json"
+WALLET_PATH = "data/demo_wallet.json"  # continuity equity общего paper-счёта между перезапусками
 DEFAULT_PAIRS = [
     "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "DOGEUSDT",
     "LINKUSDT", "ZECUSDT", "NEARUSDT", "ENAUSDT", "SUIUSDT", "UNIUSDT",
@@ -194,11 +195,29 @@ def cmd_monitor(once: bool, interval: int, rounds: int) -> int:
     return 0
 
 
-def build_config(symbol: str, strategy_type: str, timeframe: str) -> Dict[str, Any]:
+def saved_equity() -> float:
+    """Сохранённый equity общего paper-счёта (fallback $1,000)."""
+    try:
+        return float(json.load(open(WALLET_PATH, encoding="utf-8")).get("initial_balance") or 1000.0)
+    except Exception:  # noqa: BLE001 — файла нет или битый: стартуем с дефолта
+        return 1000.0
+
+
+def save_equity(value: float) -> None:
+    try:
+        with open(WALLET_PATH, "w", encoding="utf-8") as fh:
+            json.dump({"initial_balance": round(float(value), 2)}, fh)
+    except Exception:  # noqa: BLE001 — запоминание equity некритично
+        pass
+
+
+def build_config(symbol: str, strategy_type: str, timeframe: str,
+                 initial_capital: Optional[float] = None) -> Dict[str, Any]:
     """Конфиг демо-сессии — зеркало probe-конфига скрининга (overnight_pilot.screen_pair)."""
     return {
         "symbol": symbol, "strategy_type": strategy_type, "timeframe": timeframe,
-        "days": 14, "initial_capital": 1000.0, "risk_per_trade_pct": 0.5,
+        "days": 14, "initial_capital": float(initial_capital if initial_capital is not None else 1000.0),
+        "risk_per_trade_pct": 0.5,
         "min_density_usd": 0.0, "volume_multiplier": 0.0,
         "use_cvd_filter": False, "use_rsi_filter": False,
         "use_multi_tp": False, "trailing_activation_pct": 0.5,
@@ -207,19 +226,26 @@ def build_config(symbol: str, strategy_type: str, timeframe: str) -> Dict[str, A
     }
 
 
+def load_started() -> List[Dict[str, Any]]:
+    """Сохранённый набор запущенных пар (symbol/strategy_type/timeframe)."""
+    try:
+        return list(json.load(open(RESULT_PATH, encoding="utf-8")).get("started") or [])
+    except Exception:  # noqa: BLE001 — файла нет или битый
+        return []
+
+
 def cmd_resume() -> int:
     """Перезапуск демо по сохранённому набору пар/стратегий (без нового скрининга)."""
-    path = RESULT_PATH
-    data = json.load(open(path, encoding="utf-8"))
-    started = data.get("started") or []
+    started = load_started()
     if not started:
-        print(f"[resume] нет записей о запуске в {path}")
+        print(f"[resume] нет записей о запуске в {RESULT_PATH}")
         return 1
-    print(f"[resume] перезапуск {len(started)} пар по {path} …")
+    print(f"[resume] перезапуск {len(started)} пар по {RESULT_PATH} …")
     ok, failed = [], {}
     for item in started:
         symbol = item["symbol"]
-        config = build_config(symbol, item["strategy_type"], item["timeframe"])
+        config = build_config(symbol, item["strategy_type"], item["timeframe"],
+                              initial_capital=saved_equity())
         try:
             prepared = _post("/pairs/prepare", config)
             result = start_pair_preflight(config, prepared["preflight_id"])
@@ -230,7 +256,7 @@ def cmd_resume() -> int:
             print(f"[resume] FAIL {symbol}: {exc}")
     out_path = "data/screen_and_trade_resume.json"
     with open(out_path, "w", encoding="utf-8") as fh:
-        json.dump({"resumed": ok, "failed": failed, "account_target": data.get("account_target")}, fh, ensure_ascii=False, indent=2)
+        json.dump({"resumed": ok, "failed": failed}, fh, ensure_ascii=False, indent=2)
     print(f"[resume] готово: {len(ok)} запущено, {len(failed)} ошибок → {out_path}")
     return 0 if ok else 1
 

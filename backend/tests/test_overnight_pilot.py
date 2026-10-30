@@ -292,6 +292,16 @@ def test_pilot_start_checks_blocking_verdict_before_creating_paper_session():
     assert "paper start blocked by preflight verdict" in source
 
 
+def test_shared_paper_wallet_seeds_from_config_initial_capital():
+    """Fresh shared wallets must honour config.initial_capital so a resume/watchdog
+    can carry the saved equity over instead of resetting the wallet to $1,000."""
+    pair_source = inspect.getsource(OvernightPilotManager.start_pair)
+    assert 'initial_balance=float(getattr(config, "initial_capital", 0.0) or 1000.0)' in pair_source
+
+    start_source = inspect.getsource(OvernightPilotManager.start)
+    assert 'shared_capital = float(getattr(selected[0], "initial_capital", 0.0) or 1000.0)' in start_source
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows sandbox blocks asyncio.run for isolated pilot orchestration")
 def test_autopilot_repreflights_only_allowed_pairs_before_starting_them():
     manager = OvernightPilotManager()
