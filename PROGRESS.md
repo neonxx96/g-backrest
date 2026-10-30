@@ -59,6 +59,11 @@
   - Added a regression that verifies close-event journaling still occurs and no leaked coroutine warning is emitted.
   - `scripts/check.ps1` exit **0**: 609 host pytest passed, 31 skipped, with no pytest warning summary; frontend, lint, docs, critical smoke, blocking Playwright, and live WebSocket passed. Docker/Linux async tests remained unavailable.
 
+- **2026-10-30 [Kimi] Task NIGHT POST-MORTEM + DEMO RESUME**:
+  - Night run forensics: trading worked (7 closed trades, engine evaluated ~8,4k signals overnight); the morning UI outage had two separate causes — (1) user browser ran a stale pre-merge frontend bundle, (2) at 10:58 the backend's HTTP accept loop died with WinError 64 (network name no longer available; VPN/adapter event) while the python process kept running, so the API went dark until restart.
+  - Added `scripts/screen_and_trade.py resume`: restarts the saved 12-pair set from `data/screen_and_trade_result.json` without re-screening (prepare + start-demo per pair). After the backend restart 8 pairs resumed on a new shared account `overnight_shared_1695eb25e210`; 4 pairs (LINK/SUI/UNI/AVAX) were refused by the live TOXIC_VOLATILITY hard check during the market dump — protective behavior, re-add them later with `resume`.
+  - Known limitations recorded: backend listener does not survive WinError 64 (needs watchdog/restart); shared paper wallet is recreated on cold start (account continuity not persisted).
+
 - **2026-10-30 [Kimi] Task OVERNIGHT DEMO VERIFIED + API FAILURE BANNER**:
   - Overnight demo run confirmed working: 7 closed trades across 5 pairs (ETH, BNB, ZEC×2, SUI, AVAX×2) on `overnight_shared_283953d23d55`, equity $994.88, full trade records (entry/exit/target/stop, MFE/MAE, fees) written to SQLite and served by `/api/paper-trading/closed-trades` (93 total with history).
   - Root cause of the "no trades in UI" report: the user's browser rendered an old frontend bundle; additionally `TradeHistoryWidget` never rendered its `error` state, so any API failure showed silent zeros. Added a visible API-failure banner (`api-error-banner`, semantic `destructive` tokens) and pilot-status error tracking.

@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 from urllib.request import Request, urlopen
 
 API = "http://127.0.0.1:8000/api/overnight-pilot"
+RESULT_PATH = "data/screen_and_trade_result.json"
 DEFAULT_PAIRS = [
     "BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "DOGEUSDT",
     "LINKUSDT", "ZECUSDT", "NEARUSDT", "ENAUSDT", "SUIUSDT", "UNIUSDT",
@@ -77,11 +78,8 @@ def stop_pilot() -> None:
         print(f"[stop] {exc}")
 
 
-def start_pair(symbol: str, row: Dict[str, Any]) -> Dict[str, Any]:
-    config = dict(row["config"])
-    config["duration_hours"] = DURATION_HOURS
-    prepared = _post("/pairs/prepare", config)
-    preflight_id = prepared["preflight_id"]
+def start_pair_preflight(config: Dict[str, Any], preflight_id: str) -> Dict[str, Any]:
+    """prepare → start-demo по готовому preflight_id."""
     # start-demo ожидает preflight_id строкой запроса
     data = json.dumps(config).encode("utf-8")
     req = Request(
@@ -90,6 +88,13 @@ def start_pair(symbol: str, row: Dict[str, Any]) -> Dict[str, Any]:
     )
     with urlopen(req, timeout=300) as resp:  # noqa: S310
         return json.loads(resp.read().decode("utf-8"))
+
+
+def start_pair(symbol: str, row: Dict[str, Any]) -> Dict[str, Any]:
+    config = dict(row["config"])
+    config["duration_hours"] = DURATION_HOURS
+    prepared = _post("/pairs/prepare", config)
+    return start_pair_preflight(config, prepared["preflight_id"])
 
 
 def cmd_run(pairs: List[str], days: int) -> int:
@@ -128,7 +133,7 @@ def cmd_run(pairs: List[str], days: int) -> int:
             skipped[symbol] = f"start: {exc}"
 
     summary = {"started": started, "skipped": skipped, "account_target": "shared $1,000 paper wallet"}
-    with open("data/screen_and_trade_result.json", "w", encoding="utf-8") as fh:
+    with open(RESULT_PATH, "w", encoding="utf-8") as fh:
         json.dump(summary, fh, ensure_ascii=False, indent=2)
     print(f"[done] запущено {len(started)} пар, пропущено {len(skipped)}: {skipped}")
     return 0 if started else 1
@@ -189,12 +194,54 @@ def cmd_monitor(once: bool, interval: int, rounds: int) -> int:
     return 0
 
 
+def build_config(symbol: str, strategy_type: str, timeframe: str) -> Dict[str, Any]:
+    """Конфиг демо-сессии — зеркало probe-конфига скрининга (overnight_pilot.screen_pair)."""
+    return {
+        "symbol": symbol, "strategy_type": strategy_type, "timeframe": timeframe,
+        "days": 14, "initial_capital": 1000.0, "risk_per_trade_pct": 0.5,
+        "min_density_usd": 0.0, "volume_multiplier": 0.0,
+        "use_cvd_filter": False, "use_rsi_filter": False,
+        "use_multi_tp": False, "trailing_activation_pct": 0.5,
+        "ai_control": True, "auto_strategy_switch": True,
+        "duration_hours": DURATION_HOURS,
+    }
+
+
+def cmd_resume() -> int:
+    """Перезапуск демо по сохранённому набору пар/стратегий (без нового скрининга)."""
+    path = RESULT_PATH
+    data = json.load(open(path, encoding="utf-8"))
+    started = data.get("started") or []
+    if not started:
+        print(f"[resume] нет записей о запуске в {path}")
+        return 1
+    print(f"[resume] перезапуск {len(started)} пар по {path} …")
+    ok, failed = [], {}
+    for item in started:
+        symbol = item["symbol"]
+        config = build_config(symbol, item["strategy_type"], item["timeframe"])
+        try:
+            prepared = _post("/pairs/prepare", config)
+            result = start_pair_preflight(config, prepared["preflight_id"])
+            ok.append({"symbol": symbol, "strategy_type": item["strategy_type"], "timeframe": item["timeframe"]})
+            print(f"[resume] OK {symbol} {item['strategy_type']} {item['timeframe']} → {result.get('session_id') or result.get('account_id') or 'started'}")
+        except Exception as exc:  # noqa: BLE001 — продолжаем по остальным парам
+            failed[symbol] = str(exc)
+            print(f"[resume] FAIL {symbol}: {exc}")
+    out_path = "data/screen_and_trade_resume.json"
+    with open(out_path, "w", encoding="utf-8") as fh:
+        json.dump({"resumed": ok, "failed": failed, "account_target": data.get("account_target")}, fh, ensure_ascii=False, indent=2)
+    print(f"[resume] готово: {len(ok)} запущено, {len(failed)} ошибок → {out_path}")
+    return 0 if ok else 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
     run_p = sub.add_parser("run")
     run_p.add_argument("--pairs", default=",".join(DEFAULT_PAIRS), help="список USDT-пар через запятую")
     run_p.add_argument("--days", type=int, default=14)
+    sub.add_parser("resume", help="перезапуск демо по сохранённому набору пар без нового скрининга")
     mon_p = sub.add_parser("monitor")
     mon_p.add_argument("--once", action="store_true")
     mon_p.add_argument("--interval", type=int, default=60)
@@ -202,6 +249,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.cmd == "run":
         return cmd_run([s.strip().upper() for s in args.pairs.split(",") if s.strip()], args.days)
+    if args.cmd == "resume":
+        return cmd_resume()
     return cmd_monitor(args.once, args.interval, args.rounds)
 
 
