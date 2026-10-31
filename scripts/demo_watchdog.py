@@ -219,23 +219,48 @@ def wait_api_ready(timeout: float = 180.0) -> bool:
     return False
 
 
+_health_strikes = 0  # сколько циклов подряд бэкенд не отвечает на health
+
+
+def adopt_backend(owner: int, name: str) -> None:
+    """Запомнить чужой, но здоровый SignalScript-бэкенд как своего.
+
+    Порт может держать инстанс, запущенный руками или другим агентом: убивать
+    здоровый бэкенд ради перезапуска — лишний простой демо и «война лаунчеров».
+    """
+    with open(BACKEND_PID_FILE, "w", encoding="utf-8") as fh:
+        fh.write(str(owner))
+    log(f"усыновляю здоровый бэкенд PID {owner} ({name}) — порт 8000 уже наш и живой")
+
+
 def ensure_backend() -> bool:
     """True, если API отвечает (после возможного перезапуска).
 
-    Требует ДВЕ подряд неудачные лёгкие проверки здоровья, прежде чем считать
-    бэкенд мёртвым: единичный таймаут во время пиковой нагрузки не должен
-    убивать здоровый сервер.
+    Требует ДВЕ подряд неудачные лёгкие проверки здоровья И ТРИ таких цикла
+    подряд, прежде чем убивать бэкенд: тяжёлые соседние процессы (гейты тестов,
+    сборки, другие агенты) могут морозить event loop бэкенда на десятки секунд,
+    и перезапуск по одному миганию health-check ломает демо-пилот чаще,
+    чем чинит его. Перед убийством чужого владельца порта делается быстрый
+    пробник: здоровый наш бэкенд усыновляется вместо убийства.
     """
+    global _health_strikes
     data, exc = http_json_exc(HEALTH_URL, timeout=15.0)
     if is_our_backend(data):
+        _health_strikes = 0
         return True
     time.sleep(5)
     second = http_json(HEALTH_URL, timeout=15.0)
     if is_our_backend(second):
         log(f"health-check мигнул один раз ({type(exc).__name__}: {str(exc)[:60]}) — бэкенд жив, продолжаем")
+        _health_strikes = 0
         return True
     if second is not None:
         log(f"на 8000 отвечает НЕ наш бэкенд ({second}) — чужой владелец порта")
+    _health_strikes += 1
+    if _health_strikes < 3:
+        log(f"бэкенд не отвечает ({_health_strikes}/3 циклов подряд) — наблюдаю, не трогаю процессы")
+        return False
+    _health_strikes = 0
     # Зомби-дерево своего прошлого бэкенда (слушатель мёртв, процесс жив) — убить.
     tracked = tracked_backend_pid()
     owner = port_owner_pid()
@@ -247,6 +272,10 @@ def ensure_backend() -> bool:
                 log("порт 8000 не освободился — пропускаю цикл, повторю")
                 return False
         else:
+            probe = http_json(HEALTH_URL, timeout=4.0)
+            if is_our_backend(probe):
+                adopt_backend(owner, name)
+                return True
             backup_db()
             kill_pid_tree(owner, f"остановка чужого бэкенда PID {owner} ({name})")
     elif tracked and pid_alive(tracked):

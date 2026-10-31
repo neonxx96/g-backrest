@@ -1068,7 +1068,7 @@ JS/TS call targets are lexical candidates, not a type-resolved call graph.
 
 ### `frontend/src/components/docking/WorkspaceScroller.jsx`
 - **Public symbols:** `WorkspaceScroller`
-- **Calls / imports:** `Handle`, `ResizeObserver`, `S`, `String`, `WorkspaceScroller`, `addEventListener`, `auto`, `cancelAnimationFrame`, `clearTimeout`, `commands`, …
+- **Calls / imports:** `Handle`, `Number`, `ResizeObserver`, `S`, `String`, `WorkspaceScroller`, `addEventListener`, `applyHeightPercent`, `auto`, `cancelAnimationFrame`, …
 - **Imported by:** —
 
 ### `frontend/src/components/dom/constants.js`

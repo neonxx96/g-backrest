@@ -168,7 +168,25 @@ export default function WorkspaceScroller({
 
   const effectiveHeight = heightPx && heightPx > viewportH ? `${heightPx}px` : '100%';
 
+  const heightPercent = heightPx && heightPx > viewportH
+    ? Math.min(300, Math.max(100, Math.round((heightPx / viewportH) * 100)))
+    : 100;
+
+  const applyHeightPercent = (raw) => {
+    const pct = Number(raw);
+    if (!Number.isFinite(pct) || pct <= 100) {
+      setHeightPx(null);
+      try { localStorage.setItem(`signalscript_ws_height_${activePresetId}`, 'auto'); } catch (_) {}
+    } else {
+      const next = Math.round(viewportH * (Math.min(300, pct) / 100));
+      setHeightPx(next);
+      try { localStorage.setItem(`signalscript_ws_height_${activePresetId}`, String(next)); } catch (_) {}
+    }
+    relayoutDockview();
+  };
+
   return (
+    <>
     <div
       ref={scrollerRef}
       data-testid="workspace-scroller"
@@ -220,5 +238,35 @@ export default function WorkspaceScroller({
         </div>
       </div>
     </div>
+
+    {/* Floating height slider: vertically centred at the screen edge.
+        100% = авто (ровно экран), до 300% — терминал растёт вниз с прокруткой. */}
+    <div
+      data-testid="workspace-height-slider"
+      className="fixed right-2 top-1/2 -translate-y-1/2 z-[100] flex flex-col items-center gap-1 bg-card/60 hover:bg-card/95 border border-border/60 hover:border-primary/50 rounded-full px-1.5 py-2.5 backdrop-blur-sm shadow-lg opacity-50 hover:opacity-100 transition-all"
+      title="Глубина терминала: 100–300% высоты экрана"
+    >
+      <span className="text-[9px] font-mono font-bold text-primary tabular-nums">{heightPercent}%</span>
+      <input
+        type="range"
+        data-testid="workspace-height-slider-input"
+        min={100}
+        max={300}
+        step={5}
+        value={heightPercent}
+        onChange={(e) => applyHeightPercent(e.target.value)}
+        onDoubleClick={() => applyHeightPercent(100)}
+        className="h-36 cursor-ns-resize"
+        style={{
+          writingMode: 'vertical-lr',
+          direction: 'rtl',
+          accentColor: 'var(--primary)',
+          width: '14px',
+        }}
+        aria-label="Глубина терминала, проценты от высоты экрана"
+      />
+      <span className="text-[8px] font-mono text-muted-foreground [writing-mode:vertical-rl] select-none">глубина</span>
+    </div>
+    </>
   );
 }

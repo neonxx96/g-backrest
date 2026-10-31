@@ -590,19 +590,6 @@ export default function TerminalDockview({
       event.api.domSharedProps = domSharedProps;
       event.api.signalsSharedProps = signalsSharedProps;
 
-      // Subscribe before any imperative layout operation.  The gate starts
-      // closed, so initial Dockview events are observed but never persisted.
-      layoutChangeDisposableRef.current?.dispose?.();
-      layoutChangeDisposableRef.current = event.api.onDidLayoutChange(() => {
-        const json = event.api.toJSON();
-        // size:null — маркер деградировавших внутренних размеров dockview;
-        // сохранять такое нельзя: травма layout'ом самоподдерживается.
-        if (hasNullSizes(json)) {
-          console.warn('Dockview autosave skipped: layout has null sizes (degenerate state).');
-          return;
-        }
-        scheduleAutosave(json, useColorLinksStore.getState().channels);
-      });
 
       // 1. Render cache/default synchronously. This also marks the layout
       // ready when no SQLite workspace exists or its request is slow.
@@ -633,10 +620,30 @@ export default function TerminalDockview({
     ]
   );
 
-  useEffect(() => () => {
-    layoutChangeDisposableRef.current?.dispose?.();
-    layoutChangeDisposableRef.current = null;
-  }, []);
+  // Subscribe in an effect keyed on the dockview api state.  React StrictMode
+  // in dev unmounts/remounts the tree once: an onReady-time subscription dies
+  // in that simulated unmount and is never recreated (onReady fires only once
+  // per dockview instance), which silently killed autosave persistence.
+  // A state-keyed effect re-runs on the remount and re-subscribes every time.
+  useEffect(() => {
+    const api = dockviewApi;
+    if (!api) return undefined;
+    const disposable = api.onDidLayoutChange(() => {
+      const json = api.toJSON();
+      // size:null — маркер деградировавших внутренних размеров dockview;
+      // сохранять такое нельзя: травма layout'ом самоподдерживается.
+      if (hasNullSizes(json)) {
+        console.warn('Dockview autosave skipped: layout has null sizes (degenerate state).');
+        return;
+      }
+      scheduleAutosave(json, useColorLinksStore.getState().channels);
+    });
+    layoutChangeDisposableRef.current = disposable;
+    return () => {
+      disposable.dispose();
+      layoutChangeDisposableRef.current = null;
+      };
+  }, [dockviewApi, scheduleAutosave]);
 
   // Keep shared props updated
   useEffect(() => {
