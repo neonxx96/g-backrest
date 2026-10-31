@@ -32,7 +32,7 @@ from backend.app.services.strategy_catalog import (
 from backend.app.engine.verdict import evaluate_verdict
 from backend.app.db.database import AsyncSessionLocal
 from backend.app.db.models import OvernightPilotRun
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 
 # Compatibility exports: callers keep their established names while the
@@ -170,7 +170,7 @@ class OvernightPilotManager:
         try:
             from backend.app.db.database import AsyncSessionLocal
             from backend.app.db.models import PairTradingState
-            from sqlalchemy import select
+            from sqlalchemy import select, update
             async with AsyncSessionLocal() as db_session:
                 res = await db_session.execute(select(PairTradingState))
                 records = res.scalars().all()
@@ -1819,6 +1819,17 @@ class OvernightPilotManager:
         async with AsyncSessionLocal() as db:
             result = await db.execute(select(OvernightPilotRun).order_by(OvernightPilotRun.updated_at.desc()))
             rows = result.scalars().all()
+        # Реинкарнация зомби: persist() писал is_running=1, пока процесс жил;
+        # при убийстве бэкенда (reboot, watchdog taskkill) флаг оставался
+        # висеть в БД навсегда. На старте ничего не работает — сбрасываем
+        # все флаги, чтобы UI не показывал сотни мёртвых «работающих» сессий.
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(OvernightPilotRun)
+                .where(OvernightPilotRun.is_running.is_(True))
+                .values(is_running=False)
+            )
+            await db.commit()
         await self.load_persisted_states()
 
         # A persisted record is per symbol, while the paper wallet is per run.

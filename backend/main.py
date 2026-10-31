@@ -130,10 +130,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Signal Script API", lifespan=lifespan)
 
+BACKEND_BUILD_TAG = "dev-local-2026-10-31"
+
+
 @app.get("/api/health")
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "service": "signalscript-backend"}
+    return {"status": "ok", "service": "signalscript-backend", "build": BACKEND_BUILD_TAG}
 
 # Allow CORS for React/Vite development & localhost
 app.add_middleware(

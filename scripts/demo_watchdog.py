@@ -16,12 +16,17 @@
     .venv\\Scripts\\python.exe -u scripts/demo_watchdog.py
 Остановка:
     .venv\\Scripts\\python.exe scripts/demo_watchdog.py --stop
+Автозапуск при входе в Windows (переживает перезагрузку ПК):
+    .venv\\Scripts\\python.exe scripts/demo_watchdog.py --install-autostart
+Убрать автозапуск:
+    .venv\\Scripts\\python.exe scripts/demo_watchdog.py --uninstall-autostart
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import shutil
 import signal
 import sqlite3
 import subprocess
@@ -41,6 +46,11 @@ STATUS_URL = "http://127.0.0.1:8000/api/overnight-pilot/status"
 # Лёгкий эндпоинт для проверки живости: тяжёлый /overnight-pilot/status во время
 # возобновления пар может отвечать дольше таймаута и давать ложное «бэкенд мёртв».
 HEALTH_URL = "http://127.0.0.1:8000/api/health"
+# Маркер текущего бэкенда (backend/main.py BACKEND_BUILD_TAG). Старый
+# Docker-контейнер signalscript после перезагрузки ПК отвечает на 8000
+# прежним API — без маркера вотчдог принимал его за свой и демо не стартовал.
+BUILD_TAG = "dev-local-2026-10-31"
+DOCKER_PROCS = {"com.docker.backend.exe", "wslrelay.exe", "vpnkit.exe", "com.docker.build.exe", "com.docker.dev-envs.exe"}
 PID_FILE = os.path.join(ROOT, "data", "demo_watchdog.pid")
 STOP_FILE = os.path.join(ROOT, "data", "demo_watchdog.stop")
 BACKEND_PID_FILE = os.path.join(ROOT, "data", "backend.pid")  # PID дерева backend, порождённого вотчдогом
@@ -65,6 +75,39 @@ def http_json_exc(url: str, timeout: float = 8.0):
             return json.loads(resp.read().decode("utf-8")), None
     except Exception as exc:  # noqa: BLE001 — фиксируем причину для лога
         return None, exc
+
+
+def is_our_backend(data: Optional[Dict[str, Any]]) -> bool:
+    """True, только если на 8000 отвечает именно наш текущий бэкенд."""
+    return bool(data) and data.get("service") == "signalscript-backend" and data.get("build") == BUILD_TAG
+
+
+def process_name(pid: int) -> str:
+    try:
+        out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                             capture_output=True, text=True, timeout=30).stdout
+        return out.split(",")[0].strip('"').lower()
+    except Exception:  # noqa: BLE001
+        return "unknown"
+
+
+def docker_free_port() -> bool:
+    """Мягко останавливает Docker-контейнеры, публикующие порт 8000."""
+    docker = shutil.which("docker") or r"C:\Program Files\Docker\Docker\resources\bin\docker.exe"
+    if not os.path.exists(docker):
+        return False
+    try:
+        out = subprocess.run([docker, "ps", "--filter", "publish=8000", "-q"],
+                             capture_output=True, text=True, timeout=30).stdout.strip()
+        if out:
+            ids = out.split()
+            log(f"docker stop {' '.join(ids)} …")
+            subprocess.run([docker, "stop", *ids], capture_output=True, timeout=180)
+        time.sleep(3)
+        return port_owner_pid() is None
+    except Exception as exc:  # noqa: BLE001
+        log(f"docker_free_port ошибка: {exc}")
+        return False
 
 
 def port_owner_pid() -> Optional[int]:
@@ -158,23 +201,33 @@ def ensure_backend() -> bool:
     бэкенд мёртвым: единичный таймаут во время пиковой нагрузки не должен
     убивать здоровый сервер.
     """
-    _, exc = http_json_exc(HEALTH_URL, timeout=15.0)
-    if exc is None:
+    data, exc = http_json_exc(HEALTH_URL, timeout=15.0)
+    if is_our_backend(data):
         return True
     time.sleep(5)
-    if http_json(HEALTH_URL, timeout=15.0) is not None:
+    second = http_json(HEALTH_URL, timeout=15.0)
+    if is_our_backend(second):
         log(f"health-check мигнул один раз ({type(exc).__name__}: {str(exc)[:60]}) — бэкенд жив, продолжаем")
         return True
+    if second is not None:
+        log(f"на 8000 отвечает НЕ наш бэкенд ({second}) — чужой владелец порта")
     # Зомби-дерево своего прошлого бэкенда (слушатель мёртв, процесс жив) — убить.
     tracked = tracked_backend_pid()
-    if tracked and pid_alive(tracked):
+    owner = port_owner_pid()
+    if owner is not None and owner != tracked and pid_alive(owner):
+        name = process_name(owner)
+        if name in DOCKER_PROCS:
+            log(f"порт 8000 занят Docker (PID {owner}, {name}) — останавливаю контейнеры")
+            if not docker_free_port():
+                log("порт 8000 не освободился — пропускаю цикл, повторю")
+                return False
+        else:
+            backup_db()
+            kill_pid_tree(owner, f"остановка чужого бэкенда PID {owner} ({name})")
+    elif tracked and pid_alive(tracked):
         backup_db()
         kill_pid_tree(tracked, "своё дерево бэкенда не отвечает")
-    owner = port_owner_pid()
-    if owner is not None and owner != tracked:
-        backup_db()
-        kill_backend(owner)
-    elif owner is None:
+    if port_owner_pid() is None:
         log("порт 8000 мёртв")
     start_backend()
     if wait_api_ready():
@@ -225,6 +278,49 @@ def stop_requested() -> bool:
     return os.path.exists(STOP_FILE)
 
 
+AUTOSTART_VBS = "SignalScriptDemoWatchdog.vbs"
+
+
+def autostart_dir() -> str:
+    return os.path.join(os.environ["APPDATA"], "Microsoft", "Windows", "Start Menu", "Programs", "Startup")
+
+
+def autostart_vbs_path() -> str:
+    return os.path.join(autostart_dir(), AUTOSTART_VBS)
+
+
+def cmd_install_autostart() -> int:
+    """Кладёт VBS в shell:startup: при входе в Windows вотчдог стартует скрыто.
+
+    VBS запускает cmd-обёртку с intWindowStyle=0 (без окна) — переживает
+    перезагрузку ПК, поднимает бэкенд и возобновляет сохранённые пары.
+    """
+    python = os.path.join(ROOT, ".venv", "Scripts", "python.exe")
+    watchdog = os.path.join(ROOT, "scripts", "demo_watchdog.py")
+    log_file = os.path.join(ROOT, "data", "autostart_watchdog.log")
+    os.makedirs(autostart_dir(), exist_ok=True)
+    vbs = (
+        'Set sh = CreateObject("WScript.Shell")\n'
+        f'sh.CurrentDirectory = "{ROOT}"\n'
+        f'sh.Run "cmd /c \"\"{python}\" -u \"{watchdog}\" >> \"{log_file}\" 2>>&1", 0, False\n'
+    )
+    with open(autostart_vbs_path(), "w", encoding="utf-8") as fh:
+        fh.write(vbs)
+    print(f"автозапуск установлен: {autostart_vbs_path()}")
+    print("вотчдог стартует при следующем входе в Windows и держит демо живым")
+    return 0
+
+
+def cmd_uninstall_autostart() -> int:
+    path = autostart_vbs_path()
+    if os.path.exists(path):
+        os.remove(path)
+        print(f"автозапуск удалён: {path}")
+    else:
+        print("автозапуск не был установлен")
+    return 0
+
+
 def cmd_stop() -> int:
     if not os.path.exists(PID_FILE):
         print("вотчдог не запущен (pid-файла нет)")
@@ -256,7 +352,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--interval", type=int, default=60, help="секунды между проверками")
     parser.add_argument("--stop", action="store_true", help="остановить вотчдог")
+    parser.add_argument("--install-autostart", action="store_true", help="автозапуск вотчдога при входе в Windows")
+    parser.add_argument("--uninstall-autostart", action="store_true", help="убрать автозапуск")
     args = parser.parse_args()
+    if args.install_autostart:
+        return cmd_install_autostart()
+    if args.uninstall_autostart:
+        return cmd_uninstall_autostart()
     if args.stop:
         return cmd_stop()
     if stop_requested():

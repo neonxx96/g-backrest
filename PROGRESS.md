@@ -31,6 +31,13 @@
 
 ## 2. Completed Milestones
 
+- **2026-10-31 [Kimi] Task POST-REBOOT RECOVERY + ZOMBIE SESSIONS + DOCKER PORT HIJACK FIX**:
+  - Morning post-mortem after the user's break: PC rebooted 2026-10-30 16:50 and took the whole demo stack down for ~22h — nothing auto-started after the reboot. Root-caused and fixed three independent defects:
+  - **Zombie pilot sessions**: `persist()` wrote `is_running=1` while the process lived; a killed backend (reboot, watchdog `taskkill`) never reset the flag — 263 stale rows accumulated since 2026-10-20. `OvernightPilotManager.restore()` now reconciles `UPDATE overnight_pilot_runs SET is_running=0` on every backend startup (safe: nothing can be running at startup); regression asserts the UPDATE is issued (`test_restore_rehydrates_snapshot_as_stale_and_keeps_session_id`).
+  - **Docker port hijack**: Docker Desktop autostart revived the old `signalscript_backend`/`signalscript_frontend` containers (stale image, no `/pairs/*` routes) which grabbed ports 8000/7100; the watchdog's health-check passed against the stale container and it never started the real backend (404 storm in the log). Fix: `/api/health` now carries a build marker (`BACKEND_BUILD_TAG`); watchdog validates it, detects Docker-family port owners (`com.docker.backend.exe`, `wslrelay.exe`, …) and frees the port via `docker stop` instead of `taskkill`; containers' restart policy set to `no`.
+  - **No autostart after reboot**: watchdog gained `--install-autostart`/`--uninstall-autostart` writing a hidden VBS launcher into shell:startup (`SignalScriptDemoWatchdog.vbs`); autostart installed on this machine. Verified end-to-end: watchdog → backend up → 12 pairs resumed on shared account, zombies 263→12 (live sessions only), equity carried at $1000 via `data/demo_wallet.json`.
+
+
 - **2026-10-29 [Kimi] Task PAIR-LAB-01: Self-service pair screening → paper trading flow**:
   - New read-only lab endpoint `POST /api/overnight-pilot/pairs/screen`: backtest+forecast of one symbol across the whole strategy catalog (per-combo isolated probes, concurrency 4, per-symbol in-flight guard); returns ranked rows with metrics, forecast regime, verdict and an exact reusable config (`ai_control`/`auto_strategy_switch` on).
   - `TradeHistoryWidget`: «Скрининг» button in the add-pair panel renders a per-strategy results table; «Торговать» on a row runs the exact `prepare → start-demo` chain onto the shared paper wallet; if the pair already trades, the row strategy is submitted as a challenger instead (auto-switch applies it when flat). New `PairChallengerQuickTest` in every pair row tests an alternative strategy without stopping the runner. All new UI uses semantic tokens (design-lint ratchet clean).

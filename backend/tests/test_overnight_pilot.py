@@ -784,6 +784,8 @@ def test_restore_rehydrates_snapshot_as_stale_and_keeps_session_id(monkeypatch):
                 )()
             ]
 
+    executed_queries: list = []
+
     class FakeDB:
         async def __aenter__(self):
             return self
@@ -792,7 +794,11 @@ def test_restore_rehydrates_snapshot_as_stale_and_keeps_session_id(monkeypatch):
             return False
 
         async def execute(self, query):
+            executed_queries.append(query)
             return FakeResult()
+
+        async def commit(self):
+            return None
 
     monkeypatch.setattr(overnight_module, "AsyncSessionLocal", lambda: FakeDB())
 
@@ -805,6 +811,9 @@ def test_restore_rehydrates_snapshot_as_stale_and_keeps_session_id(monkeypatch):
         assert session["forecast"]["base_scenario"]["direction"] == "NO_TRADE"
         assert session["paper"]["is_running"] is False
         assert session["paper"]["data_status"] == "stale"
+        # Restore must reconcile zombie is_running rows left by a killed backend.
+        zombie_reconcile = [q for q in executed_queries if "is_running" in str(q.compile(compile_kwargs={"literal_binds": True}))]
+        assert zombie_reconcile, "restore() must issue an UPDATE resetting is_running"
 
     asyncio.run(scenario())
 
