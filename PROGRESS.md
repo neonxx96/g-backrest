@@ -31,6 +31,12 @@
 
 ## 2. Completed Milestones
 
+- **2026-10-31 [Kimi] Task TERMINAL HEIGHT (DEPTH) CONTROL MADE USABLE**:
+  - The height controls existed (PresetBar «Авто/+25%/+50%/x2/x3» + bottom drag handle) but were unusable: the no-arg `layout()` bug (fixed earlier today) had broken their effect, and the drag handle rendered below the visible fold at the exact screen bottom — invisible and ungrabbable.
+  - `WorkspaceScroller`: handle is now `sticky bottom-0` (always docked at the visible bottom edge of the scroller) and raised to `z-[100]` — dockview sashes carry `z-index: 99` and painted over it, so the hit test landed on a dockview sash instead of the handle.
+  - Drag model reworked to virtual extension: the physical mouse cannot pass the screen edge, so holding the cursor at the bottom edge keeps extending the workspace (12px per mousemove, up to 8000px); moving back up shrinks the accumulated extra. Double-click resets to auto. Handle shows a live label («высота терминала», current % when extended).
+  - Verified live (Playwright): edge-hold drag 1020→1325px with dockview relayout + localStorage persist; JS dblclick reset → 1020/`auto`; PresetBar +50% → 1530, Авто → 1020. Full gate `scripts/check.ps1` → ALL QUALITY CHECKS PASSED (one prior canvas-metric flake, green on re-run).
+
 - **2026-10-31 [Kimi] Task DOCKVIEW WINDOWS DRAG/RESIZE ROOT FIX (NaN SIZE MODEL)**:
   - User report "окна не двигаются и не меняют размер" root-caused to a dockview-core 8.6 internal defect, verified live (Playwright): every `SplitView.layout()` pass ended with **NaN** in all node sizes. Mechanism: a single non-finite layout input makes `previousSize = Math.max(NaN, 0)` NaN forever, proportions never save, and every later layout re-poisons `viewItem.size`. DOM still distributed (flex fallback masked it), but sashes stayed disabled and `toJSON()` serialized `size:null` — which the autosave persisted, self-sustaining poisoned workspaces (all panels `.dv-disabled` after reload).
   - Fix 1 — vendor patch `frontend/scripts/patch-dockview-core.mjs` (wired into `postinstall`, idempotent, fails loudly on bundle drift): sanitizes non-finite sizes at `SplitView.layout()` entry and ignores `DockviewComponent.layout()` calls with non-finite width/height.

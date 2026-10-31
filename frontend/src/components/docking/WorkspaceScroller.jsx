@@ -97,12 +97,25 @@ export default function WorkspaceScroller({
     document.body.style.cursor = 'ns-resize';
 
     let layoutDebounce = null;
+    // Virtual extension: the physical mouse cannot go below the screen edge,
+    // so while it is held at the bottom edge the workspace keeps extending
+    // (per mousemove event); moving back up shrinks the accumulated extra.
+    let edgeBoost = 0;
+    let lastDeltaY = 0;
+    const EDGE_PX = 48;
+    const EDGE_SPEED = 12;
 
     const onMouseMove = (ev) => {
       if (!isDraggingRef.current) return;
       const deltaY = ev.clientY - startDragYRef.current;
+      if (ev.clientY >= window.innerHeight - EDGE_PX) {
+        edgeBoost += EDGE_SPEED;
+      } else if (deltaY < lastDeltaY) {
+        edgeBoost = Math.max(0, edgeBoost - (lastDeltaY - deltaY));
+      }
+      lastDeltaY = deltaY;
       const minH = viewportH;
-      const nextH = Math.min(8000, Math.max(minH, startHeightRef.current + deltaY));
+      const nextH = Math.min(8000, Math.max(minH, startHeightRef.current + deltaY + edgeBoost));
 
       if (rafHandleRef.current) cancelAnimationFrame(rafHandleRef.current);
       rafHandleRef.current = requestAnimationFrame(() => {
@@ -179,12 +192,19 @@ export default function WorkspaceScroller({
         {children}
       </div>
 
-      {/* Bottom Resize Handle (pull down to extend workspace height) */}
+      {/* Bottom Resize Handle (pull down to extend workspace height).
+          Sticky bottom-0 keeps it docked at the visible edge of the scroller —
+          otherwise it sits below the fold and users can never grab it. */}
       <div
         data-testid="workspace-height-handle"
         onMouseDown={handleMouseDown}
-        title="Потяните вниз для увеличения высоты рабочей области (прокрутка)"
-        className="h-3 w-full bg-card/80 hover:bg-primary/20 border-t border-border/60 hover:border-primary/50 cursor-ns-resize flex items-center justify-center transition-colors group shrink-0 relative z-30"
+        onDoubleClick={() => {
+          setHeightPx(null);
+          try { localStorage.setItem(`signalscript_ws_height_${activePresetId}`, 'auto'); } catch (_) {}
+          relayoutDockview();
+        }}
+        title="Потяните вниз для увеличения высоты терминала; двойной клик — сброс в авто"
+        className="h-3 w-full bg-card/80 hover:bg-primary/20 border-t border-border/60 hover:border-primary/50 cursor-ns-resize flex items-center justify-center transition-colors group shrink-0 sticky bottom-0 z-[100] backdrop-blur-sm"
       >
         <div className="flex items-center space-x-1 opacity-40 group-hover:opacity-100 transition-opacity">
           <span className="w-1 h-1 rounded-full bg-muted-foreground group-hover:bg-primary" />
@@ -194,6 +214,9 @@ export default function WorkspaceScroller({
           <span className="w-1 h-1 rounded-full bg-muted-foreground group-hover:bg-primary" />
           <span className="w-1 h-1 rounded-full bg-muted-foreground group-hover:bg-primary" />
           <span className="w-1 h-1 rounded-full bg-muted-foreground group-hover:bg-primary" />
+          <span className="text-[9px] font-mono text-muted-foreground group-hover:text-primary ml-1.5">
+            {heightPx && heightPx > viewportH ? `${Math.round((heightPx / viewportH) * 100)}% · ` : ''}высота терминала
+          </span>
         </div>
       </div>
     </div>
