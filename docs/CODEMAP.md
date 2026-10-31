@@ -997,8 +997,8 @@ JS/TS call targets are lexical candidates, not a type-resolved call graph.
 - **Imported by:** —
 
 ### `frontend/src/components/docking/layoutSanitizer.js`
-- **Public symbols:** `DOCKVIEW_COMPONENT_IDS`, `sanitizeDockviewLayout`
-- **Calls / imports:** `Set`, `entries`, `filter`, `has`, `includes`, `keys`, `map`, `sanitizeDockviewLayout`, `sanitizeNode`
+- **Public symbols:** `DOCKVIEW_COMPONENT_IDS`, `collectSalvagePanels`, `hasNullSizes`, `normalizeDockviewSizes`, `sanitizeDockviewLayout`
+- **Calls / imports:** `Number`, `Set`, `add`, `assign`, `collectSalvagePanels`, `entries`, `filter`, `forEach`, `has`, `hasNullSizes`, …
 - **Imported by:** —
 
 ### `frontend/src/components/docking/marathonFeed.js`
@@ -1038,7 +1038,7 @@ JS/TS call targets are lexical candidates, not a type-resolved call graph.
 
 ### `frontend/src/components/docking/TerminalDockview.jsx`
 - **Public symbols:** `TerminalDockview`
-- **Calls / imports:** `ChartDockPanel`, `DOM`, `LTF`, `LiqAnalyticsDockPanel`, `Number`, `OrderBookDockPanel`, `ResizeObserver`, `SignalsDockPanel`, `TerminalDockview`, `Trader`, …
+- **Calls / imports:** `ChartDockPanel`, `DOM`, `LTF`, `LiqAnalyticsDockPanel`, `Number`, `OrderBookDockPanel`, `ResizeObserver`, `Set`, `SignalsDockPanel`, `TerminalDockview`, …
 - **Imported by:** —
 
 ### `frontend/src/components/docking/TradeHistoryWidget.jsx`

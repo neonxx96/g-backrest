@@ -14,7 +14,7 @@ import WidgetHubModal from './WidgetHubModal';
 import TradeHistoryWidget from './TradeHistoryWidget';
 import { CvdPlaceholderWidget } from './Placeholders';
 import FootprintPanel from './FootprintPanel';
-import { sanitizeDockviewLayout } from './layoutSanitizer';
+import { sanitizeDockviewLayout, hasNullSizes, collectSalvagePanels } from './layoutSanitizer';
 import {
   readCachedDockviewLayout,
   resolveDockviewLayout,
@@ -477,6 +477,48 @@ export default function TerminalDockview({
     }
   }, []);
 
+  /** Пересборка рабочего стола из набора панелей отравленного layout.
+   *  addPanel даёт здоровое distribute-распределение (живые саши),
+   *  чего fromJSON по деградировавшей сериализации дать не может. */
+  const rebuildSalvagedLayout = useCallback(
+    (api, layout, workspaceId) => {
+      const items = collectSalvagePanels(layout);
+      const pick = (comps) => items.find((i) => comps.includes(i.component));
+      const chart = pick(['chart']);
+      if (!chart) {
+        buildDefaultLayout(api, workspaceId);
+        return;
+      }
+      api.clear();
+      const used = new Set();
+      const add = (item, position, fallbackTitle) => {
+        used.add(item.id);
+        return api.addPanel({
+          id: item.id,
+          component: item.component,
+          title: item.title || fallbackTitle || item.component,
+          ...(position ? { position } : {}),
+        });
+      };
+      const chartPanel = add(chart, null, 'График (HTF)');
+      const watch = pick(['watchlist', 'screener']);
+      if (watch) add(watch, { referencePanel: chartPanel, direction: 'left' });
+      const th = pick(['tradehistory', 'papertrade']);
+      if (th) add(th, { referencePanel: chartPanel, direction: 'below' });
+      const dom = pick(['orderbook', 'dom']);
+      const domPanel = dom ? add(dom, { referencePanel: chartPanel, direction: 'right' }) : null;
+      const sig = pick(['signals']);
+      const tabAnchor = sig
+        ? add(sig, { referencePanel: domPanel || chartPanel, direction: 'below' })
+        : (domPanel || chartPanel);
+      for (const item of items) {
+        if (used.has(item.id)) continue;
+        add(item, { referencePanel: tabAnchor, direction: 'within' });
+      }
+    },
+    [buildDefaultLayout]
+  );
+
   // Hydrate layout into Dockview API
   const hydrateLayout = useCallback(
     (api, workspaceDetail) => {
@@ -484,7 +526,7 @@ export default function TerminalDockview({
 
       useLayoutStore.setState({ isLayoutLoaded: false });
 
-      const { layout: dockviewJson } = resolveDockviewLayout(workspaceDetail, readCachedDockviewLayout());
+      const { layout: dockviewJson } = resolveDockviewLayout(workspaceDetail, readCachedDockviewLayout());
 
       if (workspaceDetail?.color_links) {
         importColorLinks(workspaceDetail.color_links);
@@ -495,7 +537,25 @@ export default function TerminalDockview({
           api.clear();
           const sanitizedLayout = sanitizeDockviewLayout(dockviewJson);
           if (sanitizedLayout && hasRenderableTerminalPanel(sanitizedLayout)) {
-            api.fromJSON(sanitizedLayout);
+            if (hasNullSizes(dockviewJson)) {
+              // Отравленная сериализация (size:null — деградировавшие внутренние
+              // размеры dockview): fromJSON даст нулевые группы и мёртвые саши.
+              // Пересобираем стол через addPanel, сохранив набор панелей.
+              rebuildSalvagedLayout(api, sanitizedLayout, workspaceDetail?.id || useLayoutStore.getState().activePresetId);
+            } else {
+              api.fromJSON(sanitizedLayout);
+            }
+            // Сеть безопасности: если dockview всё же отрендерил группы
+            // нулевой ширины — пересобираем дефолтный layout.
+            requestAnimationFrame(() => {
+              const widths = Array.from(document.querySelectorAll('.dv-groupview'))
+                .map((el) => el.getBoundingClientRect().width);
+              const broken = widths.length > 0 && widths.filter((w) => w < 40).length > widths.length / 2;
+              if (broken) {
+                console.warn('Dockview rendered degenerate layout; rebuilding default.');
+                buildDefaultLayout(api, workspaceDetail?.id || useLayoutStore.getState().activePresetId);
+              }
+            });
           } else {
             console.warn('Dockview preset is empty or malformed; rebuilding safe layout.');
             buildDefaultLayout(api, workspaceDetail.id);
@@ -513,7 +573,7 @@ export default function TerminalDockview({
       // transient empty grid can never overwrite a restored workspace.
       markLayoutReady();
     },
-    [importColorLinks, buildDefaultLayout, markLayoutReady]
+    [importColorLinks, buildDefaultLayout, rebuildSalvagedLayout, markLayoutReady]
   );
 
   // Initialize Dockview API
@@ -521,6 +581,9 @@ export default function TerminalDockview({
     async (event) => {
       dockviewApiRef.current = event.api;
       setDockviewApi(event.api);
+      // Для live-проверок (scripts/verify_dock_drag_resize.py) и отладки в консоли.
+      window.__dockviewApi = event.api;
+      window.__sanitizeDockview = sanitizeDockviewLayout;
 
       // Provide shared props to panels via containerApi
       event.api.chartSharedProps = chartSharedProps;
@@ -531,7 +594,14 @@ export default function TerminalDockview({
       // closed, so initial Dockview events are observed but never persisted.
       layoutChangeDisposableRef.current?.dispose?.();
       layoutChangeDisposableRef.current = event.api.onDidLayoutChange(() => {
-        scheduleAutosave(event.api.toJSON(), useColorLinksStore.getState().channels);
+        const json = event.api.toJSON();
+        // size:null — маркер деградировавших внутренних размеров dockview;
+        // сохранять такое нельзя: травма layout'ом самоподдерживается.
+        if (hasNullSizes(json)) {
+          console.warn('Dockview autosave skipped: layout has null sizes (degenerate state).');
+          return;
+        }
+        scheduleAutosave(json, useColorLinksStore.getState().channels);
       });
 
       // 1. Render cache/default synchronously. This also marks the layout

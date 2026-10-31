@@ -31,6 +31,13 @@
 
 ## 2. Completed Milestones
 
+- **2026-10-31 [Kimi] Task DOCKVIEW WINDOWS DRAG/RESIZE ROOT FIX (NaN SIZE MODEL)**:
+  - User report "окна не двигаются и не меняют размер" root-caused to a dockview-core 8.6 internal defect, verified live (Playwright): every `SplitView.layout()` pass ended with **NaN** in all node sizes. Mechanism: a single non-finite layout input makes `previousSize = Math.max(NaN, 0)` NaN forever, proportions never save, and every later layout re-poisons `viewItem.size`. DOM still distributed (flex fallback masked it), but sashes stayed disabled and `toJSON()` serialized `size:null` — which the autosave persisted, self-sustaining poisoned workspaces (all panels `.dv-disabled` after reload).
+  - Fix 1 — vendor patch `frontend/scripts/patch-dockview-core.mjs` (wired into `postinstall`, idempotent, fails loudly on bundle drift): sanitizes non-finite sizes at `SplitView.layout()` entry and ignores `DockviewComponent.layout()` calls with non-finite width/height.
+  - Fix 2 — `WorkspaceScroller` called `dockviewApi.layout()` with **no arguments** in 4 places (height preset, drag handle, mouseup, heightPx effect); no-arg calls collapse the shell to minimum sizes and lock a stale inline style via the ResizeObserver feedback loop. Replaced with `relayoutDockview()` passing scroller-measured `layout(width, height, true)`.
+  - Defense in depth kept from earlier session: `hasNullSizes()` autosave guard (never persist degenerate serialization), salvage rebuild via `collectSalvagePanels()` for already-poisoned workspaces, rAF degenerate-layout safety net.
+  - Verified live: container 1920×1020, finite sizes, 4/4 sashes enabled, tab drag changes layout, sash drag resizes and persists (`scripts/verify_dock_drag_resize.py` — DRAG ✅ RESIZE ✅; resize driven via PointerEvents since CDP mouse drags don't reach dockview's pointerdown). Unit: layoutSanitizer 9/9. Full gate `scripts/check.ps1` → ALL QUALITY CHECKS PASSED.
+
 - **2026-10-31 [Kimi] Task POST-REBOOT RECOVERY + ZOMBIE SESSIONS + DOCKER PORT HIJACK FIX**:
   - Morning post-mortem after the user's break: PC rebooted 2026-10-30 16:50 and took the whole demo stack down for ~22h — nothing auto-started after the reboot. Root-caused and fixed three independent defects:
   - **Zombie pilot sessions**: `persist()` wrote `is_running=1` while the process lived; a killed backend (reboot, watchdog `taskkill`) never reset the flag — 263 stale rows accumulated since 2026-10-20. `OvernightPilotManager.restore()` now reconciles `UPDATE overnight_pilot_runs SET is_running=0` on every backend startup (safe: nothing can be running at startup); regression asserts the UPDATE is issued (`test_restore_rehydrates_snapshot_as_stale_and_keeps_session_id`).

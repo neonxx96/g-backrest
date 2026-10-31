@@ -28,6 +28,20 @@ export default function WorkspaceScroller({
     return () => ro.disconnect();
   }, []);
 
+  // Relayout dockview with the scroller's real allocated size.
+  // dockviewApi.layout() with no arguments poisons internal sizes (NaN) and,
+  // via the ResizeObserver feedback loop, can lock the grid element into a
+  // stale inline size — always pass explicit dimensions.
+  const relayoutDockview = useCallback(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller || !dockviewApi || typeof dockviewApi.layout !== 'function') return;
+    const width = scroller.clientWidth;
+    const height = heightPx && heightPx > viewportH ? heightPx : scroller.clientHeight;
+    if (width > 0 && height > 0) {
+      dockviewApi.layout(width, height, true);
+    }
+  }, [dockviewApi, heightPx, viewportH]);
+
   // Read saved height for active preset or set tier defaults
   useEffect(() => {
     let saved = null;
@@ -65,9 +79,7 @@ export default function WorkspaceScroller({
         try { localStorage.setItem(`signalscript_ws_height_${activePresetId}`, String(nextH)); } catch (_) {}
       }
       requestAnimationFrame(() => {
-        if (dockviewApi && typeof dockviewApi.layout === 'function') {
-          dockviewApi.layout();
-        }
+        relayoutDockview();
       });
     };
 
@@ -100,9 +112,7 @@ export default function WorkspaceScroller({
       // Coalesced dockview layout
       if (layoutDebounce) clearTimeout(layoutDebounce);
       layoutDebounce = setTimeout(() => {
-        if (dockviewApi && typeof dockviewApi.layout === 'function') {
-          dockviewApi.layout();
-        }
+        relayoutDockview();
       }, 100);
 
       // Auto-scroll when dragging near bottom
@@ -128,9 +138,7 @@ export default function WorkspaceScroller({
         return finalH;
       });
 
-      if (dockviewApi && typeof dockviewApi.layout === 'function') {
-        dockviewApi.layout();
-      }
+      relayoutDockview();
     };
 
     window.addEventListener('mousemove', onMouseMove);
@@ -140,12 +148,10 @@ export default function WorkspaceScroller({
   // Layout notification when heightPx changes
   useEffect(() => {
     const t = setTimeout(() => {
-      if (dockviewApi && typeof dockviewApi.layout === 'function') {
-        dockviewApi.layout();
-      }
+      relayoutDockview();
     }, 120);
     return () => clearTimeout(t);
-  }, [heightPx, dockviewApi]);
+  }, [relayoutDockview]);
 
   const effectiveHeight = heightPx && heightPx > viewportH ? `${heightPx}px` : '100%';
 
