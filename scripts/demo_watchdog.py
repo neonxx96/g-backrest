@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
 import shutil
@@ -54,6 +55,30 @@ DOCKER_PROCS = {"com.docker.backend.exe", "wslrelay.exe", "vpnkit.exe", "com.doc
 PID_FILE = os.path.join(ROOT, "data", "demo_watchdog.pid")
 STOP_FILE = os.path.join(ROOT, "data", "demo_watchdog.stop")
 BACKEND_PID_FILE = os.path.join(ROOT, "data", "backend.pid")  # PID дерева backend, порождённого вотчдогом
+BACKEND_LOG = os.path.join(ROOT, "backend.log")
+BACKUP_DIR = os.path.join(ROOT, "data", "backups")
+ROTATE_LIMIT = 50 * 1024 * 1024  # backend.log разрастается ~600MB/сутки при спаме INFO
+KEEP_ARCHIVES = 3
+
+
+def rotate_backend_log() -> None:
+    """Copy-truncate ротация backend.log: бэкенд пишет в O_APPEND, поэтому
+    обрезка файла извне безопасна — новые строки пойдут с начала файла."""
+    try:
+        if not os.path.exists(BACKEND_LOG) or os.path.getsize(BACKEND_LOG) < ROTATE_LIMIT:
+            return
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+        dst = os.path.join(BACKUP_DIR, f"backend-{time.strftime('%Y%m%dT%H%M%S')}.log")
+        with open(BACKEND_LOG, "rb") as src, open(dst, "wb") as out:
+            shutil.copyfileobj(src, out)
+        with open(BACKEND_LOG, "wb"):
+            pass
+        log(f"backend.log достиг {os.path.getsize(dst) // 1024 // 1024}MB → архив {os.path.relpath(dst, ROOT)}")
+        archives = sorted(glob.glob(os.path.join(BACKUP_DIR, "backend-*.log")))
+        for old in archives[:-KEEP_ARCHIVES]:
+            os.remove(old)
+    except OSError as exc:
+        log(f"ротация backend.log пропущена: {exc}")
 
 
 def log(msg: str) -> None:
@@ -376,6 +401,7 @@ def main() -> int:
     try:
         while not stop_requested():
             try:
+                rotate_backend_log()
                 if ensure_backend():
                     status = http_json(STATUS_URL, timeout=30.0)
                     if status is not None:

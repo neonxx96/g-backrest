@@ -1451,7 +1451,7 @@ class OvernightPilotManager:
                     "use_stacked_imbalance_filter", "use_absorption_filter", "use_poc_migration_filter"
                 ))
             )
-            logger.info(f"[{item['symbol']}] requires_l2={requires_l2}, strategy_type={item['strategy_type']}, min_density={config_data.get('min_density_usd')}, filters={[k for k in ('use_stacked_imbalance_filter', 'use_absorption_filter', 'use_poc_migration_filter') if config_data.get(k)]}")
+            logger.debug(f"[{item['symbol']}] requires_l2={requires_l2}, strategy_type={item['strategy_type']}, min_density={config_data.get('min_density_usd')}, filters={[k for k in ('use_stacked_imbalance_filter', 'use_absorption_filter', 'use_poc_migration_filter') if config_data.get(k)]}")
             verdict = evaluate_verdict(
                 net_pnl_usd=backtest_net_pnl,
                 trades=int(summary.get("total_trades", 0) or 0),
