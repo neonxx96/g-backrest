@@ -291,12 +291,54 @@ def ensure_backend() -> bool:
     return False
 
 
+def save_started(started: List[Dict[str, Any]]) -> None:
+    """Атомарно обновляет сохранённый набор пар в RESULT_PATH (остальные ключи — как были)."""
+    path = st.RESULT_PATH
+    try:
+        data = json.load(open(path, encoding="utf-8"))
+    except Exception:  # noqa: BLE001 — файла нет или битый
+        data = {}
+    data["started"] = started
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+
+def adopt_ui_started_pairs(status: Dict[str, Any]) -> None:
+    """Пары, запущенные вручную из UI (не вотчдогом), добавляет в сохранённый набор.
+
+    Иначе перезагрузка бэкенда/ПК «забывает» такие пары: вотчдог возобновляет
+    только свой набор из RESULT_PATH, и пользовательская пара молча пропадает.
+    """
+    sessions = status.get("sessions") or {}
+    if not isinstance(sessions, dict) or not sessions:
+        return
+    started = st.load_started()
+    known = {i.get("symbol") for i in started}
+    added = []
+    for symbol, sess in sessions.items():
+        if symbol in known or not isinstance(sess, dict):
+            continue
+        strategy_type = sess.get("strategy_type")
+        timeframe = (sess.get("config") or {}).get("timeframe")
+        if not strategy_type or not timeframe:
+            continue
+        started.append({"symbol": symbol, "strategy_type": strategy_type, "timeframe": timeframe})
+        added.append(symbol)
+    if added:
+        save_started(started)
+        log(f"усыновляю пары, запущенные вне вотчдога: {', '.join(added)} → сохранённый набор ({len(started)})")
+
+
 def ensure_demo(status: Dict[str, Any]) -> None:
     """Добирает недостающие пары сохранённого набора; следит за equity счёта."""
     agg = (status.get("aggregate") or {}).get("paper") or {}
     equity = agg.get("equity")
     if equity is not None:
         st.save_equity(float(equity))
+    if status.get("pilot_running"):
+        adopt_ui_started_pairs(status)
     started = st.load_started()
     if not started:
         if not status.get("pilot_running"):
