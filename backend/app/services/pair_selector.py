@@ -24,9 +24,11 @@ DEFAULT_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "DOGEU
 # list from drifting away from profiles the paper runner supports.
 STRATEGIES = list(SELECTABLE_STRATEGY_IDS)
 TIMEFRAMES = ["5m", "15m"]
-RR = [(0.5, 1.0), (0.8, 1.6), (1.0, 2.5)]  # (SL%, TP%): TP >= 2x round-trip fee
+RR = [(0.4, 0.8), (0.5, 1.0), (0.6, 1.2), (0.8, 1.6), (1.0, 2.5)]  # (SL%, TP%): TP >= 2x round-trip fee
 TRAIN_FRACTION = 0.7
-MIN_TRADES_OOS = 8
+# OOS-ковер: 6 сделок достаточно для квалификации SELECT — больше пар проходят
+# отбор при той же истории, марафон набирает 15-20 пар вместо ~10-12.
+MIN_TRADES_OOS = 6
 MIN_PF = 1.1
 RISK_SELECT_PCT = 0.35
 RISK_EXPLORE_PCT = 0.15
@@ -62,7 +64,7 @@ def pick_best(train_rows: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     pool = [r for r in train_rows if r["train"]["net"] > 0 and r["train"]["trades"] >= MIN_TRADES_OOS]
     if not pool:
         return None
-    return max(pool, key=lambda r: (r["train"]["pf"], r["train"]["net"]))
+    return max(pool, key=lambda r: (r["train"]["pf"], r["train"]["net"], r["train"]["trades"]))
 
 
 def evaluate_symbol_sync(bt, frames: Dict[str, Any], sym: str) -> Dict[str, Any]:
@@ -163,4 +165,16 @@ def build_pilot_configs(selection: Dict[str, Any], include_explore: bool = True,
             "use_multi_tp": False, "use_trailing": True, "trailing_pct": 0.5, "trailing_activation_pct": 0.5,
             "sl_tp_mode": "fixed", "ai_control": not include_skip_for_demo, "auto_strategy_switch": True,
         })
+    # Качественный порядок: SELECT -> EXPLORE -> SKIP, внутри тира — по PF/net TRAIN.
+    # Без сортировки срез target_pairs брал бы пары в порядке списка символов,
+    # а не по качеству, и марафон терял бы лучших кандидатов.
+    _rank = {"SELECT": 0, "EXPLORE": 1, "SKIP": 2}
+
+    def _sort_key(cfg: Dict[str, Any]):
+        result = next((r for r in selection.get("results", []) if r.get("symbol") == cfg["symbol"]), {})
+        train = ((result.get("best") or {}).get("train")) or {}
+        return (_rank.get(result.get("verdict"), 3), -float(train.get("pf") or 0.0),
+                -float(train.get("net") or 0.0))
+
+    out.sort(key=_sort_key)
     return out
