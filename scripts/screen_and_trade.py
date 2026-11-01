@@ -212,9 +212,15 @@ def save_equity(value: float) -> None:
 
 
 def build_config(symbol: str, strategy_type: str, timeframe: str,
-                 initial_capital: Optional[float] = None) -> Dict[str, Any]:
-    """Конфиг демо-сессии — зеркало probe-конфига скрининга (overnight_pilot.screen_pair)."""
-    return {
+                 initial_capital: Optional[float] = None,
+                 stop_loss_pct: Optional[float] = None,
+                 take_profit_pct: Optional[float] = None) -> Dict[str, Any]:
+    """Конфиг демо-сессии — зеркало probe-конфига скрининга (overnight_pilot.screen_pair).
+
+    sl/tp подбирает селектор под каждую пару; при возобновлении после рестарта
+    передаём сохранённые значения, иначе вотчдог молча вернул бы дефолт 1.0/2.5.
+    """
+    cfg = {
         "symbol": symbol, "strategy_type": strategy_type, "timeframe": timeframe,
         "days": 14, "initial_capital": float(initial_capital if initial_capital is not None else 1000.0),
         "risk_per_trade_pct": 0.5,
@@ -224,6 +230,11 @@ def build_config(symbol: str, strategy_type: str, timeframe: str,
         "ai_control": True, "auto_strategy_switch": True,
         "duration_hours": DURATION_HOURS,
     }
+    if stop_loss_pct is not None:
+        cfg["stop_loss_pct"] = float(stop_loss_pct)
+    if take_profit_pct is not None:
+        cfg["take_profit_pct"] = float(take_profit_pct)
+    return cfg
 
 
 def load_started() -> List[Dict[str, Any]]:
@@ -245,7 +256,9 @@ def cmd_resume() -> int:
     for item in started:
         symbol = item["symbol"]
         config = build_config(symbol, item["strategy_type"], item["timeframe"],
-                              initial_capital=saved_equity())
+                              initial_capital=saved_equity(),
+                              stop_loss_pct=item.get("stop_loss_pct"),
+                              take_profit_pct=item.get("take_profit_pct"))
         try:
             prepared = _post("/pairs/prepare", config)
             result = start_pair_preflight(config, prepared["preflight_id"])

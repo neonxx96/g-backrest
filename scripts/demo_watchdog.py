@@ -324,7 +324,9 @@ def adopt_ui_started_pairs(status: Dict[str, Any]) -> None:
         timeframe = (sess.get("config") or {}).get("timeframe")
         if not strategy_type or not timeframe:
             continue
-        started.append({"symbol": symbol, "strategy_type": strategy_type, "timeframe": timeframe})
+        started.append({"symbol": symbol, "strategy_type": strategy_type, "timeframe": timeframe,
+                        "stop_loss_pct": (sess.get("config") or {}).get("stop_loss_pct"),
+                        "take_profit_pct": (sess.get("config") or {}).get("take_profit_pct")})
         added.append(symbol)
     if added:
         save_started(started)
@@ -355,7 +357,9 @@ def ensure_demo(status: Dict[str, Any]) -> None:
     for item in missing:
         symbol = item["symbol"]
         config = st.build_config(symbol, item["strategy_type"], item["timeframe"],
-                                 initial_capital=st.saved_equity())
+                                 initial_capital=st.saved_equity(),
+                                 stop_loss_pct=item.get("stop_loss_pct"),
+                                 take_profit_pct=item.get("take_profit_pct"))
         try:
             prepared = st._post("/pairs/prepare", config)
             result = st.start_pair_preflight(config, prepared["preflight_id"])
