@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { BarChart3, Radio, PlusCircle, Settings, Crosshair } from 'lucide-react';
 import ChannelSelector from './ChannelSelector';
 import { useColorLinksStore } from '../../stores/colorLinksStore';
+import { Button } from '../ui/button';
 import {
   buildFootprintGrid,
   buildSessionProfile,
@@ -22,7 +23,9 @@ const DEFAULT_SETTINGS = {
   imbalanceRatio: 3.0,    // 2.0 | 3.0 | 4.0
   stackedMin: 3,          // 2 | 3 | 4
   showProfile: true,
-  highlightCandlePoc: true
+  highlightCandlePoc: true,
+  showBarStats: true,     // строка статистики под гридом (Buy/Sell/Total/Delta)
+  volUnit: 'coin'         // 'coin' | 'usdt' — единицы объёма/дельты
 };
 
 function loadSavedSettings() {
@@ -72,7 +75,9 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
         .then((res) => (res.ok ? res.json() : []))
         .then((data) => {
           if (cancelled) return;
-          setCandles(Array.isArray(data) ? data : []);
+          const arr = Array.isArray(data) ? [...data] : [];
+          arr.sort((a, b) => (a?.timestamp || 0) - (b?.timestamp || 0));
+          setCandles(arr);
           setLastUpdate(Date.now());
         })
         .catch(() => {});
@@ -104,6 +109,65 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
     [grid]
   );
 
+  // Высота видимой области — чтобы дорисовать пустые уровни цен до заполнения окна
+  const hasData = grid.bars.length > 0;
+  const [viewH, setViewH] = useState(0);
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return undefined;
+    const ro = new ResizeObserver((entries) => {
+      const r = entries[0]?.contentRect;
+      if (r) setViewH(Math.round(r.height));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [hasData]);
+
+  // Реперная цена для пересчёта COIN -> USDT (последний известный уровень)
+  const maxRowPrice = grid.rows.length > 0 ? grid.rows[0].price : 0;
+  const unitK = (price) => (settings.volUnit === 'usdt' ? price || maxRowPrice || 1 : 1);
+  const candleK = (c) => unitK(Number(c?.poc_price) || 0);
+  const fmtPrice = (p) =>
+    p >= 1000 ? p.toLocaleString('en-US', { maximumFractionDigits: 0 }) : p >= 1 ? p.toFixed(2) : p.toFixed(4);
+
+  // Лесенка уровней: реальные строки + пустые уровни ниже минимума (до заполнения высоты, cap 300)
+  const ROW_H = 17;
+  const HEADER_H = 52;
+  const ladderRows = useMemo(() => {
+    const base = grid.rows;
+    if (base.length === 0) return [];
+    if (!viewH) return base;
+    const diffs = [];
+    for (let i = 1; i < base.length; i += 1) {
+      const d = base[i - 1].price - base[i].price;
+      if (d > 0) diffs.push(d);
+    }
+    diffs.sort((a, b) => a - b);
+    const step = diffs.length ? diffs[Math.min(diffs.length - 1, Math.floor(diffs.length * 0.2))] : Math.max(base[0].price * 1e-4, 1e-6);
+    const dec = Math.min(8, Math.max(0, Math.ceil(-Math.log10(step) - 1e-9)));
+    const needed = Math.ceil(Math.max(viewH - HEADER_H, 60) / ROW_H) + 1;
+    const top = base[0].price;
+    const minExisting = base[base.length - 1].price;
+    const targetBottom = Math.max(top - step * 299, Math.min(minExisting, top - step * (needed - 1)));
+    const byPrice = new Map(base.map((r) => [r.price, r]));
+    const out = [...base];
+    for (let p = minExisting - step; p >= targetBottom; p -= step) {
+      const price = Number(p.toFixed(dec));
+      if (!byPrice.has(price) && price > 0) {
+        out.push({ price, isPoc: false, cells: base[0].cells.map(() => null), empty: true });
+      }
+    }
+    out.sort((a, b) => b.price - a.price);
+    return out;
+  }, [grid, viewH]);
+
+  // Профиль окна — поиск по цене (лесенка может содержать пустые уровни)
+  const profileByPrice = useMemo(() => {
+    const m = new Map();
+    sessionProfile.levels.forEach((l) => m.set(l.price, l));
+    return m;
+  }, [sessionProfile]);
+
   const centerOnPoc = () => {
     if (!scrollContainerRef.current) return;
     const pocEl = scrollContainerRef.current.querySelector('[data-poc-row="true"]');
@@ -129,7 +193,6 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
     }
   };
 
-  const hasData = grid.bars.length > 0;
   const isLive = lastUpdate && Date.now() - lastUpdate < REFRESH_MS * 4;
   const notRecorded =
     !hasData && recorderSymbols !== null && !recorderSymbols.includes(currentSymbol);
@@ -156,7 +219,7 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
               }`}
               title="Кумулятивная дельта окна (CVD)"
             >
-              CVD {grid.cvd >= 0 ? '+' : ''}{fmtVol(grid.cvd)}
+              CVD {grid.cvd >= 0 ? '+' : ''}{fmtVol(grid.cvd * unitK(0))}
             </span>
           )}
         </div>
@@ -204,6 +267,28 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
               >
                 {sc}x
               </button>
+            ))}
+          </div>
+
+          {/* Переключатель единиц объёма COIN | USDT */}
+          <div
+            className="flex items-center bg-background border border-border rounded p-0.5 text-[9px] font-mono"
+            title="Единицы объёма и дельты: базовый актив или USDT-эквивалент"
+          >
+            {[
+              { id: 'coin', label: 'COIN' },
+              { id: 'usdt', label: 'USDT' }
+            ].map((u) => (
+              <Button
+                key={u.id}
+                type="button"
+                size="dense"
+                variant={settings.volUnit === u.id ? 'accent' : 'ghost'}
+                onClick={() => updateSetting({ volUnit: u.id })}
+                className="text-[9px] font-mono px-1.5"
+              >
+                {u.label}
+              </Button>
             ))}
           </div>
 
@@ -338,6 +423,16 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
               className="accent-amber-400"
             />
           </label>
+
+          <label className="flex items-center justify-between cursor-pointer">
+            <span className="text-foreground/80">Строка статистики (Buy/Sell/Total/Δ)</span>
+            <input
+              type="checkbox"
+              checked={settings.showBarStats}
+              onChange={(e) => updateSetting({ showBarStats: e.target.checked })}
+              className="accent-primary"
+            />
+          </label>
         </div>
       )}
 
@@ -395,10 +490,10 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
                     )}
                   </div>
                   <div className={`font-bold ${(c.total_delta || 0) >= 0 ? 'text-bull' : 'text-bear'}`}>
-                    Δ{(c.total_delta || 0) >= 0 ? '+' : ''}{fmtVol(c.total_delta)}
+                    Δ{(c.total_delta || 0) >= 0 ? '+' : ''}{fmtVol((c.total_delta || 0) * candleK(c))}
                   </div>
                   <div className="text-muted-foreground">
-                    {fmtVol(c.total_volume)}
+                    {fmtVol((c.total_volume || 0) * candleK(c))}
                     {(c.stacked_imbalance?.buy > 0 || c.stacked_imbalance?.sell > 0) && (
                       <span
                         className={c.stacked_imbalance?.buy > 0 ? 'text-bull font-bold' : 'text-bear font-bold'}
@@ -421,8 +516,8 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
               )}
 
               {/* Строки уровней цен */}
-              {grid.rows.map((row, rowIdx) => {
-                const prof = sessionProfile.levels[rowIdx];
+              {ladderRows.map((row, rowIdx) => {
+                const prof = profileByPrice.get(row.price);
                 return (
                   <React.Fragment key={row.price}>
                     <div
@@ -443,12 +538,13 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
                       }
                     >
                       {prof?.isSessionPoc ? '★ ' : row.isPoc ? '◆ ' : ''}
-                      {row.price}
+                      {fmtPrice(row.price)}
                     </div>
                     {row.cells.map((cell, i) => {
                       if (!cell) {
                         return <div key={i} className="bg-[#0b0f16] border-y border-[#10151f]" />;
                       }
+                      const uk = unitK(row.price);
                       const side = cellSide(cell);
                       const intensity = cellIntensity(cell, candleMaxVols[i]);
                       const bg =
@@ -471,31 +567,31 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
                       return (
                         <div
                           key={i}
-                          title={`${row.price}: Buy ${cell.buy} × Sell ${cell.sell} | Δ ${cell.delta >= 0 ? '+' : ''}${cell.delta} | Vol ${cell.vol}${cell.isCandlePoc ? ' | ★ POC свечи' : ''}${cell.imbalance ? ` | Imbalance: ${cell.imbalance.toUpperCase()}` : ''}`}
+                          title={`${fmtPrice(row.price)}: Buy ${fmtVol(cell.buy * uk)}${settings.volUnit === 'usdt' ? ' $' : ''} × Sell ${fmtVol(cell.sell * uk)}${settings.volUnit === 'usdt' ? ' $' : ''} | Δ ${cell.delta >= 0 ? '+' : ''}${fmtVol(cell.delta * uk)} | Vol ${fmtVol(cell.vol * uk)}${cell.isCandlePoc ? ' | ★ POC свечи' : ''}${cell.imbalance ? ` | Imbalance: ${cell.imbalance.toUpperCase()}` : ''}`}
                           className={`px-1 py-[1px] text-center ${imbBorder} ${pocOutline} border-y border-[#10151f]`}
                           style={{ backgroundColor: bg }}
                         >
                           {settings.displayMode === 'bid_ask' && (
                             <>
-                              <span className="text-emerald-300/95">{fmtVol(cell.buy)}</span>
+                              <span className="text-emerald-300/95">{fmtVol(cell.buy * uk)}</span>
                               <span className="text-muted-foreground mx-0.5">×</span>
-                              <span className="text-rose-300/95">{fmtVol(cell.sell)}</span>
+                              <span className="text-rose-300/95">{fmtVol(cell.sell * uk)}</span>
                             </>
                           )}
                           {settings.displayMode === 'delta' && (
                             <span className={cell.delta >= 0 ? 'text-emerald-300 font-semibold' : 'text-rose-300 font-semibold'}>
-                              {cell.delta >= 0 ? '+' : ''}{fmtVol(cell.delta)}
+                              {cell.delta >= 0 ? '+' : ''}{fmtVol(cell.delta * uk)}
                             </span>
                           )}
                           {settings.displayMode === 'volume' && (
                             <span className="text-foreground">
-                              {fmtVol(cell.vol)}
+                              {fmtVol(cell.vol * uk)}
                             </span>
                           )}
                           {settings.displayMode === 'imbalance' && (
                             cell.imbalance ? (
                               <span className={cell.imbalance === 'buy' ? 'text-emerald-300 font-bold' : 'text-rose-300 font-bold'}>
-                                {cell.imbalance === 'buy' ? `▲ ${fmtVol(cell.buy)}` : `▼ ${fmtVol(cell.sell)}`}
+                                {cell.imbalance === 'buy' ? `▲ ${fmtVol(cell.buy * uk)}` : `▼ ${fmtVol(cell.sell * uk)}`}
                               </span>
                             ) : (
                               <span className="text-muted-foreground">·</span>
@@ -505,11 +601,16 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
                       );
                     })}
 
+                    {/* Пустая ячейка профиля для недостающих уровней лесенки */}
+                    {settings.showProfile && !prof && (
+                      <div className="border-y border-l border-border bg-card/30" />
+                    )}
+
                     {/* Ячейка бокового профиля объёма (Session Volume Profile) */}
                     {settings.showProfile && prof && (
                       <div
                         className="relative px-1.5 py-[1px] border-y border-l border-[#161d2b] bg-[#0b101b] flex items-center justify-between text-[8.5px]"
-                        title={`Уровень ${row.price}: ΣVol ${fmtVol(prof.vol)} (Buy ${fmtVol(prof.buy)} / Sell ${fmtVol(prof.sell)}, Δ ${prof.delta >= 0 ? '+' : ''}${fmtVol(prof.delta)})`}
+                        title={`Уровень ${fmtPrice(row.price)}: ΣVol ${fmtVol(prof.vol * unitK(row.price))} (Buy ${fmtVol(prof.buy * unitK(row.price))} / Sell ${fmtVol(prof.sell * unitK(row.price))}, Δ ${prof.delta >= 0 ? '+' : ''}${fmtVol(prof.delta * unitK(row.price))})`}
                       >
                         <div
                           className={`absolute left-0 top-0 bottom-0 pointer-events-none ${
@@ -522,20 +623,51 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
                           style={{ width: `${Math.round(prof.volShare * 100)}%` }}
                         />
                         <span className={`relative z-10 ${prof.isSessionPoc ? 'text-amber-300 font-bold' : 'text-foreground/80'}`}>
-                          {fmtVol(prof.vol)}
+                          {fmtVol(prof.vol * unitK(row.price))}
                         </span>
                         <span
                           className={`relative z-10 ${
                             prof.delta > 0 ? 'text-bull' : prof.delta < 0 ? 'text-bear' : 'text-muted-foreground'
                           }`}
                         >
-                          {prof.delta > 0 ? '+' : ''}{fmtVol(prof.delta)}
+                          {prof.delta > 0 ? '+' : ''}{fmtVol(prof.delta * unitK(row.price))}
                         </span>
                       </div>
                     )}
                   </React.Fragment>
                 );
               })}
+
+              {/* Строка статистики баров: Buy / Sell / Total / Delta (колонки синхронны гриду) */}
+              {settings.showBarStats &&
+                [
+                  { key: 'buy', label: 'Buy', cls: 'text-bull', val: (c) => ((Number(c.total_volume) || 0) + (Number(c.total_delta) || 0)) / 2 },
+                  { key: 'sell', label: 'Sell', cls: 'text-bear', val: (c) => ((Number(c.total_volume) || 0) - (Number(c.total_delta) || 0)) / 2 },
+                  { key: 'total', label: 'ΣVol', cls: 'text-foreground/80', val: (c) => Number(c.total_volume) || 0 },
+                  { key: 'delta', label: 'Δ', cls: null, val: (c) => Number(c.total_delta) || 0, signed: true }
+                ].map((stat) => (
+                  <React.Fragment key={stat.key}>
+                    <div className="sticky left-0 z-10 px-1 py-[1px] text-right bg-background border-y border-border">
+                      <span className={`font-semibold ${stat.cls || 'text-foreground/80'}`}>{stat.label}</span>
+                    </div>
+                    {grid.bars.map((c, i) => {
+                      const v = stat.val(c) * candleK(c);
+                      const cls = stat.key === 'delta' ? (v >= 0 ? 'text-bull' : 'text-bear') : stat.cls;
+                      return (
+                        <div
+                          key={c.timestamp || i}
+                          className="px-1 py-[1px] text-center bg-card/40 border-y border-border"
+                          title={`${stat.label} ${fmtTime(c.timestamp)}: ${stat.signed && v >= 0 ? '+' : ''}${fmtVol(v)}`}
+                        >
+                          <span className={cls || 'text-foreground/80'}>
+                            {stat.signed && v >= 0 ? '+' : ''}{fmtVol(v)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                    {settings.showProfile && <div className="border-y border-l border-border bg-card/30" />}
+                  </React.Fragment>
+                ))}
             </div>
           </div>
 
@@ -544,12 +676,13 @@ export default function FootprintPanel({ panelId = 'footprint' }) {
             <div className="flex items-center gap-2">
               <span>
                 Свечей: <span className="text-foreground/80">{grid.bars.length}</span> · ΣVol:{' '}
-                <span className="text-foreground/80">{fmtVol(grid.totalVolume)}</span> · |Δ|/Vol:{' '}
-                <span className="text-foreground/80">{deltaShare.toFixed(1)}%</span>
+                <span className="text-foreground/80">{fmtVol(grid.totalVolume * unitK(0))}</span> · |Δ|/Vol:{' '}
+                <span className="text-foreground/80">{deltaShare.toFixed(1)}%</span> ·{' '}
+                <span className="text-primary font-semibold">{settings.volUnit === 'usdt' ? 'USDT' : 'COIN'}</span>
               </span>
               {sessionProfile.sessionPocPrice != null && (
                 <span className="text-amber-300/90" title="Уровень максимального объёма за всё окно">
-                  ★POC: {sessionProfile.sessionPocPrice}
+                  ★POC: {fmtPrice(sessionProfile.sessionPocPrice)}
                 </span>
               )}
               {latestCandle?.absorption && (

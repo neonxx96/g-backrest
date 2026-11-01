@@ -981,6 +981,11 @@ JS/TS call targets are lexical candidates, not a type-resolved call graph.
 - **Calls / imports:** `ChannelSelector`, `addEventListener`, `contains`, `find`, `it`, `map`, `removeEventListener`, `return`, `rgba`, `setIsOpen`, …
 - **Imported by:** —
 
+### `frontend/src/components/docking/CvdWidget.jsx`
+- **Public symbols:** `CvdWidget`
+- **Calls / imports:** `CVD`, `CvdWidget`, `Date`, `Number`, `ResizeObserver`, `abs`, `beginPath`, `clearInterval`, `clearRect`, `clusters`, …
+- **Imported by:** —
+
 ### `frontend/src/components/docking/footprintGrid.js`
 - **Public symbols:** `IMBALANCE_RATIO`, `buildFootprintGrid`, `buildSessionProfile`, `cellIntensity`, `cellSide`, `detectImbalance`, `fmtTime`, `fmtVol`
 - **Calls / imports:** `Date`, `MM`, `Number`, `Set`, `abs`, `add`, `buildFootprintGrid`, `buildSessionProfile`, `cellIntensity`, `cellSide`, …
@@ -988,7 +993,7 @@ JS/TS call targets are lexical candidates, not a type-resolved call graph.
 
 ### `frontend/src/components/docking/FootprintPanel.jsx`
 - **Public symbols:** `FootprintPanel`
-- **Calls / imports:** `Binance`, `Date`, `FootprintPanel`, `Number`, `Set`, `Stacked`, `String`, `URLSearchParams`, `abs`, `async`, …
+- **Calls / imports:** `Binance`, `Date`, `Delta`, `FootprintPanel`, `Map`, `Number`, `ResizeObserver`, `Set`, `Stacked`, `String`, …
 - **Imported by:** —
 
 ### `frontend/src/components/docking/layoutRecovery.js`
@@ -1038,7 +1043,7 @@ JS/TS call targets are lexical candidates, not a type-resolved call graph.
 
 ### `frontend/src/components/docking/TerminalDockview.jsx`
 - **Public symbols:** `TerminalDockview`
-- **Calls / imports:** `ChartDockPanel`, `DOM`, `LTF`, `LiqAnalyticsDockPanel`, `Number`, `OrderBookDockPanel`, `ResizeObserver`, `Set`, `SignalsDockPanel`, `TerminalDockview`, …
+- **Calls / imports:** `ChartDockPanel`, `DOM`, `LTF`, `LiqAnalyticsDockPanel`, `Number`, `OrderBookDockPanel`, `Promise`, `ResizeObserver`, `Set`, `SignalsDockPanel`, …
 - **Imported by:** —
 
 ### `frontend/src/components/docking/TradeHistoryWidget.jsx`

@@ -80,13 +80,26 @@ export const useLayoutStore = create((set, get) => {
 
     // Fetch all presets from backend with timeout protection
     loadPresets: async () => {
-      try {
+      // Под нагрузкой (ночной марафон, 20+ пар) бэкенд может отвечать 5–15 с.
+      // Короткий таймаут превращал временную медлительность в «потерю» раскладки:
+      // фолбэк на дефолтные пресеты и вид «данные пропали» после перезагрузки.
+      const fetchWithTimeout = async () => {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2500);
-        const res = await fetch(API_BASE, { signal: controller.signal });
-        clearTimeout(timeoutId);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        const timeoutId = setTimeout(() => controller.abort(), 12000);
+        try {
+          const res = await fetch(API_BASE, { signal: controller.signal });
+          clearTimeout(timeoutId);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return await res.json();
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      };
+      try {
+        let data = await fetchWithTimeout();
+        if (!Array.isArray(data) || data.length === 0) {
+          data = await fetchWithTimeout(); // один ретрай перед фолбэком
+        }
         if (Array.isArray(data) && data.length > 0) {
           set({ presets: data });
           return data;
@@ -102,7 +115,7 @@ export const useLayoutStore = create((set, get) => {
     loadWorkspaceDetail: async (id) => {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2500);
+        const timeoutId = setTimeout(() => controller.abort(), 12000);
         const res = await fetch(`${API_BASE}/${id}`, { signal: controller.signal });
         clearTimeout(timeoutId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);

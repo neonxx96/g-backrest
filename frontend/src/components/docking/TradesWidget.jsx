@@ -24,6 +24,7 @@ import { useTradeAudioAlerts } from '../../hooks/useTradeAudioAlerts';
 import ChannelSelector from './ChannelSelector';
 import { themeBridge } from '../../theme/themeBridge';
 import TradesSettings, { DEFAULT_TRADES_SETTINGS } from './TradesSettings';
+import { Button } from '../ui/button';
 
 const BASE_ROW_HEIGHT = 20;
 const EMPTY_TRADES = [];
@@ -459,6 +460,29 @@ export default function TradesWidget(props) {
             </span>
           )}
 
+          {/* Quick Unit Toggle: COIN | USDT */}
+          <div
+            className="flex items-center bg-background border border-border rounded p-0.5 text-[9px] font-mono"
+            title="Единицы объёма сделок: базовый актив или USDT-эквивалент"
+          >
+            {[
+              { id: 'COIN', label: 'COIN' },
+              { id: 'USD', label: 'USDT' }
+            ].map((u) => (
+              <Button
+                key={u.id}
+                type="button"
+                size="dense"
+                variant={settings.sizeDisplayMode === u.id ? 'accent' : 'ghost'}
+                data-testid={`btn-tape-unit-${u.id.toLowerCase()}`}
+                onClick={() => handleUpdateSettings({ ...settings, sizeDisplayMode: u.id })}
+                className="text-[9px] font-mono px-1.5"
+              >
+                {u.label}
+              </Button>
+            ))}
+          </div>
+
           {/* Sound Mute/Unmute Quick Toggle */}
           <button
             type="button"
@@ -570,7 +594,11 @@ export default function TradesWidget(props) {
                 {hoveredTrade.side}
               </span>
               <span className="text-foreground">${formatPrice(hoveredTrade.price)}</span>
-              <span className="text-[#94a3b8]">{hoveredTrade.size} qty</span>
+              {settings.sizeDisplayMode === 'COIN' ? (
+                <span className="text-[#94a3b8]">{formatCompact(hoveredTrade.size, 2)} qty</span>
+              ) : (
+                <span className="text-[#94a3b8]">${formatCompact(hoveredTrade.usd, 1)}</span>
+              )}
               <span className="text-[#eab308] font-bold">${Math.round(hoveredTrade.usd).toLocaleString()}</span>
             </span>
           ) : (

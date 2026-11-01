@@ -12,8 +12,8 @@ import ScreenerWidget from './ScreenerWidget';
 import TradesWidget from './TradesWidget';
 import WidgetHubModal from './WidgetHubModal';
 import TradeHistoryWidget from './TradeHistoryWidget';
-import { CvdPlaceholderWidget } from './Placeholders';
 import FootprintPanel from './FootprintPanel';
+import CvdWidget from './CvdWidget';
 import { sanitizeDockviewLayout, hasNullSizes, collectSalvagePanels } from './layoutSanitizer';
 import {
   readCachedDockviewLayout,
@@ -378,7 +378,7 @@ export default function TerminalDockview({
       trades: TradesWidget,
       footprint: FootprintPanel,
       footprint_placeholder: FootprintPanel, // обратная совместимость с сохранёнными раскладками
-      cvd_placeholder: CvdPlaceholderWidget,
+      cvd_placeholder: CvdWidget,
       papertrade: TradeHistoryWidget,
       tradehistory: TradeHistoryWidget,
       liq_analytics: LiqAnalyticsDockPanel,
@@ -568,12 +568,13 @@ export default function TerminalDockview({
         buildDefaultLayout(api, workspaceDetail?.id || useLayoutStore.getState().activePresetId);
       }
 
-      // Dockview's imperative mutations above are synchronous.  Releasing the
-      // autosave gate here, rather than after an arbitrary timer, ensures a
-      // transient empty grid can never overwrite a restored workspace.
-      markLayoutReady();
+      // Автосохранение НЕ открываем здесь: если синхронная гидрация построила
+      // ДЕФОЛТ (workspace ещё не доехал), открытые ворота autosave при первом же
+      // движении панелей перезапишут серверный пресет дефолтным. Ворота открывает
+      // вызывающий код — после успешной гидрации из SQLite либо после финальной
+      // неудачи всех ретраев.
     },
-    [importColorLinks, buildDefaultLayout, rebuildSalvagedLayout, markLayoutReady]
+    [importColorLinks, buildDefaultLayout, rebuildSalvagedLayout]
   );
 
   // Initialize Dockview API
@@ -591,20 +592,34 @@ export default function TerminalDockview({
       event.api.signalsSharedProps = signalsSharedProps;
 
 
-      // 1. Render cache/default synchronously. This also marks the layout
-      // ready when no SQLite workspace exists or its request is slow.
+      // 1. Render cache/default synchronously. Автосохранение пока ЗАКРЫТО:
+      // дефолтный стол не должен перезаписать серверный пресет, если sync сорвётся.
       hydrateLayout(event.api, null);
 
-      // 2. Replace only with a valid workspace returned by SQLite.  A failed
-      // request deliberately leaves the already usable layout untouched.
+      // 2. Replace only with a valid workspace returned by SQLite.
+      // Под нагрузкой (ночной марафон) все 6 HTTP-слотов origin заняты
+      // поллерами панелей — запрос может десятками секунд ждать очереди.
+      // Ретраим с терпением: серверная раскладка «проваливается» в стол, как
+      // только слот освобождается, а не оставляет дефолт навсегда.
       try {
         await loadPresets();
-        const currentDetail = await loadWorkspaceDetail(activePresetId);
+        let currentDetail = null;
+        for (let attempt = 0; attempt < 6; attempt += 1) {
+          currentDetail = await loadWorkspaceDetail(activePresetId);
+          if (currentDetail?.layout_data?.dockview) break;
+          if (attempt < 5) {
+            await new Promise((resolve) => setTimeout(resolve, 10000));
+          }
+        }
         if (currentDetail?.layout_data?.dockview) {
           hydrateLayout(event.api, currentDetail);
         }
       } catch (err) {
         console.debug('Background workspace sync:', err);
+      } finally {
+        // Только теперь открываем автосохранение: на столе либо серверный
+        // пресет, либо осознанно принятый дефолт после исчерпания ретраев.
+        markLayoutReady();
       }
 
     },
