@@ -7,6 +7,14 @@ import { fileURLToPath } from 'url'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
+// Последний рубеж: сокетные ошибки прокси, до которых не дотягивается
+// http-proxy (fatal "Emitted 'error' event on Socket instance").
+// Только dev-сервер, на прод-сборку не влияет.
+process.on('uncaughtException', (err) => {
+  if (err && err.code === 'ECONNRESET') return
+  throw err
+})
+
 export default defineConfig(({ mode }) => {
   // Vite перечитывает .env при каждом перезапуске dev-сервера; при смене
   // BACKEND_PORT достаточно триггернуть restart этим конфигом.
@@ -47,7 +55,15 @@ export default defineConfig(({ mode }) => {
       proxy: {
         '/api': {
           target: `http://${backendHost}:${backendPort}`,
-          changeOrigin: true
+          changeOrigin: true,
+          configure: (proxy) => {
+            // Браузер может оборвать соединение посреди ответа (reload,
+            // закрытие вкладки, AbortController) — необработанный ECONNRESET
+            // иначе роняет весь dev-сервер (Node fatal 'error' event).
+            proxy.on('error', (err) => {
+              console.warn(`[proxy] ${err.code || 'ERROR'}: ${err.message}`)
+            })
+          }
         }
       }
     }

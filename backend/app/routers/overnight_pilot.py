@@ -34,6 +34,15 @@ async def get_overnight_status():
     return await asyncio.to_thread(overnight_pilot_manager.status)
 
 
+@router.get("/sessions/{symbol}/backtest")
+async def get_session_backtest(symbol: str):
+    """Полный бэктест сессии (все сделки) — по запросу, не в polling-пейлоаде."""
+    session = overnight_pilot_manager.sessions.get(symbol.upper())
+    if not session or not session.backtest:
+        raise HTTPException(status_code=404, detail=f"no backtest for {symbol.upper()}")
+    return await asyncio.to_thread(lambda: session.backtest)
+
+
 @router.get("/events")
 def get_paper_events(
     run_id: Optional[str] = None,

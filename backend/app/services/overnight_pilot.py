@@ -103,6 +103,36 @@ class OvernightPilotConfig(BaseModel):
             raise ValueError("max_directional_heat_pct must not exceed max_portfolio_heat_pct")
 
 
+# Поля исторических сделок, реально используемые UI из status-пейлоада
+# (показ последних 30 сделок). Полный список сделок отдаётся отдельным
+# endpoint'ом /sessions/{symbol}/backtest — иначе каждый poll статуса
+# тащит ~6 МБ (3k+ сделок с context_snapshot) и блокирует event loop.
+_BACKTEST_TRADE_PUBLIC_FIELDS = (
+    "id", "trade_id", "direction", "type",
+    "entry_time", "exit_time", "entry_price", "exit_price",
+    "pnl_usd", "pnl_pct", "gross_pnl_usd",
+    "entry_reason", "exit_reason",
+)
+
+
+# Ключи бэктеста, которые UI не читает из status-пейлоада (только через
+# собственные запросы BacktestPanel / отдельные endpoint'ы).
+_BACKTEST_STATUS_EXCLUDED_FIELDS = ("signals", "equity_curve", "confluence_matrix", "report")
+
+
+def _slim_backtest_for_status(backtest: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not backtest:
+        return backtest
+    slim = {key: value for key, value in backtest.items() if key not in _BACKTEST_STATUS_EXCLUDED_FIELDS}
+    trades = slim.get("trades") or []
+    slim["trades_total"] = len(trades)
+    slim["trades"] = [
+        {key: trade.get(key) for key in _BACKTEST_TRADE_PUBLIC_FIELDS if key in trade}
+        for trade in trades[-30:]
+    ]
+    return slim
+
+
 @dataclass
 class PilotSession:
     config: OvernightPilotConfig
@@ -135,7 +165,7 @@ class PilotSession:
             "config_fingerprint": self.config_fingerprint,
             "preflight_valid": self.preflight_valid,
             "preflight_passed": self.preflight_passed,
-            "backtest": self.backtest,
+            "backtest": _slim_backtest_for_status(self.backtest),
             "forecast": self.forecast,
             "paper": paper,
             "error": self.error,

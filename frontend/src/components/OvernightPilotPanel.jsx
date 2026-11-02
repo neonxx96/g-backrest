@@ -590,6 +590,16 @@ export default function OvernightPilotPanel({ onClose }) {
     setBusy(true); setError('');
     try {
       const session = status.sessions?.[config.symbol] || {};
+      // Status-пейлоад несёт только последние 30 сделок без контекста;
+      // для оптимизации запрашиваем полный бэктест отдельно.
+      let trades = session.backtest?.trades || [];
+      try {
+        const btRes = await fetch(`/api/overnight-pilot/sessions/${encodeURIComponent(config.symbol)}/backtest`);
+        if (btRes.ok) {
+          const bt = await btRes.json();
+          if (Array.isArray(bt.trades) && bt.trades.length) trades = bt.trades;
+        }
+      } catch (_) { /* остаёмся на slim-варианте из status */ }
       const res = await fetch('/api/quant/think-optimize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -600,7 +610,7 @@ export default function OvernightPilotPanel({ onClose }) {
           days: config.days,
           strategy_type: config.strategy_type,
           current: config,
-          trades: session.backtest?.trades || [],
+          trades,
         }),
       });
       const data = await res.json();
