@@ -1,3 +1,4 @@
+import asyncio
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -30,7 +31,7 @@ async def get_diversified_paper_defaults():
 
 @router.get("/status")
 async def get_overnight_status():
-    return overnight_pilot_manager.status()
+    return await asyncio.to_thread(overnight_pilot_manager.status)
 
 
 @router.get("/events")
@@ -363,7 +364,7 @@ class ClosePairRequest(BaseModel):
 @router.get("/pairs")
 async def get_pairs_status():
     """Get list of active pairs and their operational status (active, paused, closed)."""
-    return {"pairs": overnight_pilot_manager.get_pairs()}
+    return {"pairs": await asyncio.to_thread(overnight_pilot_manager.get_pairs)}
 
 
 @router.post("/pairs/{symbol}/pause")

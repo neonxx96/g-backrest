@@ -393,7 +393,15 @@ async def fetch_history(symbol: str, timeframe: str, days: int, require_fresh: b
             # cache that ends a few minutes ago is still valid historical data;
             # calling the incremental loader first would block on Binance and
             # make preflight hang when the exchange is unavailable.
-            df_parquet = _read_cached_history(symbol, timeframe, days)
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                # Restricted Windows unit tests drive bounded coroutines
+                # synchronously because socketpair/event-loop creation is
+                # unavailable there. FastAPI always takes the threaded path.
+                df_parquet = _read_cached_history(symbol, timeframe, days)
+            else:
+                df_parquet = await asyncio.to_thread(_read_cached_history, symbol, timeframe, days)
             if df_parquet is not None and (not require_fresh or _frame_is_fresh(df_parquet)):
                 df = _closed_candles_only(df_parquet)
                 _HISTORY_CACHE[cache_key] = (now_ts, df.copy())

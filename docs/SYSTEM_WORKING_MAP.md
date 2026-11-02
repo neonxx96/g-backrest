@@ -17,6 +17,7 @@
 | фильтры рынка, L2/CVD, режим или admission | `regime_classifier.py`, `microstructure_gate.py`, `engine/verdict.py`, `overnight_pilot.py` | `test_market_snapshot_contract.py`, `test_paper_feed_health.py` |
 | экран марафона, таблицу пар или UI управления | `TradeHistoryWidget.jsx`, `paperPairs.js`, `marathonFeed.js`, `OvernightPilotPanel.jsx` | соответствующие `*.test.js`, затем Vite build |
 | историю и пост-мортем сделок | `db/models.py`, `recorder.py`, `trade_postmortem_service.py`, `paper_trading_router.py` | `test_trade_postmortem.py`, миграционные тесты |
+| live footprint/кластеры, пропуски WS или задержку Parquet | `backend/app/services/recorder.py`, `backend/app/api/data_routes.py` | `test_recorder_runtime.py`, `test_footprint_metrics.py`, `scripts/verify_v01_runtime.py` |
 
 ## Владельцы и контракты
 
@@ -30,6 +31,7 @@
 | Paper execution | `PaperTradingSession` хранит один виртуальный счёт; `LivePaperRunner` получает сигнал, применяет риски, открывает/ведёт/закрывает позицию и журналирует решение | runner config + market snapshot → position/orders/trades/status |
 | Risk | `SharedRiskProfile` нормализует публичные проценты; `risk_engine.py` считает размер от SL, portfolio/directional heat, circuit breaker и добавление слоя | balance, stop, positions, regime → allow/reject и quantity |
 | Market quality | `regime_classifier.py` классифицирует CI/ATR/BBW и microstructure; provider/collector отмечают свежесть и полноту данных | OHLCV/L2/CVD → regime, data status, gate reason |
+| Embedded recorder | `recorder.py` принимает public `@trade`, держит raw trade-ID cursor, восстанавливает reconnect через public recent/aggregate REST и сериализует Parquet flush вне event loop; `fetch_history`, live indicator calculation и тяжёлый status report также offload-ятся из loop | trade/depth WS + `/trades`/`/aggTrades` → in-memory 5m footprints + `data/recorded/*.parquet` |
 | Frontend | `OvernightPilotPanel` управляет preflight/start; `TradeHistoryWidget` отображает shared account и содержит сквозной поток «Скрининг → Торговать» (`/pairs/screen` → `/pairs/prepare` → `/pairs/start-demo`) плюс `PairChallengerQuickTest` (challenger из строки пары); `paperPairs.js` формирует строки; `marathonFeed.js` устраняет дубли общего счёта | API status/events → user-visible rows, positions, PnL |
 
 ## Сквозные сценарии
@@ -60,6 +62,13 @@
 2. `trade_postmortem_service.analyze_from_db()` группирует результаты и причины потерь.
 3. `GET /api/paper-trading/analytics/post-mortem` передаёт аналитику вкладке истории сделок.
 
+### 5. Непрерывность footprint recorder
+
+1. После SUBSCRIBE первый raw trade каждой пары задаёт верхнюю границу reconnect bridge.
+2. Если последний raw ID ещё входит в recent window, recorder точно догружает индивидуальные trades; иначе продолжает публичными aggTrades, используя `f`/`l` как покрытие raw-ID диапазона.
+3. Уже покрытые IDs не попадают в footprint повторно. Дисковый flush снимает текущий буфер и выполняет pandas/Parquet I/O в worker thread; новые WS-события продолжают обновлять следующий буфер.
+4. `scripts/verify_v01_runtime.py` измеряет `/health` и 5m-непрерывность `/api/recorder/clusters` под реальной нагрузкой.
+
 ## Матрица изменения
 
 | Намерение | Минимальный набор затрагиваемых контрактов | Проверка |
@@ -70,6 +79,7 @@
 | изменение общей суммы риска | `SharedRiskProfile`, risk engine, manager validation, status | percent-vs-fraction + shared-account regression |
 | изменение общего счёта или агрегатов | paper session, manager aggregate, `marathonFeed.js` | singleton account + UI feed unit test |
 | изменение market-data поля | provider/collector, data-status contract, consumer | snapshot-contract + disconnected-data regression |
+| изменение recorder ingestion/flush | raw-ID bridge, footprint cache, Parquet snapshot boundary | recorder runtime + footprint metrics + 30m continuity/10m latency probe |
 
 ## Обязанность обновления
 

@@ -44,13 +44,13 @@
 ```
 [Binance Futures USDT-M]
    │
-   ├── WebSocket (!miniTicker@arr, aggTrade, depth20@100ms, liquidationOrders)
+   ├── WebSocket (!miniTicker@arr, trade, depth20@100ms, liquidationOrders)
    │     │
    │     ├──► [recorder/ & backend recorder service] ──► [data/lake/ Parquet & Spool]
    │     │
    │     └──► [frontend/src/services/marketDataFetcher.js] ──► [Zustand Stores] ──► [KLineCharts & Canvas DOM]
    │
-   └── REST API (/fapi/v1/klines, /fapi/v1/depth)
+   └── REST API (/fapi/v1/klines, /fapi/v1/depth, /fapi/v1/trades, /fapi/v1/aggTrades)
          │
          ├──► [backend/app/services/binance_service.py]
          │        │
@@ -90,6 +90,10 @@
    - Historical OHLCV has no replayable L2 book. Backtest metadata exposes that limitation instead of claiming an L2 confirmation.
    - The paper auto-selector evaluates each candidate with the ATR filter used by its generated pilot profile and retains the selected history window. The curated crypto universe has 28 candidates; positive training net PnL controls standard admission, while independent preflight remains mandatory in all modes. Pure EMA profiles with no L2 filters do not claim missing L2 history.
    - Demo selection keeps historical `SKIP` and `BLOCK` performance labels visible while allowing those profiles into paper observation. `NO_DATA`, an invalid or changed pair preflight, a disconnected current forecast, and `TOXIC_VOLATILITY` still prevent launch. `/pairs/prepare` computes one pair without changing active runners; `/pairs/start-demo` attaches that exact profile to their shared paper wallet. Pair pause stops new entries while existing position exits continue. Full stop requires fresh observed prices and closes positions through the paper kill switch before runners stop. The widget can hold up to 100 user-selected pairs; shared heat and position caps are independent.
+5. **Embedded Order-Flow Recorder Boundary:**
+   - The embedded recorder consumes the public USDⓈ-M `@trade` stream and tracks Binance raw trade IDs per symbol. On every connection it bridges the interval through the first live trade: short gaps come from public `/fapi/v1/trades`, while cold starts or gaps outside that recent window use `/fapi/v1/aggTrades` and its `f`/`l` raw-ID coverage. Duplicate IDs are ignored before footprint aggregation.
+   - Pandas/Parquet reads, concatenation, compression, retention scans, and writes run through one serialized `asyncio.to_thread` task. The event loop only detaches immutable buffer snapshots; trades arriving during a flush remain in the next buffer. This keeps `/health`, workspace, and cluster routes responsive under the 20-pair paper marathon.
+   - Live-runner Parquet history reads and indicator calculation also run outside the event loop. The async overnight status route builds its large 20-session report in a worker thread, so UI polling cannot serialize all market-data tasks behind one response.
 
 ---
 

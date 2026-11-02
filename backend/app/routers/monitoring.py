@@ -4,6 +4,7 @@ Provides endpoints to inspect, toggle, and stream real-time background
 processing statuses (backtests, data ingestion, forecasting) for monitored coins.
 """
 
+import asyncio
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
@@ -49,14 +50,14 @@ class ToggleTickerRequest(BaseModel):
 @router.get("/state")
 async def get_monitoring_state():
     """Returns the list of monitored tickers and their latest background analysis statuses."""
-    return _build_monitoring_payload()
+    return await asyncio.to_thread(_build_monitoring_payload)
 
 
 @system_monitoring_router.get("")
 @system_monitoring_router.get("/state")
 async def get_system_monitoring_state():
     """Returns system monitoring state including uptime, active workers, statuses, and tickers."""
-    return _build_monitoring_payload()
+    return await asyncio.to_thread(_build_monitoring_payload)
 
 
 @system_monitoring_router.get("/sentinel")

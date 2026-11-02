@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from fastapi import HTTPException
 
@@ -69,8 +71,7 @@ def test_status_route_is_read_only(monkeypatch):
         calls["persist"] += 1
 
     monkeypatch.setattr(routes.overnight_pilot_manager, "persist", persist)
-    status = routes.get_overnight_status()
-    with pytest.raises(StopIteration) as result:
-        status.send(None)
-    assert result.value.value == {"status": "ok"}
+    # Route offloads manager.status() via asyncio.to_thread -> needs a real running loop.
+    result = asyncio.run(routes.get_overnight_status())
+    assert result == {"status": "ok"}
     assert calls["persist"] == 0

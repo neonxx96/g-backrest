@@ -19,6 +19,11 @@ def activate_tab(page, prefix):
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True)
     page = browser.new_page(viewport={"width": 1600, "height": 900})
+    # Детерминированная раскладка: проверяем пресет «Скальпер Order Flow»,
+    # в котором есть вкладки Футпринт и CVD. Не трогаем активный пресет пользователя.
+    page.add_init_script(
+        "try { localStorage.setItem('signalscript_active_preset', 'default_orderflow'); } catch (e) {}"
+    )
     page.on("pageerror", lambda exc: errors.append(f"pageerror: {exc}"))
     page.goto(URL, wait_until="networkidle", timeout=90000)
     page.wait_for_timeout(60000)  # раскладка с сервера может ждать HTTP-слот до ~2 мин

@@ -6,6 +6,7 @@ Provides endpoints to inspect virtual wallet status, open/closed positions,
 and manual administrative wallet reset.
 """
 
+import asyncio
 import time
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException
@@ -50,6 +51,10 @@ async def get_paper_trading_status():
     - Closed Trades (with reasons, fees, timestamps)
     - Session Uptime
     """
+    return await asyncio.to_thread(_build_paper_trading_status)
+
+
+def _build_paper_trading_status() -> Dict[str, Any]:
     state = paper_trading_session.get_state()
     return {
         "status": "ok",
@@ -200,6 +205,10 @@ async def stop_live_paper_trading():
 @router.get("/live/status")
 async def get_live_paper_status():
     """Returns live execution state, equity curve, open positions and AI decision logs."""
+    return await asyncio.to_thread(_build_live_paper_status)
+
+
+def _build_live_paper_status() -> Dict[str, Any]:
     return {
         "status": "ok",
         "runner": live_paper_runner.get_status() if live_paper_runner.is_running else (getattr(__import__("backend.app.services.overnight_pilot", fromlist=["overnight_pilot_manager"]).overnight_pilot_manager, "get_unified_live_runner_status", lambda: None)() or live_paper_runner.get_status())

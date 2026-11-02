@@ -16,11 +16,15 @@ from datetime import datetime, date
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import pandas as pd
+import aiohttp
 import websockets
 
 from backend.app.config import RECORDED_DATA_DIR, MAX_STORAGE_GB, FOCUS_SYMBOLS, WATCHLIST_SYMBOLS
 
 logger = logging.getLogger(__name__)
+
+BINANCE_FUTURES_AGG_TRADES = "https://fapi.binance.com/fapi/v1/aggTrades"
+BINANCE_FUTURES_RECENT_TRADES = "https://fapi.binance.com/fapi/v1/trades"
 
 # --- Footprint метрики (SRS M1.2b): stacked imbalance и absorption ----------
 
@@ -177,6 +181,9 @@ class OrderFlowRecorder:
         # In-memory buffers
         self.trade_buffer: List[Dict[str, Any]] = []
         self.depth_buffer: List[Dict[str, Any]] = []
+        self.last_trade_ids: Dict[str, int] = {}
+        self.last_trade_timestamps: Dict[str, int] = {}
+        self.flush_task: Optional[asyncio.Task] = None
         
         # Real-time footprint cluster cache:
         # { symbol: { candle_ts: { price_bucket: {'buy_vol': float, 'sell_vol': float, 'delta': float, 'trades': int} } } }
@@ -208,8 +215,22 @@ class OrderFlowRecorder:
         decimals = max(0, min(8, int(round(-1 * (0 if step >= 1 else __import__("math").floor(__import__("math").log10(step)))))))
         return round(round(price / step) * step, decimals)
 
-    def record_agg_trade(self, symbol: str, price: float, qty: float, is_buyer_maker: bool, ts: int):
-        """Processes a single aggregated trade."""
+    def record_agg_trade(
+        self,
+        symbol: str,
+        price: float,
+        qty: float,
+        is_buyer_maker: bool,
+        ts: int,
+        trade_id: Optional[int] = None,
+    ) -> bool:
+        """Processes one trade or REST aggregate, ignoring covered raw trade IDs."""
+        symbol = symbol.upper()
+        if trade_id is not None:
+            trade_id = int(trade_id)
+            if trade_id <= self.last_trade_ids.get(symbol, -1):
+                return False
+
         usd_val = price * qty
         # If buyer is maker, taker is seller (sell order hit bid). Else taker is buyer (market buy hit ask).
         is_taker_buy = not is_buyer_maker
@@ -223,9 +244,13 @@ class OrderFlowRecorder:
             'quantity': qty,
             'usd_amount': usd_val,
             'is_taker_buy': is_taker_buy,
-            'delta': delta
+            'delta': delta,
+            'trade_id': trade_id,
         })
         self.total_trades_recorded += 1
+        self.last_trade_timestamps[symbol] = int(ts)
+        if trade_id is not None:
+            self.last_trade_ids[symbol] = trade_id
 
         # Update in-memory footprint cluster (5m bucket)
         tf_ms = 5 * 60 * 1000
@@ -248,6 +273,7 @@ class OrderFlowRecorder:
         if len(sym_cache) > 100:
             oldest_key = min(sym_cache.keys())
             del sym_cache[oldest_key]
+        return True
 
     def record_depth_snapshot(self, symbol: str, bids: List[List[str]], asks: List[List[str]], ts: int):
         """Buffers a 500ms / 1s depth snapshot (top 10 levels)."""
@@ -260,17 +286,43 @@ class OrderFlowRecorder:
             'asks': json.dumps(parsed_asks)
         })
 
+    def _detach_buffers(self) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        trades, depths = self.trade_buffer, self.depth_buffer
+        self.trade_buffer, self.depth_buffer = [], []
+        return trades, depths
+
+    def _restore_buffers(
+        self,
+        trades: List[Dict[str, Any]],
+        depths: List[Dict[str, Any]],
+    ) -> None:
+        self.trade_buffer = trades + self.trade_buffer
+        self.depth_buffer = depths + self.depth_buffer
+
     def flush_buffers(self):
-        """Flushes in-memory trades and depth snapshots into daily Parquet files."""
-        if not self.trade_buffer and not self.depth_buffer:
+        """Synchronously flush detached buffers; callers in asyncio use `_schedule_flush`."""
+        trades, depths = self._detach_buffers()
+        if not trades and not depths:
             return
+
+        try:
+            self._flush_snapshot(trades, depths)
+        except Exception:
+            self._restore_buffers(trades, depths)
+            raise
+
+    def _flush_snapshot(
+        self,
+        trades: List[Dict[str, Any]],
+        depths: List[Dict[str, Any]],
+    ) -> None:
+        """Write an immutable recorder snapshot. This method performs blocking I/O."""
 
         today_str = date.today().strftime("%Y-%m-%d")
 
         # 1. Flush Trades
-        if self.trade_buffer:
-            trades_df = pd.DataFrame(self.trade_buffer)
-            self.trade_buffer = []
+        if trades:
+            trades_df = pd.DataFrame(trades)
 
             for sym, group in trades_df.groupby('symbol'):
                 sym_dir = self.data_dir / sym
@@ -290,9 +342,8 @@ class OrderFlowRecorder:
                     group.to_parquet(parquet_file, compression='snappy')
 
         # 2. Flush Depth
-        if self.depth_buffer:
-            depth_df = pd.DataFrame(self.depth_buffer)
-            self.depth_buffer = []
+        if depths:
+            depth_df = pd.DataFrame(depths)
 
             for sym, group in depth_df.groupby('symbol'):
                 sym_dir = self.data_dir / sym
@@ -311,6 +362,152 @@ class OrderFlowRecorder:
 
         self.last_flush_time = time.time()
         self.check_and_rotate_storage()
+
+    async def _flush_once(self) -> None:
+        trades, depths = self._detach_buffers()
+        if not trades and not depths:
+            return
+        try:
+            await asyncio.to_thread(self._flush_snapshot, trades, depths)
+        except BaseException:
+            self._restore_buffers(trades, depths)
+            raise
+
+    def _schedule_flush(self) -> Optional[asyncio.Task]:
+        if self.flush_task is not None and not self.flush_task.done():
+            return self.flush_task
+        if self.flush_task is not None:
+            try:
+                self.flush_task.result()
+            except Exception as exc:
+                logger.error("Recorder background flush failed: %s", exc, exc_info=True)
+            self.flush_task = None
+        if not self.trade_buffer and not self.depth_buffer:
+            return None
+        self.flush_task = asyncio.create_task(self._flush_once())
+        return self.flush_task
+
+    async def _await_flush(self) -> None:
+        task = self.flush_task
+        if task is None:
+            return
+        try:
+            await task
+        finally:
+            if self.flush_task is task:
+                self.flush_task = None
+
+    async def _backfill_symbol(
+        self,
+        session: aiohttp.ClientSession,
+        symbol: str,
+        through_id: int,
+        through_time_ms: int,
+    ) -> int:
+        """Recover raw trade coverage through the first live trade ID."""
+        symbol = symbol.upper()
+        through_id = int(through_id)
+        last_id = self.last_trade_ids.get(symbol)
+        if last_id is not None and last_id >= through_id:
+            return 0
+
+        recovered = 0
+
+        # Short reconnects are recovered exactly from the public recent-trades
+        # window. It exposes the same raw IDs as the working `@trade` stream.
+        if last_id is not None:
+            recent_params = {"symbol": symbol, "limit": 1000}
+            async with session.get(BINANCE_FUTURES_RECENT_TRADES, params=recent_params) as response:
+                if response.status != 200:
+                    detail = await response.text()
+                    raise RuntimeError(
+                        f"recent trades backfill failed for {symbol}: HTTP {response.status}: {detail}"
+                    )
+                recent = sorted(await response.json(), key=lambda item: int(item["id"]))
+
+            if (
+                recent
+                and int(recent[0]["id"]) <= last_id + 1
+                and int(recent[-1]["id"]) >= through_id
+            ):
+                for item in recent:
+                    raw_id = int(item["id"])
+                    if raw_id <= last_id:
+                        continue
+                    if raw_id > through_id:
+                        break
+                    if self.record_agg_trade(
+                        symbol,
+                        float(item["price"]),
+                        float(item["qty"]),
+                        bool(item.get("isBuyerMaker", False)),
+                        int(item["time"]),
+                        trade_id=raw_id,
+                    ):
+                        recovered += 1
+                return recovered
+
+        # Cold starts and longer outages use aggregate trades from the last
+        # timestamp. Aggregate rows expose `f`/`l` raw-ID coverage, so the
+        # cursor remains compatible with the live raw stream.
+        start_time_ms = self.last_trade_timestamps.get(symbol)
+        if start_time_ms is None:
+            start_time_ms = (int(through_time_ms) // (5 * 60 * 1000)) * (5 * 60 * 1000)
+        params: Dict[str, Any] = {
+            "symbol": symbol,
+            "limit": 1000,
+            "startTime": int(start_time_ms),
+        }
+        previous_agg_id: Optional[int] = None
+        while True:
+            async with session.get(BINANCE_FUTURES_AGG_TRADES, params=params) as response:
+                if response.status != 200:
+                    detail = await response.text()
+                    raise RuntimeError(
+                        f"aggTrades backfill failed for {symbol}: HTTP {response.status}: {detail}"
+                    )
+                page = await response.json()
+
+            if not page:
+                raise RuntimeError(
+                    f"aggTrades backfill for {symbol} ended before live id {through_id}"
+                )
+
+            page = sorted(page, key=lambda item: int(item["a"]))
+            page_last_agg_id = int(page[-1]["a"])
+            if previous_agg_id is not None and page_last_agg_id <= previous_agg_id:
+                raise RuntimeError(
+                    f"aggTrades backfill stalled for {symbol} at aggregate id {page_last_agg_id}"
+                )
+
+            for item in page:
+                first_raw_id = int(item.get("f", item["a"]))
+                last_raw_id = int(item.get("l", item["a"]))
+                if first_raw_id > through_id:
+                    break
+                current_last = self.last_trade_ids.get(symbol, -1)
+                if last_raw_id <= current_last:
+                    continue
+                if first_raw_id <= current_last < last_raw_id:
+                    # The exact short-gap path above normally handles this.
+                    # For an old outage, avoid double-counting the already
+                    # recorded prefix and advance past this one overlap group.
+                    self.last_trade_ids[symbol] = last_raw_id
+                    continue
+                if self.record_agg_trade(
+                    symbol,
+                    float(item["p"]),
+                    float(item["q"]),
+                    bool(item.get("m", False)),
+                    int(item.get("T", item.get("E", 0))),
+                    trade_id=last_raw_id,
+                ):
+                    recovered += 1
+
+            if self.last_trade_ids.get(symbol, -1) >= through_id:
+                return recovered
+            previous_agg_id = page_last_agg_id
+            params = {"symbol": symbol, "limit": 1000, "fromId": page_last_agg_id + 1}
 
     def check_and_rotate_storage(self):
         """
@@ -563,7 +760,10 @@ class OrderFlowRecorder:
                 await self.ws_task
             except asyncio.CancelledError:
                 pass
-        self.flush_buffers()
+        await self._await_flush()
+        final_flush = self._schedule_flush()
+        if final_flush is not None:
+            await self._await_flush()
         logger.info("OrderFlow Recorder stopped.")
 
     async def _run_recorder_loop(self):
@@ -574,7 +774,15 @@ class OrderFlowRecorder:
             logger.info(f"Connecting to Binance Recorder WS: {ws_url}...")
 
             try:
-                async with websockets.connect(ws_url, ping_interval=20, ping_timeout=15, max_size=10*1024*1024) as ws:
+                async with websockets.connect(
+                    ws_url,
+                    ping_interval=20,
+                    ping_timeout=15,
+                    max_size=10*1024*1024,
+                    max_queue=None,
+                ) as ws, aiohttp.ClientSession(
+                    timeout=aiohttp.ClientTimeout(total=15)
+                ) as rest_session:
                     reconnect_attempts = 0  # Reset on successful connection
                     # Subscribe to trades for focus + watchlist (footprint для всех торгуемых пар),
                     # depth20 — только для focus-символов (стакан в DOM-панели).
@@ -590,6 +798,7 @@ class OrderFlowRecorder:
                     logger.info(f"Subscribed to {len(sub_params)} streams on Binance Futures WS.")
 
                     last_flush = time.time()
+                    backfilled_symbols: set[str] = set()
 
                     while self.is_running:
                         try:
@@ -609,7 +818,33 @@ class OrderFlowRecorder:
                                 m = payload.get('m', False)
                                 ts = int(payload.get('T', payload.get('E', int(time.time() * 1000))))
                                 if sym and p > 0:
-                                    self.record_agg_trade(sym, p, q, m, ts)
+                                    trade_id = payload.get('t')
+                                    if trade_id is None:
+                                        logger.warning("Recorder ignored trade without id: %s", payload)
+                                        continue
+                                    sym = sym.upper()
+                                    if sym not in backfilled_symbols:
+                                        recovered = await self._backfill_symbol(
+                                            rest_session,
+                                            sym,
+                                            through_id=int(trade_id),
+                                            through_time_ms=ts,
+                                        )
+                                        backfilled_symbols.add(sym)
+                                        logger.info(
+                                            "Recorder trade bridge ready for %s through raw id %s (%s recovered)",
+                                            sym,
+                                            trade_id,
+                                            recovered,
+                                        )
+                                    self.record_agg_trade(
+                                        sym,
+                                        p,
+                                        q,
+                                        m,
+                                        ts,
+                                        trade_id=int(trade_id),
+                                    )
 
                             elif 'b' in payload and 'a' in payload:
                                 # Depth snapshot or depth update
@@ -626,7 +861,7 @@ class OrderFlowRecorder:
                         # Flush to disk periodically or on large buffer
                         now = time.time()
                         if now - last_flush >= self.flush_interval_sec or len(self.trade_buffer) >= 3000:
-                            self.flush_buffers()
+                            self._schedule_flush()
                             last_flush = now
 
             except asyncio.CancelledError:
@@ -639,7 +874,8 @@ class OrderFlowRecorder:
                     exc_info=True
                 )
                 reconnect_attempts += 1
-                self.flush_buffers()
+                self._schedule_flush()
+                await self._await_flush()
                 await asyncio.sleep(delay)
 
 recorder = OrderFlowRecorder()

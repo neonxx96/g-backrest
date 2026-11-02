@@ -461,7 +461,7 @@ JS/TS call targets are lexical candidates, not a type-resolved call graph.
 
 ### `backend/app/services/recorder.py`
 - **Public symbols:** `OrderFlowRecorder`, `annotate_cluster_metrics`
-- **Calls / imports:** `DataFrame`, `OrderFlowRecorder`, `ZipFile`, `abs`, `add`, `annotate_cluster_metrics`, `append`, `bool`, `cancel`, `check_and_rotate_storage`, …
+- **Calls / imports:** `ClientSession`, `ClientTimeout`, `DataFrame`, `OrderFlowRecorder`, `RuntimeError`, `ZipFile`, `abs`, `add`, `annotate_cluster_metrics`, `append`, …
 - **Imported by:** `backend/app/api/data_routes.py`, `backend/app/api/routes.py`
 
 ### `backend/app/services/regime_classifier.py`

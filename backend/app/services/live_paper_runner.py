@@ -1337,7 +1337,8 @@ class LivePaperRunner:
                 self._add_log("INDICATOR_ERROR", self.last_data_error, meta=validation)
                 return None
 
-            enriched = OrderFlowBacktester(initial_capital=self.initial_capital).calculate_indicators(frame)
+            backtester = OrderFlowBacktester(initial_capital=self.initial_capital)
+            enriched = await asyncio.to_thread(backtester.calculate_indicators, frame)
             latest = enriched.iloc[-1].to_dict()
             previous = enriched.iloc[-2].to_dict()
             self._indicator_context = {"latest": latest, "previous": previous, "frame": enriched}
