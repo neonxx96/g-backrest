@@ -1516,7 +1516,10 @@ class LivePaperRunner:
             if indicator_context is None:
                 return None
             from backend.app.services.orderflow_backtester import OrderFlowBacktester
-            historical_signal = OrderFlowBacktester(initial_capital=self.initial_capital).evaluate_latest_signal(
+            # pandas-heavy evaluation: keep it off the event loop (20 runners
+            # x every cycle otherwise block all HTTP endpoints for seconds).
+            historical_signal = await asyncio.to_thread(
+                OrderFlowBacktester(initial_capital=self.initial_capital).evaluate_latest_signal,
                 indicator_context["frame"],
                 strategy_type=self.strategy_type,
                 volume_multiplier=self.volume_multiplier,
